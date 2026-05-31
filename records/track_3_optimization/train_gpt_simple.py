@@ -101,6 +101,13 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--grad_centralization", type=str, default="none",
+                        choices=["none", "muon_all", "muon_mlp_only"],
+                        help="Gradient centralization (Yong et al. 2020) for Muon-managed gradients. "
+                             "Subtracts per-output-row mean of p.grad before NS5 / SOAP / momentum "
+                             "consumes the gradient. 'none'=disabled; 'muon_mlp_only'=apply to muon_mlp "
+                             "group only (SOAP-attn untouched); 'muon_all'=apply to both muon_mlp and "
+                             "muon_attn groups.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -526,6 +533,15 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     return update
 
 
+def centralize_gradient(g: Tensor) -> Tensor:
+    # Gradient Centralization (Yong et al. 2020, arXiv:2004.01461). Returns g with
+    # the per-output-row mean (across all input dims) subtracted. 1D/scalar tensors
+    # pass through unchanged.
+    if g.ndim < 2:
+        return g
+    return g - g.mean(dim=tuple(range(1, g.ndim)), keepdim=True)
+
+
 @torch.compile
 def soap_ns_step(nesterov_update):
     update = zeropower_via_newtonschulz5(nesterov_update)
@@ -589,7 +605,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, gc_mode="none"):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -612,6 +628,18 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+
+        # Gradient Centralization: which named param groups receive centralization
+        # before NS / SOAP / momentum consume p.grad. "none" → empty set (off).
+        if gc_mode == "muon_all":
+            self._gc_groups = {"muon_mlp", "muon_attn"}
+        elif gc_mode == "muon_mlp_only":
+            self._gc_groups = {"muon_mlp"}
+        elif gc_mode == "none":
+            self._gc_groups = set()
+        else:
+            raise ValueError(f"Unknown gc_mode: {gc_mode}")
+        self.gc_mode = gc_mode
 
         param_groups = []
         for g in groups_raw:
@@ -651,6 +679,13 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    # Gradient Centralization (Yong et al. 2020): subtract the
+                    # per-output-row mean of p.grad in-place before any consumer
+                    # (momentum EMA, Nesterov lerp, SOAP gram update, NS5) sees it.
+                    # p.grad is overwritten by the next backward pass, so in-place
+                    # mutation here is safe.
+                    if group.get("name") in self._gc_groups and p.grad.ndim >= 2:
+                        p.grad.sub_(p.grad.mean(dim=tuple(range(1, p.grad.ndim)), keepdim=True))
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
@@ -786,6 +821,8 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "grad_centralization": args.grad_centralization,
+            "grad_centralization_enabled": args.grad_centralization != "none",
         },
     )
 
@@ -874,7 +911,9 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        gc_mode=args.grad_centralization,
     )
+    print0(f"[gc] grad_centralization={args.grad_centralization}  gc_groups={sorted(optimizer2._gc_groups)}", console=True)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1159,6 +1198,21 @@ for trial_idx in range(args.num_trials):
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
         wandb_step = trial_idx * (train_steps + 1) + train_step
+        # GC diagnostic: log per-2D-param raw (pre-centralization) grad mean norm
+        # and mean/norm ratio for the first 100 training steps. Even when GC is
+        # active, this fires BEFORE optimizer.step() consumes p.grad, so the
+        # logged ratio reflects the raw gradient DC component the stack would
+        # see absent GC. If grad_mean_ratio is < 0.001 across all MLP layers the
+        # GC mechanism is falsified at the smoke stage.
+        if step < 100 and step % 10 == 0 and dist.get_rank() == 0:
+            gc_diag: dict[str, float | int] = {"trial": trial_idx, "train/step": train_step}
+            for n_p, p in model.named_parameters():
+                if p.grad is not None and p.grad.ndim >= 2:
+                    mn = p.grad.mean(dim=tuple(range(1, p.grad.ndim)), keepdim=True).norm().item()
+                    gn = p.grad.norm().item() + 1e-12
+                    gc_diag[f"diag/grad_mean_norm/{clean_metric_name(n_p)}"] = mn
+                    gc_diag[f"diag/grad_mean_ratio/{clean_metric_name(n_p)}"] = mn / gn
+            wandb.log(gc_diag, step=wandb_step)
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
         if dist.get_rank() == 0 and slope_due:
