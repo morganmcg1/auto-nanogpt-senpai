@@ -1,3 +1,33 @@
+## 2026-05-31 22:50 UTC — Cycle 71 mid-486 — nezuko #2016 14th pod-stability observation F-AXIS-POD-STABILITY-IS-STRICT-SYMMETRIC-ONLY-AT-CROSS-SUBSTRATE-MIRROR-INVERTED-M (bilateral n=2 NaN step 125 pre-event at factor-2× lm_head-STRONG asymmetry; IDENTICAL failure mode to factor-4× cells #2005 + #2010; STRICT-SYMMETRY-PROTECTION confirmed BINARY across all tested F-asymmetry magnitudes ≥2×; F-axis at MIRROR-INVERTED-M structurally exhausted; NOT counted as refute) + nezuko #2028 new assignment (INTERVAL-AXIS-ASYMMETRY-AT-MIRROR-INVERTED-M-SYMMETRIC-F probe: embed-interval=200 + lm_head-interval=400 factor-2× LONG asymmetry at MIRROR-INVERTED-M + symmetric f=0.25; 40% INTERVAL-POD-BLOCKED 25% INTERVAL-ASYMMETRY-RTM 15% INTERVAL-ASYMMETRY-PRODUCTIVE 15% INTERVAL-ASYMMETRY-DESTRUCTIVE 5% MERGE). **Operational note**: orchestrator missed kill-gate; student manually killed at session re-entry — flag explicit kill-gate timer requirement in future pod-stability probes. No human issues. Fleet 8/8 active 0 idle. Cumulative **389 refuted / 259 mech classes / 215 family closures / 9 axes locked / 26 RTM precedents / 14 pod-stability observations** (RTM-PERSISTENT-AT-N=12/13 = 92.3%).
+
+### nezuko #2016 bilateral terminal — 14th pod-stability observation / 3rd F-axis pod-broken cell
+
+**Bilateral NaN**: Arm A `ng46eauq` SEED=1 → NaN step 125; Arm B `m0aixxth` SEED=2 → NaN step 125 (both pre-event; identical to #2005 + #2010 forward+mirror direction failures).
+
+**F-axis pod-stability matrix at cross-substrate MIRROR-INVERTED-M — COMPLETE**:
+
+| F-pairing | direction | ratio | outcome | n | reference |
+|---|---|---|---|---|---|
+| symmetric f=0.25 | n/a | 1× | STABLE 3.27027 | 1 | #1959 A |
+| symmetric f=0.5 | n/a | 1× | STABLE n=2 mean 3.27036 | 2 | #1991 (24th RTM) |
+| asymmetric | embed-WEAK + lm_head-STRONG | 4× | NaN step 125 | 2 | #2005 (12th) |
+| asymmetric | embed-STRONG + lm_head-WEAK (MIRROR) | 4× | NaN step 125 | 2 | #2010 (13th) |
+| **asymmetric** | **embed-WEAK + lm_head-STRONG** | **2×** | **NaN step 125** | **2** | **#2016 (14th, THIS PR)** |
+
+→ **F-axis asymmetry at any-magnitude (≥2×) triggers binary pre-event NaN bilaterally at MIRROR-INVERTED-M.** STRICT-SYMMETRY-PROTECTION is a BINARY structural constraint — no gradient-tolerance window. Asymmetric-F design space is closed under MIRROR-INVERTED-M.
+
+### nezuko #2028 new assignment — INTERVAL-AXIS-ASYMMETRY probe (state-phase axis pivot)
+
+Pivots nezuko from F-axis (exhausted at MIRROR-INVERTED-M) to the orthogonal per-substrate **state-phase axis**: reset INTERVAL (when reset events fire). Configuration: MIRROR-INVERTED-M (embed-M=2, lm_head-M=3) × symmetric f=0.25 (matches #1959 A stable cell) × asymmetric interval (embed=200, lm_head=400 — factor-2× lm_head-LONG asymmetry). Discriminates STRICT-SYMMETRY-locked-across-all-per-substrate-axes vs interval-admits-asymmetry. Aligned with active human directive (per-group state-phase changes over scalar sweeps).
+
+Most likely (40%): INTERVAL-POD-BLOCKED — bilateral NaN like F-axis cells → strict-symmetry-protection across all per-substrate axes at MIRROR-INVERTED-M. Alternatives: 25% INTERVAL-ASYMMETRY-RTM (interval admits asymmetry within RTM band), 15% INTERVAL-ASYMMETRY-PRODUCTIVE (FIRST sub-RTM per-substrate asymmetric cell of cycle 71), 15% INTERVAL-ASYMMETRY-DESTRUCTIVE, 5% MERGE-CANDIDATE.
+
+### Fleet status — 8/8 active 0 idle
+
+After nezuko #2016 close + nezuko #2028 assignment: g1r2-{askeladd #2007, alphonse #2008, edward #2004, fern #2013, nezuko #2028, thorfinn #2021, tanjiro #2026, frieren #2027} all WIP. Cumulative **389 refuted / 259 distinct mech classes / 215 family closures / 9 structural axes locked / 26 RTM precedents / 14 pod-stability observations** (RTM-PERSISTENT-AT-N=12/13 = 92.3%; floor band STRUCTURALLY LOCKED).
+
+---
+
 ## 2026-05-31 22:40 UTC — Cycle 71 mid-485 — DOUBLE CLOSURE: tanjiro #2001 388th refute 258th mech class EMBED-β1=0.5-UNIVERSAL-RESCUE-EXTENDS-LM-HEAD-β1=0.7 (26th RTM precedent; n=2 mean 3.268645 RTM band lower edge, spread 0.00041; rescue magnitude CONSTANT at ~0.0105 across lm_head β1∈{0.7,0.9}) + frieren #1999 389th refute 259th mech class LM-HEAD-β1-AXIS-MONOTONE-DESTRUCTIVE-SATURATED-BETWEEN-0.5-AND-0.7-SUBSTRATE-ASYMMETRIC (n=2 mean 3.279075 +0.01132 above carrier; spread 0.00033 — TIGHTEST single-axis n=2 of cycle-71 outside floor band; substrate-asymmetric vs embed β1=0.5 by +0.00892) + tanjiro #2026 new assignment (EMBED-β1=0.5 × LM-HEAD-β1=0.5 RESCUE-BOUNDARY-AT-SATURATED-DESTRUCTIVE: 35% UNIVERSAL-RESCUE-LOCKED 25% RESCUE-MAGNITUDE-BOUNDED 20% RESCUE-COLLAPSES 15% PRODUCTIVE-CARRIER 5% MERGE) + frieren #2027 new assignment (LM-HEAD-β1=0.85 ISOLATED BRIDGE PROBE: 35% SHARP-THRESHOLD-NEAR-0.95 30% GRADIENT-ONSET 20% ALREADY-SATURATED-AT-0.85 10% RTM-PRECEDENT 5% MERGE). **Operational hygiene**: per-kind β1 env-var names corrected globally — code reads `AUX_BETA1_<KIND>` for values + `PER_KIND_AUX_BETA1_ENABLED=1` for gate; `PER_KIND_BETA1_*` and `PER_KIND_AUX_BETA1_<KIND>` are silent no-ops (memory `per-kind-aux-beta1-env-var-names` saved). No human issues. Fleet 8/8 active 0 idle. Cumulative **389 refuted / 259 mech classes / 215 family closures / 9 axes locked / 26 RTM precedents / 13 pod-stability observations** (RTM-PERSISTENT-AT-N=12/13 = 92.3%).
 
 ### tanjiro #2001 bilateral terminal — 258th mech class / 26th RTM precedent / UNIVERSAL-RESCUE confirmed
