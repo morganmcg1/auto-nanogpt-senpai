@@ -1,5 +1,47 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-31 20:54 — PR #1971: NS_COOLDOWN_SHAPE post-NM validation bracket (3-arm) — **CLOSED-CATALOG-NULL-BIDIRECTIONAL SHAPE-PASSIVE + NS-ITER INTEGRAL MECHANISM CATALOG-MAJOR 5th LIFT-band axis**
+
+- branch: `g1r4-tanjiro/ns-cooldown-shape-post-nm-validation-bracket`
+- hypothesis: NS_COOLDOWN_SHAPE temporal distribution of NS iters (when peak NS hits during cooldown window) drives precond_ratio_mean and downstream val/FFS — post-NM stack validation since NS_COOLDOWN_SHAPE was characterized pre-NM. Tests 3 shape variants (step / late_peak / linear_ramp) at constant mean NS=16 to isolate shape effect from total NS budget.
+
+### Chain terminal results (3-arm, SEED=0, full production stack post-#1702)
+
+| Arm | NS_COOLDOWN_SHAPE | W&B run | val/loss | FFS | Δ vs ctrl A | Δ vs baseline | precond_ratio_mean | LIFT-band cell |
+|---|---|---|---:|---:|---:|---:|---:|---|
+| A ctrl | late_peak (production) | — | 3.26296 | 3150 | — | +0.00178 (+1.11σ DRIFT-OOB) | 1.07047 | LOWER-EDGE |
+| B | step (NS=16 constant) | — | 3.26358 | 3150 | +0.00062 = +0.39σ NULL | +0.00240 (+1.49σ DRIFT-OOB) | **1.04521** | **LOWER-OOB NEW** |
+| C | linear_ramp (NS=12→20 smooth) | — | **3.26257** | 3150 | −0.00039 = −0.24σ NULL | +0.00139 (+0.86σ DRIFT-PASS) | 1.08526 | MID-BAND |
+
+### CATALOG-MAJOR — NS-ITER INTEGRAL MECHANISM (5th LIFT-band axis)
+
+Same mean=16 across all 3 arms but DIFFERENT temporal distribution → 4% precond_ratio differential (1.04521→1.08526):
+- step (NS=16 constant flat plateau) → 1.04521 LOWER-OOB
+- late_peak (NS=12→20 sudden jump halfway) → 1.07047 LOWER-EDGE
+- linear_ramp (NS=12→20 smooth gradient) → 1.08526 MID-BAND
+
+Interpretation: cumulative NS-iter INTEGRAL over cooldown drives precond_ratio_mean terminal state, NOT terminal NS or mean NS. step Arm B has highest early-cooldown NS (16 constantly) but R-buffer "saturates" at low precond_ratio; linear_ramp Arm C builds NS gradually, accumulating different R-buffer state with higher terminal precond_ratio. Mechanically distinct from c777 QUAD/QUINT mechanisms (NS_ITERS terminal-active count, HARDEN LR_MULT, R-buffer FREEZE, PERIOD body INTENSIFY, K v-warmstart length) — adds 5th axis: temporal SHAPE.
+
+### LIFT-band cohort N=22 → BIMODAL-confirmed update
+
+Adds:
+- Arm B 1.04521 LOWER-OOB (only 2nd member of this cell, joining tanjiro c777 axis)
+- Arm C 1.08526 MID-BAND (joins central cohort)
+
+LIFT-band post-c784: 5/22 lower-edge, 6/22 mid-band, 6/22 upper-OOB-MECH, 3/22 upper-OOB-CTRL, 1/22 lower-OOB (becomes 2/22 with B 1.04521).
+
+### Disposition — CLOSE-CATALOG-NULL-BIDIRECTIONAL + SHAPE-PASSIVE
+
+- val: shape-PASSIVE — spread 3.26257→3.26358 = 0.00101 = 0.63σ_seed within NULL band ±0.0015
+- FFS: shape-PASSIVE — identical 3150 across all 3 arms (= Issue #1261 PRIMARY metric direction-NULL)
+- best arm μ_C=3.26257 > baseline 3.26118 by +0.00139 (no merge — PP-confirm merge probability ~7%)
+- catalog-MAJOR gain: NS-iter INTEGRAL mechanism (5th LIFT-band axis) without merge
+- Δ_CA = −0.00039 sign-consistent NEGATIVE across all 14 late-window val events but within NULL band
+
+Closed Cycle 784 21:00Z. Reassigning tanjiro fresh: NM R-buffer eigenvalue CEILING CLIP bracket #2019 (mechanically distinct from Tikhonov γ floor — caps R condition number from above).
+
+---
+
 ## 2026-05-31 20:22 — PR #1965: NM R-buffer cooldown-phase FREEZE: BURST PERIOD=99999 cooldown bracket (3-arm) — **CLOSED-CATALOG-NULL-BIDIRECTIONAL + 2x2 BODY × COOLDOWN MATRIX FULLY CLOSED + NEW HIGHEST r4 precond_ratio=1.14163 + 2nd ENGINEERING-PRECISION FREEZE VERIFICATION**
 
 - branch: `g1r4-alphonse/nm-r-buffer-cooldown-freeze-bracket`
