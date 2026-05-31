@@ -114,6 +114,13 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    parser.add_argument("--body_fnorm_projection", type=float,
+                        default=float(os.environ.get("BODY_FNORM_PROJECTION", "0.0")),
+                        help="H339: F-norm rescaling projection strength alpha in [0,1] applied to body "
+                             "2D weights after each inner optimizer step. 0.0 = disabled (drift-FREE CTRL, "
+                             "bit-id with H266). 1.0 = hard projection (p.data *= init_norm/cur_norm). "
+                             "alpha<1.0 soft EMA-like contraction: scale = (1-alpha) + alpha*(init_norm/cur_norm). "
+                             "Tests M3 F-norm contraction mechanism candidate from H326 closure narrative.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -856,6 +863,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "body_fnorm_projection": args.body_fnorm_projection,
         },
     )
 
@@ -922,6 +930,19 @@ for trial_idx in range(args.num_trials):
                         "blocks.11.attn.q.weight", "blocks.11.mlp.fc.weight")
         sample_rows = [e for e in body_init_log if e["name"] in sample_names]
         print0(f"[H148 body_init={args.body_init}] sample F-norms: {sample_rows}", console=True)
+
+    # H339: capture body 2D weight init F-norms for optional projection. When
+    # body_fnorm_projection == 0.0 (default) this dict stays empty and the
+    # projection branch is short-circuited, leaving the training path bit-id
+    # with the H266 baseline.
+    body_init_fnorms: dict[str, float] = {}
+    if args.body_fnorm_projection > 0.0:
+        for name, p in model.named_parameters():
+            if p.dim() >= 2 and name != "proj.weight" and name != "embed.weight":
+                body_init_fnorms[name] = float(p.data.norm().item())
+        if trial_idx == 0:
+            print0(f"[H339 body_fnorm_projection={args.body_fnorm_projection}] "
+                   f"captured {len(body_init_fnorms)} body F-norms at init", console=True)
 
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
@@ -1214,6 +1235,27 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # H339: body F-norm rescaling projection (M3 mechanism test). When
+        # body_init_fnorms is empty (args.body_fnorm_projection == 0.0) this
+        # branch is skipped, leaving the training path bit-id with the H266
+        # baseline. alpha=1.0 hard-projects each body 2D weight back to its
+        # init F-norm every step; 0<alpha<1.0 soft EMA-like contraction.
+        if body_init_fnorms:
+            alpha = args.body_fnorm_projection
+            with torch.no_grad():
+                for name, param in model.named_parameters():
+                    init_norm = body_init_fnorms.get(name)
+                    if init_norm is None:
+                        continue
+                    cur_norm = float(param.data.norm().item())
+                    if cur_norm <= 1e-12:
+                        continue
+                    ratio = init_norm / cur_norm
+                    if alpha >= 1.0:
+                        scale = ratio
+                    else:
+                        scale = (1.0 - alpha) + alpha * ratio
+                    param.data.mul_(scale)
         # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
         # When polyak_ema_state is None this branch is skipped, leaving the training
         # path bit-identical to the H203 baseline.
@@ -1258,6 +1300,32 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            # H339: body F-norm drift telemetry. Mean over body 2D weights of
+            # current_fnorm / init_fnorm. For arms with body_fnorm_projection > 0
+            # this should track ~1.0 throughout training (arm_b PROJ_HARD exact;
+            # arm_c PROJ_SOFT slightly above due to soft pull).
+            if telemetry_due and body_init_fnorms:
+                ratios = []
+                ratio_min = float("inf")
+                ratio_max = 0.0
+                with torch.no_grad():
+                    for name, p in model.named_parameters():
+                        init_norm = body_init_fnorms.get(name)
+                        if init_norm is None or init_norm <= 0:
+                            continue
+                        r = float(p.data.norm().item()) / init_norm
+                        ratios.append(r)
+                        if r < ratio_min:
+                            ratio_min = r
+                        if r > ratio_max:
+                            ratio_max = r
+                if ratios:
+                    drift_mean = sum(ratios) / len(ratios)
+                    muonh_metrics["body/fnorm_drift_ratio"] = drift_mean
+                    muonh_metrics["body/fnorm_drift_ratio_min"] = ratio_min
+                    muonh_metrics["body/fnorm_drift_ratio_max"] = ratio_max
+                    print0(f"[H339 step={train_step}] body/fnorm_drift_ratio={drift_mean:.4f} "
+                           f"min={ratio_min:.4f} max={ratio_max:.4f}", console=True, log=False)
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
