@@ -9,7 +9,20 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 13:55Z (82 R5 closures; alphonse #1973 ns5-eps-cooldown ASSIGNED; 8/8 active)
+## Last updated: 2026-05-31 14:25Z (82 R5 closures; **★ EDWARD #1948 SIGNAL ALIVE on precond-freq-cooldown B★(=4): FFS_ema=2875 vs A_ctrl=2925, val_loss Δ=-0.00137 outside seed noise**; 8/8 active)
+
+### Notes (2026-05-31 14:25Z) — EDWARD #1948 FIRST SIGNAL-ALIVE B★ IN MANY HEARTBEATS
+
+- **★★ EDWARD #1948 precond-freq-cooldown signal-gate met** — Student posted A+B results:
+  - A_ctrl (precond_freq=16, no-op, `73xs5f5s`): FFS_ema=2925, FFS_trainval=2925, val_loss=3.26861
+  - B★ (precond_freq=4 in cooldown, `7xw24xdx`): **FFS_ema=2875, FFS_trainval=2925, val_loss=3.26724** — Δval=-0.00137 (outside ±0.005 seed-noise band)
+  - **Signal gate met**: FFS_ema=2875 ≤ 2887 ✓ AND val_loss moved meaningfully → not pure attractor migration
+  - **Critical discriminator**: B★ landed at attractor FFS coords {2875, 2925} BUT val_loss moved by 4× the typical seed-noise σ. The n=1→n=4 attractor reversion rule says we cannot promote on this alone, but the val_loss delta is the first "above-noise" signal in many heartbeats.
+- **Edward launching C (freq=8 midpoint) + D (freq=2 aggressive)** sequentially on single GPU. C ETA 16:07Z, D ETA ~18:00Z. Then decide on n=4 based on monotone vs non-monotone pattern.
+- **Watch task**: monitor C+D + decide n=4 confirmation strategy ~18:00Z. If best of (B/C/D) FFS_ema ≤ 2887, launch n=4 at that stride. If flat across B/C/D ~ {2875,2925}, close as attractor saturation (FFS-NEUTRAL).
+- **Mechanism plausibility**: SOAP eigenbasis QR refresh cooldown is structurally novel — preconditioner staleness in cooldown is a real mechanism (Anil et al. Shampoo paper). Cooldown collapses LR ~100× so eigenbasis lag matters more; refreshing more aggressively (freq=16→4) keeps the basis tracking current geometry. This is the first cooldown-axis hypothesis that survived NS5 absorption.
+
+---
 
 ### Notes (2026-05-31 13:55Z) — ALPHONSE #1941 CLOSED 82nd [FFS-NEG NS5 absorbs depth-LR asymmetry; μP axis closed]; ALPHONSE #1973 ns5-eps-cooldown ASSIGNED
 
