@@ -1,3 +1,52 @@
+## 2026-05-31 — PR #1878: H316 tanjiro OUTER LR cooldown SCHEDULE (post-H306+H307+H308 paper-grade convergent test) — CLOSED 170th NULL/NEG (🎯 paper-grade FOURTH ORTHOGONAL-MECHANISM cooldown wash-out attractor confirmation: outer pull during cooldown is LOAD-BEARING, monotone NEG dose-response on outer_lr_cooldown_end)
+
+- Branch: g1r3-tanjiro/h316-outer-lr-cooldown-schedule
+- Hypothesis: Test whether the OUTER STEP cooldown axis can escape the H306+H307+H308 paper-grade convergent "cooldown wash-out attractor" by ramping outer_lr DOWN during the last 15% of training. New CLI flag `outer_lr_cooldown_frac=0.15` independent from inner `h_cooldown_frac=1.0`. 3-arm: arm_a CTRL (constant outer_lr=0.7, H266 baseline), arm_b RAMP_TO_0p0 (cooldown_ramp 0.7→0.0), arm_c RAMP_TO_0p35 (cooldown_ramp 0.7→0.35).
+
+### Results
+
+| Arm | W&B | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Merge gate |
+|-----|-----|----------|-----|--------------------|--------------------|------------|
+| arm_a CTRL (constant) | `v7f2xskd` | 3.26847 | 3025 | (ref) | +0.33σ TIE | misses by +25 |
+| arm_b RAMP_TO_0p0 | `7ctwznxj` | 3.27261 | 3025 | **+4.68σ NEG** | +5.01σ NEG | misses by +25 |
+| arm_c RAMP_TO_0p35 | `fnz49gfm` | 3.27045 | 3025 | **+2.24σ NEG** | +2.57σ NEG | misses by +25 |
+
+### Mechanism decode
+
+- **Pattern A drift-FREE pre-cooldown** (steps 500/1000/1500/2000/2500): max Δ < 0.13σ across 3 arms (TIE-IDENTICAL within Pattern A noise) — Option B design preserves bit-identity with H266 baseline through step 2825 exactly as designed
+- **Cooldown phase divergence grows monotonically**: at step 3000 (interim) arm_b Δ=−0.02σ TIE / arm_c Δ=+0.37σ TIE; at step 3325 (terminal) arm_b Δ=+4.68σ / arm_c Δ=+2.24σ — disadvantage compounds at every cooldown checkpoint
+- **Dose-response slope ≈ −6.4σ per unit endpoint decrease**: linear extrapolation suggests endpoint ≈ 0.6 returns to TIE, 0.7 is locally Pareto
+- **Implication**: outer pull during cooldown is **load-bearing for the cooldown attractor's stability** — modulating outer LR cannot steer the attractor
+
+### Cooldown wash-out attractor 4-axis confirmation
+
+H316 adds a **FOURTH ORTHOGONAL-MECHANISM** to the H306+H307+H308 paper-grade convergent finding:
+
+| Axis | Hypothesis | Result | Wash-out direction |
+|------|-----------|--------|---------------------|
+| TEMPORAL (mid-training low-μ V-shape) | H306 | mid-training POS, cooldown washes | washes ANY mid-training advantage |
+| POST-NS5 stochastic exploration | H307 | mid-training ablation NULL, cooldown wash | washes POST-NS5 perturbation effects |
+| SPATIAL-by-TYPE (attn-help/MLP-hurt) | H308 | block-asymmetric mid, cooldown wash | washes SPATIAL μ heterogeneity |
+| **OUTER STEP cooldown-schedule** | **H316 (THIS)** | **monotone NEG dose-response on outer_lr** | **NOT outer-step driven (load-bearing)** |
+
+**Conclusion**: cooldown wash-out attractor is a **cooldown-internal phenomenon governed by inner LR cosine decay × inner μ × Polyak EMA**, NOT modifiable via outer-step manipulation. Future cooldown-attractor attacks must target inner mechanism.
+
+### Outstanding execution noted
+
+- **Caught the `h_cooldown_frac=1.0` advisor error BEFORE launching GPU hours** (gold standard student gating behavior — same pattern as askeladd's β1 catch on H319)
+- Implemented corrected Option B design with independent `outer_lr_cooldown_frac` CLI flag preserving Pattern A bit-identity
+- Smoke gates verified all 3 arms drift-FREE step-0 + ramp mechanism firing at step 120
+- 5-checkpoint pre-cooldown drift-FREE gate table demonstrates Option B design works mechanically as predicted
+- 7-checkpoint cooldown phase divergence table provides paper-grade trajectory for load-bearing finding
+- outer_lr_t verification table matches design formula EXACTLY (terminal arm_b=0.036, arm_c=0.368)
+- 5 thoughtful suggested follow-ups including OUTER LR WARMUP (early-training axis), OUTER MOMENTUM cooldown, SYNC_INTERVAL cooldown, DOSE-RESPONSE saturation, two-phase composite
+
+### Decision
+
+CLOSED 170th NULL/NEG. Reassigning tanjiro to H324 OUTER LR WARMUP — virgin early-training axis symmetric to H316's cooldown probe (does outer pull need warmup or is full-strength at step 30 also load-bearing?). WIN prob 8-12%. Suggested Follow-up #1.
+
+---
+
 ## 2026-05-31 — PR #1865: H314 thorfinn DIP-and-EARLY-RECOVER V-shape μ (buffer durability test) — CLOSED 169th NULL/NEG (🎯 paper-grade BUFFER DURABILITY DEFINITIVE NEGATIVE: active-ONLY-during-low-μ mechanism confirmed — gain washes out AS μ recovers at step ~1750 during ramp-back, NOT via coast delay, 104th mechanism class CONSOLIDATED closing TEMPORAL ramp-back-endpoint axis)
 
 - Branch: g1r3-thorfinn/h314-dip-early-recover-v-shape

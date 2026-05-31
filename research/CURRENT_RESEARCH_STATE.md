@@ -1,3 +1,64 @@
+## Cycle ~2400: H316 tanjiro CLOSED 170th NULL/NEG (🎯 paper-grade FOURTH ORTHOGONAL-MECHANISM cooldown wash-out attractor: outer pull during cooldown is LOAD-BEARING, monotone NEG dose-response) + H324 ASSIGNED tanjiro OUTER LR WARMUP (early-training outer axis, 106th mechanism class candidate, direct H316 follow-up) + H320 edward arm_b BLEND_0p5 FINISHED FFS=3200 CLEAR NEG (α-blend creates ~60-step anchor lag, weakens outer pull fidelity, 175-step FFS regression), arm_c running ~3%
+
+**One major closure (170th NULL/NEG with paper-grade FOURTH ORTHOGONAL-MECHANISM finding), one fresh assignment (H324 OUTER LR WARMUP), and H320 arm_b clear NEG providing strong evidence for hard-replace superiority.** Plateau campaign portfolio: 170 NULL/NEG + 1 MERGED WIN (H266), 104+ mechanism classes consolidated.
+
+### Closure this cycle
+
+**H316 tanjiro OUTER LR COOLDOWN SCHEDULE CLOSED 170th NULL/NEG — 🎯 paper-grade FOURTH ORTHOGONAL-MECHANISM cooldown wash-out attractor confirmation**
+
+Terminal verdict (PR #1878):
+- arm_a CTRL_CONSTANT `v7f2xskd`: val=3.26847, FFS=3025 (+0.33σ TIE H266)
+- arm_b RAMP_TO_0p0 `7ctwznxj` (outer_lr 0.7→0.0 over last 15%): val=3.27261, FFS=3025 (+4.68σ NEG vs CTRL)
+- arm_c RAMP_TO_0p35 `fnz49gfm` (outer_lr 0.7→0.35 over last 15%): val=3.27045, FFS=3025 (+2.24σ NEG vs CTRL)
+
+**Mechanism findings**:
+1. Outer pull during cooldown is LOAD-BEARING: reducing outer_lr during cooldown produces MONOTONE NEG dose-response (slope ≈ −6.4σ per unit endpoint decrease; linear extrapolation says endpoint ≈ 0.6 returns to TIE)
+2. **RULES OUT** outer-step as cooldown wash-out mechanism: if outer step drove wash-out, reducing outer_lr during cooldown would REDUCE wash-out (opposite observed)
+3. **FOURTH ORTHOGONAL-MECHANISM cooldown wash-out attractor confirmation** (H306 TEMPORAL + H307 POST-NS5 + H308 SPATIAL-by-TYPE + H316 OUTER-STEP)
+4. Cooldown wash-out attractor is a cooldown-INTERNAL phenomenon governed by inner LR cosine decay × inner μ × Polyak EMA — NOT modifiable via outer-step manipulation
+5. **Pattern A drift-FREE pre-cooldown gate**: all 3 arms TIE-IDENTICAL within <0.13σ at steps 500/1000/1500/2000/2500 — Option B design (outer_lr_cooldown_frac=0.15) mechanically correct
+
+### Fresh assignment this cycle
+
+**H324 tanjiro OUTER LR WARMUP ASSIGNED — early-training axis (106th mechanism class candidate, direct H316 follow-up)** (PR #1913)
+
+H316's load-bearing finding raises symmetric early-training question: is outer pull during EARLY training (first N outer steps) also load-bearing, or can outer_lr warm up from 0.0 → 0.7 over first N outer steps without hurting? Tests:
+- arm_a CTRL: outer_lr_schedule=constant, H266 baseline
+- arm_b WARMUP_SHORT: outer_lr_warmup_outer_steps=10 (ramp 0.0→0.7 over outer steps 0-9 = inner steps 30-300 = ~9% of training)
+- arm_c WARMUP_LONG: outer_lr_warmup_outer_steps=30 (ramp 0.0→0.7 over outer steps 0-29 = inner steps 30-900 = ~27% of training)
+
+~15 LoC. WIN prob 8-12%. Virgin early-training outer-step axis, distinguished from H316 cooldown probe.
+
+### H320 edward arm_b terminal update
+
+**arm_b BLEND_0p5 `pufhqmo8` FINISHED FFS=3200 — CLEAR NEG (+175 steps vs arm_a CTRL FFS=3025)**
+- val=3.27652 vs H266 3.26818 → Δ=+0.00834 = +9.4σ NEG
+- Mechanism: α=0.5 soft-blend creates ~60-step lag between local model and anchor, weakening outer pull fidelity. Hard-replace (α=1.0, H266 baseline) appears load-bearing.
+- arm_c BLEND_0p2 `4p35dtv3` just started (step 100/3325, 04:19Z launch), ETA terminal ~05:55Z. Expected FFS ≫ 3200 based on dose-monotone trend (150-step lag from α=0.2 should be MORE NEG than 60-step lag from α=0.5).
+- Note: early kill flag raised in advisor update for arm_c if early trajectory confirms monotone trend
+
+### In-flight WIP cluster (8 of 8 students, post-cycle-2400)
+
+| Student | PR | Hypothesis | Status |
+|---------|----|-----------|----|
+| tanjiro | **#1913** | **H324 OUTER LR WARMUP (106th candidate, new assignment)** | **WIP newly assigned** |
+| frieren | #1882 | H317 AUX β2 mid-training ramp UP AMPLIFIED | WIP arm_a + arm_b TERMINAL EFFECTIVELY IDENTICAL both FFS=3025, arm_c EXTREME running (ETA ~05:45Z) |
+| alphonse | #1889 | H318 OUTER MOMENTUM cooldown SCHEDULE | WIP in-flight |
+| askeladd | #1890 | H319 AUX β1 mid-training schedule | WIP in-flight |
+| edward | #1892 | H320 OUTER anchor refresh policy | WIP arm_a CTRL FINISHED FFS=3025 TIE, arm_b FINISHED FFS=3200 CLEAR NEG, arm_c BLEND_0p2 running ~3% (ETA ~05:55Z) |
+| fern | #1896 | H321 schedule-tapered adaptive μ (25-30% top WIN) | WIP arm_a CTRL ~92%+, treatment arms MISSING (nudge cycle ~2200) |
+| nezuko | #1905 | H322 body weight orthogonality regularizer (104th virgin) | WIP in-flight |
+| thorfinn | #1906 | H323 μ_end low sustained on post-H266 stack (105th candidate) | WIP arm_a CTRL ~95.5% near terminal, arm_c smoke clean, arm_b + arm_c full MISSING (nudge cycle ~2350) |
+
+### Notes
+
+- 8 of 8 students active. Zero idle GPUs.
+- Issue #1260: no new human messages since 2026-05-29 advisor status update.
+- Multiple chains approaching terminal within next 2h: H320 arm_c ~05:55Z (expect clear NEG), H317 arm_c EXTREME ~05:45Z (β2 UP axis exhaustion pending), H316 tanjiro closed → #1878 closed.
+- H320 dose-response shaping up to be MONOTONE NEG in α (hard-replace wins, soft-blend hurts proportional to lag). Clean mechanism finding regardless of arm_c outcome.
+
+---
+
 ## Cycle ~2350: AUDIT-TRAIL cycle — H323 thorfinn stale_wip nudge (PR #1906, arm_a CTRL `k1plr8nv` running ~95.5% step 3175/3325 FFS=3025 interim already crossed val=3.2714 ETA terminal ~5 min, arm_c smoke `ioo156zp` μ_end=0.65 stability verified step-0=10.82583 + step-125=5.17599 finite, arm_b LOW_MU_END + arm_c VERY_LOW_MU_END full runs MISSING, zero PR comments), 3 consecutive cycles of partial-treatment nudges (H320 ~2150 + H321 ~2200 + H323 ~2350 = same pattern)
 
 **Audit-trail-only cycle: H323 thorfinn partial launch — CTRL near-terminal, arm_c smoke clean, full treatment arms not yet launched.** Notable: H323 student DID launch the extreme-end smoke gate (correctly applying H291 lesson) — distinguishing it from H320 (no smoke) and H321 (no commits). Plateau campaign portfolio unchanged: 169 NULL/NEG + 1 MERGED WIN (H266), 104 mechanism classes consolidated.
