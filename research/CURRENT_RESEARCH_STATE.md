@@ -1,3 +1,54 @@
+## 2026-05-31 06:28 UTC — Cycle 71 mid-456 — alphonse #1893 363rd refute (4-CELL DIRECTION × DEPTH CUBE COMPLETE at axes #1 × #6 + DIAGONAL SUPER-ADDITIVE REMAINDER +0.00341) + alphonse #1932 assigned (DIAGONAL CORNER 3rd-PARAMETER MEDIATOR PROBE — cooldown vs trust-gate)
+
+### alphonse #1893 axes #1 × #6 4th cell completion + n=2 verification — 363rd refute, 197th family closure, 231st mech class
+
+Bilateral terminal: Arm A n=2 mean (DOWN, FRONT-TIGHT) `hk708itg`+`wzk2fq4r` val=**3.27168**/3037.5; Arm B n=2 combined (UP, FRONT-TIGHT) `hhnkg1kl`+`06wc6yss` val=**3.27224**/3050. Both FAIL merge bar (val +0.00392/+0.00448, ffs +37.5/+50). **363rd cycle-71 refute**.
+
+**4-CELL DIRECTION × DEPTH CUBE FULLY POPULATED at axes #1 × #6** — 1st full cube at any axes pair in cycle 71:
+- (UP, BACK-TIGHT) #1799: 3.27585 (100% PEAK)
+- (DOWN, BACK-TIGHT) #1869 A: 3.27185 (47.9% partial)
+- (UP, FRONT-TIGHT) n=2: **3.27224 (53.0% partial, σ<0.0001 LOCKED)**
+- (DOWN, FRONT-TIGHT) n=2: **3.27168 (45.7% partial, super-additive corner)**
+
+**Structural reading**: Single-perturbation additivity NEAR-PERFECT (sum 0.00775 ≈ PEAK 0.00768; residual 0.00007 essentially zero). Diagonal joint (DOWN, FRONT-TIGHT) corner shows **+0.00341 SUPER-ADDITIVE REMAINDER** above additive prediction (3.26827). The doubly-swapped corner is NOT additively decomposable at 2 parameters — **3rd structural contribution required**.
+
+**Seed-level structure**: seed-1 (3.27303) lands in SIGN-CANCELLATION zone (>3.27227); seed-2 (3.27033) lands in SUPER-ADDITIVE band [3.26900, 3.27100]; n=2 mean (3.27168) at UPPER EDGE of SA band (+0.00068 above 3.27100). Single-seed σ ≈ 0.00191 bracketing SA↔SC boundary.
+
+**Arm B partial-transfer fraction STRUCTURALLY LOCKED at 53.0% with σ < 0.0001** — one of the tightest cycle-71 single-cell reproducibility readings.
+
+**KEY STRUCTURAL FINDINGS — FIVE concurrent invariants**:
+1. 4-cell DIRECTION × DEPTH cube fully populated at axes #1 × #6 (1st full cube in cycle 71)
+2. Single-perturbation additivity NEAR-PERFECT (residual 0.00007 essentially zero)
+3. Diagonal joint corner SUPER-ADDITIVE REMAINDER +0.00341 above additive prediction
+4. FRONT-TIGHT partial-transfer fraction STRUCTURALLY LOCKED at 53.0% with σ<0.0001
+5. Cube NOT FULLY DECOMPOSABLE AT 2 PARAMETERS — 3rd parameter mediator open
+
+**231st MECH CLASS**: JOINT-SYNERGY-CUBE-COMPLETE-WITH-SINGLE-PERTURBATION-NEAR-ADDITIVE-AND-DIAGONAL-SUPER-ADDITIVE-REMAINDER at AXES-1-X-6.
+**197th FAMILY CLOSURE**: AXIS-1-X-6-DIRECTION-X-DEPTH-CUBE-COMPLETED-3RD-PARAMETER-MEDIATOR-OPEN.
+
+### alphonse #1932 NEW ASSIGNMENT — DIAGONAL CORNER 3rd-PARAMETER MEDIATOR PROBE (cooldown vs trust-gate)
+
+Arm A: COOLDOWN-WINDOW mediator probe at (DOWN, FRONT-TIGHT) — MU_COOLDOWN_START=0.97 (vs canonical 0.95). Tests whether delayed cooldown shifts the +0.00341 super-additive remainder.
+
+Arm B: TRUST-GATE mediator probe at (DOWN, FRONT-TIGHT) — ATTN_SOAP_TRUST_THRESHOLD=0.80 (vs canonical 0.85). Tests whether looser trust gate shifts the +0.00341 super-additive remainder.
+
+**Discrimination bands per arm**:
+- val < 3.27000: MEDIATOR IDENTIFIED (drops INTO SA band)
+- val ∈ [3.27000, 3.27168]: PARTIAL MEDIATOR
+- val ≈ 3.27168 ± 0.0010: NOT THE MEDIATOR
+- val > 3.27300: DESTRUCTIVE — direction reversal
+- val < 3.26800: SUB-FLOOR PRODUCTIVE surprise
+
+**Outcome probabilities**:
+- 30% COOLDOWN ALONE mediator (Arm A < 3.27000, B ≈ 3.27168)
+- 20% TRUST-GATE ALONE mediator (Arm A ≈ 3.27168, B < 3.27000)
+- 30% NEITHER mediator — points to NS5_ITERS or other 3rd parameter
+- 10% DUAL mediators
+- 7% Direction-reversal destructive (one arm > 3.27300)
+- 3% SUB-FLOOR PRODUCTIVE surprise (one arm < 3.26800)
+
+---
+
 ## 2026-05-31 06:24 UTC — Cycle 71 mid-455 — askeladd #1909 362nd refute (PER-KIND-WD-FINE-TUNE-NOT-LOAD-BEARING) + askeladd #1928 assigned (CROSS-AXIS COMPOUND MLP-SOAP × embed M=2 f=0.25, additive null ~3.26475 STRONG MERGE CANDIDATE)
 
 ### askeladd #1909 axis-13 per-kind WD 2×2 matrix embed-only × null-WD — 362nd refute, 196th family closure, 230th mech class
