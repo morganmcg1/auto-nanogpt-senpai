@@ -1,3 +1,37 @@
+## Cycle ~2300: AUDIT-TRAIL cycle — H317 frieren stale_wip refresh (PR #1882, arm_a CTRL `mxr34jzh` FINISHED val=3.26913 FFS=3025 +1.07σ TIE H266, arm_b AMPLIFIED `9re46x0w` β2_end=0.997 FINISHED val=3.26922 FFS=3025 +0.10σ TIE arm_a CTRL EFFECTIVELY IDENTICAL, arm_c EXTREME `lv3sdysv` β2_end=0.999 running ~28% step 925/3325 ETA ~05:45Z), zero new closures, 8 mechanism axes in flight
+
+**Audit-trail-only cycle: H317 frieren chain progressing normally — label-timestamp refresh only.** Two of three arms terminal (arm_a CTRL + arm_b AMPLIFIED), arm_c EXTREME still mid-training. Plateau campaign portfolio unchanged: 169 NULL/NEG + 1 MERGED WIN (H266), 104 mechanism classes consolidated.
+
+### Stale_wip refreshes posted this cycle
+
+**H317 frieren PR #1882 (AUX β2 mid-training ramp UP AMPLIFIED, dose-response H309 arm_c follow-up, 105th mechanism class candidate)** — arm_a CTRL `mxr34jzh` previously FINISHED val=3.26913 FFS=3025 (+1.07σ TIE H266). Since prior 01:22Z audit, arm_b AMPLIFIED (mid_training_ramp 0.99→0.997) `9re46x0w` FINISHED val=3.26922 FFS=3025 — Δ vs CTRL = +0.10σ EFFECTIVELY IDENTICAL within Pattern A noise floor. The 0.99→0.997 absolute β2 increment (+0.007) produces ZERO measurable signal vs both arm_a CTRL and H266 baseline. arm_c EXTREME (0.99→0.999) at step ~925/3325 (~28%), drift-FREE step-0=10.82583 EXACT, smoke gate at 23:17Z already verified β2=0.999 stability (no NaN). Refresh posted: arm_b terminal numbers, arm_c trajectory, updated ETAs (~05:45Z arm_c terminal, ~05:50Z SENPAI-RESULT), no action requested.
+
+### Mechanism preview pending arm_c
+
+If arm_c FFS=3025 TIE → CLEAN MONOTONE NULL across the entire β2 UP-from-baseline=0.99 dose-response range (0.997 + 0.999 both no signal) → axis EXHAUSTED, H309 POS finding likely captured the full headroom (H309 was at smaller delta vs baseline 0.95 in prior stack — current baseline 0.99 may already be near optimum). If arm_c instead shows clear NEG (val > 3.269 or FFS=−1 FAIL) → directional saturation/instability discovery at extreme β2=0.999 limit. Either way, the experiment closes the β2 UP-from-baseline axis cleanly.
+
+### In-flight WIP cluster (8 of 8 students, post-cycle-2300)
+
+| Student | PR | Hypothesis | Status |
+|---------|----|-----------|----|
+| tanjiro | #1878 | H316 OUTER LR cooldown SCHEDULE | WIP arm_a + arm_b TERMINAL both FFS=3025 TIE (cooldown wash-out preview), arm_c at ~32% (ETA ~04:47Z) |
+| frieren | #1882 | H317 AUX β2 mid-training ramp UP AMPLIFIED | **WIP arm_a + arm_b TERMINAL both FFS=3025 EFFECTIVELY IDENTICAL (β2 UP axis NULL preview), arm_c EXTREME at ~28% (ETA ~05:45Z)** |
+| alphonse | #1889 | H318 OUTER MOMENTUM cooldown SCHEDULE | WIP in-flight |
+| askeladd | #1890 | H319 AUX β1 mid-training schedule | WIP in-flight |
+| edward | #1892 | H320 OUTER anchor refresh policy (102nd virgin) | WIP arm_a CTRL running ~76%, treatment arms MISSING (cycle ~2150 nudge pending) |
+| fern | #1896 | H321 schedule-tapered adaptive μ (25-30% top WIN) | WIP arm_a CTRL ~92%, treatment arms MISSING (cycle ~2200 nudge pending) |
+| nezuko | #1905 | H322 body weight orthogonality regularizer (104th virgin) | WIP in-flight |
+| thorfinn | #1906 | H323 μ_end low sustained on post-H266 stack (105th candidate) | WIP in-flight |
+
+### Notes
+
+- 8 of 8 students active. Zero idle GPUs.
+- Issue #1260: no new human messages since 2026-05-29 advisor status update.
+- Two arm_c-pending chains converging at similar ETA: H316 tanjiro arm_c ~04:47Z + H317 frieren arm_c ~05:45Z. Both expected to produce closure narratives this cycle window if patterns hold (cooldown wash-out attractor confirmation + β2 UP axis EXHAUSTED).
+- Audit-trail cycle: no closures or new assignments. Surveillance + arm_b terminal update only.
+
+---
+
 ## Cycle ~2250: AUDIT-TRAIL cycle — H316 tanjiro stale_wip refresh (PR #1878, arm_a CTRL `v7f2xskd` FINISHED val=3.2685 FFS=3025 +0.36σ TIE H266, arm_b RAMP_TO_0p0 `7ctwznxj` FINISHED val=3.2726 FFS=3025 +5.0σ NEG TIE arm_a CTRL exactly, arm_c RAMP_TO_0p35 `fnz49gfm` running ~32% step 1050/3325, chain healthy ETA ~04:50Z), zero new closures, 8 mechanism axes in flight, 0 idle students, 0 review-ready
 
 **Audit-trail-only cycle: H316 tanjiro chain progressing normally — label-timestamp refresh only.** Two of three arms terminal (arm_a CTRL + arm_b RAMP_TO_0p0), arm_c RAMP_TO_0p35 still mid-training. Plateau campaign portfolio unchanged: 169 NULL/NEG + 1 MERGED WIN (H266), 104 mechanism classes consolidated.
