@@ -1,3 +1,57 @@
+## 2026-05-31 14:25 UTC — Cycle 71 mid-469 — tanjiro #1949 375th refute 209th family closure 244th + 245th mech classes + 21st RTM PRECEDENT (RTM-PERSISTENT-AT-N=7) + PER-KIND-WD-AXIS-NEUTRAL cross-arm validated + DOUBLE-RTM-IN-SINGLE-PR pattern (bilateral Arm-A `j3n5pgmy` per-kind β1 dispatch+uniform WD val=3.27088/3025 + Arm-B `1p60m3se` EMBED-INNER compound val=3.27105/3025; per-kind β1 dispatch under uniform WD vs thorfinn #1944 A per-kind WD Δ=+0.00007 < σ → PER-KIND WD AXIS NEUTRAL at this carrier; EMBED-INNER compound n=2 mean 3.27004 = LOWEST RTM-corrected n-mean in cycle 71; combining RTM-carriers does not escape RTM, lands at floor band) + tanjiro #1976 new assignment (EMBED-INNER-DECOMPOSITION-VIA-ISOLATION: Arm-A lm_head β1=0.9 isolated + Arm-B compound-minus-reset; attributes compound's -0.00182 lift over isolated embed β1=0.5 to its mediator; 30%-LM_HEAD-β1=0.9-LOAD-BEARING prior 25%-RTM-BAND-ONLY prior 20%-INTERACTION-DEPENDENT prior)
+
+### tanjiro #1949 bilateral terminal — 375th refute, 209th family closure, 244th + 245th mech classes, 21st RTM precedent
+
+Bilateral terminal: Arm A `j3n5pgmy` per-kind β1 dispatch (embed=0.8/lm=0.7/sc=0.8) + UNIFORM WD val=**3.27088**/3025; Arm B `1p60m3se` EMBED-INNER compound (per-kind β1: embed=0.5/lm=0.9/sc=0.95 + embed M=2 f=0.25 reset i=200) val=**3.27105**/3025. **375th cycle-71 refute** (DOUBLE-RTM as predicted).
+
+**21st RTM PRECEDENT — EMBED-INNER compound (Arm B + #1921 A) n=2 mean 3.27004 ± σ 0.00143**:
+
+| sample | run_id | val |
+|---|---|---|
+| #1921 A seed-1 | `7qqpkv3m` | 3.26903 |
+| tanjiro Arm B seed-2 | `1p60m3se` | 3.27105 |
+| **n=2 mean** | — | **3.27004** |
+
+100% RTM rate persists at **7 distinct cycle-71 carriers** (RTM-PERSISTENT-AT-N=7). EMBED-INNER compound is the **LOWEST RTM-corrected n-mean in cycle 71**.
+
+**244th MECH CLASS — PER-KIND-WD-AXIS-NEUTRAL-AT-PER-KIND-β1-DISPATCH**:
+
+Cross-arm vs thorfinn #1944 A at the same per-kind β1 dispatch (embed=0.8/lm=0.7/sc=0.8):
+
+| reading | val | WD config |
+|---|---|---|
+| thorfinn #1944 A | 3.27081 | per-kind (embed=0.0003, lm=0.003, sc=0.005) |
+| tanjiro Arm A | 3.27088 | **uniform 0.001** |
+| **Δ(uniform − per-kind)** | **+0.00007** | < σ 0.00067 |
+
+Per-kind WD axis is **NEUTRAL** at this carrier — switching to uniform WD produces a Δ within seed σ.
+
+**245th MECH CLASS — COMBINING-RTM-CARRIERS-DOES-NOT-ESCAPE-RTM**: EMBED-INNER compound combines two individually-RTM carriers (embed β1=0.5 17th RTM AND embed M=2 reset 14th precedent) and lands at n=2 mean 3.27004 within RTM floor band cluster 3.27015-3.27077.
+
+### tanjiro #1976 new assignment — EMBED-INNER DECOMPOSITION-BY-ISOLATION
+
+Applies validated DECOMPOSITION-BY-ISOLATION methodology to attribute the EMBED-INNER compound's -0.00182 productive lift over isolated embed β1=0.5 (frieren stpseprb 3.27186):
+- **Arm A** isolated lm_head β1=0.9 (embed=0.95/lm_head=0.9/scalars=0.95, NO reset) — tests lm_head β1=0.9 ALONE
+- **Arm B** compound-minus-reset (embed=0.5/lm_head=0.9/scalars=0.95, NO reset) — tests reset axis null hypothesis
+- Probability-weighted: LM_HEAD-β1=0.9-LOAD-BEARING 30% / RTM-BAND-ONLY 25% / INTERACTION-DEPENDENT 20% / DESTRUCTIVE-ALONE 15% / MERGE 5% / NEW-PRODUCTIVE 5%
+
+### Cycle 71 cumulative state (post-#1949 closure)
+
+**375 refuted / 245 distinct mech classes / 209 family closures / 9 structural axes locked / 21 regression-to-mean precedents** (RTM-PERSISTENT-AT-N=7 — 100% rate across 7 distinct cycle-71 carriers). Fleet 8/8 active.
+
+### Standing in-flight monitoring (last status as of 14:25Z)
+
+- **tanjiro #1976** — EMBED-INNER-DECOMPOSITION (lm_head β1=0.9 isolated vs compound-minus-reset), just assigned
+- **frieren #1972** — lm_head β1=0.7 isolated n=2 verification, ~40 min into run
+- **edward #1952** — AXIS-4 DUAL-EXCLUSION (last update 13:30Z)
+- **alphonse #1953** — NS5_ITERS bilateral (last update 13:40Z)
+- **askeladd #1956** — RESET-FACTOR-ABLATION compound (last update 13:09Z)
+- **fern #1959** — CROSS-SUBSTRATE COMPOUND (last update 13:22Z)
+- **nezuko #1960** — INTERVAL-AXIS lm_head M=3 i=150 (last update 13:43Z)
+- **thorfinn #1967** — PER-KIND-ASYMMETRY-AXIS (last update 13:19Z)
+
+---
+
 ## 2026-05-31 13:45 UTC — Cycle 71 mid-468 — frieren #1947 374th refute 208th family closure 242nd + 243rd mech classes + 20th RTM PRECEDENT (RTM-PERSISTENT-AT-N=6) + CLEAN COMPOUND DECOMPOSITION METHODOLOGY VALIDATED (bilateral Arm-A `bq9o2gcs` lm_head M=3 f=0.5 val=3.27177/3050 + Arm-B `stpseprb` isolated embed β1=0.5 val=3.27186/3050; lm_head M=3 f=0.5 n=2 mean 3.27077 ± σ 0.00141 = 20th RTM precedent + lm_head M=3 channel CROSS-FACTOR UNIFORMLY UNPRODUCTIVE across f=0.25 + f=0.5; isolated embed β1=0.5 lands within seed σ ~0.0015 of #1904 B compound n=2 mean 3.27016 → embed β1=0.5 ALONE drives compound, M=2 reset axis NULL; DECOMPOSITION-BY-ISOLATION methodology added to cycle-71 toolkit) + frieren #1972 new assignment (LM_HEAD-β1=0.7-ISOLATED-N=2-VERIFICATION at last unverified cycle-71 TOP carrier #1884 B 3.26948; 60%-21st-RTM-PRECEDENT prior 15%-BORDERLINE prior 10%-PRODUCTIVE-RTM-RATE-BROKEN prior)
 
 ### frieren #1947 bilateral terminal — 374th refute, 208th family closure, 242nd + 243rd mech classes, 20th RTM precedent
