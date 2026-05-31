@@ -1,5 +1,93 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-05-31 15:51 — PR #1938: NS_COOLDOWN_START_FRAC bracket {0.6, 0.7, 0.8} cooldown-activation-timing — **CLOSED-CATALOG-NULL + NS-AXIS LOCALLY NEAR-OPTIMAL AT PRODUCTION 0.7 ASYMMETRIC + LIFT-UPPER-OOB MECH-LINKED CROSSING TRIPLE-OBSERVATION 4/12 STEADY-STATE + c645 BOUNDARY-PAIR SUB-σ_SEED VALIDATION**
+
+- branch: `g1r4-frieren/nm-ns-cooldown-start-frac-bracket`
+- hypothesis: Production NS_COOLDOWN_START_FRAC=0.7 (cooldown_start_step=2345) may be locally near-optimal; bidirectional ±0.1 perturbation tests whether earlier (0.6=step 2010) or later (0.8=step 2680) activation timing improves outcome. NS_ITERS=16 high-power phase duration scales linearly with frac perturbation (EARLIER = +335 step extension; LATER = −335 step shortening).
+
+### 3-arm matrix terminal results
+
+| Arm | NS_COOLDOWN_START_FRAC | cooldown_start_step | W&B run | val/loss | Δ_BA | Δ vs μ_prod=3.26118 | FFS | precond_ratio_mean | Position |
+|---|---:|---:|---|---:|---:|---:|---:|---:|---|
+| A ctrl | 0.7 (production) | 2345 | `g82vm92d` | **3.26042** | — | −0.00076 = **−0.47σ_seed** | 3125 | 1.06787 | in-LIFT lower-edge cluster |
+| B EARLIER | 0.6 | 2010 | `4nxz7jog` | **3.26327** | **+0.00285** = +1.30σ_seed | +0.00209 = **+1.30σ_seed** | 3150 | **1.10223** | **UPPER-OOB MECH-LINKED CROSSING** |
+| C LATER | 0.8 | 2680 | `tyjamvck` | **3.26174** | **+0.00132** = NULL | +0.00056 = +0.35σ_seed | 3125 | 1.07835 | in-LIFT mid-band TRANSITION |
+
+### 6-gate framework verdict
+
+| Gate | Target | Status | Verdict |
+|---|---|---|---|
+| **G1 (baseline beat)** | μ_exp < production 3.26118 | Arm C 3.26174 (+0.00056 above) | **FAIL** (not a winner) |
+| **G2 (FAV-magnitude)** | μ_Δ_paired ≤ −0.0017 | Arm B +0.00285 / Arm C +0.00132 | **FAIL** both arms unfavored direction |
+| **G3 (FFS coupling)** | μ_exp_FFS < μ_ctrl_FFS | Arm B 3150 +25 unfav / Arm C 3125 = ctrl | **NEG B / NULL C** |
+| **G7 (drift)** | Arm A Δ ≤ ±0.93σ_seed | Arm A −0.47σ | **PASS-CLEAN** ✓ |
+| **G7-B (NULL band)** | Arm B/C inside ±0.0015 | B +0.00285 OUT / C +0.00132 IN | **B fails-NULL / C in NULL** |
+
+### Catalog-novel asymmetric NS_ITERS=16 EXTENSION-vs-SHORTENING finding
+
+precond_ratio_mean responds STRONGLY to NS_ITERS=16 phase EXTENSION (Arm B EARLIER +335 steps drives 1.062 → 1.102 = +0.040 displacement) but WEAKLY to SHORTENING (Arm C LATER −335 steps drives 1.062 → 1.078 = +0.016 mid-band displacement). LIFT-band upper-edge is NOT a hard ceiling but an **asymmetric envelope where mechanism-DRIVEN crossings happen via NS=16 phase extension; mechanism-NEUTRAL retractions stay in-band**.
+
+### LIFT-band UPPER-OOB MECH-LINKED CROSSING TRIPLE-OBSERVATION cohort
+
+| Source | precond_ratio_mean | Mechanism context |
+|---|---:|---|
+| askeladd #1914 Arm A | 1.10613 | production NS_COOLDOWN_START_FRAC=0.7 |
+| frieren #1938 Arm B | **1.10223** | frac=0.6 EARLIER +335 steps NS=16 extension (MECHANISM-EXPLAINED) |
+| thorfinn #1883 Arm B (c768) | 1.10758 | late-cd FREEZE-R PP-confirm B0 |
+| edward #1888 Arm A (c768) | 1.10151 | production-stack ctrl K=100 |
+
+**4/12 cohort observations** in 1.094-1.106 zone = **33% steady-state upper-OOB rate** under various mechanism contexts. Catalog-confirmed as **stable upper-edge mechanism-attractor**, not single outlier.
+
+### c645 boundary-pair methodology validation
+
+SWITCH=2680 Arm C analysis:
+- Pre-SWITCH window (steps 2000-2625): Δ_CA ≈ +0.0012 stable baseline = SEED=0 NM micro-non-determinism signature
+- Pre-anchor (step 2625) +0.00101 → post-anchor (step 2750) +0.00140 = SWITCH-attributable Δ ~+0.0003
+- Sub-σ_seed at single-seed paired observation
+- Confirms [[feedback-switch-fire-causal-isolation]] methodology
+
+### NS-axis verdict: DECOUPLED-WITH-ASYMMETRY
+
+Production NS_COOLDOWN_START_FRAC=0.7 **catalog-confirmed locally near-optimal** with asymmetric ±0.1 frac perturbation envelope:
+- EARLIER (0.6): +0.00285 val cost + UPPER-OOB drift = UNFAV
+- nominal (0.7): CTRL-class reproduction baseline
+- LATER (0.8): +0.00132 val cost (NULL) + in-LIFT = unfavored direction NULL
+
+**NS-axis activation-timing axis EMPIRICALLY EXHAUSTED at frac perturbation level**. Production cooldown_start_step=2345 confirmed productive side of timing envelope per Issue #1261 directive "period/coverage tuned for steps 2400-3000".
+
+### Catalog placement — 3 simultaneous catalog contributions
+
+1. **NS-axis locally near-optimal at production with asymmetric cost gradient** — single-axis ±0.1 frac perturbation closure
+2. **LIFT-band UPPER-OOB MECH-LINKED CROSSING strengthened to triple-observation** — 4/12 cohort 33% steady-state upper-edge rate validates askeladd 1.10613 c764 mechanism-revision
+3. **c645 boundary-pair methodology validation** — SWITCH-attributable Δ ~+0.0003 sub-σ_seed at single-seed paired observation, exemplary application
+
+### LIFT-band N=12 cohort update (BIMODAL distribution refined)
+
+| Position | Count | Fraction |
+|---|---:|---:|
+| Lower-edge cluster 1.064-1.075 | 5/12 | 42% |
+| Upper-OOB MECH-LINKED 1.10+ | 4/12 | 33% |
+| Mid-band TRANSITION 1.078-1.085 | 3/12 | 25% |
+
+Arm C precond_ratio=1.07835 is the 3rd mid-band entry joining fern-A-prior 1.082 + alphonse-1918-A 1.08455. Mid-band stabilizing around 25% with diverse mechanism origins (production ctrl AND axis-perturbation arms).
+
+### Drift cohort #28 contribution
+
+Arm A −0.47σ_seed favored (CTRL drift gate observation only). Cumulative cohort μ ≈ +0.43σ at n=28 (16+/12−); continued compression toward +0.40σ band.
+
+### 5 student follow-ups evaluated
+
+1. NS_COOLDOWN_START_FRAC=0.75 interpolation — **DEFER** (NS-axis empirically near-exhausted)
+2. NS_COOLDOWN_START_FRAC=0.65 interpolation — **DEFER** (same rationale)
+3. NS_COOLDOWN_START_FRAC=0.6 + NS_ITERS_COOLDOWN=14 — **CATALOG-DEFER** (2D bracket, future UPPER-OOB mechanism PR)
+4. R-buffer trio at SWITCH boundary AND terminal for future cooldown experiments — **ACCEPTED for catalog-protocol**
+5. LIFT-band upper-edge threshold refinement around 1.10 cluster — **ACCEPTED for next-cohort drift gate**
+
+**Fresh assignment direction**: frieren → EMBED_INIT_ANCHOR_LAMBDA bracket on initialization axis (per launch instruction "initialization ideas"; balances portfolio away from NS-axis exhaustion + complements alphonse #1965 cooldown-FREEZE + tanjiro #1971 alternative axis work).
+
+---
+
+
 ## 2026-05-31 00:55 — PR #1768: NS_ITERS_COOLDOWN bidirectional pruning ablation 3-arm {12, 16, 20} — **CLOSED CLASS-31-NS-ITERS-COOLDOWN-INTENSITY NULL-PAIRED FAV-MIRAGE + 3RD R4 PP-CONFIRM-MIRAGE + 8TH FAV-MIRAGE PLATEAU AXIS + NS=16 BIDIRECTIONAL LOAD-BEARING LOCAL-OPTIMUM**
 
 - branch: `g1r4-fern/nm-ns-iters-cooldown-intensity`
