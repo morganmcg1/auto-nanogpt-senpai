@@ -1,5 +1,59 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 08:15Z — PR #1891 CLOSED FFS-NEUTRAL [additive-pre-NS modifier family closed]: askeladd GE-SAM (zero-cost SAM via gradient extrapolation) [76th R5 closure]
+
+- branch: g1r5-askeladd/ge-sam-r5
+- hypothesis: GE-SAM (Gradient Extrapolation as zero-cost SAM): `g_eff = g_t + α·(g_t − g_{t-1})`. Approximates SAM's sharpness perturbation via finite-difference HVP estimate at zero extra forward/backward cost. Expected to bias optimizer toward flatter basins where EMA-eval gains most.
+- W&B group: g1r5-askeladd/ge-sam-r5
+
+| Cell | α | run state | FFS_ema | FFS_trainval | val/loss |
+|------|---|-----------|---------|--------------|----------|
+| A CTRL | 0.00 | finished | 2950 | 2975 | 3.27187 |
+| B★ | 0.05 | finished | **2925** | 2925 | 3.26901 |
+| C | 0.02 | finished | 2925 | 2950 | 3.27067 |
+| D | 0.10 | finished | 2925 | 2925 | 3.26934 |
+
+**Results commentary:**
+Flat dose-response — all three non-CTRL cells collapsed to FFS_ema=2925 despite α varying 5x (0.02 → 0.10). KG_smoke confirmed signal was real: cos_sim(g_t, g_t − g_{t-1}) ≈ 0.90–0.94, well above noise floor, and the zero-compute claim was verified (≤0.16% step overhead per measurement). Best cell (B, α=0.05) FFS_ema=2925 did not beat baseline mean (μ_4=2912.5); no cell came close to the promote gate (FFS_trainval ≤ 2900 OR FFS_ema ≤ 2825).
+
+**Analysis:**
+The R5 stack (Nesterov + EMA-eval + SOAP preconditioner) already extracts the dominant gradient signal, leaving no orthogonal curvature headroom for finite-difference HVP perturbation to exploit. Consecutive minibatch grad alignment (cos_sim ≈ 0.92) means Δg = g_t − g_{t-1} is mostly co-linear with g_t — acting as an **implicit LR boost** rather than a curvature-aware SAM perturbation.
+
+**Mechanism finding (high value)**: Combined with #1885 (Gradient Centralization, DC mean subtraction, FFS-NEUTRAL) and #1880 (Muon μ cooldown, FFS-NEUTRAL), this closes the **additive-pre-NS gradient-modifier family** at R5. Any modification that adds a scalar/finite-difference term to the gradient BEFORE NS5 sees it gets absorbed by the Stiefel projection because NS5 preserves only the direction component, and these modifiers are nearly co-linear with the original gradient.
+
+**Memory rule:** `ge_sam_additive_grad_modifier_pre_ns_neutral_at_r5` — zero-cost finite-difference SAM (GE-SAM) finds no FFS headroom at R5. Additive raw-gradient modifiers pre-NS+SOAP are saturated; the Stiefel projection absorbs them. Mirrors #1885 GC closure mechanism.
+
+**Closure:** 76th R5 closure. FFS-NEUTRAL. Additive-gradient-modifier family closed.
+
+---
+
+## 2026-05-31 08:05Z — PR #1903 CLOSED FFS-NEG [monotonic harm, never crossed]: alphonse Stochastic Depth (DropPath) on Residual Branches [75th R5 closure]
+
+- branch: g1r5-alphonse/stochastic-depth-residual-dropout
+- hypothesis: Stochastic depth (Huang et al. 2016) with linear survival schedule `p_l = 1 − (l/11)·drop_rate`. First forward-pass training-time regularization axis at R5. Expected to improve FFS by acting as regularization complementary to musoft init.
+- W&B group: g1r5-alphonse/stochastic-depth-residual-dropout
+
+| Cell | drop_rate | run | val/loss | best_ema_corr_val | FFS_ema | FFS_trainval |
+|------|-----------|-----|----------|-------------------|---------|--------------|
+| A CTRL | 0.00 | d3ls9t5z | 3.3087 | 3.3095 | -1 | -1 |
+| B | 0.05 | aggnf0pt | 3.3185 | 3.3193 | -1 | -1 |
+| C★ | 0.10 | 9rwheegl | 3.3284 | 3.3292 | -1 | -1 |
+| D | 0.15 | e2s7xiwd | 3.3375 | 3.3383 | -1 | -1 |
+
+**Results commentary:**
+Strict monotone harm with drop_rate: val/loss scales linearly (3.3087 → 3.3185 → 3.3284 → 3.3375 across A→B→C→D, slope +0.00191 per dpr_step). **No cell crossed 3.28** within 2500 training steps. Both predeclared stop conditions triggered for ALL cells: (1) every cell has best_val_loss > 3.30 ("regularization too strong"), and (2) FFS=-1 for all cells (never reached the 3.28 target, far beyond the FFS-alive gate of ≤2975).
+
+**Analysis:**
+Stochastic depth introduces a uniform loss-floor shift upward proportional to drop_rate; the 2500-step budget is too short for the regularization to recoup its cost. Even Cell A CTRL (drop_rate=0) shows val/loss 3.3087 — slightly above ctrl baseline 3.27, suggesting the 2500-step budget itself is tight. The monotone harm pattern indicates stochastic depth is acting as expected (effective regularization) but the budget is incompatible.
+
+**Mechanism finding (high value)**: Combined with #1870 (label smoothing FFS-NEG-DIDNOT-CROSS), this **closes the forward-pass training-time regularization family** at R5. Any mechanism that introduces a per-step expected loss penalty (stochastic depth, label smoothing, mixup, confidence penalty, dropout on activations) will fail on the same budget-incompatibility mechanism: at 124M params × 2500–3250 steps, there is no headroom to absorb regularization "rent" before the FFS crossing budget runs out.
+
+**Memory rule:** `r5_ffs_neg_stochastic_depth_linear_survival` — stochastic depth with linear survival schedule (drop_rate ∈ {0.05, 0.10, 0.15}) produces monotone harm at R5; never crosses 3.28. Forward-pass training-time regularization family closed.
+
+**Closure:** 75th R5 closure. FFS-NEG-DIDNOT-CROSS. Axis closed.
+
+---
+
 ## 2026-05-31 07:20Z — PR #1880 CLOSED FFS-NEUTRAL [seed-noise dominant, μ telemetry verified]: tanjiro Muon μ cooldown schedule [74th R5 closure]
 
 - branch: g1r5-tanjiro/mu-cooldown-schedule

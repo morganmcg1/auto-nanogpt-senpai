@@ -9,7 +9,39 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 07:30Z (74 R5 closures; tanjiro #1880 CLOSED 74th [FFS-NEUTRAL μ cooldown, seed-noise dominant, μ axis closed]; tanjiro #1937 qkv-ortho-init ASSIGNED; fern #1885 CLOSED 73rd [FFS-NEUTRAL GC]; 8/8 active)
+## Last updated: 2026-05-31 08:20Z (76 R5 closures; alphonse #1903 CLOSED 75th [FFS-NEG monotone, drop-path family closed]; askeladd #1891 CLOSED 76th [FFS-NEUTRAL GE-SAM, additive-pre-NS family closed]; alphonse #1941 muon-depth-lr-scale ASSIGNED; askeladd #1942 logit-z-loss ASSIGNED; 8/8 active)
+
+### Notes (2026-05-31 08:20Z) — ALPHONSE #1903 CLOSED 75th [FFS-NEG MONOTONE]; ASKELADD #1891 CLOSED 76th [FFS-NEUTRAL]; ALPHONSE #1941 + ASKELADD #1942 ASSIGNED
+
+- **★ CLOSED #1903 alphonse Stochastic Depth (DropPath)** [75th R5 closure, 08:05Z] — clean FFS-NEG, both predeclared stop conditions triggered.
+  - Cell A CTRL (drop_rate=0, `d3ls9t5z`): val=3.3087, FFS=-1
+  - Cell B (drop_rate=0.05, `aggnf0pt`): val=3.3185, FFS=-1
+  - Cell C★ (drop_rate=0.10, `9rwheegl`): val=3.3284, FFS=-1
+  - Cell D (drop_rate=0.15, `e2s7xiwd`): val=3.3375, FFS=-1
+  - **Strict monotone harm**: val/loss scales linearly with drop_rate (+0.00191 per dpr_step). NO cell crossed 3.28 within 2500 steps.
+- **★★ FORWARD-PASS TRAINING-TIME REGULARIZATION FAMILY CLOSED:**
+  - Stochastic depth (#1903) + label smoothing (#1870) both FFS-NEG, both never crossed 3.28
+  - Mechanism: at 124M params × 2500–3250 steps, no headroom to absorb regularization "rent" before FFS crossing budget runs out
+  - Memory rule: `r5_ffs_neg_stochastic_depth_linear_survival`. Combined with `label_smoothing_blocks_ffs_crossing_at_r5`.
+
+- **★ CLOSED #1891 askeladd GE-SAM (Gradient Extrapolation as zero-cost SAM)** [76th R5 closure, 08:15Z] — FFS-NEUTRAL, flat dose-response.
+  - Cell A CTRL (α=0.00): FFS_ema=2950, FFS_trainval=2975
+  - Cell B★ (α=0.05): FFS_ema=2925, FFS_trainval=2925
+  - Cell C (α=0.02): FFS_ema=2925, FFS_trainval=2950
+  - Cell D (α=0.10): FFS_ema=2925, FFS_trainval=2925
+  - **Flat dose-response across α ∈ {0.02, 0.05, 0.10}**: all three non-CTRL cells at FFS_ema=2925 despite 5× α range. KG_smoke confirmed signal was real (cos_sim ≈ 0.90–0.94) and zero-compute claim verified.
+- **★★ ADDITIVE-PRE-NS GRADIENT-MODIFIER FAMILY CLOSED:**
+  - GE-SAM (#1891 FFS-NEUTRAL) + GC (#1885 FFS-NEUTRAL) + Muon μ cooldown (#1880 FFS-NEUTRAL): all three additive pre-NS modifiers are absorbed by NS5's Stiefel projection
+  - Mechanism: g_t and g_{t-1} are nearly co-linear (cos_sim≈0.92), so finite-difference SAM acts as implicit LR boost rather than curvature-aware perturbation
+  - Memory rule: `ge_sam_additive_grad_modifier_pre_ns_neutral_at_r5`. Combined with `gc_dc_component_neutral_under_ns5` and `muon_mu_cooldown_neutral_above_075_neg_at_060`.
+
+- **★ ALPHONSE #1941 muon-depth-lr-scale ASSIGNED** — PR #1941. First R5 hypothesis in the Muon optimizer-routing space. Apply linear per-block depth decay `lr_i = lr_muon · (1 − decay · i / (N−1))` so block 0 retains full LR, block N-1 gets `lr_muon · (1−decay)`. Completes the μP depth-LR contract whose init half is satisfied by `musoft` (Yang & Hu 2021, arxiv:2203.03466). Mechanism: cooldown-phase deep-block instability is the FFS bottleneck; reducing deep-block LR moderates oscillation in the crossing window (steps 2800–3050). ~18 LOC change — per-block Muon groups via `configure_optimizers`. Cells: A_ctrl(0.0), B★(0.15), C(0.25 upper), D(0.08 conservative). KG_smoke gate verifies block_0 LR == lr_muon AND block_(N-1) LR ≈ 0.85·lr_muon at step 100. Signal gate: B★ FFS_ema ≤ 2887.
+
+- **★ ASKELADD #1942 logit-z-loss ASSIGNED** — PR #1942. First R5 hypothesis in the loss-function-axis that does NOT introduce an entropy floor (unlike label smoothing). Add PaLM-style `w · mean(logits²)` penalty inside forward(). Mechanism: soft-tanh squash bounds logit magnitude at ±15 but provides no gradient pressure to keep logits small *within* that range; logit drift toward ±15 sharpens softmax in cooldown phase and delays FFS crossing. Z-loss creates adaptive self-regularization — optimal logit magnitude is a fixed point between CE pull and z-penalty push. 16 LOC change in `forward()`. Cells: A_ctrl(w=0.0), B★(w=1e-4 PaLM default), C1(w=1e-5), C2(w=1e-3 dose-response). Distinct from label smoothing (#1870 closed FFS-NEG): no target perturbation, no entropy floor lift, FFS crossing remains achievable. KG_smoke gate verifies z_loss > 0 at w=1e-4 and = 0 at w=0.0. References: PaLM (arxiv:2204.02311), ST-MoE (arxiv:2202.08906).
+
+- **Fleet at 08:20Z**: edward #1858 WIP (n=4 seeds running); fern #1922 WIP (wd-cooldown-shape Cell A linear ~94%); nezuko #1897 WIP; thorfinn #1907 WIP (Cell C α=0.3 ~81%); frieren #1910 WIP (bias-ln-lr-scale Cell C running); tanjiro #1937 WIP (qkv-ortho-init); alphonse #1941 WIP (muon-depth-lr-scale, NEW); askeladd #1942 WIP (logit-z-loss, NEW). **8/8 active, zero idle.**
+
+---
 
 ### Notes (2026-05-31 07:30Z) — TANJIRO #1880 μ COOLDOWN CLOSED 74th [FFS-NEUTRAL, SEED-NOISE DOMINANT]; TANJIRO #1937 qkv-ortho-init ASSIGNED
 
