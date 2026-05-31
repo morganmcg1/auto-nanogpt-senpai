@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-05-31 18:47 UTC — PR #1945 thorfinn: Body PMuon weight_decay PERSISTENT pulse @ cooldown onset step 975 (RELAX wd→0.0 vs DEEPEN wd→0.05) — ❌ BILATERAL NULL
+
+- Branch: `thorfinn/body-muon-wd-pulse-cooldown`
+- Hypothesis: Body PMuon wd persistent pulse at cooldown onset (step 975) — both directions tested. RELAX (wd→0.0) eliminates regularization during cooldown; DEEPEN (wd→0.05) doubles it. Combining with the canonical β₂ pulse stack to test whether wd modulation at the same phase boundary provides additive signal.
+
+| Arm | Direction | run | sr | val_ema | Δ vs gate (mnat) | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | — |
+| **A (RELAX wd→0.0)** | RELAX | `sw7pnrnk` | 2925 | 3.264418 | **+1.56** | ❌ NULL |
+| **B (DEEPEN wd→0.05)** | DEEPEN | `lmucsujb` | 2925 | 3.264100 | **+1.25** | ❌ NULL |
+
+- **Symmetric NULL within 0.31 mnat:** RELAX slightly worse than DEEPEN (consistent with cooldown needing regularization from wd). Both sr=2925 — wd pulse at cooldown onset does not accelerate crossing the target boundary.
+- **Axis closure:** Combined with #1693 (pre-target wd pulse bilateral NULL) and all prior scalar pulse closures, **body PMuon weight_decay perturbation axis FULLY CLOSED** across all temporal boundaries (cooldown-onset @975 and pre-target @2750) and both directions (RELAX/DEEPEN). The canonical wd=0.025 through full run is the optimum.
+- **Key insight:** Among all body PMuon scalar pulses tested — LR (#1637/#1697), γ (#1831/#1680/#1935), μ (#1686), NS-coefs (#1660), β₁ (#1592/#1639), β_cov (#1666), wd (#1693/#1945), Nesterov (#1898), schedule-free (#1576) — NONE show improvement. Scalar optimization regime is saturated; structural state-arithmetic at phase boundaries is the remaining open axis.
+- **thorfinn reassigned:** Body PMuon momentum HARD-ZERO vs DECAY ×0.5 @ warmup-end step 200, joint all blocks — body-Muon analog of frieren #1963 WIN-candidate at the same boundary (PR #2003).
+
 ## 2026-05-31 15:15 UTC — PR #1935 alphonse: Body PMuon γ pulse BLOCK-STRATIFIED (γ→0.5 SHARPEN deep vs shallow) @ step 975 — ❌ BILATERAL NULL (depth localization does not unlock γ→0.5 SHARPEN headroom)
 
 - Branch: `g1r1-alphonse/body-gamma-sharpen-blockwise`
