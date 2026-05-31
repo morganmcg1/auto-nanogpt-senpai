@@ -101,6 +101,10 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--soap_state_cooldown_reset", action="store_true", default=False,
+                        help="At step=cooldown_start_step (computed from cooldown_frac=0.7), hard-reset "
+                             "all SOAP shampoo state per Muon param (row_gg, col_gg, q_row=None, "
+                             "q_col=None, exp_avg_sq, soap_step). Muon momentum buffer is NOT reset.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -786,6 +790,7 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "soap_state_cooldown_reset": bool(args.soap_state_cooldown_reset),
         },
     )
 
@@ -1180,6 +1185,32 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if args.soap_state_cooldown_reset:
+            cooldown_start_step = int((1.0 - 0.7) * train_steps)
+            if step == cooldown_start_step:
+                n_reset_soap = 0
+                for p in optimizer2.state:
+                    st = optimizer2.state[p]
+                    if "row_gg" in st:
+                        st["row_gg"].zero_()
+                        st["col_gg"].zero_()
+                        st["q_row"] = None
+                        st["q_col"] = None
+                        if "exp_avg_sq" in st:
+                            st["exp_avg_sq"].zero_()
+                        st["soap_step"] = 0
+                        n_reset_soap += 1
+                if dist.get_rank() == 0:
+                    wandb.log({
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "train/soap_state_reset": 1,
+                        "train/soap_reset_n_params": n_reset_soap,
+                        "train/soap_cooldown_start_step": cooldown_start_step,
+                    }, step=wandb_step)
+                print0(f"[soap-reset] step={step} cooldown_start_step={cooldown_start_step} "
+                       f"n_reset_soap={n_reset_soap}", console=True)
+
         for opt in optimizers:
             opt.step()
 
