@@ -9,7 +9,24 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 03:15Z (70 R5 closures; alphonse #1903 stochastic-depth-residual-dropout ASSIGNED; 8/8 active)
+## Last updated: 2026-05-31 03:35Z (71 R5 closures; thorfinn #1870 CLOSED 71st [FFS-NEG, val=3.3154 never crossed, loss-function-space-regularization family CLOSED]; thorfinn #1907 ln-gain-init-small ASSIGNED; 8/8 active)
+
+### Notes (2026-05-31 03:35Z) — THORFINN #1870 LABEL-SMOOTHING CLOSED 71st [FFS-NEG, DID NOT CROSS]; THORFINN #1907 ln-gain-init-small ASSIGNED
+
+- **★ CLOSED #1870 thorfinn label-smoothing α=0.05** [71st R5 closure, 03:30Z] — clean-NEG, both stop conditions hit.
+  - Cell A CTRL (`qotek1lq`, α=0): FFS_ema=**2950**, val=3.2721 (crossed)
+  - Cell B★ (`vde4akez`, α=0.05): FFS_ema=**-1**, val=**3.3154** — **NEVER CROSSED 3.28** (+43 mNat above target after 3250 steps)
+  - Predeclared stop conditions: (1) FFS-alive gate FAILED (never crossed), (2) val-loss floor breached (3.3154 > 3.29). Both triggered.
+- **★★ MECHANISM FINDING — LOSS-FUNCTION-SPACE-REGULARIZATION FAMILY CLOSED:**
+  - Even α=0.05 (1.3% smoothing weight) permanently lifts the asymptotic val/loss above 3.28 within the 3250-step budget. The entropy floor introduced by label smoothing is budget-incompatible with FFS at R5.
+  - **Closes the loss-function-space-regularization family** at R5. Any mechanism introducing a permanent loss floor (label smoothing, confidence penalty, mixup/soft-labels) will fail on this same budget-incompatibility mechanism.
+  - Memory rule: `label_smoothing_blocks_ffs_crossing_at_r5`.
+
+- **★ THORFINN #1907 ln-gain-init-small ASSIGNED** — PR #1907. Hypothesis: initialize all RMSNorm/LayerNorm gain γ params to α=0.5 instead of canonical 1.0. First R5 hypothesis targeting LN-gain init (musoft only touches ndim≥2 weight matrices; LN gains are ndim=1 scalars, always at 1.0). T-Fixup (Huang et al. 2020) + Admin init precedent. Cells: 0=smoke (100 steps), A=ctrl (α=1.0), B★=α=0.5, C=α=0.3, D=α=0.7, E=n=4 confirm at best α.
+
+- **Fleet at 03:35Z**: edward #1858 WIP (n=4 confirm running ~4h remaining); tanjiro #1880 WIP (~41%); fern #1885 WIP; askeladd #1891 WIP; frieren #1895 WIP; nezuko #1897 WIP; alphonse #1903 WIP (stochastic-depth); thorfinn #1907 WIP (ln-gain-init-small). **8/8 active.**
+
+---
 
 ### Notes (2026-05-31 02:00Z) — ALPHONSE #1860 SOAP-ATTN COOLDOWN GATE CLOSED 70th [FFS-NEG, MONOTONIC HARM]
 

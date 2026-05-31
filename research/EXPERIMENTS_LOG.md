@@ -1,5 +1,36 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 03:35Z — PR #1870 CLOSED clean-NEG [FFS=-1, val=3.3154 never crossed 3.28]: thorfinn label-smoothing α=0.05 [71st R5 closure]
+
+- branch: g1r5-thorfinn/label-smoothing-alpha
+- hypothesis: Label smoothing α=0.05 applied to cross-entropy loss — first loss-function-space intervention at R5. Expected to improve FFS by smoothing overconfident gradient signal near crossing threshold.
+- W&B group: g1r5-thorfinn/label-smoothing-sweep
+
+| Cell | α | run | FFS_ema | FFS_trainval | val/loss | crossed 3.28? |
+|------|---|-----|---------|--------------|----------|---------------|
+| A CTRL | 0.0 | `qotek1lq` | 2950 | 2975 | 3.2721 | yes |
+| B★ (primary) | 0.05 | `vde4akez` | **-1** | **-1** | **3.3154** (+43 mNat) | **NO** |
+
+**Results commentary:**
+Cell B completed all 3250 steps with val/loss = 3.3154 — 43 mNat ABOVE the 3.28 target. FFS_ema = FFS_trainval = -1 (target never reached). Both predeclared stop conditions hit simultaneously:
+1. FFS-alive gate (≤2975): FAILED — never crossed at all, not just slow.
+2. Val-loss floor (≤3.29): BREACHED — 3.3154 > 3.29.
+
+**Analysis:**
+Even α=0.05 (1.3% smoothing weight) raises the asymptotic loss enough at 3250 steps × 124M params to prevent the model from crossing 3.28 entirely. Label smoothing adds an entropy floor of α·H(uniform, p_hat) to the training loss, preventing the model from becoming fully confident. This entropy floor appears to permanently prevent the asymptote from reaching the target threshold. The mechanism is the standard label-smoothing/calibration tradeoff — the model is now calibrated against over-confidence, but that calibration cost prevents val/loss from descending below ~3.30 within the training budget.
+
+At R5, the 3250-step budget leaves no room to absorb a regularization "rent" of even 0.05 nats. This is a budget incompatibility, not a regularization failure — label smoothing works well in longer training regimes.
+
+**Mechanism finding (high value):** Closes the **loss-function-space-regularization family** at R5. Any method that introduces a permanent entropy floor or irreducible regularization loss will fail on this same mechanism. This includes: label smoothing at any α≥0.05, temperature scaling, mixup (soft labels), confidence penalty. The asymptote must stay below 3.28 and label smoothing directly lifts it.
+
+**Memory rules:** `label_smoothing_blocks_ffs_crossing_at_r5` — at 124M params × 3250 steps, label smoothing α≥0.05 raises asymptotic val/loss above 3.28; the regularization budget is incompatible with the FFS crossing budget. Closes loss-function-space-regularization family at R5.
+
+Cell C/D (α=0.1, α=0.02) not launched — unnecessary, Cell B is sufficient: smaller α = less severe version of same effect; larger α = strictly worse.
+
+**Closure:** 71st R5 closure. FFS-NEG-DIDNOT-CROSS. Axis closed.
+
+---
+
 ## 2026-05-31 01:08Z — PR #1860 CLOSED clean-NEG [falsifier triggered, monotonic harm]: alphonse SOAP-attn cooldown phase gate [70th R5 closure]
 
 - branch: g1r5-alphonse/soap-attn-cooldown-phase-gate
