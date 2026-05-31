@@ -9,7 +9,34 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 19:10Z (88 R5 closures; **★★★ EDWARD #1948 D TERMINAL — ALL 3 ARMS FFS_ema=2875 FLAT DOSE-RESPONSE**; **★★★ FRIEREN #1966 B★ FFS-POSITIVE n=1 OFF-ATTRACTOR** {FFS_ema=2875, FFS_trainval=2875}; askeladd A_ctrl=2975 +2.5σ flag-verify needed; 8/8 active)
+## Last updated: 2026-05-31 19:20Z (88 R5 closures; **★★★ EDWARD #1948 n=4 LAUNCHED at freq=4** (trial 1/4 step 872/3250); **★★★ FRIEREN #1966 B★ FFS-POSITIVE STANDING**; **TWO MECHANISMS APPROACHING n=4 GATE**; 8/8 active)
+
+### Notes (2026-05-31 19:20Z) — Edward n=4 confirm in flight; fern closest to terminal (~14 min); compounding experiment plan drafted
+
+- **★★★ EDWARD #1948 n=4 LAUNCHED** — Student posted full A/B/C/D table + probe-step trajectory + n=4 launch confirmation. Cell E configured at `--precond_freq_base 16 --precond_freq_cooldown 4` (B★ center of saturated region), wandb_group `g1r5-edward/precond-freq-cooldown-schedule-n4`, run `1r8b1zmi`. Trial 1/4 currently at step 872/3250, val=3.713. ETA ~75 min for trial 1; ~5h for all 4 trials. Merge gate: μ_4(FFS_ema) ≤ 2887.5. Probe-step trajectory at step 2500 showed Δ(D−A)=−0.00309 (peak separation inside FFS-crossing window) — mechanism is real, not seed jitter.
+
+- **★★★ FRIEREN #1966 B★ STANDING; C(mu=0.80) at 77%** — C run `yvgj4e8p` at step 2507/3250, val=3.343, ETA ~19:50Z. After C SENPAI-RESULT, decision tree:
+  - C at FFS_ema=2925 → B is sweet spot @ mu=0.70, launch n=4 directly at mu=0.70
+  - C at FFS_ema ∈ {2875, 2900} → monotone dose-response, launch n=4 at mu=0.70 (best cell)
+  - C at FFS_ema=2875 → flat dose-response (like edward); launch n=4 at mu=0.70 (cheapest cell with full signal)
+
+- **★ COMPOUNDING EXPERIMENT PLAN** — If both edward + frieren confirm at n=4, queue compounding test as immediate follow-up: `--precond_freq_cooldown 4 --muon_mu_schedule "ramp:0.95→0.70"` stacked on the mandatory R5 stack. Both target distinct optimizer state (SOAP eigenbasis stride vs Muon EMA momentum), so orthogonal expectation: μ_4(FFS_ema) ≤ 2825 plausible. If overlapping, single-mechanism gain only. Assign to nezuko or thorfinn (whoever closes first).
+
+- **★ ALL 8 EXPERIMENTS ON-TRACK (W&B picture 19:15Z)**:
+  - **Fern #1983 B(const WD)** — closest to terminal: step 2924/3250, val=3.288 (~14 min). Tests if `--wd_schedule ramp_down` is load-bearing.
+  - **Alphonse #1979 B(LR pulse)** — step 2757/3250, val=3.313 (~21 min). val_loss still 0.025 above target → likely FFS-neutral.
+  - **Thorfinn #1994 A_ctrl** — step 2611/3250, val=3.337 (~20 min). Group `g1r5-thorfinn/soap-state-cd-reset` (W&B abbreviates 'cooldown' to 'cd'). B★ queued.
+  - **Frieren #1966 C(mu=0.80)** — step 2507/3250, val=3.343 (~31 min).
+  - **Tanjiro #1988 B(beta1=0)** — step 1722/3250, val=3.528 (~48 min).
+  - **Askeladd #1989 B(const aux)** — step 1485/3250, val=3.576 (~55 min). A_ctrl=2975 anomaly verification pending student response.
+  - **Edward #1948 Cell E** — step 872/3250 trial 1/4, val=3.713 (~75 min trial 1).
+  - **Nezuko #1993 B(muon mom reset)** — step 565/3250, val=3.815 (~88 min).
+
+- **No human directives since 2026-05-26 #1262.** Working within FFS-PRIMARY framing.
+
+- **Fleet at 19:20Z**: All 8 active. **Next 90 min: 5 terminals expected** (fern, alphonse, thorfinn A_ctrl, frieren C, tanjiro). Edward n=4 is the marquee event — terminal in ~5h.
+
+---
 
 ### Notes (2026-05-31 19:10Z) — ★★★ EDWARD #1948 D TERMINAL: full dose-response flat FFS_ema=2875 across freq∈{2,4,8}; SENPAI-RESULT expected next heartbeat; n=4 confirm imminent
 
