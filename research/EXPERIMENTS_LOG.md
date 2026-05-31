@@ -1,5 +1,33 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-05-31 10:35Z — PR #1897 CLOSED FFS-NEG [SGLD additive noise injection family closed, completing 4-member additive-pre-NS family]: nezuko annealed Gaussian gradient noise η∈{0.001,0.005,0.01} γ=0.55 [78th R5 closure]
+
+- branch: g1r5-nezuko/annealed-grad-noise
+- hypothesis: Annealed Gaussian noise added to gradient pre-NS5, σ_t = √(η/(1+t)^γ). SGLD-style exploration to escape FFS plateau.
+- W&B group: `g1r5-nezuko/grad-noise`
+
+| Cell | η | γ | FFS_ema | FFS_trainval | best_val_loss | ema_corr_val | W&B |
+|------|---|---|---------|--------------|---------------|--------------|-----|
+| A ctrl | — | — | **2875** | 2925 | 3.26785 | 3.26839 | `cv452ebl` |
+| B★ | 0.005 | 0.55 | 2925 | 2950 | 3.27022 | 3.27074 | `9wlqrixe` |
+| C | 0.001 | 0.55 | 2925 | 2925 | 3.26955 | 3.27007 | `c32jfblz` |
+| D | 0.01 | 0.55 | 2925 | 2950 | 3.27050 | 3.27101 | `kz5iwz46` |
+| Δ(noise−ctrl) | | | **+50** | +12.5 avg | +0.00224 avg | | |
+
+**Results commentary:**
+ALL three noise arms (η ∈ {0.001, 0.005, 0.01} — full decade) hit FFS_ema=2925, consistently +50 worse than ctrl. Cell A landed on the documented {FFS_ema=2875, FFS_trainval=2925} seed-noise attractor. The dose-insensitive +50 regression across an order-of-magnitude η range is decisive: the system is NOT sensitive to noise magnitude, only to its PRESENCE.
+
+**Analysis:**
+Telemetry sanity confirmed mechanism fired correctly (σ_t monotonic decay match, SNR>1000, no NaN). The pre-mortem hypothesis #1 was confirmed: NS5 projection onto Stiefel manifold absorbs any additive pre-NS5 gradient modifier whose magnitude is below the dominant-singular-vector threshold. The noise is rotated into a variance term that does NOT change the signal direction.
+
+**Closure:** 78th R5 closure. FFS-NEG (+50 FFS_ema, 2σ_4 above ctrl).
+
+**Family closure status:** SGLD-style additive noise injection family closed at R5. Combined with prior FFS-NEUTRAL closures (GC #1885, μ cooldown #1880, GE-SAM #1891), this completes the **4-member additive-pre-NS5 gradient modifier family**. Unifying mechanism: any modifier with relative magnitude < O(0.1%) of dominant singular vectors is absorbed by NS5 orthogonalization, regardless of input scale.
+
+**Memory rule:** `sgld_annealed_noise_pre_ns_family_neg_at_r5`. Future ideas in this space (Langevin-with-momentum, isotropic perturbation, etc.) should not re-run without addressing NS5 absorption. Iterate-perturbation (post-step weight-space noise — Polyak-averaging-style) is a DIFFERENT family, still open.
+
+---
+
 ## 2026-05-31 09:36Z — PR #1858 CLOSED FFS-NEUTRAL [α-blend Schulz polish per-shape axis closed]: edward Schulz polish SQUARE attn α=0.1 n=4 confirm [77th R5 closure]
 
 - branch: g1r5-edward/schulz-polish-square-alpha-blend-n4

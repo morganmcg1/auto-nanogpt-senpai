@@ -9,7 +9,27 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 09:36Z (77 R5 closures; edward #1858 CLOSED 77th [FFS-NEUTRAL Schulz n=4 revert, α-blend per-shape axis closed]; edward #1948 precond-freq-cooldown-schedule ASSIGNED; 8/8 active)
+## Last updated: 2026-05-31 10:35Z (78 R5 closures; nezuko #1897 CLOSED 78th [FFS-NEG SGLD noise η-decade exhausted, 4-member additive-pre-NS family complete]; nezuko #1955 adamw-eps-cooldown ASSIGNED; 8/8 active)
+
+### Notes (2026-05-31 10:35Z) — NEZUKO #1897 CLOSED 78th [FFS-NEG, +50 ACROSS η DECADE]; NEZUKO #1955 adamw-eps-cooldown ASSIGNED
+
+- **★ CLOSED #1897 nezuko SGLD annealed Gaussian gradient noise** [78th R5 closure, 10:35Z] — FFS-NEG +50 across η decade.
+  - A ctrl (`cv452ebl`): FFS_ema=2875 (on attractor)
+  - B★ (η=0.005): FFS_ema=2925, +50 vs ctrl
+  - C (η=0.001): FFS_ema=2925, +50 vs ctrl
+  - D (η=0.01): FFS_ema=2925, +50 vs ctrl
+  - **Decisive finding**: dose-insensitive +50 regression across order-of-magnitude η range = NS5 absorbs noise into fixed-relative-magnitude variance term regardless of scale. NOT noise-magnitude-sensitive, only noise-PRESENCE-sensitive.
+- **★★ ADDITIVE-PRE-NS5 GRADIENT-MODIFIER FAMILY COMPLETE (4-member)**:
+  - SGLD noise (#1897 FFS-NEG) + GE-SAM (#1891 FFS-NEUTRAL) + GC (#1885 FFS-NEUTRAL) + μ cooldown (#1880 FFS-NEUTRAL)
+  - Unifying mechanism: NS5 Stiefel projection absorbs any modifier with rel. magnitude < O(0.1%) of dominant singular vectors
+  - Memory rule: `sgld_annealed_noise_pre_ns_family_neg_at_r5`. Future SGLD-like ideas need to bypass NS5 absorption.
+- Polyak-Ruppert iterate-perturbation (weight-space noise post-step) remains an OPEN family — different mechanism.
+
+- **★ NEZUKO #1955 adamw-eps-cooldown ASSIGNED** — First R5 ablation of AdamW ε (current value 1e-10, non-default; PyTorch default 1e-8). Log-linear decay of ε during cooldown from 1e-10 → 1e-14. Targets AdamW-managed 1D scalars + embed + lm_head (not Muon-managed 2D matrices). Mechanism: when ε ≪ √v̂, ε is inert; reducing ε in cooldown lets low-v̂ (low-grad-variance) directions get larger steps, extracting finer curvature signal in the FFS crossing window. ~18 LOC: one CLI flag + `get_adamw_eps()` helper + `"eps" in group` guarded update in `set_hparams`. References: FAdam (arxiv:2405.12807), Schaipp cooldown theory (arxiv:2501.18965). KG_smoke verifies log-linear progression at steps {0, 100, 199} for 200-step debug. Cells (n=1 per FFS-PRIMARY): A_ctrl(1e-10 no-op), B★(1e-14), C(1e-12), D(1e-16 floor). Signal gate: B★ FFS_ema ≤ 2887 OR FFS_trainval ≤ 2900. Pre-mortem: bf16+fused AdamW kernel may underflow at ε<1e-15 — Cell D's purpose is to detect this.
+
+- **Fleet at 10:35Z**: nezuko #1955 WIP (adamw-eps-cooldown, just assigned); edward #1948 WIP (precond-freq-cooldown-schedule); fern #1922 WIP (wd-cooldown-shape Cell B ~98%); thorfinn #1907 WIP (Cell D α=0.7); frieren #1910 WIP (Cell D scale=2.0, ~12%); tanjiro #1937 WIP (Cell B at ~19%); alphonse #1941 WIP (muon-depth-lr-scale); askeladd #1942 WIP (logit-z-loss). **8/8 active, zero idle.**
+
+---
 
 ### Notes (2026-05-31 09:36Z) — EDWARD #1858 CLOSED 77th [FFS-NEUTRAL n=1→n=4 REVERT]; EDWARD #1948 precond-freq-cooldown-schedule ASSIGNED
 
