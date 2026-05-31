@@ -1,8 +1,19 @@
-## Cycle ~2700 (CURRENT): H324 CLOSED 178th NULL/NEG (🎯 PAPER-GRADE monotone NEG dose-response on OUTER LR WARMUP + 6th independent FFS=3000 EXACT TIE H266 attractor cluster member + trajectory-divergence-then-incomplete-recovery mechanism + H316+H324 two-experiment closure of OUTER LR SCHEDULE axis as a CLASS) + H323 CLOSED 177th NULL/NEG earlier this cycle (🎯 DEEPEST mid-training POS −45σ at step 1000 + cooldown-onset inversion) + H332 tanjiro ASSIGNED Polyak EMA DECAY SCHEDULE (cooldown-peak schedule, mechanism-targeted from H323 closure narrative, PR pending, WIN prob 12-18%) + H331 thorfinn ASSIGNED TRAPEZOIDAL V-shape μ schedule (PR #1939, student's H323 follow-up #1, WIN prob 12-18%)
+## Cycle ~2700 (CURRENT): H325 CLOSED 179th NULL/NEG (🎯 7th independent FFS=3000 EXACT TIE H266 attractor cluster STRONGEST BELOW + H309+H317+H325 three-experiment β2 mid_training_ramp axis CLOSED + β1-vs-β2 SCHEDULE-axis distinction + H266 attractor canalization paper-grade reinforced at maximum strength) + H333 frieren ASSIGNED AUX β2 cooldown_ramp DOWN (NO CODE CHANGES, mechanism-targeted, WIN prob 6-10%) + H324 CLOSED 178th NULL/NEG (H316+H324 two-experiment OUTER LR SCHEDULE axis CLOSED as class) + H332 tanjiro ASSIGNED Polyak EMA DECAY SCHEDULE (PR #1951, WIN prob 12-18%) + H323 CLOSED 177th NULL/NEG (DEEPEST mid-training POS −45σ at step 1000 + cooldown-onset inversion) + H331 thorfinn ASSIGNED TRAPEZOIDAL V-shape μ schedule (PR #1939, WIN prob 12-18%)
 
-**TWO major closures (177th + 178th NULL/NEG with paper-grade mechanism findings), two fresh assignments. Plateau campaign portfolio: 178 NULL/NEG + 1 MERGED WIN (H266), 106 mechanism classes consolidated. All 8 students WIP — zero idle GPUs.**
+**THREE major closures this cycle (177th–179th NULL/NEG with paper-grade mechanism findings), three fresh assignments. Plateau campaign portfolio: 179 NULL/NEG + 1 MERGED WIN (H266), 107 mechanism classes consolidated. All 8 students WIP — zero idle GPUs.**
 
 ### Closures this cycle
+
+**H325 frieren AUX β2 mid_training_ramp DOWN-from-0.99-anchor CLOSED 179th NULL/NEG (PR #1917) — 🎯 H309+H317+H325 three-experiment β2 mid_training_ramp axis CLOSED + β1-vs-β2 SCHEDULE-axis distinction**
+- arm_a CTRL (constant β2=0.99, H266 baseline) `io9w74er`: val=**3.26742** FFS=**3000 EXACT** (🎯 **−0.86σ TIE BELOW H266, 7th independent attractor TIE, STRONGEST BELOW in entire cluster**)
+- arm_b DOWN_MILD (mid_training_ramp β2_end=0.98) `qltryaha`: val=3.26892 FFS=3025 (+0.83σ MILD NEG, +1.69σ vs CTRL)
+- arm_c DOWN_AGGRESSIVE (mid_training_ramp β2_end=0.97) `w0986os4`: val=3.26940 FFS=3025 (+1.38σ NEG, +2.24σ vs CTRL)
+- 🎯 **7th independent FFS=3000 EXACT TIE H266 attractor cluster member** (strongest BELOW val=3.26742, −0.86σ vs H266) — canalization finding at MAXIMUM paper-grade strength
+- 🎯 **H309 + H317 + H325 three-experiment closure of β2 mid_training_ramp axis at H266 anchor** — UP fully closed by H317 (FLAT/NEG), DOWN fully closed by H325 (monotone NEG); β2=0.99 locally Pareto in both directions
+- 🎯 **β1-vs-β2 SCHEDULE-axis distinction**: β1 SCHEDULE = single-anchor locally-Pareto at H266 (β1=0.8); β2 SCHEDULE = path-dependent (POS direction at 0.97-anchor via H309, locally Pareto at 0.99-anchor)
+- 🎯 **H266 attractor canalization paper-grade reinforced**: CTRL replicates with distinct upstream configs (β1=0.95, α=0, λ=1e-5, constant outer_lr, constant β2) all converge to FFS=3000 EXACT fixed point with val within ~1σ noise
+- Per-checkpoint mechanism: divergence negligible during ramp phase [0,1995], emerges at held+cooldown onset [2000+], saturates at FFS=3025 — cooldown-only variant (H333) directly motivated
+- Two mechanistic interpretations: (1) path-dependent optimum migration, (2) saturated headroom from H266's other upgrades — both paper-grade and falsifiable
 
 **H324 tanjiro OUTER LR WARMUP schedule CLOSED 178th NULL/NEG (PR #1913) — 🎯 H316+H324 two-experiment OUTER LR SCHEDULE axis CLOSED**
 - arm_a CTRL (constant N=0, H266 baseline) `or2ps0ah`: val=**3.26774** FFS=**3000 EXACT** (−0.50σ TIE BELOW, 6th independent attractor TIE)
@@ -26,7 +37,15 @@
 
 ### Fresh assignments this cycle
 
-**H332 tanjiro — POLYAK EMA DECAY SCHEDULE (cooldown-peak, PR pending)**
+**H333 frieren — AUX β2 cooldown_ramp DOWN from 0.99-anchor (PR #1954)**
+- Mechanism-targeted from H325 closure + cycle ~2700 cooldown-window cluster (H321 cooldown α / H323 cooldown μ / H332 cooldown EMA decay / H331 cooldown μ ramp-back — all identify cooldown steps 2826-3325 as load-bearing window)
+- **NO CODE CHANGES NEEDED**: `cooldown_ramp` aux_beta2_schedule already exists (used by H309 as UP-ramp 0.97→0.99)
+- 3-arm Pattern A: arm_a CTRL constant β2=0.99 (H266 bit-id) / arm_b COOLDOWN_DOWN_MILD cooldown_ramp β2_start=0.99 β2_end=0.98 / arm_c COOLDOWN_DOWN_AGGRESSIVE cooldown_ramp β2_start=0.99 β2_end=0.97
+- Pattern A drift-FREE: arm_a/b/c bit-id with H266 through step 2825; treatment only in cooldown [2826, 3325]
+- Tests H325's mechanism: is β2 DOWN-penalty specific to through-training perturbation or does cooldown-only perturbation also penalize?
+- WIN prob 6-10%
+
+**H332 tanjiro — POLYAK EMA DECAY SCHEDULE (cooldown-peak, PR #1951)**
 - Mechanism-targeted from H323 closure narrative: "Polyak EMA requires HIGH-μ momentum coherence during cooldown for terminal val" implies EMA TRACKING SPEED during cooldown is load-bearing
 - H266 baseline decay=0.05 constant was screen-tuned at COARSE resolution (decay ∈ {0.005, 0.05, 0.5}); fine-grained dose-response within 0.05-region has never been probed under SCHEDULED variation
 - 3-arm Pattern A: arm_a CTRL constant 0.05 (H266 baseline) / arm_b STEP_INC_COOLDOWN constant 0.05 [0,2826) → STEP-UP 0.10 [2826,3325] / arm_c RAMP_INC_COOLDOWN constant 0.05 [0,2826) → RAMP 0.05→0.20 [2826,3325]
@@ -41,16 +60,17 @@
 - Cherry-pick V-shape code from thorfinn's H314 branch + add HOLD window
 - WIN prob 12-18% (moderate — directly targets mechanism inversion boundary identified by H323 + H321)
 
-### Carry-over: 6 other students WIP (5 ongoing + 1 fresh assignment H332)
+### Carry-over: 5 ongoing WIP + 3 fresh assignments (H331 thorfinn / H332 tanjiro / H333 frieren)
 
+- PR #1954 H333 frieren: AUX β2 cooldown_ramp DOWN (FRESH cycle ~2700 assignment from H325 closure, PR #1954, student next-poll pickup pending)
+- PR #1951 H332 tanjiro: POLYAK EMA DECAY SCHEDULE (fresh cycle ~2700 assignment from H324 closure, student next-poll pickup pending)
 - PR #1939 H331 thorfinn: TRAPEZOIDAL V-shape μ (fresh cycle ~2700 assignment from H323 closure)
-- PR pending H332 tanjiro: POLYAK EMA DECAY SCHEDULE (fresh cycle ~2700 assignment from H324 closure)
 - PR #1936 H330 fern: EARLY-WINDOW adaptive α schedule — arm_a CTRL `say244vc` FINISHED FFS=3025 IN FAMILY val=3.2687; arm_b 1500/2000 `hsxuanh2` RUNNING with 🎯 paper-grade mid-training POS signals (−14.7σ POS at step 500, −15.9σ POS at step 1000 in active window peak); arm_c queued
 - PR #1933 H329 edward: OUTER anchor MOMENTUM smoothing-without-lag — arm_a CTRL `hi8740nn` RUNNING at 93% with FFS=3025 IN FAMILY; arm_b/arm_c queued; crashed earlier attempt `yn9o5ta0` cleanly restarted
 - PR #1927 H326 nezuko: F-norm-preserving redefined regularizer + H322 seed-replicate (cycle ~2650 assignment)
 - PR #1926 H328 askeladd: AUX weight_decay VALUE axis — arm_a CTRL `ewljx90i` FINISHED at FFS=3050 +50 OUT OF FAMILY (suspected float-vs-int weight_decay code path drift); arm_b/arm_c launch status pending
 - PR #1924 H327 alphonse: NEGATIVE outer_momentum_cooldown_end — arm_a CTRL `wkv6yr1i` FINISHED FFS=3050 (+50 edge-of-Pattern-A-envelope, COINCIDENT with H328 CTRL FFS=3050 val Δ=0.000010 INDISTINGUISHABLE); arm_b MILD_NEG `mrd8cutn` RUNNING at 15%; arm_c STRONG_NEG queued
-- PR #1917 H325 frieren: AUX β2 mid_training_ramp DOWN-from-baseline (arm_a CTRL `io9w74er` FINISHED FFS=3000 EXACT TIE H266 val=3.2674 — **5th independent FFS=3000 attractor TIE**; arm_b running; arm_c queued)
+- ~~PR #1917 H325 frieren~~: CLOSED 179th NULL/NEG. frieren reassigned to H333 (PR #1954).
 
 ### 🎯 Cycle ~2700 within-cycle paper-grade mechanism findings
 

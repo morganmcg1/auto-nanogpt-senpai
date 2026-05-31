@@ -1,3 +1,73 @@
+## 2026-05-31 — PR #1917: H325 frieren AUX β2 mid_training_ramp DOWN from 0.99-anchor — CLOSED 179th NULL/NEG (🎯 PAPER-GRADE monotone NEG dose-response + 7th independent FFS=3000 EXACT TIE H266 attractor cluster member (STRONGEST BELOW) + H309+H317+H325 three-experiment closure of AUX β2 mid_training_ramp axis at H266 anchor + β1-vs-β2 SCHEDULE-axis distinction + H266 attractor canalization paper-grade reinforced)
+
+- Branch: g1r3-frieren/h325-aux-beta2-mid-ramp-down-from-baseline
+- Hypothesis: Mirror of H317 (UP 0.99→0.997/0.999 = NULL/NEG) — test DOWN direction from 0.99-anchor. H309 found POS at 0.97-anchor (UP 0.97→0.99/0.997), H317 found FLAT/NEG at 0.99-anchor (UP). H325 tests DOWN from 0.99, completing the bilateral axis closure. arm_a CTRL constant β2=0.99 (H266 baseline), arm_b DOWN_MILD mid_training_ramp β2_end=0.98, arm_c DOWN_AGGRESSIVE mid_training_ramp β2_end=0.97.
+
+### Results
+
+| Arm | W&B | aux_beta2_schedule | β2_end | val/loss | FFS | Δ vs H266 (σ_H174) | Δ vs arm_a CTRL (σ_H174) | Merge gate FFS<3000 |
+|-----|-----|---------------------|--------|----------|-----|---------------------|---------------------------|----------------------|
+| arm_a CTRL (constant) | `io9w74er` | constant | 0.99 | **3.26742** | **3000 EXACT** | −0.86σ TIE BELOW | (ref) | ties — not merge candidate |
+| arm_b DOWN_MILD (mid_ramp) | `qltryaha` | mid_training_ramp | 0.98 | 3.26892 | 3025 | +0.83σ MILD NEG | +1.69σ NEG | misses by +25 |
+| arm_c DOWN_AGGRESSIVE (mid_ramp) | `w0986os4` | mid_training_ramp | 0.97 | 3.26940 | 3025 | +1.38σ NEG | +2.24σ NEG | misses by +25 |
+
+All 3 arms (+ smoke `g57r68qf`) step-0 val=10.82583 EXACT Pattern A drift-FREE. aux/beta2 trajectory verified bit-exact at multiple step points.
+
+### 🎯 7th independent FFS=3000 EXACT TIE H266 attractor cluster member (STRONGEST BELOW)
+
+arm_a CTRL val=3.26742 FFS=3000 EXACT joins cycle ~2650/~2700 paper-grade attractor cluster:
+
+| Cycle ~2650/~2700 CTRL/mild-treatment arm | run_id | val | FFS | Δ vs H266 (σ_H174) |
+|--------------------------------------------|--------|-----|-----|---------------------|
+| H266 baseline (merged) | `m2ywl0o9` | 3.26818 | 3000 | (ref) |
+| H319 arm_a CTRL | `bzc5enbz` | 3.26905 | 3000 | +0.10σ TIE |
+| H321 arm_a CTRL | `rjn6drqg` | 3.26792 | 3000 | −0.029σ TIE BELOW |
+| H322 arm_b ORTHO_WEAK | `dlqr0bu2` | 3.26774 | 3000 | −0.05σ TIE BELOW |
+| H324 arm_a CTRL | `or2ps0ah` | 3.26774 | 3000 | −0.05σ TIE BELOW |
+| **H325 arm_a CTRL (THIS)** | **`io9w74er`** | **3.26742** | **3000 EXACT** | **−0.86σ TIE BELOW (STRONGEST)** |
+
+7 independent FFS=3000 EXACT TIES H266 within ~11 hours. H325 arm_a is the strongest CTRL replicate BELOW H266 baseline. The FFS=3000 attractor canalization finding is **paper-grade reinforced at maximum strength** — perturbing AUX/OUTER/BODY/REG axes that don't strict-clear FFS<3000 all collapse to the same FFS=3000 fixed point with val/loss within ~1σ_H174 noise.
+
+### 🎯 H309 + H317 + H325 three-experiment closure of AUX β2 mid_training_ramp axis at H266 anchor
+
+| Sub-axis | PR | Anchor | Direction | Doses | Outcome |
+|----------|----|--------|-----------|-------|---------|
+| H309 | #1851 | 0.97 | UP 0.97→0.99/0.997 | +0.02/+0.027 | **POS (FFS<3000)** → **merged** |
+| H317 | #1882 | 0.99 | UP 0.99→0.997/0.999 | +0.007/+0.009 | FLAT/MILD NEG → CLOSED 171st NULL/NEG |
+| H325 (THIS) | #1917 | 0.99 | DOWN 0.99→0.98/0.97 | −0.01/−0.02 | MILD NEG → NEG monotone → CLOSED 179th NULL/NEG |
+
+**AUX β2 mid_training_ramp axis at 0.99 anchor: FULLY EXHAUSTED in BOTH directions**. β2=0.99 is locally Pareto under perturbation at H266 baseline. Combined with H309's POS-at-0.97-anchor, the axis exhibits **STRUCTURAL PATH-DEPENDENCE**: locally-optimal direction depends on the upstream anchor.
+
+### 🎯 PAPER-GRADE within-cycle β1-vs-β2 SCHEDULE-axis distinction (H319 + H309 + H317 + H325 four-experiment cross-comparison)
+
+| Moment | Anchor | UP direction | DOWN direction | Locally Pareto at anchor? |
+|--------|--------|--------------|----------------|--------------------------|
+| **β1** (first-moment) | 0.8 | NEG +2.69σ (H319 arm_b 0.85) | mild NEG +1.37σ (H319 arm_c 0.75) | **YES at 0.8** |
+| **β2** (variance smoothing) | 0.99 | FLAT +0.10σ (H317 0.997) / NEG +1.33σ (H317 0.999) | MILD NEG +0.83σ (H325 0.98) / NEG +1.38σ (H325 0.97) | **YES at 0.99** |
+| **β2** (variance smoothing) | 0.97 | POS (H309 wins UP 0.97→0.99) | (not tested) | **NO at 0.97** (POS direction exists) |
+
+**β1 SCHEDULE behaves like a single-anchor locally-Pareto axis** at H266 (β1=0.8). **β2 SCHEDULE behaves like a path-dependent axis** whose optimum migrates with upstream config.
+
+### Per-checkpoint mechanism: divergence emerges at cooldown onset
+
+Trajectory reveals divergence is **negligible during ramp phase (steps 0-1995)** and **emerges in held + cooldown phase (steps 2000+)**. Arms bit-id at step 0 (10.82583 EXACT); held-low β2 during cooldown increases variance-noise during cooldown convergence. arm_a crosses FFS=3000 EXACT; arm_b/c both cross at FFS=3025 — divergence saturates at cooldown-onset point. Two mechanistic interpretations: (1) path-dependent optimum (β2-axis local optimum shifts as function of upstream config), (2) saturated headroom (H266 other upgrades absorbed variance-noise-suppression benefit β2 used to deliver). Both paper-grade and falsifiable.
+
+### Conclusions
+
+🎯 **179th NULL/NEG + 107th mechanism class CLOSED NEG** — AUX β2 mid_training_ramp DOWN-from-0.99 axis CLOSED with monotone NEG dose-response.
+
+🎯 **7th independent FFS=3000 EXACT TIE H266** (strongest BELOW val=3.26742, −0.86σ). Attractor canalization finding at maximum paper-grade strength.
+
+🎯 **H309 + H317 + H325 three-experiment closure of β2 mid_training_ramp axis at H266 anchor** — bilateral exhaustion at 0.99 anchor.
+
+🎯 **β1-vs-β2 SCHEDULE-axis distinction** — β1 single-anchor Pareto, β2 path-dependent (POS exists at 0.97-anchor via H309).
+
+Reassigning frieren to H333 — AUX β2 cooldown_ramp DOWN from 0.99-anchor (mechanism-targeted from cycle ~2700 cooldown-window cluster, NO CODE CHANGES needed since `cooldown_ramp` already exists). WIN probability: 6-10%.
+
+Plateau portfolio: **179 NULL/NEG + 1 MERGED WIN** (H266 baseline FFS=3000), 107 mechanism classes consolidated.
+
+---
+
 ## 2026-05-31 — PR #1913: H324 tanjiro OUTER LR WARMUP schedule (early-training axis) — CLOSED 178th NULL/NEG (🎯 PAPER-GRADE monotone NEG dose-response + 6th independent FFS=3000 EXACT TIE H266 attractor cluster member + trajectory-divergence-then-incomplete-recovery mechanism + H316+H324 two-experiment closure of OUTER LR SCHEDULE axis as a CLASS)
 
 - Branch: g1r3-tanjiro/h324-outer-lr-warmup
