@@ -1,3 +1,48 @@
+## Cycle ~2100: H314 CLOSED 169th NULL/NEG (🎯 paper-grade BUFFER DURABILITY DEFINITIVE NEGATIVE: active-ONLY-during-low-μ mechanism confirmed — gain washes out AS μ recovers at step ~1750 during ramp-back, NOT coast delay, 104th mechanism class CONSOLIDATED) + H323 ASSIGNED thorfinn μ_end low sustained (direct H314 follow-up, 105th candidate)
+
+**One terminal closure (169th NULL/NEG) producing paper-grade μ-buffer durability mechanism insight. Plateau campaign portfolio: 169 NULL/NEG + 1 MERGED WIN (H266), 104 mechanism classes consolidated. μ_end value dose-response assigned (zero code changes, highest-leverage direct follow-up to H314).**
+
+### Closure this cycle
+
+**H314 thorfinn DIP-and-EARLY-RECOVER V-shape μ CLOSED 169th NULL/NEG — 🎯 paper-grade BUFFER DURABILITY DEFINITIVE NEGATIVE**
+
+Terminal verdict (PR #1865):
+- arm_a CTRL_LINEAR `0iiq8eql`: val=3.26868, FFS=3025 (+0.57σ TIE H266)
+- arm_b RAMP_BACK_0p60 `70ankpxi` (V-shape, ramp ends step 1995, ~500-step coast): val=3.30434, FFS=−1 FAIL (+40.3σ CATASTROPHIC NEG)
+- arm_c RAMP_BACK_0p70 `233pn3o6` (V-shape, ramp ends step 2327, ~167-step coast): val=3.30645, FFS=−1 FAIL (+42.7σ CATASTROPHIC NEG)
+
+**Mechanism decode from per-checkpoint trajectory**:
+- Mid-training gain at trough (step 1000, μ=0.65): both arms −47-48σ vs CTRL (massive)
+- Sign flip at step 1750 DURING ramp-back (μ≈0.88): gain reversal happens DURING μ recovery, NOT during coast/cooldown
+- Pre-cooldown coast provides only 2.4σ improvement per 333 coast steps → ~5600 coast steps needed to close 40σ deficit (infeasible)
+- **Conclusion: mid-training low-μ advantage is active-ONLY-during-low-μ-phase** (thermodynamic, not structural buffer change)
+
+### Fresh assignment this cycle
+
+**H323 thorfinn μ_END VALUE DOSE-RESPONSE on post-H266 stack ASSIGNED — direct H314 follow-up** (105th mechanism class candidate)
+
+If the advantage requires sustained low-μ to be active, then keeping μ_end lower throughout training+cooldown (monotone schedule, no V-shape dip) should preserve it at terminal. Tests:
+- arm_a CTRL: μ_end=0.90 (H266 baseline)
+- arm_b LOW_MU_END: μ_end=0.75
+- arm_c VERY_LOW_MU_END: μ_end=0.65 (matches V-shape trough)
+
+Zero code changes. WIN prob 10-15%. Pre-H266 μ_end value cube was NEG but on a weaker stack; H266 Polyak EMA interaction with sustained low μ is untested.
+
+### Mechanism axes in flight (post-cycle ~2100)
+
+| PR | Hypothesis | Mechanism axis | WIN prob | ETA terminal |
+|----|-----------|----------------|---------:|-------------|
+| #1878 | H316 tanjiro OUTER LR cooldown ramp | OUTER LR schedule | 15-20% | ~04:00Z 2026-05-31 |
+| #1882 | H317 frieren AUX β2 UP AMPLIFIED | AUX β2 schedule | 20-25% | ~12:00Z 2026-05-31 |
+| #1889 | H318 alphonse OUTER momentum cooldown | OUTER μ schedule | 15-20% | pending (plumbing audit) |
+| #1890 | H319 askeladd AUX β1 mid-training schedule | AUX β1 schedule | 10-15% | TBD |
+| #1892 | H320 edward OUTER anchor refresh policy | OUTER anchor (VIRGIN) | 10-15% | TBD |
+| #1896 | H321 fern schedule-tapered adaptive μ | INNER μ schedule (H313 follow) | 25-30% | TBD |
+| #1905 | H322 nezuko body weight orthogonality | BODY weight STRUCTURAL (VIRGIN) | 10-12% | TBD |
+| #1906 | H323 thorfinn μ_end value low sustained | INNER μ VALUE (H314 follow-up) | 10-15% | TBD |
+
+8 chains across 5 mechanism axes. **Two fresh structural/direct-follow-up axes added this cycle** (H322 VIRGIN body weight, H323 direct H314 follow-up). The most likely WIN candidate remains H321 fern (schedule-tapered adaptive μ, 25-30%) as a direct H313 paper-grade finding #2 follow-up.
+
 ## Cycle ~2050: H315 CLOSED 168th NULL/NEG (🎯 paper-grade TRIPLE CONVERGENT H306+H307+H315 "cooldown is dominant fixed-point attractor" + 🎯 paper-grade FAST sign-flip ~75 steps + 🎯 paper-grade LINEAR_TAPER ~25% sub-noise mitigation, 103rd mechanism class CONSOLIDATED) + H322 ASSIGNED nezuko body weight orthogonality regularizer (FRESH STRUCTURAL AXIS per EXPERIMENTS_LOG #3528 UNEXPLORED list, 104th candidate)
 
 **One terminal closure (168th NULL/NEG) producing 🎯 plateau-protocol-level paper-grade finding (cooldown attractor structural rigidity). Plateau campaign portfolio: 168 NULL/NEG + 1 MERGED WIN (H266), 103 mechanism classes consolidated. Fresh STRUCTURAL axis assigned per closure recommendation.**

@@ -1,3 +1,43 @@
+## 2026-05-31 — PR #1865: H314 thorfinn DIP-and-EARLY-RECOVER V-shape μ (buffer durability test) — CLOSED 169th NULL/NEG (🎯 paper-grade BUFFER DURABILITY DEFINITIVE NEGATIVE: active-ONLY-during-low-μ mechanism confirmed — gain washes out AS μ recovers at step ~1750 during ramp-back, NOT via coast delay, 104th mechanism class CONSOLIDATED closing TEMPORAL ramp-back-endpoint axis)
+
+- Branch: g1r3-thorfinn/h314-dip-early-recover-v-shape
+- Hypothesis: Decouple H306's ramp-back-DURING-cooldown hypothesis from the mid-training gain by terminating μ ramp-back BEFORE cooldown. If buffer state is durable, mid-training advantage persists through pre-cooldown coast and into terminal val. 3-arm: arm_a CTRL_LINEAR (linear schedule, H266 path), arm_b RAMP_BACK_0p60 (V-shape, trough μ=0.65, ramp ends at step 1995, ~500-step coast), arm_c RAMP_BACK_0p70 (V-shape, trough μ=0.65, ramp ends at step 2327, ~167-step coast).
+
+### Results
+
+| Arm | W&B | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Merge gate |
+|-----|-----|----------|-----|--------------------|--------------------|------------|
+| arm_a CTRL_LINEAR | `0iiq8eql` | 3.26868 | 3025 | (ref) | +0.57σ TIE | MISSES by +25 |
+| arm_b RAMP_BACK_0p60 | `70ankpxi` | 3.30434 | −1 FAIL | **+40.3σ CATASTROPHIC NEG** | +40.9σ | CATASTROPHIC FAIL |
+| arm_c RAMP_BACK_0p70 | `233pn3o6` | 3.30645 | −1 FAIL | **+42.7σ CATASTROPHIC NEG** | +43.3σ | CATASTROPHIC FAIL |
+
+### 🎯 paper-grade BUFFER DURABILITY DEFINITIVE NEGATIVE
+
+Per-checkpoint Δ(arm_b vs CTRL) trajectory reveals the mechanism cleanly:
+
+| Step | μ (arm_b) | Phase | Δ vs CTRL (σ_H174) | Mechanism active |
+|------|-----------|-------|---------------------|------------------|
+| 1000 | 0.65 (trough) | const-LR, low μ | **−47.7σ MASSIVE GAIN** | ✓ low μ active |
+| 1500 | ~0.80 (ascending) | const-LR, ramp-back | −15.5σ (decaying) | partial low μ |
+| 1750 | ~0.88 (ascending) | const-LR, ramp-back | **+7.7σ SIGN FLIP** | ← DURING ramp-back! |
+| 2000 | 0.95 (RECOVERED) | const-LR, coast | +50.2σ | ✗ μ recovered |
+| 2500 | 0.95 | cooldown onset | +61.9σ | ✗ |
+| 3325 | 0.95 | terminal | +40.3σ | ✗ |
+
+**Critical finding**: sign flip happens at step ~1750 DURING the ramp-back phase (μ≈0.88), NOT during coast/cooldown. This definitively closes "cooldown concurrency was the cause" (H306's alternative) — the wash-out is μ-RECOVERY ITSELF.
+
+arm_b vs arm_c dose-response: arm_c is +2.4σ worse than arm_b (less coast = marginally worse). Extrapolating: 2σ per 333 extra coast steps = ~5600 extra coast steps to close the 40σ deficit — infeasible within budget.
+
+arm_b vs H306 V_DEEP (`ramp ends at train_steps`): only −4.7σ improvement from pre-cooldown ramp termination. Confirms H306's cooldown-concurrent ramp was NOT the dominant mechanism; μ-recovery is.
+
+### Closure rationale
+
+104th mechanism class CONSOLIDATED ("DIP-and-EARLY-RECOVER V-shape" TEMPORAL ramp-back-endpoint axis closed). Combined with H306 (cooldown-concurrent ramp, 5 V-shape axes including both DEPTH values): full V-shape μ-heterogeneity cube closure across DEPTH × RAMP-BACK-ENDPOINT. H308 tanjiro (SPATIAL-TYPE, in-flight) will complete the 6-axis closure.
+
+### Next assignment
+
+H323 thorfinn μ_end VALUE LOW SUSTAINED on post-H266 stack (direct "active-only-during-low-μ" follow-up). Tests if keeping μ lower MONOTONICALLY throughout training+cooldown (μ_end=0.75/0.65 vs H266's μ_end=0.90) captures the H314-revealed mechanism without a V-shape. Lowest-complexity follow-up; no code changes needed.
+
 ## 2026-05-31 — PR #1867: H315 nezuko POST-NS5 noise COOLDOWN_TAPER (H307 wash-out test) — CLOSED 168th NULL/NEG (🎯 paper-grade TRIPLE CONVERGENT confirmation H306+H307+H315 "cooldown is dominant fixed-point attractor" + 🎯 paper-grade FAST cooldown sign-flip ~75 steps + 🎯 paper-grade LINEAR_TAPER ~25% sub-noise mitigation, 103rd mechanism class CONSOLIDATED)
 
 - Branch: g1r3-nezuko/h315-post-ns5-noise-cooldown-taper
