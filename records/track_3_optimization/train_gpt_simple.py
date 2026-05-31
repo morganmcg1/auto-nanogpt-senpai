@@ -114,6 +114,30 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H316: OUTER LR cooldown schedule. Attacks the H306+H307+H308 paper-grade convergent
+    # cooldown wash-out via the MuLoCo outer step (104th mechanism class candidate).
+    # 'constant' = H266 baseline (outer_lr=0.7 fixed throughout training, drift-FREE).
+    # 'cooldown_ramp' = linear ramp from outer_lr to outer_lr_cooldown_end over the
+    # OUTER cooldown window defined by outer_lr_cooldown_frac (default 0.15 = last 15%).
+    # Independent from MuonH inner h_cooldown_frac=1.0 (full-training cosine).
+    parser.add_argument("--outer_lr_schedule", type=str,
+        default=os.environ.get("OUTER_LR_SCHEDULE", "constant"),
+        choices=["constant", "cooldown_ramp"],
+        help="OUTER LR schedule. 'constant' = H266 baseline (outer_lr=0.7 fixed). "
+             "'cooldown_ramp' = linear ramp from outer_lr to outer_lr_cooldown_end "
+             "across the OUTER cooldown window (last outer_lr_cooldown_frac of "
+             "train_steps). Drift-FREE at 'constant'.")
+    parser.add_argument("--outer_lr_cooldown_end", type=float,
+        default=float(os.environ.get("OUTER_LR_COOLDOWN_END", "0.0")),
+        help="Endpoint outer_lr at terminal step when outer_lr_schedule='cooldown_ramp'. "
+             "0.0 = full ramp to zero (matches inner cosine). 0.35 = half ramp (mild). "
+             "Ignored when outer_lr_schedule='constant'.")
+    parser.add_argument("--outer_lr_cooldown_frac", type=float,
+        default=float(os.environ.get("OUTER_LR_COOLDOWN_FRAC", "0.15")),
+        help="Fraction of train_steps over which outer_lr ramps when "
+             "outer_lr_schedule='cooldown_ramp'. 0.15 = ramp over last 15% (last 499 "
+             "of 3325 steps), preserving Pattern A drift-FREE for the first 85%. "
+             "Independent from inner h_cooldown_frac=1.0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -856,6 +880,9 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "muloco_outer_lr_schedule": args.outer_lr_schedule,
+            "muloco_outer_lr_cooldown_end": args.outer_lr_cooldown_end,
+            "muloco_outer_lr_cooldown_frac": args.outer_lr_cooldown_frac,
         },
     )
 
@@ -1033,7 +1060,21 @@ for trial_idx in range(args.num_trials):
                 g["mu"] = mu_t
         else:
             mu_t = 0.95
-        return muonh_warmup, b2, mu_t
+        # H316: OUTER LR schedule. 'constant' = no-op (outer_lr_t stays at args.outer_lr).
+        # 'cooldown_ramp' = linear ramp from args.outer_lr to args.outer_lr_cooldown_end
+        # across the OUTER cooldown window (last args.outer_lr_cooldown_frac of training,
+        # default 0.15 = last 15%). Independent from inner h_cooldown_frac=1.0 cosine so
+        # all arms are bit-identical for the pre-outer-cooldown ~85% of training.
+        if args.outer_lr_schedule == "cooldown_ramp":
+            outer_cooldown_start_frac = 1.0 - args.outer_lr_cooldown_frac
+            if progress < outer_cooldown_start_frac:
+                outer_lr_t = args.outer_lr
+            else:
+                outer_cooldown_prog = (progress - outer_cooldown_start_frac) / args.outer_lr_cooldown_frac
+                outer_lr_t = args.outer_lr + outer_cooldown_prog * (args.outer_lr_cooldown_end - args.outer_lr)
+        else:
+            outer_lr_t = args.outer_lr
+        return muonh_warmup, b2, mu_t, outer_lr_t
 
 
     ########################################
@@ -1175,7 +1216,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        muonh_warmup_factor, aux_beta2, muonh_mu_t = set_hparams(step)
+        muonh_warmup_factor, aux_beta2, muonh_mu_t, outer_lr_t = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1334,7 +1375,7 @@ for trial_idx in range(args.num_trials):
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
                     outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
+                    p.data.copy_(outer_anchor[n] - outer_lr_t *
                                  (args.outer_momentum * outer_velocity[n] + delta))
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
@@ -1351,6 +1392,7 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/muloco/outer_lr_t": outer_lr_t,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
