@@ -56,6 +56,14 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H336: OUTER anchor MOMENTUM with η<1 brake — 2D interior of (lag, velocity).
+    # Default β=0.0, η=1.0 = hard-replace anchor update (bit-id with H266 baseline).
+    parser.add_argument("--outer_anchor_momentum", type=float,
+        default=float(os.environ.get("OUTER_ANCHOR_MOMENTUM", "0.0")),
+        help="Anchor velocity smoothing β (heavy-ball MA on anchor delta). 0.0 = hard-replace (H266 baseline bit-id).")
+    parser.add_argument("--outer_anchor_lr", type=float,
+        default=float(os.environ.get("OUTER_ANCHOR_LR", "1.0")),
+        help="Anchor step-size η for velocity update (η<1 = BRAKE on velocity direction). 1.0 = full-step (H329 baseline).")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -844,6 +852,8 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "outer_anchor_momentum": args.outer_anchor_momentum,
+            "outer_anchor_lr": args.outer_anchor_lr,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -1054,9 +1064,13 @@ for trial_idx in range(args.num_trials):
     if use_outer:
         outer_anchor = {n: p.detach().clone() for n, p in model.named_parameters()}
         outer_velocity = {n: torch.zeros_like(p) for n, p in model.named_parameters()}
+        # H336: anchor velocity buffer (heavy-ball MA on anchor delta). Only consumed
+        # when args.outer_anchor_momentum > 0.0; allocation is cheap (same as outer_velocity).
+        outer_anchor_velocity = {n: torch.zeros_like(p) for n, p in model.named_parameters()}
     else:
         outer_anchor = None
         outer_velocity = None
+        outer_anchor_velocity = None
     outer_applied_steps = 0
 
     # H266: Polyak-Ruppert EMA buffer for eval-only weight averaging (Pattern A drift-FREE).
@@ -1329,6 +1343,8 @@ for trial_idx in range(args.num_trials):
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
                 velocity_sq = torch.zeros((), device=device)
+                anchor_velocity_sq = torch.zeros((), device=device)
+                anchor_drift_sq = torch.zeros((), device=device)
                 total_count = 0
             with torch.no_grad():
                 for n, p in model.named_parameters():
@@ -1336,21 +1352,37 @@ for trial_idx in range(args.num_trials):
                     outer_velocity[n].mul_(args.outer_momentum).add_(delta)
                     p.data.copy_(outer_anchor[n] - args.outer_lr *
                                  (args.outer_momentum * outer_velocity[n] + delta))
-                    outer_anchor[n].copy_(p.data)
+                    # H336: conditional anchor update. β=0.0 → hard-replace (H266 bit-id);
+                    # β>0 → velocity buffer + η<1 brake (2D interior of (lag, velocity)).
+                    if args.outer_anchor_momentum > 0.0:
+                        anchor_delta = p.data - outer_anchor[n]
+                        outer_anchor_velocity[n].mul_(args.outer_anchor_momentum).add_(anchor_delta)
+                        outer_anchor[n].add_(outer_anchor_velocity[n], alpha=args.outer_anchor_lr)
+                    else:
+                        outer_anchor[n].copy_(p.data)
                     if log_outer:
                         delta_sq = delta_sq + delta.float().square().sum()
                         velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
+                        anchor_velocity_sq = anchor_velocity_sq + outer_anchor_velocity[n].float().square().sum()
+                        # H336: anchor drift = |anchor - p| AFTER the anchor update. With hard-replace
+                        # this is 0; with the velocity brake it measures how far the smoothed anchor
+                        # trails the live param (the mechanism distinction vs H329 β=0.9 unbounded growth).
+                        anchor_drift_sq = anchor_drift_sq + (outer_anchor[n] - p.data).float().square().sum()
                         total_count += delta.numel()
             outer_applied_steps += 1
             if log_outer:
                 delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
                 velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
+                anchor_velocity_rms = (anchor_velocity_sq.item() / max(1, total_count)) ** 0.5
+                anchor_drift_rms = (anchor_drift_sq.item() / max(1, total_count)) ** 0.5
                 wandb.log({
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/muloco/anchor_velocity_rms": anchor_velocity_rms,
+                    "train/muloco/anchor_drift_rms": anchor_drift_rms,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
