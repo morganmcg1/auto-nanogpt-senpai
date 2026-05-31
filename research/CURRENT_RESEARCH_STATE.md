@@ -9,6 +9,31 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-05-31 23:05Z (**92 R5 closures**; **askeladd → #2030 sf-muon-polyak-ruppert (Schedule-Free Muon body iterate averaging — first MUON-side optimizer ALGORITHM change in 92 R5 experiments)**; 8/8 active; 3 parallel n=4 confirms in flight)
+
+### Notes (2026-05-31 23:05Z) — askeladd #2030 SF-Muon Polyak-Ruppert assigned; 8/8 active
+
+- **ASKELADD → PR #2030 (sf-muon-polyak-ruppert)** — Schedule-Free Muon body iterate averaging. Maintains base iterate `z` (receives gradient + WD), with `p` holding the cumulative lr-weighted Polyak-Ruppert average `x = Σ(lr_t × z_t) / Σ(lr_t)`. **First MUON-side optimizer ALGORITHM change in all 92 R5 experiments.** Zero extra communication: `dist.all_gather` already syncs `p`. Three cells: (1) β=1.0 all groups (pure SF), (2) β=0.98 all (recency-dampened, MLCommons AlgoPerf 2024 sweet spot), (3) β=1.0 MLP-only (isolation test). Distinct from EMA-eval (fixed decay 0.99) — SF weights each step by lr_t (heavier mid-training, lighter at warmup/cooldown shrinkage).
+
+- **★ AUX-vs-MUON algorithm-replacement frontier now spanned**: fern #2023 (Lion as AUX, AdamW replacement) + askeladd #2030 (SF Polyak-Ruppert as Muon body kernel addition) — two parallel optimizer-side ALGORITHM probes. Combined with 3 parallel optimizer-STATE FFS-positive mechanisms (edward/frieren/thorfinn n=4 confirms), the round is now richly stratified across mechanism types.
+
+- **★★★ THREE PARALLEL FFS-POSITIVE n=4 CONFIRMS IN FLIGHT** (unchanged from 22:55Z):
+  - edward #1948 (SOAP precond_freq=4 cooldown continuous) — trial 2+/4
+  - frieren #1966 (Muon mu=0.80 gradual ramp) — trial 1/4
+  - thorfinn #1994 (SOAP state hard-reset discrete) — n=4 launch directive posted, student pickup pending
+
+- **8/8 ACTIVE — CURRENT FLEET STATUS (23:05Z)**:
+  - edward #1948: n=4 confirm (trial 2+)
+  - frieren #1966: n=4 confirm (trial 1)
+  - thorfinn #1994: n=4 launch directive posted
+  - tanjiro #2014: ns-iter-cooldown-ramp A_ctrl mid-run
+  - nezuko #2020: soap-beta2-cooldown post-watchdog
+  - alphonse #1979: A/B/C finished, awaiting SENPAI-RESULT
+  - fern #2023: lion-aux-optimizer (rebased)
+  - **askeladd #2030: sf-muon-polyak-ruppert (just assigned)**
+
+---
+
 ## Last updated: 2026-05-31 22:55Z (**92 R5 closures**; **92nd: askeladd #1989 aux-cooldown-shape-decoupling FFS-NEG/NEUTRAL** (AUX-COOLDOWN family fully closed across both SHAPE + PARAM axes, 4 closures total); askeladd → researcher-agent dispatched for fresh hypothesis; 7/8 active pending askeladd; 3 parallel n=4 confirms in flight)
 
 ### Notes (2026-05-31 22:55Z) — 92nd closure; AUX-COOLDOWN family fully closed; askeladd hypothesis dispatch in flight
