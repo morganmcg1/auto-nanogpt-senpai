@@ -9,7 +9,34 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-05-31 01:15Z (69 R5 closures; frieren #1895 Lookahead-Muon ASSIGNED; nezuko #1897 annealed-gradient-noise-muon ASSIGNED; 8/8 active)
+## Last updated: 2026-05-31 01:45Z (69 R5 closures; edward #1858 Schulz polish SQUARE sent back for n=4 confirm at α=0.1 [FIRST joint FFS+val signal in 69 closures]; tanjiro #1880 + thorfinn #1870 active progress confirmed via W&B; 8/8 active)
+
+### Notes (2026-05-31 01:45Z) — EDWARD #1858 SCHULZ POLISH SQUARE SENT BACK FOR n=4 CONFIRM [FIRST JOINT FFS+VAL SIGNAL]
+
+- **★★ EDWARD #1858 α-blended Schulz polish on SQUARE attn — REQUEST CHANGES (n=4 confirm at α=0.1)** [01:30Z]
+  - Cell A CTRL (α=0.0, `vgqqwynh`): FFS_ema=2950, val=3.27106
+  - Cell B★ (α=0.1, `uvwvrmic`): **FFS_ema=2875, FFS_trainval=2925, val=3.26855 (Δval=-0.00251 = 2.5σ_4)**
+  - Cell C (α=0.3, `yitza0rr`): FFS_ema=2925, val=3.27020 (Δval=-0.00086)
+  - W&B verification: all metrics exact match to reported. All 3 cells finished cleanly at 3250 steps.
+  - **★★ THIS IS THE FIRST JOINT FFS + val/loss POSITIVE SIGNAL IN 69 R5 CLOSURES.** Both metrics move in the same direction; Cell C confirms monotone-in-α structure (α-sweet-spot at 0.1, weaker at 0.3).
+  - **Caveat**: Cell B's `{FFS_ema=2875, FFS_trainval=2925}` IS the documented seed-noise signature. Pre-declared promotion gate (FFS_trainval≤2900 OR FFS_ema≤2825) was NOT met.
+  - **Decision rationale**: val/loss movement (-2.5σ_4) is not pure seed-noise; mechanism story is coherent (σ=0 fixed-point preserved, mid-σ pulled toward 1, α-sweet-spot). 7-hour GPU cost of n=4 confirmation is small vs cost of false-negative close after 69-deep plateau.
+  - **n=4 protocol**: 4 fresh seeds at α=0.1 (ignore original `uvwvrmic` to avoid selection bias). Group `g1r5-edward/schulz-polish-square-alpha-blend-n4`. Merge gate: μ_4(FFS_ema) ≤ 2887.5. Close if μ_4 > 2925.
+  - **★ Memory rule (already saved on n=1 evidence)**: `schulz_alpha_blend_safe_on_square_rank_deficient` — α-blend Schulz on SQUARE attn rank-deficient (σ_min≈0.003) does NOT NaN even at α=0.3. Structurally distinct from Higham polar polish (#1833, which used 1/(μσ) and blew up). σ=0 fixed-point preserved.
+
+- **★ TANJIRO #1880 μ-cooldown — active progress** (W&B verified 01:30Z):
+  - Cell A CTRL (`if71akg1`): finished 3250 steps, val=3.2704, FFS_trainval=2950
+  - Cell B μ=0.85 (`upms16as`): running, ~7% (step 233/3250). Launched 00:44Z. Expected complete ~02:24Z.
+  - Stale_wip flag was sequential-arm-launch lag, not failure.
+
+- **★ THORFINN #1870 label-smoothing — active progress** (W&B verified 01:30Z):
+  - Cell A CTRL (`qotek1lq`): finished 3250 steps, val=3.2721, FFS_trainval=2975
+  - Cell B α=0.05 (`vde4akez`): running, ~73% (step 2379/3250). Expected complete ~01:40Z.
+  - Stale_wip flag was sequential-arm-launch lag, not failure.
+
+- **Fleet at 01:45Z**: thorfinn #1870 WIP (Cell B 73%, ~10 min remain); alphonse #1860 WIP (nudge sent earlier); edward #1858 WIP (n=4 confirm requested, ~7h budget); tanjiro #1880 WIP (Cell B 7%); fern #1885 WIP; askeladd #1891 WIP; frieren #1895 WIP (Lookahead-Muon); nezuko #1897 WIP (annealed-grad-noise). **8/8 active.**
+
+
 
 ### Notes (2026-05-31 00:45Z) — #1841 CLOSED 68th + #1834 CLOSED 69th + #1895 FRIEREN LOOKAHEAD-MUON ASSIGNED
 
