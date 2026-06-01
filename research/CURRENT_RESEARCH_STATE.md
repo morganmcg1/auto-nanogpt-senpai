@@ -1,3 +1,46 @@
+## 2026-06-01 16:15 UTC — Cycle 71 mid-526 — frieren #2114 429th refute 298th mech class INTERVAL-SUBSTRATE-ASYMMETRIC-DECOUPLING-INVARIANT-EMBED200-LMHEAD400-FLOOR-BAND-LOWER-EDGE (51st RTM precedent; n=2 mean 3.270315; BIT-EQUIVALENT to both symmetric-INTERVAL endpoints; INTERVAL-axis decoupling NON-LOAD-BEARING) + nezuko #2142 Arm A POD-BLOCK directive (carrier × MLP-SOAP front=fast; step-1 grad_norm 233,797; CARRIER NOT UNIVERSAL STABILIZER — fails MLP-SOAP compound) + alphonse #2129 Arm B directive (Arm A retry 3.2711 floor-band-upper) + frieren #2147 new assignment (carrier × lm_head-reset I=400; 40% CARRIER-INVARIANT 20% CANCELLATION 15% MERGE 15% MILD-DRIFT). Fleet 8/8 WIP. edward #2113 Arm A 3.269693 SUB-FLOOR — Arm B step 2950 ~15 min to terminal (first cycle-71 MERGE-CANDIDATE). Cumulative: 429 refuted / 298 mech classes / 252 family closures / 10 axes / 51 RTM precedents / 31 pod-stability.
+
+### frieren #2114 bilateral terminal — 298th mech class / 51st RTM precedent / INTERVAL-DECOUPLING-INVARIANT
+
+- Arm A `f5mq6mba` 3.271182 + Arm B `lq4jl5rx` 3.269450 → **n=2 mean 3.270315** (spread 0.001732)
+- Stat margin (3.28 − 3.270315)·√2 = 0.01370 ≫ 0.004 → CLEAN NEGATIVE. Δ vs baseline +0.002555 → NOT MERGE
+- Floor band lower edge: BIT-EQUIVALENT to #1959 I=200 symmetric (3.27027) and #2089 I=400 symmetric (3.270425) — within 0.000155 of all 3
+- **INTERVAL-axis decoupling NON-LOAD-BEARING**: substrate-asymmetric INTERVAL decoupling is structurally invariant. Only β1-axis decoupling is LOAD-BEARING for rescue.
+- Family 1 INTERVAL-DECOUPLING-INVARIANT confirmed (50% prior, ranked #1)
+
+### nezuko #2142 Arm A POD-BLOCK — CARRIER × MLP-SOAP CROSS-AXIS NEW CLASS
+
+Step-1 grad_norm 233,797 (vs canonical ~10k) → step-125 val NaN. Banner verified: carrier (`embed=0.5 lm_head=0.7`) + MLP-SOAP front=fast. **NEW FINDING: carrier rescue is NOT a UNIVERSAL STABILIZER across productive structural compounds.** Carrier × MLP-SOAP front=fast destabilizes EARLY. Carrier × proj-excluded SEED-DEPENDENT survival is the EXCEPTIONAL case, not the rule.
+
+Arm B directive posted. 32nd pod-stability / 12th pre-event NaN cell pending bilateral.
+
+### alphonse #2129 Arm B launch directive
+
+Arm A retry `g70y6bn7` terminal at 3.2711 (floor-band-upper). Arm B SEED=2 directed: `PER_KIND_AUX_BETA1_ENABLED=1 AUX_BETA1_SCALARS=0.9 PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED=1 AUX_RESET_INTERVAL_LM_HEAD=200 AUX_RESET_MOMENT_LM_HEAD=2`.
+
+### frieren #2147 new assignment — carrier × lm_head-reset I=400 cross-axis decoupling
+
+Tests whether rescue β1=0.7 lm_head long-memory plateau INTERACTS with sparse lm_head reset cadence (I=400). Key question from #2114 closure: β1-axis decoupling is LOAD-BEARING; does adding reset cadence on the same lm_head substrate disrupt the rescue plateau? Env: `PER_KIND_AUX_BETA1_ENABLED=1 AUX_BETA1_EMBED=0.5 AUX_BETA1_LM_HEAD=0.7 AUX_BETA1_SCALARS=0.8` + `PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED=1 AUX_RESET_INTERVAL_LM_HEAD=400 AUX_RESET_MOMENT_LM_HEAD=3 AUX_RESET_PARTIAL_FACTOR_LM_HEAD=0.25`.
+
+### Fleet state mid-526
+
+| Student | PR | Status | Best result |
+|---|---|---|---|
+| g1r2-alphonse | #2129 | Arm A 3.2711 done / Arm B directive sent | Arm B pending |
+| g1r2-askeladd | #2121 | Arm A 3.272400 / Arm B step ~800 degraded | authorized to terminal |
+| g1r2-edward | #2113 | Arm A 3.269693 / Arm B step 2950 | **~15 min — first cycle-71 MERGE-CANDIDATE** |
+| g1r2-fern | #2145 | NEW assignment LM_HEAD-RESET M=1 | — |
+| g1r2-frieren | #2147 | NEW assignment carrier × lm_head-reset I=400 | — |
+| g1r2-nezuko | #2142 | Arm A POD-BLOCK / Arm B directive sent | Arm B pending |
+| g1r2-tanjiro | #2139 | Arm A step ~1225 | mid-training |
+| g1r2-thorfinn | #2131 | Arm A step ~2775 val 3.312 | ~15 min to terminal |
+
+**Critical watch: edward #2113 Arm B step 2950 (~15 min to terminal)** — if val_mean < 3.26776, FIRST CYCLE-71 MERGE.
+
+Cumulative: **429 refuted / 298 mech classes / 252 family closures / 10 structural axes / 51 RTM precedents / 31 pod-stability observations**.
+
+---
+
 ## 2026-06-01 16:05 UTC — Cycle 71 mid-525 — fern #2135 428th refute 297th mech class MLP-SOAP-FRONT-FAST×PROJ-EXCLUDED-CROSS-AXIS-STRUCTURAL-STRUCTURAL-BILATERAL-POD-BLOCK (31st pod-stability, 11th pre-event NaN cell; LANDMARK: FIRST PURE-STRUCTURAL×STRUCTURAL EARLY-DESTAB with canonical β1; proj-excluded cardinality axis INTRINSICALLY UNSTABLE cross-axis 3/3 destabilize) + askeladd #2121 SEED-DEPENDENT ack (Arm A 3.272400 floor-band-upper; Arm B degraded step 475 val 3.889 authorized to terminal) + fern #2145 new assignment (LM_HEAD-RESET MOMENT=1 isolated; 35% MIRROR-PRODUCTIVE 25% MILD-DRIFT 15% SUB-FLOOR 10% POD-BLOCK 10% MERGE). Fleet 8/8 WIP. edward #2113 Arm A 3.269693 SUB-FLOOR — Arm B step 2650 ~30 min to terminal (first cycle-71 MERGE-CANDIDATE). Cumulative: 428 refuted / 297 mech classes / 251 family closures / 10 axes / 50 RTM precedents / 31 pod-stability.
 
 ### fern #2135 bilateral terminal — 297th mech class / 31st pod-stability / FIRST STRUCTURAL×STRUCTURAL EARLY-DESTAB
