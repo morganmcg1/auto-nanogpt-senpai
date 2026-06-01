@@ -84,6 +84,12 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--aux_ademamix_alpha', type=float, default=-1.0,
+                        help='Aux Adam AdEMAMix fast-EMA mix weight (convex blend). '
+                             '-1.0 = disabled (fused AdamW path). When >0, update '
+                             '= alpha*m1_hat + (1-alpha)*m2_hat. Body Muon unaffected.')
+    parser.add_argument('--aux_ademamix_beta3', type=float, default=0.9999,
+                        help='Aux Adam slow EMA decay (beta3). Canonical AdEMAMix value.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -629,6 +635,101 @@ class Muon(torch.optim.Optimizer):
         self._polar_diag = polar_diag
 
 
+class AdEMAMixAux(torch.optim.Optimizer):
+    # Aux AdamW with optional dual-EMA first moment (AdEMAMix convex blend).
+    # When alpha > 0: update direction = alpha*m1_hat + (1-alpha)*m2_hat, where
+    # m2 is a long-horizon EMA with decay beta3. When alpha <= 0 the class is
+    # equivalent to standard non-fused AdamW (used only for explicit-alpha runs;
+    # the disabled-path uses torch.optim.AdamW(fused=True) directly).
+    # Mirrors group["betas"] convention so the mid-training aux_b2_pulse keeps
+    # working unchanged.
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0.0, alpha=-1.0, beta3=0.9999):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        alpha=alpha, beta3=beta3)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            alpha = group["alpha"]
+            beta3 = group["beta3"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p.data, memory_format=torch.preserve_format)
+                    state["exp_avg_sq"] = torch.zeros_like(p.data, memory_format=torch.preserve_format)
+                    if alpha > 0:
+                        state["aux_m2"] = torch.zeros_like(p.data, memory_format=torch.preserve_format)
+                state["step"] += 1
+                t = state["step"]
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+                exp_avg.mul_(beta1).add_(grad, alpha=1.0 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1.0 - beta2)
+                bc1 = 1.0 - beta1 ** t
+                bc2 = 1.0 - beta2 ** t
+                denom = (exp_avg_sq.div(bc2)).sqrt_().add_(eps)
+                if wd != 0.0:
+                    p.data.mul_(1.0 - lr * wd)
+                if alpha > 0:
+                    aux_m2 = state["aux_m2"]
+                    aux_m2.mul_(beta3).add_(grad, alpha=1.0 - beta3)
+                    bc3 = 1.0 - beta3 ** t
+                    blended = exp_avg.mul(alpha / bc1).add_(aux_m2, alpha=(1.0 - alpha) / bc3)
+                    p.data.addcdiv_(blended, denom, value=-lr)
+                else:
+                    step_size = lr / bc1
+                    p.data.addcdiv_(exp_avg, denom, value=-step_size)
+
+
+def ademamix_aux_diag(optimizer: "AdEMAMixAux") -> dict[str, float]:
+    # Summarize fast/slow EMA norms + slow-EMA contribution magnitude on rank 0.
+    # One CPU-GPU sync per scalar; only call when telemetry is due.
+    if dist.get_rank() != 0:
+        return {}
+    if not isinstance(optimizer, AdEMAMixAux):
+        return {}
+    m1_sq = 0.0
+    m2_sq = 0.0
+    diff_sq = 0.0
+    eligible = 0
+    for group in optimizer.param_groups:
+        alpha = group["alpha"]
+        beta1, _ = group["betas"]
+        beta3 = group["beta3"]
+        if alpha <= 0:
+            continue
+        for p in group["params"]:
+            state = optimizer.state.get(p, None)
+            if not state or "aux_m2" not in state:
+                continue
+            t = state["step"]
+            bc1 = 1.0 - beta1 ** t
+            bc3 = 1.0 - beta3 ** t
+            m1_hat = state["exp_avg"] / bc1
+            m2_hat = state["aux_m2"] / bc3
+            m1_sq += float(m1_hat.square().sum().item())
+            m2_sq += float(m2_hat.square().sum().item())
+            # contribution magnitude of slow EMA in the convex blend
+            diff_sq += float(((1.0 - alpha) * (m2_hat - m1_hat)).square().sum().item())
+            eligible += 1
+    return {
+        "aux_ademamix/m1_hat_norm": m1_sq ** 0.5,
+        "aux_ademamix/m2_hat_norm": m2_sq ** 0.5,
+        "aux_ademamix/blend_minus_m1_norm": diff_sq ** 0.5,
+        "aux_ademamix/eligible_params": float(eligible),
+    }
+
+
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
     # Post-whitening spectral diagnostic on the first PMuon-managed param (largest
     # by sort order). Re-evaluated against current L_cov, R_cov, momentum state.
@@ -765,6 +866,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_ademamix_alpha": args.aux_ademamix_alpha,
+            "aux_ademamix_beta3": args.aux_ademamix_beta3,
+            "aux_ademamix_enabled": int(args.aux_ademamix_alpha > 0),
             "seed": args.seed,
         },
     )
@@ -797,10 +901,22 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # When aux_ademamix_alpha>0, swap fused AdamW for the custom AdEMAMixAux path
+    # (carries the optional slow EMA m2). When alpha<=0, keep the existing fused
+    # AdamW path so the baseline trajectory is byte-identical.
+    aux_param_groups = [
+        dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars"),
+    ]
+    if args.aux_ademamix_alpha > 0:
+        optimizer1 = AdEMAMixAux(aux_param_groups,
+                                 betas=(0.8, 0.95), eps=1e-10, weight_decay=0,
+                                 alpha=args.aux_ademamix_alpha,
+                                 beta3=args.aux_ademamix_beta3)
+    else:
+        optimizer1 = AdamW(aux_param_groups,
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1071,6 +1187,13 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if step == 1 and args.aux_ademamix_alpha > 0:
+            print0(
+                f"[step 1] aux AdEMAMix ENABLED: alpha={args.aux_ademamix_alpha:.3f}, "
+                f"beta3={args.aux_ademamix_beta3:.4f} (convex blend "
+                f"alpha*m1_hat + (1-alpha)*m2_hat)",
+                console=True,
+            )
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1189,7 +1312,15 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "aux_ademamix/alpha": args.aux_ademamix_alpha,
+                "aux_ademamix/beta3": args.aux_ademamix_beta3,
+                "aux_ademamix/enabled": int(args.aux_ademamix_alpha > 0),
             }, step=wandb_step)
+            ademamix_diag = ademamix_aux_diag(optimizer1)
+            if ademamix_diag:
+                ademamix_diag["trial"] = trial_idx
+                ademamix_diag["train/step"] = train_step
+                wandb.log(ademamix_diag, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
