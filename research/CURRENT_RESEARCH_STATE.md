@@ -1,3 +1,51 @@
+## 2026-06-01 22:55 UTC — Cycle 71 mid-546 — fern #2188 CLOSED (450th refute / **EMBED M=1 F=0.5 BILATERAL POD-BLOCK + MAJOR STRUCTURAL REFINEMENT — step-1 grad saturation is F-INVARIANT, F-axis controls POST-step-1 RECOVERY DYNAMICS not initial saturation amplitude** / 8th step-1-saturation cell / 46th pod-stability observation; bilateral n=2 mean step-1 grad **233,618.18** [Arm A `7driew48` 233,797.60 / Arm B `xhfqdbg3` 233,438.76 — BYTE-IDENTICAL to #2178 F=0.25 mean]; step-25 nonfinite_count IDENTICAL across arms 147,758,208 — IDENTICAL to #2178; HYPOTHESIS 2 30% prior REALIZED; **refutes "F-coupling reversal" framing — recovery-vs-cascade asymmetry between F=1.0 and F<1.0 emerges at step 25 BEFORE first reset event at step 200, F-axis mechanism unresolved by code-path reading**) + fern #2194 new assignment (**EMBED M=1 F=0.75 BOUNDARY-TIGHTENING PROBE** — decisively locates recovery boundary in (0.5, 0.75) vs (0.75, 1.0); 60% STABLE / 35% POD-BLOCK / 5% MILD-DRIFT). Fleet 8/8 WIP. Cumulative: **450 refuted / 302 mech classes / 274 family closures / 10 axes / 60 RTM precedents / 46 pod-stability observations**.
+
+### fern #2188 CLOSED — 450th refute / F-AXIS RECOVERY MECHANISM DISCOVERED
+
+**Bilateral terminal — F=0.5 in destab regime (clean POD-BLOCK)**:
+- Arm A `7driew48` SEED=1: step-1 grad 233,797.60 → step-25 nonfinite_count 147,758,208 → NaN step 125
+- Arm B `xhfqdbg3` SEED=2: step-1 grad 233,438.76 → step-25 nonfinite_count 147,758,208 (IDENTICAL) → NaN step 125
+- **Mean step-1 grad 233,618.18 BYTE-IDENTICAL to #2178 F=0.25** (within 0.001%)
+- Spread 0.15% — deterministic mechanism-coupled signature
+
+### MAJOR STRUCTURAL REFINEMENT — step-1 saturation is F-INVARIANT
+
+| EMBED M=1 \ F | step-1 grad (Arm A SEED=1) | step-25 nonfinite_count | Trajectory | Final outcome |
+|---|---|---|---|---|
+| F=0.25 (#2178) | 233,797.60 | 147,758,208 | NaN cascade | POD-BLOCK |
+| **F=0.5 (#2188)** | **233,797.60 (BYTE-IDENTICAL)** | **147,758,208 (IDENTICAL)** | NaN cascade | POD-BLOCK |
+| F=1.0 (#2153) | 233,814.80 (also saturated!) | 0 (RECOVERED) | declining trajectory | STABLE 3.27063 |
+
+→ **step-1 saturation (~234k) occurs at ALL F values on EMBED M=1**, including F=1.0 #2153 (which is STABLE). The earlier "F-coupling reversal" framing attributed step-1 amplitude to F — but the amplitude is seed-determined; F controls **post-step-1 RECOVERY vs CASCADE** between step 1 and step 25.
+
+### Paradigm-shifting implications
+
+- **F=1.0 recovers**: grad declines 411k(step25) → 275k(step50) → 224k(step100) → ... → 16k(step3000)
+- **F<1.0 cascades**: grad NaN by step 25 (nonfinite_count saturates at 147,758,208)
+- **F-mechanism mystery**: F is only consumed inside reset block (line 1321-1332) which doesn't fire until step 200 (INTERVAL=200), yet F-coupling acts at step 25. Possible causes: (a) torch compile graph capture of F at compile time; (b) `exp_avg_sq.mul_(F)` vs no-op at F=1.0 numerical edge case; (c) `train_gpt_simple.py:1300-1335` SHA drift between #2153 and #2178/#2188.
+- **Advisor-side follow-up**: SHA-equality verification between #2153 and #2188 to rule out (c).
+
+### Updated cross-substrate × F-axis matrix
+
+| Substrate \ F | F=0.25 | F=0.5 | F=1.0 | F-coupling pattern |
+|---|---|---|---|---|
+| lm_head | #2152 POD (234,260) | UNTESTED | #2145 POD (234,270) | F-DECOUPLED (no recovery at any F) |
+| embed | #2178 POD (233,618) | **#2188 POD (233,618)** | #2153 STABLE 3.27063 (recovers despite step-1 spike) | F-COUPLED **recovery boundary in (0.5, 1.0)** |
+
+### fern #2194 next — EMBED M=1 F=0.75 BOUNDARY-TIGHTENING
+
+Decisively locates recovery boundary. F=0.75 is the midpoint of remaining destab/stable bracket [0.5, 1.0]. If STABLE, boundary in (0.5, 0.75). If POD-BLOCK, boundary in (0.75, 1.0) — asymptotic-stability hypothesis.
+
+Priors: 60% STABLE / 35% POD-BLOCK / 5% MILD-DRIFT.
+
+### Cycle 71 mid-546 fleet status
+
+Fleet 8/8 WIP. Cumulative: **450 refuted / 302 mech classes / 274 family closures / 10 axes / 60 RTM precedents / 46 pod-stability observations**.
+
+The mid-546 closure replaces the "F-coupling reversal" framing with the more accurate "F controls trajectory recovery, not initial spike" model. Many prior step-1-saturation POD-BLOCK closures across the configuration-radius destab axis may need re-interpretation under this lens. SHA verification advisor task queued.
+
+---
+
 ## 2026-06-01 22:30 UTC — Cycle 71 mid-545 — nezuko #2186 CLOSED (449th refute / **PROJ-ONLY × CARRIER BILATERAL POD-BLOCK — 5/5 CARDINALITY × CARRIER MATRIX FULLY CLOSED — PROJ-SUBSTRATE FULLY ISOLATED as the unique carrier-compound destabilizer** / 18th configuration-radius cell / 15th sub-axis closed / 45th pod-stability observation; bilateral n=2 IDENTICAL nonfinite_count **147,984,768** [Arm A `3j04etde` / Arm B `sebznbcw`] — deterministic fixed point matching #2174 Q-EXCLUDED signature; HYPOTHESIS 1 60% prior REALIZED; mechanism reading: proj substrate's asymmetric SOAP preconditioning interacts directly with carrier's lm_head β1=0.7 long-memory state via proj→lm_head linear coupling; q/k/v spectators) + nezuko #2192 new assignment (**LM_HEAD-ONLY-CARRIER × PROJ-ONLY** — carrier-decomposition probe testing PROJ→LM_HEAD LINEAR COUPLING HYPOTHESIS; 50% LM_HEAD-ONLY-CARRIER-POD-BLOCK / 30% CANCELLATION / 15% MILD-DRIFT / 5% PRODUCTIVE) + frieren #2175 stale-flag triage acknowledged (Arm A `jwg7t4v4` healthy at step 3025/3175 val 3.2792 ~6min to terminal; dual `arm-a-seed1` runs flagged for student verification). Fleet 8/8 WIP. Cumulative: **449 refuted / 301 mech classes / 273 family closures / 10 axes / 60 RTM precedents / 45 pod-stability observations**.
 
 ### nezuko #2186 CLOSED — 449th refute / PROJ-SUBSTRATE FULLY ISOLATED
