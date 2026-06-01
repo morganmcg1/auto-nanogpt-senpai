@@ -9,6 +9,70 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 18:35Z (**thorfinn #2126 B★ dual-metric departure (ema better, FFS regresses); tanjiro #2128 B★ canonical; edward B★ canonical → C running**)
+
+### Notes (2026-06-01 18:35Z) — 3 B★ terminals: 1 dual-metric departure + 2 canonical
+
+- **PR #2126 thorfinn B★ TERMINAL with DUAL-METRIC DEPARTURE.** \`h2bkl9o3\` (plateau_frac=0.4) finished:
+  - ema_val = **3.2655** ← BEST ema_val in round (vs canonical ≈3.270)
+  - FFS_ema = **3000** ← +125 regression vs canonical 2875
+  - FFS_trainval = **3075** ← +150 regression vs canonical 2925
+  
+  **Mechanism**: Trapezoid plateau holds η=1.0 for first 40% of cooldown → more high-LR updates → BETTER terminal quality but SLOWER target crossing. Under FFS-PRIMARY (issue #1262), this is FFS-NEG. Cell C(plateau_frac=0.6) NOT yet launched — GPU idle ~10 min, posted nudge.
+
+- **PR #2128 tanjiro B★ TERMINAL at canonical.** \`1hod394d\` (cosine ease-in mu cooldown) terminal {2875, 2925}, ema_val=3.2709. NO signal, NO escalation. Per student's pre-declared monotone-better gate. Ready for SENPAI-RESULT closure. **Completes mu-cooldown shape sweep: μ axis is SCALAR-OPTIMUM at 0.80** (combined with #2084 asymmetric + #2079 warmup ramp, all flat).
+
+- **PR #2118 edward B★ TERMINAL at canonical, C now running.** \`iqpkbtis\` (cap=12.5) terminal at {2875, 2925}. Chain auto-advanced: \`1c1m5iev\` (cap=10.0) step 1273. Cap-DOWN axis pending C/D completion.
+
+### B★ test arm results so far (3 terminals)
+
+| PR | Student | B★ Config | FFS_ema | FFS_trainval | ema_val | Verdict |
+|---|---|---|---|---|---|---|
+| #2126 | thorfinn | plateau_frac=0.4 | 3000 | 3075 | **3.2655** | **DUAL-METRIC DEPARTURE (FFS-NEG, ema better)** |
+| #2128 | tanjiro | cosine ease-in mu | 2875 | 2925 | 3.2709 | Canonical (FFS-NEUTRAL) |
+| #2118 | edward | logit cap=12.5 | 2875 | 2925 | (~3.270) | Canonical (FFS-NEUTRAL) |
+
+### Fleet status snapshot (18:35Z) — 8/8 RUNNING; 3 B★ terminal; alphonse n=4 + frieren n=4 nearing terminal
+
+| PR | Student | Active Run | State | Step | Notes |
+|---|---|---|---|---|---|
+| #2042 | alphonse | `rblece7h` | running | 12872 | n=4 rope_base=4096 at 99%; near terminal; FFS=2875 canonical |
+| #2070 | **frieren** | `xdevn24r` | running | 11960 | **n=4 mu+freq compound trial 4 91%; ETA ~18:56Z; 3/4 trials canonical** |
+| #2118 | edward | `1c1m5iev` (C) | running | 1273 | logit cap=10.0; A_ctrl + B★ both canonical |
+| #2126 | thorfinn | (between B★ and C) | B★ done | 3250 | **GPU idle 10 min; Cell C(plateau=0.6) launch needed** |
+| #2128 | tanjiro | `1hod394d` (B★) | finished | 3250 | Canonical, no signal; awaiting SENPAI-RESULT post |
+| #2130 | askeladd | `4px2l6l7` (B★) | running | 2705 | embed_lr_scale=5.0 step 83%; ETA terminal soon |
+| #2133 | fern | `7uhpuigt` (B★) | running | 2530 | depth-graduated MLP 78%; ETA terminal in ~25 min |
+| #2138 | nezuko | `q1xl3tst` (B★) | running | 1590 | soap_eps_floor=0.03 49%; ETA terminal in ~50 min |
+
+### Heartbeat actions (18:20Z–18:35Z)
+
+1. W&B fleet check: thorfinn B★ regression, tanjiro B★ canonical, edward B★ → C auto-chained.
+2. Posted thorfinn #2126 ADVISOR comment: dual-metric departure mechanism + C launch nudge.
+3. Posted tanjiro #2128 ADVISOR comment: SENPAI-RESULT requested; will close FFS-NEUTRAL.
+4. Posted edward #2118 ADVISOR comment: chain healthy ack.
+5. Stale_wip on #2128 = 8th false alarm pattern; clarified resolution.
+
+### Expected near-term closures
+
+- **alphonse #2042** at ~18:50Z (n=4 rope_base=4096 — 4/4 trials canonical pending; expect 108th R5 FFS-NEUTRAL closure)
+- **frieren #2070** at ~18:56Z (n=4 mu+freq compound — 3/4 trials canonical pending; expect 109th R5 FFS-NEUTRAL closure)
+- **tanjiro #2128** on SENPAI-RESULT post (110th R5 FFS-NEUTRAL closure)
+- **thorfinn #2126** after C/D terminal (111th R5 closure: dual-metric departure / FFS-NEG with ema-better mechanism finding)
+
+### Mu-cooldown sweep complete (mechanism intel)
+
+| PR | Mechanism | Result |
+|---|---|---|
+| #2084 (closed) | asymmetric (attn vs MLP differential) | FFS-NEUTRAL |
+| #2079 (closed) | warmup mu ramp | FFS-NEUTRAL |
+| #2128 (pending close) | cosine ease-in (front-load damping) | FFS-NEUTRAL |
+| #2070 (pending close) | mu=0.80 + precond_freq compound | FFS-NEUTRAL n=4 reversion |
+
+**μ axis is SCALAR-OPTIMUM at 0.80; SHAPE-INVARIANT in cooldown window; ABSORBS into NS5 family with compound.** Future μ experiments need WARMUP-side or BURST-style perturbations to escape absorption.
+
+---
+
 ## Last updated: 2026-06-01 17:30Z (**frieren #2070 n=4 reverting to canonical (3/4 trials at 2875); nezuko A_ctrl terminal + B★ launched; 5 A_ctrls at canonical**)
 
 ### Notes (2026-06-01 17:30Z) — frieren n=4 attractor reversion CONFIRMED + 5th A_ctrl at canonical
