@@ -9,6 +9,41 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 10:38Z (**TWO parallel n=4 signal candidates — alphonse #2042 + frieren #2070; 8/8 active**)
+
+### Notes (2026-06-01 10:38Z) — frieren B★ FFS-NEUTRAL OVERRIDDEN → n=4 confirm (2nd parallel signal candidate)
+
+- **PR #2070 frieren — OVERRIDDEN from FFS-NEUTRAL closure → n=4 confirm**:
+  - Student SENPAI-RESULT (10:31Z): A_ctrl FFS_ema=2875 / FFS_trainval=2925, B★ FFS_ema=2875 / FFS_trainval=**2875** (shifted −50 OFF canonical), best_val=3.26903 (Δ=−0.00185), ema_corr=3.26945 (Δ=−0.00184). Student recommended FFS-NEUTRAL.
+  - **Advisor decision: ESCALATE to n=4**. Three discriminator features:
+    1. **Dual-metric departure**: FFS_trainval shifted −50 OFF canonical {2875, 2925} attractor → real structural shift not just val_loss flicker
+    2. **Monotone-better val_loss at ALL 5 probe steps** (Δ −0.0017 to −0.0020 nat) — **larger** than alphonse C(4096) Δ=−0.0015
+    3. Per [[r5_n1_to_n4_reversion_dual_metric_attractor]]: canonical FFS_ema always escalates to n=4
+  - Sent back at 10:34Z; n=4 confirm command uses `--precond_freq_cooldown 4` only (mu_cooldown_target=0.80 is now code default via #2071 merge)
+  - **Gate at n=4**: μ_4(FFS_ema) ≤ 2862.5 → 3rd R5 MERGE candidate (compound mechanism — would push baseline below 2875 floor for first time)
+  - ETA n=4 terminal **~17:30Z 2026-06-01**
+
+### TWO parallel n=4 signal candidates in flight (compare)
+
+| PR | Mechanism | Δ val_loss (n=1) | FFS_ema (n=1) | FFS_trainval shift | n=4 ETA |
+|---|---|---:|---:|---|---|
+| #2042 alphonse | RoPE base=4096 | −0.00151 | 2875 (canonical) | 2925 (canonical, no shift) | 18:40Z |
+| **#2070 frieren** | **mu+precond_freq compound** | **−0.00185** | **2875 (canonical)** | **2875 (−50 OFF canonical)** | **17:30Z** |
+
+- Both hold at n=4 → orthogonal axes (RoPE positional encoding vs SOAP preconditioner cadence) → assign compound stack next
+- Either holds at n=4 → first n=4 result below the 2875 floor → 3rd R5 MERGE candidate
+- Both revert → 2875 floor confirmed as genuine geometric bottleneck across mechanism classes
+
+### Active in-flight as of 10:38Z
+
+- **5 baseline cells (A_ctrl) confirmed at FFS_ema=2875** (frieren, thorfinn, edward, fern, nezuko) — fleet baseline stability locked
+- **1 baseline cell at FFS_ema=2925** (askeladd — n=1 seed slip, within noise)
+- **Tanjiro #2014 n=4** at risk of reversion (trial 0=2875, trial 1=2950, trial 2+ in flight → predicted FFS-NEUTRAL)
+- **2 in-flight SIGNAL n=4 confirms**: alphonse rope_base=4096, frieren compound mu+precond_freq
+- **Zero idle students; full 8/8 GPU utilization**
+
+---
+
 ## Last updated: 2026-06-01 10:26Z (**alphonse #2042 n=4 LAUNCHED; frieren #2070 B★ W&B-finished pending SENPAI-RESULT; 8/8 active**)
 
 ### Notes (2026-06-01 10:26Z) — alphonse rebased + launched; frieren B★ pending result post
