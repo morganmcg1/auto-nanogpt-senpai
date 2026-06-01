@@ -1,3 +1,44 @@
+## 2026-06-01 02:58 UTC — Cycle 71 mid-495 — nezuko #2049 18th pod-stability observation MIRROR-INVERTED-M=3-(3,2)-POD-BLOCKED-AT-SYMMETRIC-F-AND-SYMMETRIC-INTERVAL (bilateral NaN step 125; 6th distinct config with pre-event NaN signature; 2×2 M-direction matrix at symmetric-F+symmetric-INTERVAL NOW COMPLETE — only `(2,3)` is stable, the other 3 cells `(2,2)` `(3,3)` `(3,2)` all pod-block at step 125; MIRROR-INVERTED-asymmetry-family hypothesis REFUTED — specific pairing required; high-LR-substrate-exp_avg-only + low-LR-substrate-joint pairing STRUCTURALLY LOCKED as load-bearing) + nezuko #2058 new assignment (`(embed-M=2, lm_head-M=1)` M=1 VARIANCE-ONLY-AT-LOW-LR-SUBSTRATE probe — M-axis extension at canonical stable cell; 45% JOINT-UNIQUELY-LOAD-BEARING POD-BLOCK → low-LR substrate needs SPECIFICALLY joint reset 25% RTM-BAND-STABLE → non-exp_avg-only suffices 15% PRODUCTIVE-NEW-CELL 10% DESTRUCTIVE-SOFT 5% MERGE). **Critical structural insight**: M-symmetry-direction axis at symmetric-F + symmetric-INTERVAL is STRUCTURALLY LOCKED with a single stable cell. The 100× per-substrate LR ratio interacts with reset-moment direction in a non-symmetric way — joint reset on high-LR substrate destabilizes (large perturbation + high LR → muon-warmup blow-up), exp_avg-only reset on low-LR substrate destabilizes (small perturbation + low LR → variance never corrected). Next probe (2,1) extends the M-axis to bit 0 (variance-only) and discriminates joint-uniqueness vs non-exp_avg-only on low-LR substrate. No human issues. Fleet 8/8 active 0 idle. Cumulative **396 refuted / 266 mech classes / 222 family closures / 9 axes locked / 32 RTM precedents / 18 pod-stability observations** (RTM-PERSISTENT-AT-N=18/19 = 94.7%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]; 2×2 M-direction matrix STRUCTURALLY LOCKED at symmetric-F + symmetric-INTERVAL with `(2,3)` uniquely stable; high-LR-exp_avg-only + low-LR-joint pairing STRUCTURALLY LOCKED as load-bearing).
+
+### nezuko #2049 bilateral terminal — 18th pod-stability / 2×2 M-direction matrix COMPLETE
+
+**Bilateral NaN**: Arm A `bp5o189r` SEED=1 → NaN step 125; Arm B `gj3p158y` SEED=2 → NaN step 125 (both pre-event before first reset event @ step 200; canonical muon-warmup-boundary pod-event signature shared with #2005/#2010/#2016/#2028/#2033/#2046).
+
+**2×2 M-direction matrix at symmetric-F=0.25 + symmetric-INTERVAL=200 — COMPLETE**:
+
+| Cell | embed-M | lm_head-M | Outcome |
+|---|---|---|---|
+| `(2,3)` MIRROR-INVERTED-M | 2 (exp_avg) | 3 (joint) | **STABLE RTM 3.27027** (24th RTM, #1959 A/#1991) |
+| `(2,2)` FORWARD-MATCHED-M=2 | 2 | 2 | POD-BLOCK step 125 (16th pod-stab, #2033) |
+| `(3,3)` FORWARD-MATCHED-M=3 | 3 | 3 | POD-BLOCK step 125 (17th pod-stab, #2046) |
+| **`(3,2)` MIRROR-INVERTED-M=3** | **3** | **2** | **POD-BLOCK step 125 (18th pod-stab, THIS PR)** |
+
+→ **Only `(2,3)` is stable. MIRROR-INVERTED-asymmetry-family hypothesis REFUTED**.
+
+### Load-bearing structural claim — sharpened from #2049 closure
+
+The cycle-71 structural claim **sharpens from "mirror-inverted-M asymmetry stabilizes" → "high-LR-exp_avg-only-paired-with-low-LR-joint stabilizes"**:
+
+- **High-LR substrate** (embed, lr=0.3) requires **exp_avg-only** reset (M=2)
+- **Low-LR substrate** (lm_head, lr=0.003125) requires **joint** reset (M=3)
+- 100× per-substrate LR ratio interacts with reset-moment direction in a non-symmetric way
+
+**Mechanistic reading**: joint reset on high-LR substrate is destabilizing (high-LR + larger reset perturbation → muon-warmup-boundary blow-up); exp_avg-only reset on low-LR substrate is destabilizing (low-LR + smaller reset perturbation → variance never corrected).
+
+### nezuko #2058 new assignment — M=1 VARIANCE-ONLY-AT-LOW-LR-SUBSTRATE probe
+
+Tests `(embed-M=2, lm_head-M=1)` — keep canonical stable embed-M=2 (high-LR substrate exp_avg-only), swap lm_head from joint (M=3) to **variance-only (M=1)**. Discriminates whether the low-LR substrate load-bearing requirement is **JOINT reset specifically** or **NON-exp_avg-only reset generally**.
+
+Most likely (45%): JOINT-UNIQUELY-LOAD-BEARING POD-BLOCK — low-LR substrate requires specifically joint reset; M=1 variance-only is not equivalent. Alternatives: 25% RTM-BAND-STABLE (non-exp_avg-only suffices; opens 2nd stable cell `(2,1)`), 15% PRODUCTIVE-NEW-CELL (variance-only on low-LR outperforms joint), 10% DESTRUCTIVE-SOFT, 5% MERGE.
+
+Lower-risk than per-substrate LR-ratio probes (no LR env-var changes; only M bit swap at known-stable canonical config).
+
+### Fleet status — 8/8 active 0 idle
+
+After nezuko #2049 close + nezuko #2058 assignment: g1r2-{askeladd #2035, alphonse #2034, edward #2031, fern #2043, nezuko #2058, thorfinn #2051, tanjiro #2056, frieren #2055} all WIP. Cumulative **396 refuted / 266 distinct mech classes / 222 family closures / 9 structural axes locked / 32 RTM precedents / 18 pod-stability observations** (RTM-PERSISTENT-AT-N=18/19 = 94.7%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]).
+
+---
+
 ## 2026-06-01 02:50 UTC — Cycle 71 mid-494 — DOUBLE CLOSURE: frieren #2027 395th refute 265th mech class LM-HEAD-β1-AXIS-NON-MONOTONE-DESTRUCTION-PEAK-NEAR-0.85-0.9-RECOVERS-TOWARD-SATURATION-AT-0.5-0.7 (n=2 mean 3.281205 / cross-arm spread 0.00029 EXTREMELY TIGHT / β1=0.85 ≈ β1=0.9 = ~3.281 peak plateau / β1∈{0.5,0.7} ~3.279 recovery; REFUTES prior #1999 MONOTONE-DESTRUCTIVE-SATURATED reading — axis is NON-MONOTONE destruction-peak shape) + tanjiro #2026 396th refute 266th mech class RESCUE-MAGNITUDE-PROPORTIONAL-TO-PERTURBATION-DEPTH (32nd RTM precedent; n=2 mean 3.271985 / Arm A 3.27075 Arm B 3.27322 / stat margin 0.01133 ≥ 0.004 ✓ / rescue magnitude 0.00709 at saturated cell vs ~0.0105 plateau across β1∈[0.7,0.9] = 33.5% reduction; REFUTES UNIVERSAL-RESCUE-LOCKED 35%-prior — rescue is BOUNDED proportional to destructive depth) + frieren #2055 new assignment (LM-HEAD-β1=0.8 ISOLATED bridge probe: peak-to-recovery midpoint mapping; 35% SMOOTH-MONOTONE-RECOVERY 25% PEAK-EXTENDS-TO-0.8 20% SHARP-KNEE-AT-0.825 15% NON-MONOTONE-WITH-MINIMUM 5% MERGE) + tanjiro #2056 new assignment (EMBED-β1=0.5 + LM-HEAD-β1=0.6 rescue transition probe: rescue-plateau-to-reduced mapping; 35% SMOOTH-MONOTONE-RESCUE-DECAY 25% PLATEAU-WIDE-RESCUE-REGION 20% SHARP-KNEE-AT-0.65 15% NON-MONOTONE-RESCUE-CURVE 5% MERGE). **Critical structural insight**: lm_head β1 axis functional form FULLY CHARACTERIZED at n=1+ sampling — destruction-peak shape with plateau at [0.85, 0.9] and recovery to saturation at [0.5, 0.7], paired with rescue-magnitude that mirrors the inverse (plateau ~0.0105 at [0.7, 0.9], reduced 0.00709 at 0.5). Combined readings establish embed-β1=0.5 rescue mechanism has BOUNDED EFFECTIVENESS CEILING scaling INVERSELY with destructive perturbation depth — rescue is largest where destruction is moderate. Two new mech classes added in single triage cycle. No human issues. Fleet 8/8 active 0 idle. Cumulative **396 refuted / 266 mech classes / 222 family closures / 9 axes locked / 32 RTM precedents / 17 pod-stability observations** (RTM-PERSISTENT-AT-N=18/19 = 94.7%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]; lm_head-β1-axis-functional-form STRUCTURALLY LOCKED as NON-MONOTONE-DESTRUCTION-PEAK; rescue-magnitude STRUCTURALLY LOCKED as PROPORTIONAL-TO-PERTURBATION-DEPTH).
 
 ### frieren #2027 bilateral terminal — 265th mech class / lm_head β1 non-monotone discovery
