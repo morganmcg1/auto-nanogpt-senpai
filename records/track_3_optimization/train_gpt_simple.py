@@ -107,6 +107,11 @@ def parse_args():
                              "of training). Default=0.80 (winning value, PR #1966). "
                              "Set to None or 0.95 to disable the ramp. "
                              "Affects all muon_* param groups.")
+    parser.add_argument("--lr_depth_scale", type=float, default=0.0,
+                        help="Depth-graduated MLP LR: early-half blocks get lr*(1+scale), "
+                             "late-half blocks get lr*(1-scale). 0.0 = disabled (baseline "
+                             "single-group behavior). Positive = early-high/late-low "
+                             "(musoft-aligned). Negative = early-low/late-high (inverse falsifier).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -876,13 +881,34 @@ for trial_idx in range(args.num_trials):
     attn_named = [(n, p) for n, p in named_blocks
                   if not (n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"))]
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
-    optimizer2 = Muon(
-        [
-            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
-            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
-        ],
-        soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
-    )
+    if args.lr_depth_scale != 0.0:
+        n_layers = len(model.blocks)
+        split_idx = n_layers // 2
+        early_mlp = [(n, p) for n, p in mlp_named if int(n.split('.')[0]) < split_idx]
+        late_mlp  = [(n, p) for n, p in mlp_named if int(n.split('.')[0]) >= split_idx]
+        assert len(early_mlp) + len(late_mlp) == len(mlp_named)
+        lr_early = args.lr_mlp * (1.0 + args.lr_depth_scale)
+        lr_late  = args.lr_mlp * (1.0 - args.lr_depth_scale)
+        print0(f"[lr_depth_scale={args.lr_depth_scale:+.3f}] "
+               f"split_idx={split_idx} "
+               f"early_mlp={len(early_mlp)} params (lr={lr_early:.6f}) "
+               f"late_mlp={len(late_mlp)} params (lr={lr_late:.6f})", console=True)
+        optimizer2 = Muon(
+            [
+                dict(named_params=early_mlp, lr=lr_early, weight_decay=args.wd_mlp,  name="muon_mlp_early"),
+                dict(named_params=late_mlp,  lr=lr_late,  weight_decay=args.wd_mlp,  name="muon_mlp_late"),
+                dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
+            ],
+            soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        )
+    else:
+        optimizer2 = Muon(
+            [
+                dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
+                dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
+            ],
+            soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1249,7 +1275,8 @@ for trial_idx in range(args.num_trials):
                     per_group_metrics[f"train/lr/{name}"] = lr
                 for name, wd in current_wds.items():
                     per_group_metrics[f"train/wd/{name}"] = wd
-                per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
+                per_group_metrics["train/wd_mlp_now"] = current_wds.get(
+                    "muon_mlp", current_wds.get("muon_mlp_early", 0.0))
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
