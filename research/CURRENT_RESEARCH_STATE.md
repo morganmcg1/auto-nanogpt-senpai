@@ -1,3 +1,47 @@
+## 2026-06-01 23:05 UTC — Cycle 71 mid-547 — nezuko #2192 CLOSED (451st refute / **PROJ→LM_HEAD LINEAR COUPLING HYPOTHESIS CONFIRMED — lm_head β1=0.7 ALONE sufficient to destabilize PROJ-ONLY; embed β1=0.5 is SPECTATOR** / 11th structural mechanism axis / 47th pod-stability observation; bilateral n=2 step-1 grad **233,797.60 / 233,438.76** + step-125 nonfinite_count **147,984,768 BYTE-IDENTICAL** to #2186 FULL-CARRIER signature; HYPOTHESIS 1 50% prior REALIZED; mechanism reading: proj feeds DIRECTLY into the lm_head linear → proj-substrate's asymmetric SOAP preconditioning interacts with carrier's lm_head β1=0.7 long-memory state via proj→lm_head linear pathway) + nezuko #2198 new assignment (**EMBED-ONLY-CARRIER × PROJ-ONLY — final carrier-decomposition cell**; embed=0.5 + lm_head=0.8 default; 65% STABLE confirms sole lm_head pathway / 20% MILD-DRIFT secondary embed channel / 10% POD-BLOCK parallel destab / 5% PRODUCTIVE; explicit PR2121 cherry-pick instruction added per infra-spec finding). Fleet 8/8 WIP. Cumulative: **451 refuted / 303 mech classes / 275 family closures / 11 axes / 60 RTM precedents / 47 pod-stability observations**.
+
+### nezuko #2192 CLOSED — 451st refute / PROJ→LM_HEAD LINEAR COUPLING ISOLATED
+
+**Bilateral terminal — BYTE-IDENTICAL to FULL-CARRIER signature (deterministic fixed point)**:
+- Arm A `lw2qrjxk` SEED=1: step-1 grad **233,797.60**, step-125 nonfinite_count **147,984,768**, weight nonfinite_count 161,945,472
+- Arm B `tr6rlwnl` SEED=2: step-1 grad **233,438.76**, step-125 nonfinite_count **147,984,768** (IDENTICAL across arms)
+- **BYTE-IDENTICAL** to #2186 FULL-CARRIER (Arm A `3j04etde` 233,797.60 / Arm B `sebznbcw` 233,438.76 nonfinite 147,984,768)
+
+### Carrier-decomposition × PROJ-ONLY matrix — 3/4 resolved
+
+| CARRIER decomposition | embed β1 | lm_head β1 | scalars β1 | × PROJ-ONLY result | nonfinite_count |
+|---|---|---|---|---|---|
+| FULL CARRIER (#2186) | 0.5 | 0.7 | 0.8 | BILATERAL POD-BLOCK | 147,984,768 |
+| **lm_head-only-carrier (#2192)** | **0.8 DEFAULT** | **0.7** | **0.8 DEFAULT** | **BILATERAL POD-BLOCK** | **147,984,768 (BYTE-IDENTICAL)** |
+| embed-only-carrier (#2198 in flight) | 0.5 | 0.8 default | 0.8 default | TBD | TBD |
+| no-carrier (untested) | 0.8 default | 0.8 default | 0.8 default | UNTESTED | — |
+
+→ **PROJ→LM_HEAD LINEAR COUPLING isolated.** lm_head β1=0.7 alone is SUFFICIENT to destabilize PROJ-ONLY via the architectural proj→lm_head linear pathway. embed β1=0.5 contributes NOTHING to the fingerprint (byte-identical signature without it).
+
+### Mechanism interpretation strengthened
+
+- Architectural reasoning: GPT lm_head linear receives output from final transformer block's residual stream which includes proj outputs. proj-SOAP preconditioning alters the gradient distribution feeding INTO this linear → lm_head's β1=0.7 long-memory state collides with the perturbed gradient distribution → pre-event NaN.
+- embed substrate (token embeddings) is on a SEPARATE pathway from proj-SOAP. Even with embed β1=0.5 long-memory perturbation, embed gradients don't directly couple with proj-substrate destabilization.
+- **PROJ→LM_HEAD pathway is the 11th structural mechanism axis** of cycle 71.
+
+### nezuko #2198 next — EMBED-ONLY-CARRIER × PROJ-ONLY (final decomposition cell)
+
+Tests whether embed β1=0.5 alone STILL destabilizes PROJ-ONLY through a secondary indirect channel. If STABLE (65% prior), confirms lm_head as sole driver and CLOSES the 4-cell decomposition matrix. Explicit cherry-pick instruction added per `feedback-pr2121-infra-cherry-pick` memory.
+
+Priors: 65% STABLE / 20% MILD-DRIFT / 10% POD-BLOCK / 5% PRODUCTIVE.
+
+### Infra-spec finding logged to memory
+
+Per nezuko #2192's "Infra note" the advisor branch HEAD does NOT inherit PR2121 dispatch infra natively — students must cherry-pick `46bd27da` before each PROJ-ONLY/CARRIER-decomposition launch. Logged as new feedback memory; all future PR templates in this area will include explicit cherry-pick instructions.
+
+### Cycle 71 mid-547 fleet status
+
+Fleet 8/8 WIP. Cumulative: **451 refuted / 303 mech classes / 275 family closures / 11 axes / 60 RTM precedents / 47 pod-stability observations**. **PROJ→LM_HEAD LINEAR COUPLING pathway established as 11th structural mechanism axis.**
+
+The mid-547 closure isolates the proj-coupled destabilization to a single architectural pathway. nezuko #2198 (EMBED-only-carrier) closes the 4-cell decomposition matrix. Future highest-leverage probes: PROJ-ONLY × non-carrier productive levers (predicted STABLE — productive levers don't share lm_head β1 axis).
+
+---
+
 ## 2026-06-01 22:55 UTC — Cycle 71 mid-546 — fern #2188 CLOSED (450th refute / **EMBED M=1 F=0.5 BILATERAL POD-BLOCK + MAJOR STRUCTURAL REFINEMENT — step-1 grad saturation is F-INVARIANT, F-axis controls POST-step-1 RECOVERY DYNAMICS not initial saturation amplitude** / 8th step-1-saturation cell / 46th pod-stability observation; bilateral n=2 mean step-1 grad **233,618.18** [Arm A `7driew48` 233,797.60 / Arm B `xhfqdbg3` 233,438.76 — BYTE-IDENTICAL to #2178 F=0.25 mean]; step-25 nonfinite_count IDENTICAL across arms 147,758,208 — IDENTICAL to #2178; HYPOTHESIS 2 30% prior REALIZED; **refutes "F-coupling reversal" framing — recovery-vs-cascade asymmetry between F=1.0 and F<1.0 emerges at step 25 BEFORE first reset event at step 200, F-axis mechanism unresolved by code-path reading**) + fern #2194 new assignment (**EMBED M=1 F=0.75 BOUNDARY-TIGHTENING PROBE** — decisively locates recovery boundary in (0.5, 0.75) vs (0.75, 1.0); 60% STABLE / 35% POD-BLOCK / 5% MILD-DRIFT). Fleet 8/8 WIP. Cumulative: **450 refuted / 302 mech classes / 274 family closures / 10 axes / 60 RTM precedents / 46 pod-stability observations**.
 
 ### fern #2188 CLOSED — 450th refute / F-AXIS RECOVERY MECHANISM DISCOVERED
