@@ -609,6 +609,13 @@ NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_T
 # diagonal prior accumulated over K steps of "naked Muon" training (NM bypassed pre-K).
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART", "0"))
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K", "100"))
+# #2069: step-gated NM activation (Issue #1261 item 2). Body uses standard Muon
+# (Newton-Schulz orthogonalization on raw gradients, no R/L preconditioning) for
+# steps < START_STEP. At step >= START_STEP, full NM activates with a FRESH R
+# buffer. The K=100 v-warmstart timing is keyed to NM-active step count, so it
+# fires at global step (START_STEP + K - 1) ≈ START_STEP + 100 after activation.
+# Default 0 matches current production (NM on from step 1, warmstart at step 100).
+NANOGPT_NEWTON_MUON_START_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_START_STEP", "0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -755,7 +762,8 @@ class Muon(torch.optim.Optimizer):
                  newton_max_d_in: int = 1024,
                  newton_input_cache: dict | None = None,
                  newton_r_warmstart: bool = False,
-                 newton_r_warmstart_k: int = 100):
+                 newton_r_warmstart_k: int = 100,
+                 newton_start_step: int = 0):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
             # list-of-dicts param_groups: sort each group's params by size.
@@ -802,6 +810,15 @@ class Muon(torch.optim.Optimizer):
         # initialized — _apply_newton_precondition returns None.
         self.newton_r_warmstart = bool(newton_r_warmstart)
         self.newton_r_warmstart_k = int(newton_r_warmstart_k)
+        # #2069 step-gated NM activation. NM is inactive (raw-grad Muon path) for
+        # step() calls 1..newton_start_step-1 and activates at the call where
+        # _global_step_count >= newton_start_step. _newton_step_count is only
+        # incremented while NM is active, so the K-step v-warmstart is keyed to
+        # NM-active duration: warmstart fires at NM-active step K, i.e. global
+        # step (newton_start_step + K - 1).
+        self.newton_start_step = int(newton_start_step)
+        self._global_step_count = 0
+        self._nm_gated_active_last_step = False
         # Accumulator dict reset each step() — read by the training loop after
         # step() for W&B logging. Keys: cond_max, cond_min, cond_sum, cond_n,
         # inv_sqrt_norm_sum, precond_ratio_sum, precond_ratio_n, applied_n.
@@ -935,7 +952,16 @@ class Muon(torch.optim.Optimizer):
         # Reset spectral_stats at the start of each step; only the rank that
         # owns the tracked parameter on this round-robin shard will repopulate.
         self.spectral_stats = None
-        if self.newton_precond:
+        # #2069: gate NM by training-step count. _global_step_count counts every
+        # step() call (regardless of NM eligibility) so the gate uses true global
+        # step (matching the training loop's `train_step = step + 1` convention).
+        self._global_step_count += 1
+        nm_gated_active = (
+            self.newton_precond
+            and self._global_step_count >= self.newton_start_step
+        )
+        self._nm_gated_active_last_step = nm_gated_active
+        if nm_gated_active:
             self._newton_step_count += 1
             self.newton_telemetry = {}
         for group in self.param_groups:
@@ -952,8 +978,11 @@ class Muon(torch.optim.Optimizer):
                     # momentum/v buffers so they accumulate preconditioned
                     # gradients (matches paper pipeline order: G @ R^{-1/2}
                     # -> momentum -> v normalization -> NS5 -> update).
+                    # #2069 step-gating: when global step < newton_start_step,
+                    # nm_gated_active is False and we fall through to raw-gradient
+                    # Muon (NS orthogonalization on p.grad, no R/L preconditioning).
                     grad_for_update = p.grad
-                    if self.newton_precond:
+                    if nm_gated_active:
                         g_precond = self._apply_newton_precondition(p, p.grad, state)
                         if g_precond is not None:
                             grad_for_update = g_precond
@@ -1038,6 +1067,10 @@ print0(
     f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
     f"r_warmstart={'True' if NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART else 'False'} "
     f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K}",
+    console=True,
+)
+print0(
+    f"NM_GATE: newton_muon_start_step={NANOGPT_NEWTON_MUON_START_STEP}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1161,6 +1194,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
             "nanogpt_newton_muon_r_adamw_warmstart": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART,
             "nanogpt_newton_muon_r_adamw_warmstart_k": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
+            "nanogpt_newton_muon_start_step": NANOGPT_NEWTON_MUON_START_STEP,
         },
     )
 
@@ -1230,6 +1264,7 @@ for trial_idx in range(args.num_trials):
         newton_input_cache=_newton_input_cache,
         newton_r_warmstart=bool(NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART),
         newton_r_warmstart_k=NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
+        newton_start_step=NANOGPT_NEWTON_MUON_START_STEP,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
@@ -1504,6 +1539,10 @@ for trial_idx in range(args.num_trials):
                 "trial": trial_idx,
                 "train/step": train_step,
                 "newton_muon/params_preconditioned": applied,
+                # #2069 step-gating telemetry.
+                "newton_muon/start_step": optimizer2.newton_start_step,
+                "newton_muon/active": int(optimizer2._nm_gated_active_last_step),
+                "newton_muon/effective_step": optimizer2._newton_step_count,
             }
             cond_n = tel.get("cond_n", 0)
             if cond_n > 0:
