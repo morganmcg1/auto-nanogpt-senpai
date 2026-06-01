@@ -101,6 +101,18 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--use_lion_aux", action="store_true", default=False,
+                        help="Replace AdamW with Lion (arXiv:2302.06675) for the three AUX "
+                             "param groups (embed.weight, lm_head proj.weight, scalars/gains/biases). "
+                             "Body Muon optimizer is unaffected.")
+    parser.add_argument("--lion_beta1", type=float, default=0.9,
+                        help="Lion β1 (update momentum coefficient). Paper default 0.9; "
+                             "arXiv:2509.01440 finds 0.99 better at LLM pretraining scale.")
+    parser.add_argument("--lion_beta2", type=float, default=0.99,
+                        help="Lion β2 (state momentum coefficient). Paper default 0.99.")
+    parser.add_argument("--lion_lr_scale", type=float, default=0.1,
+                        help="Lion LR = AdamW LR × this scale. Paper recommends 0.1-0.33 "
+                             "(Lion takes constant ±lr steps vs Adam's adaptive g/sqrt(v)).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -388,6 +400,50 @@ def distributed_data_generator(filename_pattern: str, batch_size: int, seq_len=1
         targets = buf[1:].to(device="cuda", dtype=torch.int64, non_blocking=True)
         pos += batch_size
         yield inputs.view(-1, seq_len), targets.view(-1, seq_len)
+
+
+########################################
+#           Lion optimizer             #
+########################################
+
+class Lion(torch.optim.Optimizer):
+    """Sign-based momentum optimizer (Chen et al. 2023, arXiv:2302.06675).
+
+    update = sign(beta1 * m + (1 - beta1) * grad)
+    m      = beta2 * m + (1 - beta2) * grad
+    p     -= lr * update + lr * weight_decay * p
+
+    Single momentum buffer (half the state of AdamW). Constant ±lr step
+    magnitude per parameter — no g/sqrt(v) variance correction. Paper
+    recommends 3-10x smaller LR than Adam.
+    """
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+        if lr < 0.0:
+            raise ValueError(f"Invalid lr: {lr}")
+        if not 0.0 <= betas[0] < 1.0 or not 0.0 <= betas[1] < 1.0:
+            raise ValueError(f"Invalid betas: {betas}")
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["momentum"] = torch.zeros_like(p)
+                m = state["momentum"]
+                update = (m.mul(beta1).add_(grad, alpha=1 - beta1)).sign_()
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                p.add_(update, alpha=-lr)
+                m.mul_(beta2).add_(grad, alpha=1 - beta2)
 
 
 ########################################
@@ -786,6 +842,10 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "use_lion_aux": bool(args.use_lion_aux),
+            "lion_beta1": float(args.lion_beta1),
+            "lion_beta2": float(args.lion_beta2),
+            "lion_lr_scale": float(args.lion_lr_scale),
         },
     )
 
@@ -858,10 +918,27 @@ for trial_idx in range(args.num_trials):
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if args.use_lion_aux:
+        s = args.lion_lr_scale
+        lion_betas = (args.lion_beta1, args.lion_beta2)
+        optimizer1 = Lion([
+            dict(params=[model.embed.weight], lr=0.3 * s,
+                 betas=lion_betas, weight_decay=0, name="lion_embed"),
+            dict(params=[model.proj.weight], lr=(1/320) * s,
+                 betas=lion_betas, weight_decay=0, name="lion_lm_head"),
+            dict(params=[p for p in model.parameters() if p.ndim < 2],
+                 lr=args.lr_scalars * s, betas=lion_betas,
+                 weight_decay=0, name="lion_scalars"),
+        ])
+        print0(f"[optim] Using Lion for AUX groups: beta1={args.lion_beta1}, "
+               f"beta2={args.lion_beta2}, lr_scale={s} "
+               f"(lion_embed.lr={0.3*s:.4f}, lion_lm_head.lr={(1/320)*s:.6f}, "
+               f"lion_scalars.lr={args.lr_scalars*s:.4f})", console=True)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
