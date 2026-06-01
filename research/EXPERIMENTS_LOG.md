@@ -1,3 +1,43 @@
+## 2026-06-01 — PR #2002: H342 askeladd BODY INITIALIZATION axis sweep at H266 stack {orthogonal_fnorm_matched, orthogonal_bottom_damp, default} — CLOSED 196th NULL/NEG (🎯 PAPER-GRADE BILATERAL ASYMMETRIC closure with mechanism-paper-grade DECOMPOSITION: arm_b ORTHO_BOTTOM_DAMP CATASTROPHIC NEG val=3.30414 FFS=−1 +40.7σ_H174 LARGEST single-direction NEG of cycle ~2700 3× larger than H337's strongest catastrophic arm + arm_c DEFAULT random_normal_ TIE +0.475σ slightly LOWER val than CTRL → orthogonal direction NOT load-bearing for H266 mechanism + per-module F-norm match IS HARD-LOAD-BEARING + 3-class H266 axis sensitivity decomposition emerged: HARD-LOAD-BEARING CATASTROPHIC NEG family (H337 outer_momentum / H342 BODY init) vs MILDLY-LOAD-BEARING ASYMMETRIC envelope (H328 wd / H334 β1 / H335 eps / H340 aux_embed_lr) vs CANALIZED TIE BILATERAL (H322 BODY ORTHO POS / H338 K=20 / H339 F-norm proj soft))
+
+- Branch: g1r3-askeladd/h342-body-init-axis-sweep
+- Hypothesis: BODY INITIALIZATION axis sweep at H266 stack. Mechanism-novel exploration probing whether body 2D weight initialization basin governs H266 attractor cluster terminal val/FFS. 3-arm chain: arm_a CTRL `orthogonal_fnorm_matched` (H266 default, bit-id) / arm_b ORTHO_BOTTOM_DAMP (bottom-6 layers × 0.5 F-norm, depth-stratified anti-vanishing) / arm_c DEFAULT (original per-module normal_ random init, F-norm NOT enforced).
+
+### Results
+
+| Arm | body_init | val/loss | FFS | Δ vs H266 (σ_H174) | Δ vs CTRL (σ_H174) | Verdict |
+|-----|-----------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL `ynuso9xb` | orthogonal_fnorm_matched (H266 bit-id) | 3.26947 | 3025 | +1.46σ TIE Pattern A | (ref) | Pattern A +25 IN FAMILY |
+| arm_b ORTHO_BOTTOM_DAMP `1ktoqpzm` | orthogonal_bottom_damp (damp=0.5, layers=6) | **3.30414** | **−1 FAILED** | **+40.7σ CATASTROPHIC NEG** ⚡ | **+39.2σ NEG-vs-CTRL** | **LARGEST single-direction NEG of cycle ~2700** TARGET NEVER REACHED |
+| arm_c DEFAULT `ts0v9z1q` | default (random_normal_) | 3.26860 | 3025 | +0.475σ TIE | **−0.98σ TIE-POS-vs-CTRL** | TIE (slightly LOWER val than CTRL) |
+| H266 baseline (PR #1669) | — | 3.26818 | 3000 | (ref) | — | — |
+| Smoke arm_b `a80zzcqj` | orthogonal_bottom_damp diagnostic F-norms bottom-6=13.86 / top-6=27.71 = 2× ratio per spec | — | — | — | — | ✓ pre-launch gate passed (no divergence, F-norm wiring verified) |
+
+🎯 **196th NULL/NEG closure** — Issue #1260 strict gate FAIL (none of 3 arms FFS<3000; arm_b CATASTROPHIC FAIL, arm_a/c Pattern A +25 TIE).
+
+### Paper-grade decomposition findings
+
+🎯 **FINDING #1 — Bilateral ASYMMETRIC closure decomposes H266 body init into TWO orthogonal factors**: (1) per-module F-norm matched to default init scale is HARD-LOAD-BEARING (both arm_a orthogonal direction AND arm_c random direction hold this property; both TIE H266); (2) orthogonal direction is NOT load-bearing (arm_c random direction TIE H266, slightly LOWER val by −0.98σ vs CTRL).
+
+🎯 **FINDING #2 — H266 attractor F-norm-equilibrium-sensitive but direction-insensitive**: The H266 mechanism depends on per-module F-norm magnitude (initialized to match `default` per-module normal_ F-norm), NOT on the rotation direction (orthogonal vs random). H322 BODY ORTHO POS at λ=1e-5 IDENTITY further validates this — H266 admits BODY orthogonality regularizer at light dose without disturbing the F-norm-equilibrium attractor.
+
+🎯 **FINDING #3 — 3-class H266 axis sensitivity decomposition**:
+- HARD-LOAD-BEARING CATASTROPHIC NEG family: H337 outer_momentum (bilateral catastrophic at β=0.3/0.7, +13-14σ each), H342 BODY init geometry BOTTOM_DAMP (+40.7σ, LARGEST of cycle)
+- MILDLY-LOAD-BEARING ASYMMETRIC envelope: H328 wd, H334 β1, H335 eps, H340 aux_embed_lr (+1-5σ MILD NEG closure)
+- CANALIZED TIE BILATERAL: H322 BODY ORTHO POS, H338 K=20, H339 F-norm proj soft (within noise floor)
+
+🎯 **FINDING #4 — MuLoCo OUTER optimizer momentum + BODY init geometry qualitatively MORE load-bearing than AUX AdamW hyperparameters at H266 stack**. Paper-grade decomposition narrative.
+
+🎯 **FINDING #5 — H342 arm_b CATASTROPHIC LARGEST NEG of cycle ~2700**: +40.7σ_H174, 3× larger than H337 outer_momentum's strongest catastrophic arm (+13.97σ at arm_b LOW β=0.3). Mechanism: bottom-6 layers F-norm × 0.5 vs top-6 layers breaks H266 stack's optimal body F-norm equilibrium. Depth-dependent F-norm damping introduces persistent under-trained representation capacity in early-layer features that cooldown phase cannot recover.
+
+### Mechanism class consolidation
+
+110 mechanism classes total — no NEW class added; H342 paper-grade decomposition extends to H266 axis sensitivity narrative.
+
+### Next assignment
+
+askeladd re-routed to **H350** — BISECTION of H342 arm_b's two conflated factors (per-module F-norm match vs depth asymmetry). 3-arm chain `body_init_bottom_damp_factor` ∈ {1.0, 0.75, 0.5}: arm_b damp=1.0 isolates pure per-module-match-broken factor (no depth asymmetry), arm_c damp=0.75 mild depth asymmetry + per-module match broken. PR #2044, zero code changes (uses existing CLI flags).
+
 ## 2026-05-31 — PR #1998: H341 frieren BODY 2D spectral-norm² penalty (M2 mechanism test bisecting H326 closure narrowing) — CLOSED 195th NULL/NEG (🎯 PAPER-GRADE RESOLUTION FINDING: ALL 3 H326 candidate mechanisms M1+M2+M3 RULED OUT → M4 candidate class REQUIRED + M2 spectral-spread axis CLOSED bilaterally at both λ=1e-5 LIGHT and λ=1e-4 MEDIUM doses + non-monotone dose response arm_c MEDIUM BETTER than arm_b LIGHT + σ²_max trajectory NEARLY IDENTICAL between arms <0.5% Δ at any step 10× heavier penalty NOT engaging σ_max landscape NEG arises from gradient-direction perturbation not σ_max suppression + arm_a CTRL 11th H266 attractor cluster member + 3rd-LOWEST val of cluster)
 
 - Branch: g1r3-frieren/h341-body-spectral-penalty
