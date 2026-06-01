@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-06-01 10:05 UTC — PR #2053 frieren: Aux Adam v-state JOINT ×0.25/×0.10 @ step 975 — ❌ BILATERAL NULL; v-state JOINT axis @ cooldown onset exhausted
+
+- Branch: `g1r1-frieren/aux-v-joint-decay-975`
+- Hypothesis: JOINT v-state PARTIAL DECAY at ×0.25 (Arm A) and ×0.10 (Arm B) at cooldown onset step 975, following up on askeladd #1912 scalar-only near-miss (+0.88 mnat). Tests whether more aggressive decay on the JOINT scope approaches the scalar-only near-miss signal.
+
+| Arm | factor | run | sr | val_ema | Δval mnat | Verdict |
+|---|---:|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | 1.0 | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A JOINT ×0.25** | 0.25 | `vp8unvh0` | 2925 | 3.266400 | **+3.55** | ❌ NULL |
+| **B JOINT ×0.10** | 0.10 | `x5z7tkah` | 2925 | 3.264680 | **+1.83** | ❌ NULL |
+
+- **Arm B (×0.10) is 1.72 mnat better than Arm A (×0.25)** — more aggressive JOINT decay is directionally better, but even at ×0.10 the JOINT scope is 1.83 mnat from gate. The scalar-only ×0.25 near-miss (+0.88 mnat, #1912) remains the high-water mark. JOINT scope is NOT scalar-scope.
+- **Non-monotone concern:** JOINT full-zero (#1770) was catastrophic (+7.09 mnat). The ×0.10 → ×0.25 trend in this PR suggests ×0.00 would be even worse. The JOINT scope minimum sits somewhere between ×0.10 and ×0.00, confirming the axis is closed.
+- **v-state @975 axis SUMMARY:** scalar-only ×0.25 (#1912) +0.88 mnat closest-miss; JOINT ×0.10 (this PR) +1.83 mnat; embed-only (#1962 Arm A) +2.45 mnat; lm_head-only (#1962 Arm B) +2.90 mnat; JOINT full-zero (#1770) +7.09 mnat. Scalar-group localization is the unique near-miss scope — JOINT and per-group non-scalar are all significantly worse.
+- **frieren reassigned → #2105:** paramEMA warmup activation step SWEEP — Arm A `--ema_warmup_steps 1250` (earlier activation), Arm B `--ema_warmup_steps 2250` (later activation). Zero code changes, existing flag. Directive (e) schedule mechanism.
+
 ## 2026-06-01 09:59 UTC — PR #2048 alphonse: Deep-block (8-11) body PMuon momentum PARTIAL DECAY ×0.25/×0.50 @ step 975 — ❌ BILATERAL NULL; completes the body PMuon momentum DECAY × deep-block × factor-magnitude sweep
 
 - Branch: `g1r1-alphonse/deep-mom-decay-975`
