@@ -1,3 +1,40 @@
+## 2026-06-01 22:10 UTC — Cycle 71 mid-543 — alphonse #2156 CLOSED (447th refute / **INTERVAL-INVARIANT CONFIRMED AT COMPOUND PARITY — extends frieren #2114 non-compound INVARIANCE finding into 3-sub PKB1 × LM_HEAD-RESET COMPOUND class** / 59th RTM precedent / 43rd pod-stability observation; bilateral n=2 mean **3.26974** [Arm A `y79wiij1` 3.27197 / Arm B `or1s8218` 3.26751 — 8th cycle-71 sub-floor single-seed reach AND single-seed crossing of MERGE bar — variance signal NOT population claim]; Δ vs #2129 parent (I=200): **+0.00001** — functionally identical mean; inter-arm spread DOUBLED 0.00274→0.00446 → mean-preserving variance-amplifying at sparser cadence; HYPOTHESIS 1 40% prior REALIZED; mechanism reading: productive lift recovery driven by reset-MOMENT spec and partial-factor, NOT by event count) + alphonse #2190 new assignment (**3-sub PKB1 × MLP-SOAP front=fast productive-lever STACKING** — 3rd parallel non-carrier productive×productive composability probe alongside askeladd #2189 EMBED-RESET-stack and frieren #2175 PROJ-excluded-stack; 35% PRODUCTIVE-STACKING-MILD / 25% CANCELLATION / 20% PRODUCTIVE-MERGE / 15% MILD-DRIFT / 5% POD-BLOCK). Fleet 8/8 WIP. Cumulative: **447 refuted / 300 mech classes / 271 family closures / 10 axes / 59 RTM precedents / 43 pod-stability observations**.
+
+### alphonse #2156 CLOSED — 447th refute / INTERVAL-INVARIANT GENERALIZES TO COMPOUND
+
+**Bilateral terminal — mirror-productive-sub-floor (clean RTM-NEGATIVE)**:
+- Arm A `y79wiij1` SEED=1: val_loss **3.27197** (floor band upper-region)
+- Arm B `or1s8218` SEED=2: val_loss **3.26751** (8th cycle-71 sub-floor single-seed reach; SINGLE-SEED crossing of MERGE bar — NOT population claim)
+- **n=2 mean 3.26974** (+0.00198 above MERGE bar — NOT MERGE); stat margin 0.01451 ≫ 0.004
+- Δ vs #2129 parent (I=200): **+0.00001** — functionally identical
+- Inter-arm spread DOUBLED 0.00274→0.00446 → mean-preserving variance-amplifying
+
+**Structural finding — INTERVAL-INVARIANCE GENERALIZES TO COMPOUND**: Extends frieren #2114's non-compound INTERVAL-DECOUPLING-INVARIANT to COMPOUND context. Mechanism reading: productive lift recovery driven by reset-MOMENT spec and partial-factor, NOT by event count. Naive event-count-proportional cost model REJECTED.
+
+### Three parallel productive×productive composability probes — cycle-71 mid-543
+
+| Probe | Productive lever A | Productive lever B | Status |
+|---|---|---|---|
+| askeladd #2189 | MLP-SOAP front=fast | EMBED-RESET M=2 F=0.25 | in flight (just assigned mid-542) |
+| frieren #2175 | SCALARS-HIGHER β1=0.9 ISOLATED | PROJ-EXCLUDED bitfield=8 | in flight (assigned mid-538) |
+| **alphonse #2190** | **3-sub PKB1 (#2068)** | **MLP-SOAP front=fast** | **THIS assignment mid-543** |
+
+→ Three parallel productive×productive probes give cycle-71 the highest-leverage test of whether the "PRODUCTIVE LEVERS ARE SOLO-ONLY" meta-finding (5/5 CARRIER compound CANCELLATION) extends to non-carrier compounds.
+
+### alphonse #2190 next — 3-sub PKB1 × MLP-SOAP front=fast STACKING
+
+Tests two-productive-lever composition: (a) 3-substrate per-kind β1 (embed=0.8, lm_head=0.7, scalars=0.9; #2068 ISOLATED 3.26910) — state-phase mechanism, with (b) MLP-SOAP front=fast (#1775 ISOLATED 3.26789) — depth-orientation mechanism. Mechanistically orthogonal.
+
+Priors: 35% PRODUCTIVE-STACKING-MILD / 25% CANCELLATION / 20% PRODUCTIVE-MERGE / 15% MILD-DRIFT / 5% POD-BLOCK.
+
+### Cycle 71 mid-543 fleet status
+
+Fleet 8/8 WIP. Cumulative: **447 refuted / 300 mech classes / 271 family closures / 10 axes / 59 RTM precedents / 43 pod-stability observations**.
+
+The 3 parallel productive×productive composability probes (askeladd #2189, frieren #2175, alphonse #2190) are the cycle-71 highest-leverage joint experiment. Resolves the carrier-specificity of the SOLO-ONLY pattern.
+
+---
+
 ## 2026-06-01 22:00 UTC — Cycle 71 mid-542 — askeladd #2154 CLOSED (446th refute / **EMBED M=2 F=0.25 BILATERAL STABLE FLOOR-LOWER-EDGE — SUBSTRATE-GENERAL PRODUCTIVE CONFIRMED ON SAFE MATRIX CORNER** / 58th RTM precedent / 42nd pod-stability observation; bilateral n=2 mean **3.270575** [Arm A `rcdjxfzp` 3.27075 / Arm B `58r8v512` 3.27040 — 7th cycle-71 sub-floor single-seed reach below 3.27050]; Δ vs #2063 lm_head −0.00028 within n=2 sample-noise → SUBSTRATE-SYMMETRIC productive minimum at SAFE corner; HYPOTHESIS 1 45% prior REALIZED; F-coupling reversal on EMBED appears M=1-SPECIFIC since M=2 F=0.25 is STABLE) + askeladd #2189 new assignment (**MLP-SOAP front=fast × EMBED-RESET M=2 F=0.25 productive-lever STACKING** — first non-carrier productive-lever × productive-lever compound testing whether SOLO-ONLY meta-finding is carrier-specific or universal; 30% PRODUCTIVE-STACKING-MILD / 25% PRODUCTIVE-MERGE / 25% CANCELLATION / 15% MILD-DRIFT / 5% POD-BLOCK). Fleet 8/8 WIP. Cumulative: **446 refuted / 300 mech classes / 270 family closures / 10 axes / 58 RTM precedents / 42 pod-stability observations / configuration-radius destab axis 18 cells / 15 sub-axes**.
 
 ### askeladd #2154 CLOSED — 446th refute / EMBED M=2 F=0.25 SUBSTRATE-SYMMETRIC PRODUCTIVE
