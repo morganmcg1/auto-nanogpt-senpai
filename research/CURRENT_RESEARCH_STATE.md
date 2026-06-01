@@ -16,23 +16,23 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 - **PR #2128 tanjiro CLOSED as 107th R5 FFS-NEUTRAL** [cosine-mu-cooldown-shape; B★ at canonical {2875, 2925}, Δ ema_val=+0.0005 vs A_ctrl]. mu-cooldown SHAPE axis FULLY MAPPED: linear (merged) ≡ cosine ≡ asymmetric ≡ shape-invariant. **Cross-fleet intel**: future mu work must move to non-shape mechanism (μ stratification by block/head/tensor or non-mu axis entirely).
 - **PR #2042 alphonse CLOSED as 108th R5 FFS-NEUTRAL** [rope-base-freq-probe n=4 at 4096; μ_4(FFS_ema)=2887.5 vs gate 2862.5 (miss +25.0)]. Trial 3 unique R5 dual-low departure on FFS_trainval (2875 instead of canonical 2925) — encouraging direction but n=4 absorbed by mu_cooldown stack. **Cross-fleet intel**: RoPE-base axis MAPPED; future RoPE work needs per-head θ stratification or position-aware schedule.
 
-### Researcher dispatches in flight (2 idle students)
+### New assignments dispatched (2 students → PR assigned)
 
-- `a3d2e077085c7e8b3` → alphonse fresh hypothesis (excludes RoPE/Mu; biased to attention sinks, SOAP variants, per-head/per-role NS5, spectral preconditioning, crossing-window mechanisms). Writes to `/workspace/senpai/target/research/RESEARCH_IDEAS_ALPHONSE_2026-06-01_18-50.md`.
-- `a543233c6c014be1d` → tanjiro fresh hypothesis (excludes cosine-mu / ns_iter / qkv-ortho; biased to SOAP eigenbasis refresh schedule, per-head decomposition, ALiBi, skip-connection alpha-scaling, LN gradient flow, embed tied vs untied, bf16 alternatives). Writes to `/workspace/senpai/target/research/RESEARCH_IDEAS_TANJIRO_2026-06-01_18-50.md`.
+- **alphonse → PR #2167** `ns5-per-group-iters`: NS5 attn=7-iter, mlp=5-iter per-group iteration count sweep. First R5 experiment to vary NS5 convergence quality per semantic group. NS5-internal axis (not pre-NS5 modifier). 4-cell: A_ctrl, B★(attn=7/mlp=5), C(attn=5/mlp=7), D(attn=7/mlp=7).
+- **tanjiro → PR #2166** `soap-basis-cooldown-freeze`: Freeze SOAP Kronecker eigenbasis at cooldown start (step 975). Eliminates ~70 spurious basis rotation events in FFS window. Strong NS5-bypass: NS5 does not touch `state["q_row"]`/`state["q_col"]`. 4-cell: A_ctrl, B★(freeze@975), C(freeze@1950), D(freeze@487).
 
-### Fleet status snapshot (18:50Z) — 6/8 RUNNING; 2 IDLE awaiting researcher-agent return
+### Fleet status snapshot (19:00Z) — 8/8 RUNNING
 
 | PR | Student | Run | State | Notes |
 |---|---|---|---|---|
-| — | alphonse | (idle) | — | Researcher-agent in flight; awaiting fresh hypothesis (non-RoPE, non-Mu) |
-| #2070 | **frieren** | `xdevn24r` | running | **n=4 mu+freq compound trial 4 ~91%; ETA ~18:56Z; 3/4 canonical → expect 109th R5 FFS-NEUTRAL closure** |
+| **#2167** | alphonse | (A_ctrl launching) | assigned | NS5 per-group iters (attn=7, mlp=5); PR just dispatched |
+| #2070 | **frieren** | `xdevn24r` | running | n=4 mu+freq compound trial 4; 3/4 canonical, trial 4 imminent |
 | #2118 | edward | `1c1m5iev` (C) | running | logit cap=10.0; A_ctrl + B★ canonical |
-| #2126 | thorfinn | (C pending) | B★ done | trapezoid plateau_frac=0.4 = DUAL-METRIC DEPARTURE; C(0.6) launch queued |
-| — | tanjiro | (idle) | — | Researcher-agent in flight; awaiting fresh hypothesis (non-cosine-mu, non-NS-iter, non-qkv-ortho) |
-| #2130 | askeladd | `4px2l6l7` (B★) | running | embed_lr_scale=5.0; near terminal at 18:35Z |
-| #2133 | fern | `7uhpuigt` (B★) | running | depth-graduated MLP; ETA ~25 min from 18:35Z |
-| #2138 | nezuko | `q1xl3tst` (B★) | running | soap_eps_floor=0.03; ETA ~50 min from 18:35Z |
+| #2126 | thorfinn | (C in progress) | running | trapezoid; plateau_frac=0.6 Cell C running |
+| **#2166** | tanjiro | (A_ctrl launching) | assigned | SOAP eigenbasis cooldown freeze; PR just dispatched |
+| #2130 | askeladd | `4px2l6l7` (B★) | running/terminal | embed_lr_scale=5.0; terminal imminent |
+| #2133 | fern | `7uhpuigt` (B★) | running | depth-graduated MLP; ETA ~19:00Z |
+| #2138 | nezuko | `q1xl3tst` (B★) | running | soap_eps_floor=0.03; ETA ~19:25Z |
 
 ### Heartbeat actions (18:35Z–18:50Z)
 
