@@ -84,6 +84,15 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--caut_aux_enabled', action='store_true', default=False,
+                        help='Enable Cautious Adam (cAdam) masking on aux Adam '
+                             'optimizer: per-element update is multiplied by '
+                             '(sign(m_hat) == sign(grad)) before applying.')
+    parser.add_argument('--caut_aux_activation_step', type=int, default=0,
+                        help='Step at which cAdam masking activates. 0 = from '
+                             'step 0 (permanent). Set >0 for transient activation '
+                             '(e.g. 975 at cooldown onset). Only meaningful when '
+                             '--caut_aux_enabled is set.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -673,6 +682,63 @@ def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[
     return {}
 
 
+@torch.no_grad()
+def cautious_adam_step(optimizer, collect_stats: bool = False):
+    # Manual AdamW step with cAdam (cautious updates) masking. Replaces
+    # optimizer.step() when caut_aux is active. Applies the same Adam moment
+    # updates and bias correction as torch.optim.AdamW (decoupled WD if
+    # nonzero), then multiplies each per-element bias-corrected update by
+    # mask = (sign(m_hat) == sign(grad)) before applying to params.
+    # When collect_stats is True returns (masked_count, total_elements) summed
+    # across all params (incurs a CUDA sync via .item()); otherwise returns
+    # (0.0, 0) without syncing.
+    masked_count = 0.0
+    total_elements = 0
+    step_val = None  # cached after first param read to avoid per-param .item() sync
+    for group in optimizer.param_groups:
+        beta1, beta2 = group['betas']
+        eps = group['eps']
+        lr = group['lr']
+        wd = group.get('weight_decay', 0.0)
+        for p in group['params']:
+            if p.grad is None:
+                continue
+            grad = p.grad
+            state = optimizer.state[p]
+            if len(state) == 0:
+                # Mirror fused AdamW first-call init (state['step'] as device tensor).
+                state['step'] = torch.zeros((), dtype=torch.float32, device=p.device)
+                state['exp_avg'] = torch.zeros_like(p)
+                state['exp_avg_sq'] = torch.zeros_like(p)
+            step_t = state['step']
+            if torch.is_tensor(step_t):
+                step_t.add_(1.0)
+                if step_val is None:
+                    step_val = int(step_t.item())
+            else:
+                state['step'] = int(step_t) + 1
+                if step_val is None:
+                    step_val = int(state['step'])
+            m = state['exp_avg']
+            v = state['exp_avg_sq']
+            m.mul_(beta1).add_(grad, alpha=1 - beta1)
+            v.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+            bias_c1 = 1 - beta1 ** step_val
+            bias_c2 = 1 - beta2 ** step_val
+            m_hat = m / bias_c1
+            v_hat = v / bias_c2
+            mask_bool = (torch.sign(m_hat) == torch.sign(grad))
+            if collect_stats:
+                total_elements += mask_bool.numel()
+                masked_count += float(mask_bool.sum().item())
+            mask = mask_bool.to(m_hat.dtype)
+            if wd != 0.0:
+                p.mul_(1 - lr * wd)
+            denom = v_hat.sqrt().add_(eps)
+            p.addcdiv_(m_hat * mask, denom, value=-lr)
+    return masked_count, total_elements
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -765,6 +831,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "caut_aux_enabled": int(args.caut_aux_enabled),
+            "caut_aux_activation_step": args.caut_aux_activation_step,
             "seed": args.seed,
         },
     )
@@ -1071,8 +1139,21 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
-        for opt in optimizers:
-            opt.step()
+        caut_aux_active = (args.caut_aux_enabled
+                           and step >= args.caut_aux_activation_step)
+        if args.caut_aux_enabled and step == args.caut_aux_activation_step:
+            print0(f"[step {step}] caut_aux ENABLED: "
+                   f"activation_step={args.caut_aux_activation_step}, scope=joint",
+                   console=True)
+        caut_aux_mask_count = 0.0
+        caut_aux_total_count = 0
+        if caut_aux_active:
+            caut_aux_mask_count, caut_aux_total_count = cautious_adam_step(
+                optimizer1, collect_stats=telemetry_due,
+            )
+        else:
+            optimizer1.step()
+        optimizer2.step()
         # EMA buffer update on body-Muon matrix params.
         # During warmup: track params live (no averaging) so post-warmup buffer is
         # seeded with stable, non-zero params (handles proj zero-init bias and lets
@@ -1190,6 +1271,19 @@ for trial_idx in range(args.num_trials):
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
             }, step=wandb_step)
+            caut_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "caut_aux/enabled": int(args.caut_aux_enabled),
+                "caut_aux/activation_step": args.caut_aux_activation_step,
+                "caut_aux/active": int(caut_aux_active),
+            }
+            if caut_aux_active and caut_aux_total_count > 0:
+                caut_metrics["caut_aux/mask_fraction"] = (
+                    caut_aux_mask_count / caut_aux_total_count)
+                caut_metrics["caut_aux/masked_count"] = caut_aux_mask_count
+                caut_metrics["caut_aux/total_count"] = caut_aux_total_count
+            wandb.log(caut_metrics, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
