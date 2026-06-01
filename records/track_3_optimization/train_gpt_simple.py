@@ -96,6 +96,11 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    parser.add_argument("--body_qhm_nu", type=float, default=float(os.environ.get("BODY_QHM_NU", "-1.0")),
+                        help="QHM blending coefficient for BODY MuonH inner update pre-NS5. "
+                             "Default -1.0 (sentinel) = use current Nesterov form (Pattern A bit-id). "
+                             "If >= 0.0, replaces grad.lerp_(momentum, mu) with grad.lerp_(momentum, body_qhm_nu). "
+                             "Paper recommended sweet spot: 0.7-0.8 (Ma & Yarats, ICLR 2019 arXiv:1810.06801).")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
                         choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
@@ -569,9 +574,15 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, body_qhm_nu=-1.0):
     momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    if body_qhm_nu >= 0.0:
+        # QHM blend (Ma & Yarats, ICLR 2019 arXiv:1810.06801):
+        # update = (1-nu)*grad + nu*momentum, computed via lerp_.
+        # When nu == mu this is bit-identical to the standard Nesterov branch.
+        update = grad.lerp_(momentum, body_qhm_nu)
+    else:
+        update = grad.lerp_(momentum, mu) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
@@ -674,12 +685,14 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 body_qhm_nu=-1.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        body_qhm_nu=body_qhm_nu)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -707,7 +720,8 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         body_qhm_nu=group["body_qhm_nu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -855,6 +869,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_qhm_nu": args.body_qhm_nu,
             "polyak_ema_decay": args.polyak_ema_decay,
         },
     )
@@ -939,7 +954,8 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       body_qhm_nu=args.body_qhm_nu)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
