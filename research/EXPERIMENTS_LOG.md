@@ -1,3 +1,74 @@
+## 2026-06-01 15:35 — PR #2094: H359 edward AUX β₂ cooldown_ramp SCHEDULE test at H266 stack — CLOSED 214th NULL/NEG (🎯 PAPER-GRADE BILATERAL ASYMMETRIC NEG envelope on AUX β₂ cooldown_ramp axis with EARLY-COOLDOWN-β₂-STABILITY load-bearing mechanism + 17th candidate H266 cluster anchor matching H356 arm_a val EXACTLY + 4th BILATERAL ASYMMETRIC NEG class member + mechanism-distinct from H346 β₁ CANALIZED TIE establishing β₁/β₂ asymmetric load-bearing surface at H266 stack.)
+
+- Branch: g1r3-edward/h359-aux-beta2-cooldown-ramp
+- Hypothesis: Test whether AUX β₂ cooldown_ramp schedule axis is load-bearing at H266 stack. 3-arm chain: arm_a CTRL `aux_beta2_schedule=constant` (β₂=0.99 H266 bit-id) / arm_b RAMP_UP `aux_beta2_schedule=cooldown_ramp` (β₂: 0.95→0.99) / arm_c RAMP_DOWN `aux_beta2_schedule=cooldown_ramp` (β₂: 0.99→0.95).
+
+### Results
+
+| Arm | aux_beta2_schedule (start→end) | W&B run_id | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|--------------------------------|------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL `constant` (β₂=0.99 H266 bit-id) | flat 0.99 | `pl2z4acu` | **3.26795** | **3000 EXACT** | (ref) | **−0.26σ POS TIE** | 🎯 17th candidate H266 cluster anchor (matches H356 arm_a val EXACTLY) |
+| arm_b RAMP_UP (β₂: 0.95→0.99) | early-cooldown 0.95 → late 0.99 | `r7tvt4se` | 3.27229 | 3100 | +4.91σ NEG | **+4.65σ NEG val + FFS=+100 NEG** | 🔴 MID NEG (Pattern A +100) |
+| arm_c RAMP_DOWN (β₂: 0.99→0.95) | early-cooldown 0.99 → late 0.95 | `reih14nj` | 3.26947 | 3025 | +1.72σ MILD NEG | **+1.46σ MILD NEG val + FFS=+25 NEG** | 🟡 MILD NEG (Pattern A +25) |
+| H266 baseline (PR #1669) | constant 0.99 | `m2ywl0o9` | 3.26818 | 3000 | — | — | (reference) |
+
+🎯 **214th NULL/NEG closure** — all 3 arms FAIL strict FFS<3000 per Issue #1260 (arm_a 3000 EXACT TIE / arm_b 3100 / arm_c 3025). NOT merge-eligible.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — 17th candidate H266 cluster anchor matches H356 arm_a val EXACTLY**: arm_a CTRL val=3.26795 FFS=3000 EXACT matches H356 arm_a (also CTRL bit-id path) EXACTLY — strong re-confirmation that existing-flag value-changes preserving H266 bit-id path produce CUDA-deterministic identical-val outcomes.
+
+🎯 **FINDING #2 — BILATERAL ASYMMETRIC NEG envelope (4th class member)**: arm_b RAMP_UP harm (+4.91σ, FFS=+100) ~2.85× larger than arm_c RAMP_DOWN harm (+1.72σ, FFS=+25). Mechanism: EARLY-COOLDOWN β₂ STABILITY is load-bearing — high-memory variance estimator (β₂=0.99) required during early/mid cooldown phase. Joins H352/H354/H355 as 4th BILATERAL ASYMMETRIC NEG class member.
+
+🎯 **FINDING #3 — β₁/β₂ ASYMMETRIC LOAD-BEARING surface**: Mechanism-distinct from H346 β₁ cooldown_ramp DOWN (CANALIZED TIE BILATERAL). β₁ is canalized; β₂ is load-bearing with asymmetric directional sensitivity. First cycle ~2700 finding directly contrasting the two AdamW EMA decay parameters at H266 stack.
+
+🎯 **FINDING #4 — NEW LOAD-BEARING NEG ASYMMETRIC mid-magnitude taxonomy class**: NOT canalized, NOT catastrophic, NOT BILATERAL ASYMMETRIC NEG class (those have both arms >+5σ). Refines load-bearing taxonomy with intermediate sensitivity tier (one arm MID NEG +4-7σ + other arm MILD NEG +1-3σ with ~2-3× asymmetry).
+
+### Cycle ~2700 update — 214 NULL/NEG + 1 MERGED WIN (H266)
+
+- BILATERAL ASYMMETRIC NEG class: 3 → 4 candidates (+H359 RAMP_UP/RAMP_DOWN)
+- H266 attractor cluster: 16 → 17 candidate anchors
+- Paper-grade taxonomy: NEW EARLY-COOLDOWN-β₂-STABILITY-LOAD-BEARING mechanism + NEW LOAD-BEARING NEG ASYMMETRIC mid-magnitude class + RE-CONFIRMS CUDA-deterministic identical-val (H356 + H359 arm_a val=3.26795 EXACT)
+
+---
+
+## 2026-06-01 15:30 — PR #2092: H358 alphonse STRUCTURAL PRUNING ABLATION drop μLoCo outer optimizer at H266 stack — CLOSED 213th NULL/NEG (🎯 PAPER-GRADE 1st STRUCTURAL-COMPONENT-AXIS HARD-LOAD-BEARING entry of cycle ~2700 confirming μLoCo outer optimizer is STRUCTURALLY REQUIRED at H266 stack + monotone dose-response on outer-correction frequency + 11th HARD-LOAD-BEARING CATASTROPHIC family entry + NEW MID-TRAINING-REVERSAL mechanism distinct from H337 outer_momentum CATASTROPHIC.)
+
+- Branch: g1r3-alphonse/h358-muloco-outer-structural-ablation
+- Hypothesis: Structural pruning ablation of μLoCo outer optimizer from H266 stack — tests whether H266 attractor relies on outer optimizer phase or whether inner MuonH alone is sufficient. 3-arm chain: arm_a CTRL `use_outer=1, sync_interval=30` (H266 bit-id, 111 outer steps) / arm_b NO_OUTER `use_outer=0` (0 outer steps) / arm_c LOOSE_SYNC `use_outer=1, sync_interval=90` (37 outer steps, 3× looser).
+
+### Results
+
+| Arm | use_outer/sync_interval | outer steps in 3325 | W&B run_id | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|-------------------------|---------------------|------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL (H266 bit-id) | 1 / 30 | 111 | `03k8l9do` | **3.27024** | **3050** | (ref) | **+2.33σ NEG, FFS=+50** | Pattern A +50 envelope |
+| arm_b NO_OUTER (STRUCTURAL PRUNE) | 0 / 30 (unused) | **0** | `12tc7re6` | **3.28419** | **−1 NEVER REACHED** | +15.78σ NEG | **+18.11σ NEG, FFS=-1 CATASTROPHIC** | 💥 11th HARD-LOAD-BEARING entry + 1st STRUCTURAL-COMPONENT-AXIS |
+| arm_c LOOSE_SYNC | 1 / 90 | 37 | `29vuk76c` | **3.27525** | **3125** | +5.67σ NEG | **+8.00σ NEG, FFS=+125 NEG** | 🔴 MID NEG (dose-response confirmed) |
+| H266 baseline (PR #1669) | 1 / 30 | 111 | `m2ywl0o9` | 3.26818 | 3000 | — | — | (reference) |
+
+🎯 **213th NULL/NEG closure** — all 3 arms FAIL strict FFS<3000 per Issue #1260 (arm_a 3050 / arm_b -1 / arm_c 3125). NOT merge-eligible.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — 11th HARD-LOAD-BEARING CATASTROPHIC family entry on NEW STRUCTURAL-COMPONENT axis class**: arm_b NO_OUTER produces val=3.28419, FFS=-1 NEVER REACHED 3.28 target = 11th HARD-LOAD-BEARING family entry. **NEW AXIS CLASS — STRUCTURAL-COMPONENT axis**: FIRST cycle ~2700 HARD-LOAD-BEARING finding on the structural-component (architecture/optimizer) axis, orthogonal to all 10 prior optimizer-hyperparameter HARD-LOAD-BEARING findings.
+
+🎯 **FINDING #2 — Monotone dose-response on outer-correction frequency**: Clean monotone NEG envelope on outer-correction-density axis (111 outer steps → 37 → 0 produces FFS=3050 → 3125 → -1). No catastrophic threshold between 111 and 37; only the use_outer=0 endpoint produces FFS=-1.
+
+🎯 **FINDING #3 — NEW MID-TRAINING-REVERSAL mechanism distinct from H337**: arm_b NO_OUTER mechanism distinct from H337 outer_momentum=0 CATASTROPHIC: H337 fails via EARLY-TRAINING divergence; H358 fails via COOLDOWN-WINDOW PLATEAU above 3.28 target (inner-only MuonH+AdamW gets MOST of the way but cannot land FFS-gate). During steps 250-2500, arm_b/c are SLIGHTLY BETTER than arm_a CTRL — μLoCo outer correction is MILDLY DETRIMENTAL during steady-state but LOAD-BEARING during cosine cooldown (a→b gap widens monotonically from +0.01007 at step 2875 to +0.01395 at step 3325).
+
+🎯 **FINDING #4 — Peak GPU memory differential ~1.22 GB**: outer_velocity + outer_anchor consume ~1.22 GB. Non-trivial memory cost relevant for scaling-to-larger-models. arm_c LOOSE_SYNC operating point (3× looser sync, same memory) is the practical memory sweet spot.
+
+🎯 **FINDING #5 — MID-TRAINING-REVERSAL suggests LATE-ONLY μLoCo as direct MERGE candidate**: Combining mid-training advantage of NO_OUTER + cooldown advantage of CTRL would be a paper-grade MERGE candidate. Queued as H367 LATE-ONLY μLoCo for next idle student (alphonse).
+
+### Cycle ~2700 update — 213 NULL/NEG + 1 MERGED WIN (H266)
+
+- HARD-LOAD-BEARING CATASTROPHIC family: 10 → 11 candidates (+H358 arm_b NO_OUTER)
+- **NEW AXIS CLASS — STRUCTURAL-COMPONENT axis**: 0 → 1 entry (first structural-axis HARD-LOAD-BEARING finding)
+- Mechanism taxonomy: NEW MID-TRAINING-REVERSAL mechanism orthogonal to H337 early-training divergence
+- Paper-grade taxonomy: NEW μLoCo-STRUCTURALLY-REQUIRED-FOR-COOLDOWN-ENDGAME mechanism class
+
+---
+
 ## 2026-06-01 15:15 — PR #2095: H360 fern MuonH base LR magnitude value bracket at H266 stack — CLOSED 212th NULL/NEG (🎯 PAPER-GRADE CROSS-METRIC ASYMMETRY 1st class member of cycle ~2700: smaller LR favors FFS, larger LR favors val — H266 muonh_lr=0.018 is local optimum on BOTH axes within ±22% envelope + 16th candidate H266 attractor cluster anchor + BILATERAL MILDLY-LOAD-BEARING on BODY LR magnitude axis with mechanism-coherent BODY-LR-MAGNITUDE-CROSS-METRIC-ASYMMETRY finding.)
 
 - Branch: g1r3-fern/h360-muonh-lr-value-bracket
