@@ -1,3 +1,49 @@
+## 2026-06-01 16:25 UTC — Cycle 71 mid-527 — edward #2113 Arm B `uszx206t` terminal val 3.2705 (n=2 mean ~3.270097 floor-band-lower-edge expected RTM-NEGATIVE — NOT MERGE; Arm A 3.269693 sub-floor / Arm B 3.270500 floor) + nezuko #2142 Arm B `xfy3opr3` step 225 step-1 grad_norm 233,439 EARLY-destab signature confirmed (carrier × MLP-SOAP bilateral POD-BLOCK pending) + fern #2145 Arm A `35vzyyld` step-1 grad_norm 233,874 SUSPICIOUS (preconditioner-only reset isolated — should not affect step-1 because reset fires at step 200; investigating) + BITFIELD CORRECTION: AUX_RESET_MOMENT semantics CODE convention M=1 = exp_avg_sq-only (preconditioner) M=2 = exp_avg-only (momentum) M=3 = joint; advisor mental model updated. Fleet 8/8 WIP. Cumulative: 429 refuted / 298 mech classes / 252 family closures / 10 axes / 51 RTM precedents / 31 pod-stability.
+
+### edward #2113 bilateral terminal — pending student submit
+
+- Arm A `n4h94i9i` 3.269693 (sub-floor band)
+- Arm B `uszx206t` 3.270500 (floor band lower edge by 0.0005)
+- n=2 mean = **3.270097** (floor band lower edge by 0.000097, **NOT MERGE** Δ +0.002337)
+- Stat margin (3.28 − 3.270097)·√2 = 0.01401 ≫ 0.004 → CLEAN NEGATIVE
+- Pending student SENPAI-RESULT marker; awaiting close
+
+### Bitfield-semantics correction (caught by fern #2145 student)
+
+CODE convention is the ground truth. Prior assignments labeled MOMENT integers correctly numerically but parentheticals occasionally swapped. Memory `feedback_moment_bitfield_semantics` records the correct mapping. Closing prose should always default to `params_reset_avg / params_reset_sq` (banner) instead of raw MOMENT integers.
+
+### nezuko #2142 Arm B `xfy3opr3` early state
+
+- Step 225, step-1 grad_norm **233,439** — IDENTICAL to Arm A `owezjtk0` (233,797) and #2124/#2132/#2135 EARLY-destab signature
+- Bilateral POD-BLOCK confirmation imminent. **NEW CLASS**: CARRIER × MLP-SOAP-FRONT-FAST CROSS-AXIS SUBSTRATE-β1 × DEPTH-ORIENTATION BILATERAL-POD-BLOCK pending student SENPAI-RESULT.
+- → carrier rescue is NOT a universal stabilizer.
+
+### fern #2145 Arm A `35vzyyld` step-1 grad_norm 233,874 — SUSPICIOUS
+
+If confirmed step-1 grad_norm 233k with isolated lm_head preconditioner reset (M=1 F=1.0 I=200) → this would be a **NEW 5th sub-axis** EARLY-destab class: reset-config initialization-coupled grad explosion (independent of reset cadence — reset fires at step 200, not step 1). Possible mechanisms:
+- Optimizer parameter group reorganization when reset is enabled
+- Initial state of exp_avg_sq differs when reset is configured
+- Bitfield interaction with EPS denominator
+
+If confirmed, would suggest the periodic-reset config itself perturbs initialization. Awaiting student banner verification and possible kill-gate fire.
+
+### Fleet state mid-527
+
+| Student | PR | Status | Best result |
+|---|---|---|---|
+| g1r2-alphonse | #2129 | Arm A 3.2711 / Arm B `x2gva0t9` step 550 | mid-training |
+| g1r2-askeladd | #2121 | Arm A 3.272400 / Arm B `orb419ai` step 1200 val 3.641 | recovering slowly |
+| g1r2-edward | #2113 | Arm A 3.269693 / Arm B 3.2705 TERMINAL | **pending submit** |
+| g1r2-fern | #2145 | Arm A `35vzyyld` step 250 step-1 233k | EARLY-destab POSSIBLE |
+| g1r2-frieren | #2147 | NEW assignment carrier × lm_head-reset I=400 | awaiting adoption |
+| g1r2-nezuko | #2142 | Arm A POD-BLOCK / Arm B `xfy3opr3` step 225 step-1 233k | bilateral POD pending |
+| g1r2-tanjiro | #2139 | Arm A step 1625 val 3.512 | mid-training |
+| g1r2-thorfinn | #2131 | Arm A `rdm078fk` step 3125 val 3.2735 | ~3 min to terminal |
+
+Cumulative: **429 refuted / 298 mech classes / 252 family closures / 10 structural axes / 51 RTM precedents / 31 pod-stability observations**.
+
+---
+
 ## 2026-06-01 16:15 UTC — Cycle 71 mid-526 — frieren #2114 429th refute 298th mech class INTERVAL-SUBSTRATE-ASYMMETRIC-DECOUPLING-INVARIANT-EMBED200-LMHEAD400-FLOOR-BAND-LOWER-EDGE (51st RTM precedent; n=2 mean 3.270315; BIT-EQUIVALENT to both symmetric-INTERVAL endpoints; INTERVAL-axis decoupling NON-LOAD-BEARING) + nezuko #2142 Arm A POD-BLOCK directive (carrier × MLP-SOAP front=fast; step-1 grad_norm 233,797; CARRIER NOT UNIVERSAL STABILIZER — fails MLP-SOAP compound) + alphonse #2129 Arm B directive (Arm A retry 3.2711 floor-band-upper) + frieren #2147 new assignment (carrier × lm_head-reset I=400; 40% CARRIER-INVARIANT 20% CANCELLATION 15% MERGE 15% MILD-DRIFT). Fleet 8/8 WIP. edward #2113 Arm A 3.269693 SUB-FLOOR — Arm B step 2950 ~15 min to terminal (first cycle-71 MERGE-CANDIDATE). Cumulative: 429 refuted / 298 mech classes / 252 family closures / 10 axes / 51 RTM precedents / 31 pod-stability.
 
 ### frieren #2114 bilateral terminal — 298th mech class / 51st RTM precedent / INTERVAL-DECOUPLING-INVARIANT
