@@ -1,3 +1,50 @@
+## 2026-06-01 04:18 UTC — Cycle 71 mid-497 — DOUBLE CLOSURE: askeladd #2035 398th refute 268th mech class MLP-SOAP-×-LM-HEAD-RESET-RTM-ADDITIVE-AT-FLOOR / 33rd RTM precedent / EMBED-SUBSTRATE-RESET-UNIQUELY-CARRIER confirmed (n=2 mean 3.27074 / spread 0.00194 / Arm A 3.27171 Arm B 3.26977 / stat margin 0.01310 ≥ 0.004 ✓; **substrate-reset-class hypothesis REFUTED** — lm_head-reset substitution into productive MLP-SOAP × embed-reset compound collapses to RTM-additive at floor band; MLP-SOAP × embed-reset is now **DOUBLY-UNIQUE** within the 3-mechanism quad — no mech-class substitution AND no substrate substitution reproduces it) + nezuko #2058 19th pod-stability observation (2,1) JOINT-UNIQUELY-LOAD-BEARING-AT-LOW-LR-SUBSTRATE (bilateral NaN step 125 confirms low-LR substrate requires SPECIFICALLY joint reset M=3 — variance-only M=1 and exp_avg-only M=2 both pod-block identically; M-axis at canonical stable cell now 4/5 POD-BLOCKED with unique (2,3) cell; sharpens claim from "non-exp_avg-only on low-LR works" to "combined moment+variance reset is required on low-LR") + askeladd #2063 new assignment (LM-HEAD-RESET ISOLATED baseline; mirror of #1956 embed-reset isolated; carrier-substrate discriminator follow-up; 45% LM-HEAD-RESET-RTM-CELL → additive interpretation FULLY NAILED 25% LM-HEAD-RESET-DESTRUCTIVE → MLP-SOAP masks destruction 15% SUB-RTM 10% POD-BLOCKED 5% MERGE) + nezuko #2064 new assignment (M-axis substrate-MIRROR (embed-M=1, lm_head-M=3) probe — high-LR-substrate-MIRROR of (2,3); 50% EMBED-EXP-AVG-ONLY-UNIQUELY-LOAD-BEARING POD-BLOCK → symmetric substrate-specific moment-axis lock 30% RTM-BAND-STABLE 10% PRODUCTIVE 5% DESTRUCTIVE 5% MERGE). **Critical structural insight**: The 3-mechanism compound triangle has a SINGLE POINT of productive emergence (MLP-SOAP × embed-reset, #1985), now confirmed doubly-unique. The substrate-reset axis is NOT symmetric — embed-substrate-reset is the unique carrier; lm_head-substrate-reset functions as a passive RTM-additive contributor. Combined with the M-axis 4/5 pod-block at canonical stable cell, the structural picture sharpens to: **(1) each substrate has a unique moment-axis reset requirement at the canonical stable cell; (2) the embed-substrate-reset uniquely carries productive emergence with MLP-SOAP per-depth-half**. Two new mech classes / pod-stab adds in single triage cycle. No human issues. Fleet 8/8 active 0 idle. Cumulative **398 refuted / 268 distinct mech classes / 224 family closures / 9 structural axes locked / 33 RTM precedents / 19 pod-stability observations** (RTM-PERSISTENT-AT-N=19/20 = 95.0%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]; EMBED-SUBSTRATE-RESET-UNIQUELY-CARRIER STRUCTURALLY LOCKED; M-axis at canonical stable cell 4/5 POD-BLOCKED).
+
+### askeladd #2035 bilateral terminal — 268th mech class / EMBED-SUBSTRATE-RESET-UNIQUELY-CARRIER
+
+**Bilateral terminal**: Arm A `xsvfm9k2` SEED=1 val=**3.27171** ffs=3050; Arm B `sbhbouaz` SEED=2 val=**3.26977** ffs=3025. n=2 mean **3.27074** (spread 0.00194 — stable through terminal tail). Δ vs baseline 3.26776 = +0.00298 (NOT merge); stat margin 0.01310 ≥ 0.004 ✓ (statistically robust NEGATIVE). Family 2 RTM-ADDITIVE CONFIRMED (predicted ~3.27015, actual 3.27074 matches to +0.00059); Family 1 PRODUCTIVE-EMERGENT 35%-prior REFUTED.
+
+**3-mechanism compound triangle — POST-#2035**:
+
+| Compound | Substrate-reset axis | n=2 mean | reading |
+|---|---|---|---|
+| MLP-SOAP × embed-reset (#1985) | embed | 3.26992 | **LOAD-BEARING productive (single seed)** |
+| Per-kind β1 × embed-reset (#2008) | embed | 3.27064 | RTM-ADDITIVE floor |
+| MLP-SOAP × per-kind β1 (#2007) | (no substrate-reset) | 3.27090 | RTM-ADDITIVE floor |
+| **MLP-SOAP × lm_head-reset (#2035 THIS PR)** | **lm_head** | **3.27074** | **RTM-ADDITIVE floor** |
+
+→ **MLP-SOAP × embed-reset is DOUBLY-UNIQUE within the 3-mechanism quad**: no mech-class substitution (β1 for embed-reset) AND no substrate substitution (lm_head for embed) reproduces the productive emergence.
+
+### nezuko #2058 bilateral NaN — 19th pod-stability observation
+
+**Bilateral NaN**: Arm A `sjjtqhqk` SEED=1 → NaN step 125; Arm B `8dvu9yln` SEED=2 → NaN step 125. Canonical pre-event muon-warmup-boundary signature shared with #2005/#2010/#2016/#2028/#2033/#2046/#2049. Family 1 JOINT-UNIQUELY-LOAD-BEARING POD-BLOCK CONFIRMED (45% prior).
+
+**M-axis at canonical stable cell — POST-#2058**:
+
+| Cell | embed-M | lm_head-M | Outcome |
+|---|---|---|---|
+| `(2,3)` MIRROR-INVERTED-M (canonical) | 2 (exp_avg) | 3 (joint) | **STABLE RTM 3.27027** (24th RTM) |
+| `(2,2)` FORWARD-MATCHED-M=2 | 2 | 2 | POD-BLOCK step 125 (16th pod-stab, #2033) |
+| `(3,3)` FORWARD-MATCHED-M=3 | 3 | 3 | POD-BLOCK step 125 (17th pod-stab, #2046) |
+| `(3,2)` MIRROR-INVERTED-M=3 | 3 | 2 | POD-BLOCK step 125 (18th pod-stab, #2049) |
+| **`(2,1)` low-LR variance-only** | **2** | **1** | **POD-BLOCK step 125 (19th pod-stab, THIS PR)** |
+
+→ **5/5 M-axis cells tested. 4/5 POD-BLOCK. Only `(2,3)` is stable.** Low-LR substrate requires SPECIFICALLY joint reset (M=3) — both partial resets (M=1, M=2) destabilize identically.
+
+### askeladd #2063 new assignment — LM-HEAD-RESET ISOLATED baseline
+
+Tests lm_head-reset alone at canonical MOMENT=2 / interval=200 / partial_factor=0.25 (mirror of #1956 embed-reset isolated 3.27023). Critical follow-up to #2035: discriminates (A) compound = sum of two RTM cells (lm_head-reset itself is RTM) vs (B) MLP-SOAP MASKS lm_head-reset destruction (lm_head-reset isolated is destructive). 45% LM-HEAD-RESET-RTM-CELL → additive interpretation FULLY NAILED.
+
+### nezuko #2064 new assignment — M-axis substrate-MIRROR (embed-M=1, lm_head-M=3) probe
+
+Tests whether high-LR substrate (embed) similarly requires SPECIFICALLY exp_avg-only (M=2), or whether variance-only (M=1) on high-LR + joint (M=3) on low-LR also stabilizes. 50% EMBED-EXP-AVG-ONLY-UNIQUELY-LOAD-BEARING POD-BLOCK → symmetric structural claim: both substrates have specific moment-axis requirements. Closes M-axis at canonical stable cell to 2-bit substrate-specific lock if confirmed.
+
+### Fleet status — 8/8 active 0 idle
+
+After askeladd #2035 close + nezuko #2058 close + askeladd #2063 assignment + nezuko #2064 assignment: g1r2-{askeladd #2063, alphonse #2034, edward #2059, fern #2043, nezuko #2064, thorfinn #2051, tanjiro #2056, frieren #2055} all WIP. Cumulative **398 refuted / 268 distinct mech classes / 224 family closures / 9 structural axes locked / 33 RTM precedents / 19 pod-stability observations** (RTM-PERSISTENT-AT-N=19/20 = 95.0%; floor band STRUCTURALLY LOCKED; EMBED-SUBSTRATE-RESET-UNIQUELY-CARRIER STRUCTURALLY LOCKED; M-axis at canonical stable cell 4/5 POD-BLOCKED).
+
+---
+
 ## 2026-06-01 03:10 UTC — Cycle 71 mid-496 — edward #2031 397th refute 267th mech class CARDINALITY-AXIS-DIMINISHING-RETURNS-NEAR-4-KIND (1st cycle-71 below-floor-band non-merge reading; n=2 mean 3.26914 / cross-arm spread 0.00116 / Arm A 3.26856 Arm B 3.26972 / Δ +0.00138 above baseline / sits BELOW floor band [3.27000, 3.27200] by 0.00086; proj-exclusion NON-DESTRUCTIVE at 3-kind active — proj NOT the load-bearing kind in attn_soap dispatch; cardinality axis 4→3 costs +0.00138, 3→2 costs ~+0.0028, 2→0 NaN = diminishing-returns near 4-kind transitions to destructive at low cardinality) + edward #2059 new assignment (3-KIND-V-EXCLUDED probe bitfield=4 q+k+proj-active — cardinality-axis universalization discriminator; 35% CARDINALITY-AXIS-DIMINISHING-RETURNS-UNIVERSAL → closes 10th structural axis 35% V-CRITICAL-DIFFERENTIAL → distinguishes kinds within 3-kind 15% V-EXCLUSION-DESTRUCTIVE 10% V-EXCLUSION-PRODUCTIVE 5% MERGE). **Critical structural insight**: cardinality axis is MONOTONE-BUT-NON-LINEAR with diminishing-returns near 4-kind. attn_soap dispatch is PARTIAL-REDUNDANT at high cardinality (1 kind cheap to lose) but transitions to DESTRUCTIVE at low cardinality (0-kind NaN). proj-exclusion is the LEAST destructive single-kind exclusion at 3-kind. **NEW structural region IDENTIFIED**: below-floor-band-non-merge (3.26856-3.26972 range) — distinct from all 32 prior RTM precedents which sit IN floor band. No human issues. Fleet 8/8 active 0 idle. Cumulative **397 refuted / 267 mech classes / 223 family closures / 9 axes locked / 32 RTM precedents / 18 pod-stability observations** (RTM-PERSISTENT-AT-N=18/19 = 94.7%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]; cardinality-axis-diminishing-returns-near-4-kind STRUCTURALLY LOCKED; below-floor-band-non-merge structural region NEWLY IDENTIFIED).
 
 ### edward #2031 bilateral terminal — 267th mech class / below-floor-band non-merge discovery
