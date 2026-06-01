@@ -1,3 +1,63 @@
+## 2026-06-01 15:10 UTC — Cycle 71 mid-523 — tanjiro #2109 426th refute 295th mech class CARRIER-RESCUE×SCALARS-HIGHER-3SUB-PRODUCTIVE-STACK-CANCELLATION-FLOOR-BAND (50th RTM precedent; n=2 mean 3.270124 spread 0.002219; ~80% additive cancellation; scalars-HIGHER COMPOUND-FRAGILE confirmed across 3 failure modes #2101+#2109+#2123) + tanjiro #2139 new assignment (MLP-SOAP front=fast × scalars-HIGHER cross-axis depth-substrate compound; completes scalars-HIGHER cross-axis matrix; 30% CANCELLATION 25% MILD-DRIFT 15% MIRROR-PRODUCTIVE 15% POD-BLOCK 10% MERGE). Fleet 8/8 WIP. edward #2113 Arm A 3.269693 SUB-FLOOR — Arm B step 800 ~2h to terminal (potential first cycle-71 MERGE). Cumulative: 426 refuted / 295 mech classes / 249 family closures / 10 axes / 50 RTM precedents / 29 pod-stability.
+
+### tanjiro #2109 bilateral terminal — 295th mech class / 50th RTM precedent / PRODUCTIVE-STACK-CANCELLATION
+
+**Bilateral terminal** (no crashes):
+- Arm A `99g6dsk8` SEED=1 val=**3.271233** ffs=3175
+- Arm B `2q4zfdvt` SEED=2 val=**3.269014** ffs=3175
+
+**n=2 mean = 3.270124** (spread **0.002219** elevated). Stat margin (3.28 − 3.270124)·√2 = **0.013960 ≫ 0.004 → RTM-NEGATIVE**. Δ vs baseline = **+0.002364 → NOT MERGE**.
+
+**3-substrate per-kind β1 productive stack CANCELLATION table**:
+
+| Cell | embed β1 | lm_head β1 | scalars β1 | n | μ | Δ vs floor | reading |
+|---|---|---|---|---|---|---|---|
+| #1972 CARRIER ISOLATED | **0.5** | **0.7** | 0.8 | 2 | **3.268645** | −0.001355 | **SUB-FLOOR rescue minimum** |
+| #2068 SCALARS-HIGHER ISOLATED | 0.8 | 0.8 | **0.9** | 2 | **3.26910** | −0.001000 | **SUB-FLOOR productive minimum** |
+| #2078 substrate-symmetric | 0.7 | 0.7 | 0.8 | 2 | 3.270185 | +0.000185 | floor edge (~85% rescue lost) |
+| **#2109 (THIS PR) 3-SUB STACK** | **0.5** | **0.7** | **0.9** | 2 | **3.270124** | +0.000124 | **floor edge CANCELLATION (~80%)** |
+
+→ **3-substrate productive stack CANCELS ~80% of additive expectation** (-0.002355 expected → +0.000124 actual).
+
+**Structural insight: scalars-HIGHER COMPOUND-FRAGILE across 3 distinct cross-axis failures**:
+
+| Cross-axis | Mech | Result |
+|---|---|---|
+| #2101 (scalars-HIGHER × embed-reset M=2) | substrate-reset | CANCELLATION (~125% cancelled) |
+| **#2109 (this PR, scalars-HIGHER × carrier rescue)** | substrate-β1 | **CANCELLATION (~80% cancelled)** |
+| #2123 (scalars-HIGHER × proj-excluded) | cardinality | BILATERAL POD-BLOCK |
+
+→ scalars-HIGHER β1=0.9 productive minimum is ENTIRELY MECHANISM-ISOLATED across substrate-reset, substrate-β1, and cardinality axes. Open question: does the pattern extend to depth-orientation axis?
+
+### tanjiro #2139 new assignment — depth × substrate cross-axis
+
+**MLP-SOAP front=fast × scalars-HIGHER β1=0.9** — completes the scalars-HIGHER cross-axis matrix by testing the depth-orientation axis. Env: `PER_KIND_AUX_BETA1_ENABLED=1 AUX_BETA1_EMBED=0.8 AUX_BETA1_LM_HEAD=0.8 AUX_BETA1_SCALARS=0.9` + `MLP_SOAP_PER_DEPTH_HALF_ENABLED=1 MLP_SOAP_FRONT_HALF=fast MLP_SOAP_BACK_HALF=slow`. Priors: 30% CANCELLATION-AT-FLOOR / 25% MILD-DRIFT-NEGATIVE / 15% MIRROR-PRODUCTIVE / 15% POD-BLOCK / 10% MERGE.
+
+**Critical discriminator**: if CANCELLATION, scalars-HIGHER is broadly compound-fragile across substrate AND depth axes; if POD-BLOCK (like #2123 cardinality), the destab class is even broader; if productive/merge, depth-axis is structurally distinct.
+
+### Fleet state mid-523
+
+| Student | PR | Status | Best result |
+|---|---|---|---|
+| g1r2-alphonse | #2129 | Arm A crashed/retry pending (no pickup yet) / Arm B step 1275 | Arm B ~50% |
+| g1r2-askeladd | #2121 | Arm A step 2075 past step-125 stable | ~1h to terminal |
+| g1r2-edward | #2113 | Arm A `n4h94i9i` 3.269693 SUB-FLOOR done / Arm B step 800 | **~2h to terminal — first cycle-71 MERGE-CANDIDATE** |
+| g1r2-fern | #2135 | NEW assignment — adoption pending | — |
+| g1r2-frieren | #2114 | Arm A `f5mq6mba` 3.271182 done / Arm B `lq4jl5rx` step 1100 | ~1.5h to terminal |
+| g1r2-nezuko | #2132 | Arm A `37xbyou9` launched step 250 | ~3h to terminal |
+| g1r2-tanjiro | #2139 | NEW assignment | — |
+| g1r2-thorfinn | #2131 | Arm A `rdm078fk` step 318 launched | ~3h to terminal |
+
+**Critical watch for next wake-up**:
+- **edward #2113 Arm B `uszx206t` step 800** — ~2h to terminal. If n=2 mean with Arm A 3.269693 confirms < 3.26776, FIRST CYCLE-71 MERGE.
+- **askeladd #2121 Arm A step 2075** — ~1h to terminal (carrier × proj-excluded; given fern #2123 POD-BLOCK on same cardinality axis, askeladd's survival proves carrier stabilization).
+- **frieren #2114 Arm B `lq4jl5rx` step 1100** — ~1.5h to terminal (RTM expected).
+- **alphonse #2129 Arm A retry** — student not yet acknowledged (posted 14:39 UTC). Check again.
+
+Cumulative: **426 refuted / 295 mech classes / 249 family closures / 10 structural axes / 50 RTM precedents / 29 pod-stability observations**.
+
+---
+
 ## 2026-06-01 14:55 UTC — Cycle 71 mid-522 — fern #2123 425th refute 294th mech class SCALARS-HIGHER×PROJ-EXCLUDED-CROSS-AXIS-COMPOUND-BILATERAL-POD-BLOCK (29th pod-stability, 9th pre-event NaN cell; NEW class: CROSS-AXIS productive COMPOUND config-radius destab) + fern #2135 new assignment (MLP-SOAP front=fast × proj-excluded 3-kind cross-axis structural compound) + alphonse #2129 Arm A retry directive. Fleet 8/8 WIP (edward #2113 Arm B step 425; frieren #2114 Arm B step 725; tanjiro #2109 Arm B step 2750 near-terminal; askeladd #2121 Arm A step 1725; alphonse #2129 Arm B step 900; thorfinn #2131 Arm A launched; nezuko #2132 Arm A launched). Cumulative: 425 refuted / 294 mech classes / 248 family closures / 10 axes / 49 RTM precedents / 29 pod-stability.
 
 ### fern #2123 bilateral terminal — 294th mech class / CROSS-AXIS-COMPOUND-POD-BLOCK / 29th pod-stability
