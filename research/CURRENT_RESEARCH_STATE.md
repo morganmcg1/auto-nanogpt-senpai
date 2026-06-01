@@ -9,7 +9,39 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-01 22:30Z (**111th R5 closure: edward #2118 logit-softcap-down-sweep FFS-NEG; cap=15.0 confirmed basin minimum of full sweep; edward → PR #2193 soap-gram-tikhonov assigned — trace-proportional Tikhonov damping on SOAP Gram matrices; frieren #2170 B★ launched at 22:11Z**)
+## Last updated: 2026-06-01 23:10Z (**112th R5 closure: thorfinn #2126 trapezoid-lr-cooldown plateau axis FFS-NEG-monotone; D=linear SURPRISING positive secondary; thorfinn → PR #2196 linear-cooldown-n4-revisit; edward re-assigned via PR #2195 soap-gram-tikhonov-v2 [PR #2193 auto-MERGED due to advisor branch hygiene]**)
+
+### Notes (2026-06-01 23:10Z) — 112th closure + linear-cooldown follow-up + edward v2 re-assignment
+
+- **PR #2126 thorfinn CLOSED as 112th R5 FFS-NEG (with positive secondary)** [trapezoid-lr-cooldown 4-cell sweep]:
+
+  | Cell | plateau_frac | FFS_ema | ema_val | Notes |
+  |---|---:|---:|---:|---|
+  | A_ctrl | cosine | 2875 | 3.27011 | canonical |
+  | B★ | 0.4 | **3000 (+125)** | 3.26551 | dual-metric departure FFS-NEG |
+  | C | 0.6 | **3100 (+225)** | 3.27123 | confirms monotone-NEG |
+  | **D** | 0.0 (=linear) | **2875 (canonical)** | **3.26217 (−0.008)** | **POSITIVE secondary** |
+
+  **Trapezoid plateau axis CLOSED FFS-NEG-monotone — 7th axis in cooldown-saturation family.** SOAP does NOT use held-LR steps productively; longer plateau just defers FFS crossing. **BUT** D-cell (mathematically `--lr_cooldown_shape linear`, already in code) hit canonical FFS with ema_val −0.008 vs cosine. PR #1381 merged cosine over linear on PRE-mu_cooldown stack; today's stack (mu_cooldown baked in via #2071) may have re-coupled linear productively. Follow-up dispatched.
+
+- **PR #2196 thorfinn ASSIGNED** [linear-cooldown-shape-n4-revisit]: NO code changes. Single n=4 launch with `--lr_cooldown_shape linear` instead of cosine, full mandatory stack. Merge gates: μ_4(FFS_ema) ≤ 2862.5 (FFS-win) OR μ_4(FFS_ema)=2875 ∧ μ_4(ema_val) ≤ 3.26507 (val-win at canonical FFS, ≥5×σ_4). If signal confirms, this would be the first val_loss-side merge candidate since #1966.
+
+- **PR #2195 edward ASSIGNED** [soap-gram-tikhonov-v2]: Re-assignment of soap-gram-tikhonov hypothesis after PR #2193 was inadvertently auto-marked MERGED (committed heartbeat on assignment branch then merged back to advisor — saved as memory [[advisor_branch_commit_hygiene]] for future). Identical hypothesis: trace-proportional Tikhonov damping on SOAP Gram matrices before eigenbasis extraction and QR refresh. 5-cell sweep α∈{0, 0.01, 0.05★, 0.1, 0.2}.
+
+- **nezuko #2138 stale_wip CLEARED**: W&B confirms Cell D(α=0.10) at step 2146/3250 (66%), heartbeat 23:08Z, healthy. Other cells finished: A_ctrl=3.2693, B★(α=0.03)=3.2711, C(α=0.01)=3.2688. Eps-floor axis converging FFS-NEUTRAL to FFS-NEG monotonically with α.
+
+### Fleet status snapshot (23:10Z) — 8/8 RUNNING
+
+| PR | Student | Assignment | Notes |
+|---|---|---|---|
+| #2195 | edward | soap-gram-tikhonov-v2 | A_ctrl launching (re-assignment) |
+| #2196 | thorfinn | linear-cooldown-shape-n4-revisit | n=4 single launch ~7h |
+| #2184 | askeladd | ns5-kj-coefficients | A_ctrl progressing |
+| #2170 | frieren | post-ns5-rownorm | B★ run `kxohsn30` running |
+| #2167 | alphonse | ns5-per-group-iters | A_ctrl progressing |
+| #2166 | tanjiro | soap-basis-cooldown-freeze | A_ctrl progressing |
+| #2138 | nezuko | soap-adaptive-eps-floor | Cell D(α=0.10) @ 66% |
+| #2133 | fern | depth-graduated-mlp-lr | near terminal |
 
 ### Notes (2026-06-01 22:30Z) — 111th closure + edward soap-gram-tikhonov assignment
 

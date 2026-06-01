@@ -1,5 +1,22 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-01 23:10Z — PR #2126 CLOSED FFS-NEG [trapezoid LR cooldown; plateau axis monotone FFS-NEG (B★ plateau=0.4 FFS+125, C plateau=0.6 FFS+225); D=linear shape SURPRISING positive secondary at canonical FFS_ema=2875 with ema_val −0.008 — assigned thorfinn linear-cooldown-n4-revisit] [112th R5 closure]
+
+- branch: g1r5-thorfinn/trapezoid-lr-cooldown
+- hypothesis: Replace cosine LR cooldown with flat-plateau (η=1.0 for plateau_frac of cooldown window) → linear ramp-down. Theory: SOAP eigenbasis needs more high-LR steps to refine curvature before terminal descent → earlier FFS crossing.
+- n=1 4-cell screen (W&B runs `oteszbcp`, `h2bkl9o3`, `v6om3aji`, `vcpdl2a2`; group `g1r5-thorfinn/trapezoid-lr-cooldown`):
+
+| Cell | shape | plateau_frac | val_loss | ema_val | FFS_ema | FFS_trainval |
+|---|---|---:|---:|---:|---:|---:|
+| A_ctrl | cosine | n/a | 3.26970 | 3.27011 | 2875 | 2925 (canonical) |
+| B★ | trapezoid | 0.4 | 3.26472 | 3.26551 | **3000 (+125)** | 3075 (+150) |
+| C | trapezoid | 0.6 | 3.27042 | 3.27123 | **3100 (+225)** | 3150 |
+| **D** | trapezoid | 0.0 (=linear) | **3.26148** | **3.26217** | **2875 (canonical)** | **3000 (+75)** |
+
+Terminal SENPAI-RESULT: FFS_ema_B★=3000, ema_val_B★=3.26551.
+
+- commentary: **112th R5 closure — trapezoid plateau axis FFS-NEG-monotone; SOAP does NOT use held-LR steps productively.** Plateau width monotonically defers FFS crossing: 0.0→2875, 0.4→3000, 0.6→3100. The mechanism is FALSIFIED for FFS — SOAP's eigenbasis appears "ready" well before cooldown starts; deferring the descent simply delays the 3.28 crossing. Adds 7th axis to cooldown-saturation closed family: (1) mu, (2) precond_freq, (3) NS5 iter, (4) ema decay, (5) adamw eps, (6) embed-LR ±10%, (7) plateau width. **Surprising D-cell positive secondary signal: existing `--lr_cooldown_shape linear` matches canonical FFS_ema=2875 AND beats cosine on ema_val by −0.008 (~8× σ_n=1).** This is the only n=1 cell in R5 history to substantially improve ema_val at canonical FFS. PR #1381 merged cosine over linear at n=4 on the pre-mu_cooldown stack; today's stack (with `--mu_cooldown_target=0.80` baked in via #2071 and `--ema_eval_decay=0.99` via #1533) may have re-coupled linear shape productively. Dual-metric departure: FFS_ema=2875 (canonical) AND FFS_trainval=3000 (off canonical 2925 +75) — per [[r5_n1_to_n4_reversion_dual_metric_attractor]] this warrants n=4 confirm. **Follow-up dispatched: thorfinn → PR #2196 linear-cooldown-shape-n4-revisit** (no code changes — just `--lr_cooldown_shape linear` n=4 with full mandatory stack). Decision gate: μ_4(ema_val) ≤ 3.26507 at FFS_ema ≤ 2875 → MERGE candidate. Step-2000 val gate (+0.005 abort) is now a known diagnostic for LR-shape probes.
+
 ## 2026-06-01 22:30Z — PR #2118 CLOSED FFS-NEG [logit-softcap-down-sweep; cap-DOWN direction monotone NEG (C cap=10.0 FFS+100, B★ cap=12.5 wrong-direction dual-metric departure with val WORSE +0.00172, D cap=17.5 FFS+50); cap=15.0 confirmed BASIN MINIMUM across full 6-point sweep with PR #2080] [111th R5 closure]
 
 - branch: g1r5-edward/logit-softcap-down-sweep
