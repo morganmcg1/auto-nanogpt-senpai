@@ -9,6 +9,33 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 12:55Z (**102nd R5 closure — thorfinn AdamW WD ramp FFS-NEG; alphonse #2042 n=4 trial 0 reverted off-attractor; 2 n=4 in flight; 1 idle**)
+
+### Notes (2026-06-01 12:55Z) — 102nd R5 closure + signal-candidate fleet status
+
+- **PR #2083 thorfinn CLOSED FFS-NEG [102nd R5 closure]**: AdamW WD ramp_down on scalars+embed groups. B★(wd=0.05) FFS_ema=**−1** (target never crossed), ema_val=3.28388 (+0.01348 monotone-worse vs A_ctrl 2875/3.27040 at all 6 probe steps). Kill gate fires; C/D correctly skipped. Student's mechanism analysis: (1) baseline WD=0 is deliberately tuned, not oversight; (2) magnitude 100× too large for sparse embed rows / RMSNorm gains; (3) **Muon WD mechanism is parameter-group-specific, not group-agnostic** — falsifies the transfer claim from PR #1966. AdamW-WD axis closed.
+- **PR #2042 alphonse n=4 PARTIAL** (rope_base=4096): Trial 0 TERMINAL **FFS_ema=2925, FFS_trainval=2925 (canonical, no shift)**, val=3.27123 (+50 vs baseline 2875). **n=1 monotone-better dose-response REVERTED at n=4 trial 0** — textbook [[r5_n1_to_n4_reversion_dual_metric_attractor]] pattern. Trial 1+ in flight; even μ_4=2887.5 best-case (3 trials at 2875) misses gate 2862.5. ETA full n=4 terminal ~18:40Z. **Heading FFS-NEUTRAL/NEG.**
+- **PR #2077 askeladd**: B★(λ=1e-4) **TERMINAL @11:28Z** FFS_ema=**2875** (canonical attractor); monotone-better ema_val_loss at ALL 8 probe steps (Δ −0.002 consistent). Per attractor gate → Cell C(λ=1e-3) launched. ETA ~13:25Z. **Strongest signal-candidate live** (8-step monotone Δ -0.002 ema dominates frieren's 5-step Δ -0.0018 candidate).
+- **PR #2079 nezuko**: B★(mu_warmup_start=0.70) TERMINAL FFS_ema=2875, FFS_trainval=2925 (canonical, no shift), Δval oscillates around 0 → **pure attractor lock, no signal**. Cell C(mu=0.80) launching.
+- **PR #2084 fern**: B★(attn=0.85, mlp=0.75 asym) TERMINAL FFS_ema=2875, FFS_trainval=**2875 (−50 OFF canonical)**, Δema=−0.0024 monotone-better → similar signature to frieren #2070. Cell C launched.
+- **PR #2118 edward**: WIP — cap-DOWN sweep (cap={10, 12.5, 15, 17.5}) testing tighter direction of load-bearing logit softcap regularization.
+- **PR #2070 frieren n=4**: in flight, ETA 17:30Z. Stale_wip checkin posted 12:55Z.
+- **PR #2014 tanjiro**: Trial 3 of n=4 in flight at step 10216/13000 (~79%). μ_3=2916.67 (+54 above gate); trial 3 would need FFS_ema ≤ 2700 to recover. **Heading FFS-NEUTRAL/NEG**. ETA ~12:40Z.
+
+### Fleet status snapshot — 5 parallel signal candidates being tested across PRs
+
+| PR | Mechanism | n=1 signal | n=4 state | n=4 ETA |
+|---|---|---|---|---|
+| #2077 askeladd | z-loss λ=1e-4 | 8-step monotone ema Δ -0.002 | not yet escalated; C(λ=1e-3) terminal pending | — |
+| #2070 frieren | mu+precond_freq compound | 5-step ema Δ -0.0018, FFS_trainval -50 off | n=4 in flight | 17:30Z |
+| #2042 alphonse | RoPE base=4096 | 5-step val Δ -0.0015 | **n=4 trial 0 REVERTED** to 2925 | 18:40Z (likely FFS-NEUTRAL) |
+| #2084 fern | asym mu attn=0.85 mlp=0.75 | 5-step ema Δ -0.0024, FFS_trainval -50 off | n=1 only; Cell C in flight | — |
+| #2118 edward | logit softcap-DOWN | not yet terminal | n=1 only | — |
+
+- **Idle student**: g1r5-thorfinn (researcher-agent dispatched 12:55Z for Muon-side or LR-shape hypothesis)
+
+---
+
 ## Last updated: 2026-06-01 10:38Z (**TWO parallel n=4 signal candidates — alphonse #2042 + frieren #2070; 8/8 active**)
 
 ### Notes (2026-06-01 10:38Z) — frieren B★ FFS-NEUTRAL OVERRIDDEN → n=4 confirm (2nd parallel signal candidate)

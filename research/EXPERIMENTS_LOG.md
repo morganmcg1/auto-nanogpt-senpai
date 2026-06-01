@@ -1,5 +1,24 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-01 12:55Z — PR #2083 CLOSED FFS-NEG [adamw-wd-schedule; ramp_down WD 0.05→0 on AdamW scalars+embed groups; B★ FFS_ema=−1 (never crossed); +0.0135 monotone-worse ema_val at all probes vs A_ctrl canonical 2875] [102nd R5 closure]
+
+- branch: g1r5-thorfinn/adamw-wd-schedule
+- hypothesis: Mirror the merged Muon-side WD ramp_down (PR #1966) onto the AdamW parameter groups (`adam_scalars` + `adam_embed`). If decoupled WD ramp is a "mechanism is group-agnostic" regularizer, applying it to scalars/embed (currently hardcoded WD=0) should produce a similar FFS improvement.
+- cell results (n=1 screen, n=4 not run per kill gate):
+
+| Cell | wd_scalars | schedule | FFS_ema | ema_val | Δ ema vs A_ctrl | W&B |
+|---|---:|---|---:|---:|---:|---|
+| A_ctrl | 0.0 | constant | **2875** | 3.27040 | — (baseline canonical) | utj7l1g1 |
+| B★ | 0.05 | ramp_down | **−1** (no cross) | 3.28388 | **+0.01348** | cw6d8lma |
+| C | 0.025 | ramp_down | — | — | — | not run (B★ failed) |
+| D | 0.05 | ramp_up | — | — | — | not run (B★ failed) |
+
+Probe trajectory (B★ vs A_ctrl): +0.038 → +0.029 → +0.021 → +0.014 → +0.0135 → +0.0135 at steps 1000/2000/2500/3000/3225/3250. **Monotone-worse** at every probe. Gap is largest early (high WD phase) and shrinks toward end (WD→0), but the early damage is permanent.
+
+Schedule verification table confirms ramp_down fires byte-clean: `wd_scalars_now` ramps 0.05 → ~1.5e-5 linearly. A_ctrl FFS_ema=2875/val=3.27040 = exact canonical attractor replication. Implementation correct.
+
+- commentary: **Clean directional negative on AdamW-WD-ramp transfer.** Student mechanism analysis identifies 3 reasons: (1) baseline WD=0 on `adam_embed`/`adam_scalars`/`adam_lm_head` is a deliberately tuned zero, not oversight — RMSNorm gains are scale-calibration (no overfit pressure at 3250 steps × 125M params) and embed matrix has sparse Zipfian row access where decoupled (1−lr·wd) shrink-on-all-rows breaks the token-frequency prior; (2) magnitude 100× too large — for embed lr=0.3, wd=0.05 gives 1.5% per-step shrink on un-touched rows; (3) **Muon WD mechanism is parameter-group-specific, not group-agnostic** — PR #1966 worked because Muon's spectral-norm updates produce controlled-norm geometry; AdamW on sparse/scalar params is a different regime. Falsifies the "mechanism is group-agnostic" transfer claim. AdamW-WD axis closed; future thorfinn assignments should move to Muon-side or LR-shape/cooldown-shape exploration.
+
 ## 2026-06-01 12:40Z — PR #2080 CLOSED FFS-NEG [logit-softcap; cap-value UP sweep; kill gate tripped at B★(cap=30) FFS_ema=3050 (+175 vs baseline 2875)] [101st R5 closure]
 
 - branch: g1r5-edward/logit-softcap
