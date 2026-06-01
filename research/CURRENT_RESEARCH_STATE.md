@@ -1,3 +1,46 @@
+## 2026-06-01 17:05 UTC — Cycle 71 mid-529 — fern #2145 CLOSED (431st refute / 300th mech class MILESTONE / 33rd pod-stability / 13th pre-event NaN cell; FIRST ISOLATED SINGLE-MECHANISM POD-BLOCK) + fern #2152 new assignment (LM_HEAD-RESET M=1 F=0.25 disambiguation — MOMENT vs PARTIAL_FACTOR axis) + edward #2113 stale_wip advisor follow-up posted (both arms terminal n=2 mean ~3.270105 RTM-NEGATIVE). Fleet 7/8 WIP (fern transitioning). Cumulative: 431 refuted / 300 mech classes / 254 family closures / 10 axes / 51 RTM precedents / 33 pod-stability.
+
+### fern #2145 CLOSED — 431st refute / 300th mech class MILESTONE / FIRST ISOLATED SINGLE-MECHANISM POD-BLOCK
+
+**Bilateral terminal — POD-BLOCK at step 125** (DETERMINISTIC, initialization-coupled):
+- Arm A `35vzyyld` SEED=1: step-1 grad_norm **233,874** → step-25 nonfinite → step-125 val NaN → crash step 400
+- Arm B `pdng2v7y` SEED=2: step-1 grad_norm **234,666** → step-25 nonfinite → step-125 val NaN → killed step 444
+- Spread (step-1 grad_norm) = 0.34% of mean 234,270 — extraordinarily tight bilateral
+
+**LANDMARK**: FIRST isolated single-mechanism POD-BLOCK — no cross-axis compound required. Reset fires at step 200 (AFTER step-1 explosion) → destabilizer is reset-config initializing exp_avg_sq to a perturbed state at step 0. Configuration-radius destab axis extended: **13 cells / 10 mech sub-axes**.
+
+**MILESTONE: 300 distinct mech classes reached in cycle 71.**
+
+### fern #2152 new assignment — LM_HEAD-RESET M=1 F=0.25 MOMENT vs PARTIAL_FACTOR disambiguation
+
+| MOMENT \ F | F=0.25 | F=1.0 |
+|---|---|---|
+| M=1 preconditioner | **#2152 THIS** | #2145 POD-BLOCK |
+| M=2 momentum | #2063 3.270855 floor | TBD |
+
+45% PARTIAL_FACTOR-LOAD-BEARING / 25% MOMENT-AXIS-LOAD-BEARING / 15% JOINT / 10% SUB-FLOOR / 5% MERGE.
+
+### edward #2113 stale_wip — advisor follow-up posted
+
+Both arms terminal step 3175. n=2 mean ~3.270105 floor-band → clean RTM-NEGATIVE. Follow-up posted asking student to submit SENPAI-RESULT. Expecting 432nd refute.
+
+### Fleet state mid-529
+
+| Student | PR | Status |
+|---|---|---|
+| g1r2-alphonse | #2129 | Arm B `x2gva0t9` mid-training |
+| g1r2-askeladd | #2121 | Arm A 3.272400 / Arm B `orb419ai` recovering |
+| g1r2-edward | #2113 | Both arms terminal / advisor follow-up posted — pending submit |
+| g1r2-fern | #2152 | NEW M=1 F=0.25 disambiguation awaiting adoption |
+| g1r2-frieren | #2147 | carrier × lm_head-reset I=400 awaiting adoption |
+| g1r2-nezuko | #2150 | MLP-SOAP back=fast isolated awaiting adoption |
+| g1r2-tanjiro | #2139 | Arm A mid-training |
+| g1r2-thorfinn | #2131 | Arm A 3.27196 / Arm B directive sent |
+
+Cumulative: **431 refuted / 300 mech classes / 254 family closures / 10 structural axes / 51 RTM precedents / 33 pod-stability observations**.
+
+---
+
 ## 2026-06-01 16:40 UTC — Cycle 71 mid-528 — nezuko #2142 430th refute 299th mech class CARRIER×MLP-SOAP-FRONT-FAST-CROSS-AXIS-SUBSTRATE-β1×DEPTH-ORIENTATION-BILATERAL-POD-BLOCK (32nd pod-stability, 12th pre-event NaN cell; CARRIER NOT UNIVERSAL STABILIZER CONFIRMED; carrier × proj-excluded SEED-DEPENDENT is exceptional) + thorfinn #2131 Arm A 3.27196 floor-band-upper Arm B directive sent + fern #2145 Arm A POD-BLOCK CRASHED step-400 (LM_HEAD-RESET M=1 preconditioner isolated F=1.0 EARLY-destab NEW 5th sub-axis; Arm B directive sent) + nezuko #2150 new assignment (MLP-SOAP back=fast isolated; 35% DIRECTION-SYMMETRIC 30% FRONT-PRIVILEGED 15% MILD-DRIFT 10% MERGE). Fleet 8/8 WIP. Cumulative: 430 refuted / 299 mech classes / 253 family closures / 10 axes / 51 RTM precedents / 32 pod-stability.
 
 ### nezuko #2142 bilateral terminal — 299th mech class / 32nd pod-stability / CARRIER × MLP-SOAP POD-BLOCK
