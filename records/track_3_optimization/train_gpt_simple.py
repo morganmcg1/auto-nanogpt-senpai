@@ -72,6 +72,13 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    parser.add_argument("--aux_optimizer", type=str,
+                        default=os.environ.get("AUX_OPTIMIZER", "adamw"),
+                        choices=["adamw", "laprop"],
+                        help="AUX optimizer for embed/lm_head/scalar groups. "
+                             "Default 'adamw' = current AdamW from torch.optim (Pattern A bit-id). "
+                             "'laprop' = LaProp variant: divide by sqrt(v) BEFORE momentum accumulation. "
+                             "Paper reference: Ziyin et al., ICML 2021 (arXiv:2002.04839).")
     # β2 schedule on aux AdamW (embed/lm_head/scalars). Mutates param_groups[*]['betas']
     # each step. constant = baseline (fused=True kept); cooldown_ramp = fused=False so
     # PyTorch reads the updated betas from the param_group on every .step() call.
@@ -752,6 +759,60 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class LaProp(torch.optim.Optimizer):
+    """LaProp: Separating Momentum and Adaptivity in Adam (Ziyin et al., ICML 2021).
+
+    Key difference vs AdamW: normalize gradient by sqrt(v) BEFORE momentum accumulation.
+
+    AdamW: m_t = beta1*m_{t-1} + (1-beta1)*g_t       ; update = m_t / sqrt(v_t + eps)
+    LaProp: g_norm = g_t / sqrt(v_t + eps)           ; m_t = beta1*m_{t-1} + (1-beta1)*g_norm ; update = m_t
+
+    The second-moment v_t is still updated with the RAW gradient g_t^2 (same as AdamW).
+    Only the momentum buffer accumulates ALREADY-NORMALIZED gradient. Reads betas
+    from param_group on every .step() so external schedules (e.g. aux_beta2_schedule)
+    work transparently.
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+                state["step"] += 1
+                step = state["step"]
+                m = state["exp_avg"]
+                v = state["exp_avg_sq"]
+                # v update uses raw gradient squared (same as AdamW)
+                v.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                # Bias-correct v (same as AdamW)
+                bc2 = 1 - beta2 ** step
+                v_hat_sqrt_eps = (v / bc2).sqrt_().add_(eps)
+                # Normalize gradient FIRST (LaProp innovation)
+                grad_norm = grad / v_hat_sqrt_eps
+                # Accumulate normalized gradient into momentum
+                m.mul_(beta1).add_(grad_norm, alpha=1 - beta1)
+                # Bias-correct m
+                bc1 = 1 - beta1 ** step
+                m_hat = m / bc1
+                if wd != 0.0:
+                    p.mul_(1 - lr * wd)
+                p.add_(m_hat, alpha=-lr)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -796,6 +857,7 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+print0(f"AUX optimizer: {args.aux_optimizer} (eps={args.aux_adamw_eps})", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -849,6 +911,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_optimizer": args.aux_optimizer,
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
@@ -932,10 +995,17 @@ for trial_idx in range(args.num_trials):
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
     _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    _aux_param_groups = [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")]
+    if args.aux_optimizer == "laprop":
+        # Replicate AdamW path EXACTLY (same param groups + lr + name + betas + eps + wd).
+        # Only the optimizer class differs — clean A/B mechanism comparison.
+        optimizer1 = LaProp(_aux_param_groups,
+                            betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0)
+    else:
+        optimizer1 = AdamW(_aux_param_groups,
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
