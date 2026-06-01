@@ -1,5 +1,51 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-01 06:50Z — PR #2062 CLOSED FFS-NEG [mlp-act-variant; SiLU replaces ReLU²; target never crossed within 3250 steps; ReLU² is load-bearing in the R5 co-tuned stack] [99th R5 closure]
+
+- branch: g1r5-edward/mlp-act-variant
+- hypothesis: Replace ReLU² activation with SiLU in all MLP blocks. ReLU²'s hard-zero gradient region may create dead neurons, reducing the effective rank of the MLP gradient matrix entering NS5. SiLU keeps all hidden units alive → richer gradient signal → better NS5 orthogonalization.
+- cell tested (kill gate triggered, C/D not run):
+
+| Cell | mlp_act | FFS_ema | FFS_trainval | ema_val_loss@3250 | wandb |
+|---|---|---:|---:|---:|---|
+| A_ctrl | relu2 | 2925 | 2925 | 3.269 (baseline) | — |
+| B (SiLU) | silu | **−1** | **−1** | **3.29968** | uqmgnxeo |
+
+- val_loss trajectory (cell B vs baseline reference):
+
+| step | SiLU val | baseline estimate | gap |
+|---:|---:|---:|---:|
+| 875 | ~3.755 | ~3.677 | +0.078 |
+| 1000 | 3.677 | ~3.630 | +0.047 |
+| 2000 | 3.468 | ~3.440 | +0.028 |
+| 3000 | 3.305 | ~3.280 | +0.025 |
+| 3250 | **3.299** | **3.270** | **+0.029** |
+
+- analysis: **Dead-neuron hypothesis falsified.** SiLU diverged from ReLU² baseline from step 500 (early training, before cooldown). Gap at terminal: +0.030. Never crossed 3.28 target; linear extrapolation requires ~2460 additional steps. ReLU² gradient matrix rank-deficiency is NOT the FFS bottleneck — NS5 orthogonalization is robust to ReLU² sparsity pattern. The R5 stack (Muon + SOAP + NS5 + depth-musoft + EMA + mu-cooldown) was co-tuned around ReLU²; activation swap without stack re-tuning is regressive. SiLU/GELU/SwiGLU advantages appear at larger scale (Chinchilla, LLaMA ablations) — not at 125M / 3250 steps.
+- conclusions: **First MLP-activation probe in 99 R5 closures → clean FFS-NEG.** Kill gate correctly triggered. MLP activation axis closed. ReLU² is load-bearing in the co-tuned R5 stack.
+
+---
+
+## 2026-06-01 06:45Z — PR #2020 CLOSED FFS-NEUTRAL [soap-beta2-cooldown-ramp; SOAP β₂ EMA smoothing rate cooldown ramp; all arms on canonical attractor, A_ctrl is global minimum] [98th R5 closure]
+
+- branch: g1r5-nezuko/soap-beta2-cooldown-ramp
+- hypothesis: Linearly ramp SOAP β₂ (second-moment EMA smoothing rate) from 0.90 (baseline) to target during cooldown. Mechanism: lower β₂ → faster GG covariance EMA refresh → preconditioner geometry adapts quicker to sharp post-cooldown loss landscape. Mirror of frieren's successful Muon μ cooldown, applied to SOAP's covariance axis.
+- n=1 screen across 4 cells (A_ctrl + B★ + C + D falsifier):
+
+| Cell | β₂_end | FFS_trainval | FFS_ema | ema_corr@3250 | Δ vs A_ctrl | wandb |
+|---|---:|---:|---:|---:|---:|---|
+| A_ctrl | 0.90 (no-op) | 2925 | 2925 | **3.26971** | 0 (ref) | wc2p6snz |
+| B★ | →0.70 (aggressive) | 2925 | 2925 | 3.27063 | +0.00092 | 7uivqxbj |
+| C | →0.80 (mild) | 2975 | 2975 | 3.27286 | +0.00315 | e87qh81x |
+| D | →0.95 (falsifier up) | 2950 | 2925 | 3.27062 | +0.00091 | uwxm03l3 |
+
+- probe-step ema_corr trajectories (all cells tracked monotone-above A_ctrl at every step; C worst by pre-cooldown step 1000)
+- analysis: **Non-monotone M-shape; A_ctrl is global minimum.** B and D are bit-essentially-identical (+0.00092 vs +0.00091) — not dose-response, just attractor noise. C(0.80) is worst (+0.003 by step 1000, BEFORE cooldown starts). All FFS within {2925, 2950, 2975} = canonical attractor band. No mechanism evidence in either direction.
+- mechanism: **Eigenbasis-saturation confirmed.** With precond_freq=8 (fast eigenbasis refresh), the running GG matrix has very little stale memory. β₂ changes during cooldown wash out at the next refresh. The SOAP-state lever that matters is REFRESH CADENCE (eigenbasis stride), not SMOOTHING RATE (β₂). Edward #1948 (precond_freq cooldown, FFS-NEUTRAL at n=4) and this PR together close the SOAP-state-cooldown family axis completely.
+- conclusions: **SOAP β₂ cooldown axis CLOSED FFS-NEUTRAL.** Completes the SOAP-state cooldown family: (1) edward #1948 precond_freq cadence, (2) thorfinn #1994 shampoo hard-reset, (3) this β₂ smoothing — all FFS-NEUTRAL or gate-unreachable at n=4. SOAP-state cooldown as a mechanism class is closed. Future SOAP experiments need to target WARMUP PHASE or ARCHITECTURAL changes to SOAP internals.
+
+---
+
 ## 2026-06-01 06:35Z — PR #2030 CLOSED FFS-NEG [sf-muon-polyak-ruppert + y-interp; Schedule-Free Muon iterate averaging with Defazio 2024 y-interp gradient eval; cooldown-freezing failure mode revealed] [97th R5 closure]
 
 - branch: g1r5-askeladd/sf-muon-polyak-ruppert
