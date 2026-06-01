@@ -106,6 +106,10 @@ def parse_args():
                              "this target value across the cooldown phase (last cooldown_frac "
                              "of training). None = constant mu=0.95 (default). "
                              "Affects all muon_* param groups.")
+    parser.add_argument("--logit_softcap_value", type=float, default=15.0,
+                        help="Softcap value applied to logits via soft-sign: "
+                             "cap * x / sqrt(x^2 + cap^2). Default=15.0 (existing baseline). "
+                             "Set <=0 to disable cap entirely (raw logits to CE).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -482,21 +486,33 @@ class Block(nn.Module):
         return x
 
 class GPT(nn.Module):
-    def __init__(self, vocab_size: int, num_layers: int, model_dim: int):
+    def __init__(self, vocab_size: int, num_layers: int, model_dim: int,
+                 logit_softcap_value: float = 15.0):
         super().__init__()
         self.embed = nn.Embedding(vocab_size, model_dim).bfloat16()
         self.blocks = nn.ModuleList([Block(model_dim) for _ in range(num_layers)])
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        self.logit_softcap_value = float(logit_softcap_value)
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
-        logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        # Pre-cap diagnostics: tells us whether the cap is active at all
+        pre_abs = logits.abs()
+        pre_abs_mean = pre_abs.mean()
+        pre_abs_max = pre_abs.amax()
+        cap = self.logit_softcap_value
+        if cap > 0:
+            logits = cap * logits * (logits.square() + cap**2).rsqrt()
+            sat_frac = (logits.abs() > (0.9 * cap)).float().mean()
+        else:
+            sat_frac = torch.zeros_like(pre_abs_mean)
+        loss = F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        return loss, pre_abs_mean.detach(), pre_abs_max.detach(), sat_frac.detach()
 
 
 ########################################
@@ -741,7 +757,8 @@ batch_size = 8 * 64 * 1024
 mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
-model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+model = GPT(vocab_size=50304, num_layers=12, model_dim=768,
+            logit_softcap_value=args.logit_softcap_value).cuda()
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -793,6 +810,8 @@ if dist.get_rank() == 0:
             "ema_eval_enabled": args.ema_eval_decay is not None,
             "mu_cooldown_target": args.mu_cooldown_target,
             "mu_cooldown_enabled": args.mu_cooldown_target is not None,
+            "logit_softcap_value": args.logit_softcap_value,
+            "logit_softcap_enabled": args.logit_softcap_value > 0,
         },
     )
 
@@ -1009,7 +1028,7 @@ for trial_idx in range(args.num_trials):
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
                 for i in range(len(val_inputs) // mbs):
-                    val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                    val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])[0]
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
@@ -1033,7 +1052,7 @@ for trial_idx in range(args.num_trials):
                 ema_val_loss = torch.zeros((), device=device)
                 with torch.no_grad():
                     for i in range(len(val_inputs) // mbs):
-                        ema_val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                        ema_val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])[0]
                 dist.all_reduce(ema_val_loss, op=dist.ReduceOp.SUM)
                 ema_val_loss /= val_tokens
                 ema_val_loss_float = float(ema_val_loss.item())
@@ -1053,7 +1072,7 @@ for trial_idx in range(args.num_trials):
                     ema_val_loss_corrected = torch.zeros((), device=device)
                     with torch.no_grad():
                         for i in range(len(val_inputs) // mbs):
-                            ema_val_loss_corrected += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                            ema_val_loss_corrected += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])[0]
                     dist.all_reduce(ema_val_loss_corrected, op=dist.ReduceOp.SUM)
                     ema_val_loss_corrected /= val_tokens
                     ema_val_loss_corrected_float = float(ema_val_loss_corrected.item())
@@ -1160,15 +1179,25 @@ for trial_idx in range(args.num_trials):
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
-        for i in range(len(inputs) // mbs):
-            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+        step_pre_abs_mean = torch.zeros((), device=device)
+        step_pre_abs_max = torch.zeros((), device=device)
+        step_sat_frac = torch.zeros((), device=device)
+        n_mb = len(inputs) // mbs
+        for i in range(n_mb):
+            loss, pre_mean_mb, pre_max_mb, sat_frac_mb = model(
+                inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
             step_loss += loss.detach()
+            step_pre_abs_mean += pre_mean_mb
+            step_pre_abs_max = torch.maximum(step_pre_abs_max, pre_max_mb)
+            step_sat_frac += sat_frac_mb
             loss.backward()
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        step_pre_abs_mean = step_pre_abs_mean / n_mb
+        step_sat_frac = step_sat_frac / n_mb
         # set optimization hyperparameters and take a step
         eta_actual = set_hparams(step)
         train_step = step + 1
@@ -1255,6 +1284,10 @@ for trial_idx in range(args.num_trials):
                 for group in optimizer2.param_groups:
                     gname = group.get("name", "muon")
                     per_group_metrics[f"train/mu/{gname}"] = float(group["mu"])
+                per_group_metrics["train/logit_abs_mean"] = float(step_pre_abs_mean.item())
+                per_group_metrics["train/logit_abs_max"] = float(step_pre_abs_max.item())
+                per_group_metrics["train/logit_saturation_frac"] = float(step_sat_frac.item())
+                per_group_metrics["train/logit_softcap_value"] = args.logit_softcap_value
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
