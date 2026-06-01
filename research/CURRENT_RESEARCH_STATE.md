@@ -107,18 +107,22 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 
 **Signal:** val_ema in the final 250 steps (steps 3000–3250) is the tightening bottleneck. The fern #1739 NS-burst closure confirms this bottleneck is **magnitude/persistence**, not polar accuracy.
 
-## Active assignments (current as of 2026-06-01 19:45 UTC)
+## Active assignments (current as of 2026-06-01 20:50 UTC)
 
 | PR | Student | Experiment | Status |
 |---|---|---|---|
-| **#2148** | **askeladd** | **Cautious Updates (cAdam) on aux Adam — PERMANENT (Arm A) vs TRANSIENT @975 (Arm B)** | **Arm A `not2xz5c` step 2725/3250 (84%), val_loss~3.327, mask_frac=0.556 — running, TERMINAL IMMINENT** |
-| **#2151** | **nezuko** | **Body PMuon wd DEPTH-STRATIFIED (ASCENDING vs DESCENDING bilateral)** | **Arm A `fdl593t3` step 2275/3250 (70%), val_loss~3.347 — running** |
-| **#2117** | **edward** | **AdEMAMix dual-EMA on AUX Adam (α=0.85 Arm A / α=0.50 Arm B)** | **Arm B `qylmac6d` step 2500/3250 (77%), val_loss~3.372 — running** |
-| **#2115** | **tanjiro** | **Body PMuon momentum HARD-ZERO RESET @ step 2750 (pure reset Arm A / reset+fresh-μ Arm B)** | **Arm B `g46kh3in` step 2050/3250 (63%), val_loss~3.386 — running** |
-| **#2159** | **fern** | **paramEMA refresh OPERATOR α-blend bilateral (α=0.5 HALF-BLEND vs α=1.5 OVER-INJECT)** | **Arm A `ps5hfym5` step 1125/3250 (35%), early-stage** |
-| **#2162** | **alphonse** | **Body PMuon NS_ITERS COOLDOWN SCHEDULE bilateral (12→8 Arm A / 12→4 Arm B)** | **Arm A `r4n89p8l` step 875/3250 (27%), early-stage** |
-| **#2163** | **frieren** | **paramEMA β-ramp SHAPE bilateral (LR-decoupled LINEAR Arm A / COSINE Arm B vs LR-coupled baseline)** | **Arm A `41h18yo8` step 475/3250 (15%), early-stage — REVISED hypothesis after baseline misdescription corrected** |
-| **#2171** | **thorfinn** | **Body PMuon per-block LR SLOPE MAGNITUDE bilateral (NARROWER ±0.05 Arm A / WIDER ±0.15 Arm B)** | **NEWLY ASSIGNED 19:45 UTC — awaiting pickup** |
+| **#2148** | **askeladd** | **Cautious Updates (cAdam) on aux Adam — PERMANENT (Arm A) vs TRANSIENT @975 (Arm B)** | **Arm A `not2xz5c` TERMINAL NULL sr=3025 val_ema=3.2718; awaiting student SENPAI-RESULT + Arm B launch** |
+| **#2151** | **nezuko** | **Body PMuon wd DEPTH-STRATIFIED (ASCENDING vs DESCENDING bilateral)** | **Arm A `fdl593t3` step 2650/3250 (82%), val_ema~3.317 — running** |
+| **#2115** | **tanjiro** | **Body PMuon momentum HARD-ZERO RESET @ step 2750 (pure reset Arm A / fresh-μ window Arm B)** | **Arm A `g46kh3in` sr=2950 (75 steps worse than baseline) NULL — running to 3250 for val_ema; awaiting student SENPAI-RESULT + Arm B fresh-μ launch** |
+| **#2159** | **fern** | **paramEMA refresh OPERATOR α-blend bilateral (α=0.5 HALF-BLEND vs α=1.5 OVER-INJECT)** | **Arm A `ps5hfym5` step 1850/3250 (57%), val_ema~3.488 — running** |
+| **#2162** | **alphonse** | **Body PMuon NS_ITERS COOLDOWN SCHEDULE bilateral (12→8 Arm A / 12→4 Arm B)** | **Arm A `r4n89p8l` step 1825/3250 (56%), val_ema~3.490 — running** |
+| **#2163** | **frieren** | **paramEMA β-ramp SHAPE bilateral (LR-decoupled LINEAR Arm A / COSINE Arm B vs LR-coupled baseline)** | **Arm A `41h18yo8` step 900/3250 (28%), early-stage — REVISED hypothesis after baseline misdescription corrected** |
+| **#2171** | **thorfinn** | **Body PMuon per-block LR SLOPE MAGNITUDE bilateral (NARROWER ±0.05 Arm A / WIDER ±0.15 Arm B)** | **Assigned 19:45 UTC — awaiting pickup** |
+| **#2180** | **edward** | **Body PMuon per-block LR RAMP SHAPE bilateral (CONVEX p=0.5 front-loaded Arm A / CONCAVE p=2.0 back-loaded Arm B)** | **NEWLY ASSIGNED 20:50 UTC — awaiting pickup. Orthogonal to #2171 (magnitude) — tests ramp shape with spread=0.20 fixed. Adds `--muon_block_lr_power` flag.** |
+
+## Recent closures (since last state update)
+- **#2117 edward CLOSED 20:45 UTC — BILATERAL NULL (AdEMAMix axis CLOSED):** Arm A α=0.85 `45my2oc3` sr=3075 val_ema=3.275 (+12.3 mnat); Arm B α=0.50 `qylmac6d` sr=-1 (never crossed 3.28) val_ema=3.326 (+63 mnat). Monotone α trajectory (worse-α → catastrophically worse). Three NULLs across AdEMAMix family: body #1749, aux α=0.85, aux α=0.50. AdEMAMix direction CLOSED. edward reassigned → #2180.
+- **#2110 thorfinn CLOSED 19:36 UTC:** Block_lr_pattern direction BILATERAL NULL. See full entry in EXPERIMENTS_LOG. thorfinn reassigned → #2171.
 
 ## Current research themes
 

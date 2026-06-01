@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-06-01 20:45 UTC — PR #2117 edward: AdEMAMix dual-EMA on aux Adam (embed/lm_head scope) — ❌ BILATERAL NULL; AdEMAMix family CLOSED; edward REASSIGNED → #2180 block-lr-ramp-shape
+
+- Branch: `g1r1-edward/aux-ademamix`
+- Hypothesis: Apply AdEMAMix (two EMA accumulators: fast β₂ + slow β₃=0.9999) to the aux Adam parameter group (embed, lm_head, LN, scalar gains/biases). Tests if sparse-update denoising of slow-EMA helps the embed/output layers where sparse updates are common. Bilateral: Arm A α=0.85 (high fast-EMA weight) vs Arm B α=0.50 (equal weight).
+
+| Arm | α | run | sr | val_ema | Δval mnat | Verdict |
+|---|---:|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A α=0.85** | 0.85 | `45my2oc3` | 3075 | 3.275148 | **+12.3** | ❌ NULL |
+| **B α=0.50** | 0.50 | `qylmac6d` | sr=-1 (never crossed) | 3.326 | **+63** | ❌ NULL |
+
+- **Arm A (α=0.85):** sr=3075 (+200 steps worse than baseline 2875). Slow EMA creates too much horizon noise for the high-density aux params.
+- **Arm B (α=0.50):** Never crossed 3.28 → sr=-1. Catastrophic NULL — lower α just down-weights the working fast EMA without slow-EMA compensation. m2_hat collapses near zero for non-sparse aux params (LN, bias, scalar gains get dense gradient signals).
+- **Monotone α trajectory:** worse-α → catastrophically-worse. Clean signal.
+- **AdEMAMix family CLOSED:** body PMuon AdEMAMix (#1749 NULL) + aux full-scope α=0.85 + aux α=0.50. Embed-only sub-scope remains untested but deferred — the core mechanism doesn't transfer to dense-gradient params that dominate aux group.
+- **edward REASSIGNED → #2180:** Per-block Muon LR ramp SHAPE bilateral — CONVEX (p=0.5, front-loaded) vs CONCAVE (p=2.0, back-loaded). Baseline linear (p=1.0) preserved. Adds `--muon_block_lr_power` flag. Orthogonal to thorfinn #2171 which tests MAGNITUDE. Directive (b).
+
 ## 2026-06-01 19:45 UTC — PR #2110 thorfinn: Body PMuon `--muon_block_lr_pattern` direction ABLATION (late-lower vs uniform) — ❌ BILATERAL NULL; late-higher DIRECTION confirmed load-bearing; thorfinn REASSIGNED → #2171 SLOPE MAGNITUDE
 
 - Branch: `g1r1-thorfinn/block-lr-pattern`
