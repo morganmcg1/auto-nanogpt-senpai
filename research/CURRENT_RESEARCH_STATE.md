@@ -1,3 +1,54 @@
+## 2026-06-01 17:30 UTC — Cycle 71 mid-532 — alphonse #2129 CLOSED (434th refute / MIRROR-PRODUCTIVE-SUB-FLOOR landmark; substrate-asymmetric reset compound structure CONFIRMED; n=2 mean 3.26973 sub-floor by 0.00027, +0.00197 above merge bar) + alphonse #2156 new assignment (3-sub PKB1 × lm_head-reset M=2 F=0.25 INTERVAL=400 sparser perturbation; 40% INTERVAL-INVARIANT / 30% SPARSER-ADVANTAGE / 8% MERGE). Fleet 8/8 WIP. Cumulative: 434 refuted / 300 mech classes / 257 family closures / 10 axes / 53 RTM precedents / 33 pod-stability.
+
+### alphonse #2129 CLOSED — 434th refute / MIRROR-PRODUCTIVE-SUB-FLOOR landmark
+
+**Bilateral terminal — just below floor-band lower edge**:
+- Arm A `g70y6bn7` SEED=1: val_loss **3.27110** (floor-band lower)
+- Arm B `x2gva0t9` SEED=2: val_loss **3.26836** (SUB-FLOOR, +0.00060 above baseline)
+- n=2 mean **3.26973** (sub-floor by 0.00027; +0.00197 above MERGE bar 3.26776 → **NOT MERGE**)
+- Stat margin (3.28 − 3.26973)·√2 = 0.01452 → clean RTM-NEGATIVE
+- Inter-arm spread 0.00274 (elevated — consistent with crossing floor-band-lower boundary)
+
+**LANDMARK**: FIRST cycle-71 3-substrate per-kind β1 × per-substrate reset cell to break BELOW floor-band lower edge.
+
+### Substrate-asymmetric reset compound structure CONFIRMED
+
+| Cell | μ | Reading |
+|---|---|---|
+| #2068 3-sub PKB1 ISOLATED | 3.26910 | productive sub-floor |
+| #2063 lm_head-reset M=2 ISOLATED | 3.270855 | floor band |
+| #2101 3-sub PKB1 × EMBED-reset M=2 | 3.270763 | fragile compound cancellation (125% lift annulled) |
+| **#2129 3-sub PKB1 × LM_HEAD-reset M=2** | **3.26973** | **MIRROR-PRODUCTIVE-SUB-FLOOR (62% recovery)** |
+
+Decomposition of #2101 destruction (0.001663 above #2068): ~62% (0.00103) EMBED-substrate-specific destructive interaction with scalars-HIGHER β1=0.9; ~38% (0.00063) universal reset-mechanism cost.
+
+**Sharpened reading**: scalars-HIGHER β1=0.9 productive lift requires intact EMBED momentum dynamics specifically. Periodic embed momentum perturbation cancels it super-additively. Periodic lm_head momentum perturbation is a smaller, generic floor-band cost that the productive lift can partly absorb.
+
+### alphonse #2156 new assignment — INTERVAL=400 sparser perturbation
+
+Following alphonse's suggested follow-up #1: tests whether halving the reset event count (INTERVAL=400 vs #2129's INTERVAL=200) preserves more of the scalars-HIGHER productive lift by reducing the generic reset-cost component (~0.00063).
+
+Naive linear prediction: bilateral mean ~3.26941 (half the generic cost → closer to #2068's 3.26910 sub-floor productive minimum).
+
+Priors: **40% INTERVAL-INVARIANT** (mirrors frieren #2114 INTERVAL-DECOUPLING-INVARIANT) / 30% SPARSER-ADVANTAGE / 20% SPARSER-CLOSURE / 8% MERGE / 2% DESTABILIZE.
+
+### Fleet state mid-532
+
+| Student | PR | Status |
+|---|---|---|
+| g1r2-alphonse | #2156 | NEW INTERVAL=400 sparser-perturbation awaiting adoption |
+| g1r2-askeladd | #2154 | EMBED-RESET M=2 F=0.25 awaiting adoption |
+| g1r2-edward | #2153 | EMBED-RESET M=1 F=1.0 awaiting adoption |
+| g1r2-fern | #2152 | Arm A `fy7xnz0b` step 350+ HEALTHY (preliminary PARTIAL_FACTOR evidence) |
+| g1r2-frieren | #2147 | Arm A `0syxs32k` mid-training |
+| g1r2-nezuko | #2150 | MLP-SOAP back=fast awaiting adoption |
+| g1r2-tanjiro | #2139 | Arm A `gyz3n7qj` 3.272 TERMINAL / Arm B pending |
+| g1r2-thorfinn | #2131 | Arm A 3.27196 / Arm B `pvshmmqu` mid-training |
+
+Cumulative: **434 refuted / 300 mech classes / 257 family closures / 10 structural axes / 53 RTM precedents / 33 pod-stability observations**.
+
+---
+
 ## 2026-06-01 17:20 UTC — Cycle 71 mid-531 — askeladd #2121 CLOSED (433rd refute / 11th carrier-rescue-cancellation cell / cross-axis non-additivity confirmed — CARRIER × PROJ-EXCLUDED 3.272415 floor-band-upper) + askeladd #2154 new assignment (EMBED-RESET M=2 F=0.25 substrate-generalization mirror of #2063; 45% SUBSTRATE-GENERAL-FLOOR / 25% EMBED-SUB-FLOOR) + fern #2152 Arm A `fy7xnz0b` step 350 HEALTHY (preliminary PARTIAL_FACTOR-LOAD-BEARING evidence — F=0.25 prevents the #2145 step-1 destab) + tanjiro Arm A `gyz3n7qj` 3.272 terminal floor-band (Arm B pending). Fleet 8/8 WIP. Cumulative: 433 refuted / 300 mech classes / 256 family closures / 10 axes / 52 RTM precedents / 33 pod-stability.
 
 ### askeladd #2121 CLOSED — 433rd refute / 11th carrier-rescue-cancellation cell / cross-axis non-additivity
