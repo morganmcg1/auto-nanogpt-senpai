@@ -1,3 +1,70 @@
+## 2026-06-01 19:25 UTC — Cycle 71 mid-536 — tanjiro #2139 CLOSED (439th refute / **SCALARS-HIGHER β1=0.9 SOLO-ONLY CONFIRMED AXIS-AGNOSTICALLY ACROSS 3 PRODUCTIVE-LEVER CLASSES** — substrate-reset #2101 + substrate-β1 #2109 + depth-orientation #2139 / 55th RTM precedent; bilateral terminal 3.27080 floor band CANCELLATION-AT-FLOOR) + tanjiro #2169 new assignment (MLP-SOAP front=fast × CARRIER-EMBED-ONLY substrate decomposition probe of #2142 POD-BLOCK; 40% EMBED-ONLY-POD-BLOCK / 25% BOTH-REQUIRED / 20% EMBED-ONLY-FLOOR-BAND / 10% PRODUCTIVE / 5% MERGE). Fleet 8/8 WIP. Cumulative: **439 refuted / 300 mech classes / 263 family closures / 10 axes / 55 RTM precedents / 36 pod-stability observations**.
+
+### tanjiro #2139 CLOSED — 439th refute / SCALARS-HIGHER β1=0.9 AXIS-AGNOSTIC SOLO-ONLY
+
+**Bilateral terminal — floor band emergence (clean RTM-NEGATIVE)**:
+- Arm A `gyz3n7qj` SEED=1: val_loss **3.27177** (floor band upper)
+- Arm B `ztoykmoi` SEED=2: val_loss **3.26983** (floor band lower edge; 4th cycle-71 sub-floor single-seed reach)
+- **n=2 mean 3.27080** floor band lower-mid; stat margin 0.01301 ≫ 0.004
+- Δ vs MERGE bar 3.26776: +0.00304 (NOT MERGE)
+- Δ vs additive null (#1775 + #2068 lift): +0.00157 → CANCELLATION-AT-FLOOR
+
+Banner verified bilateral: MLP-SOAP front=fast + AUX_BETA1_SCALARS=0.9 (3-substrate dispatch).
+
+**Scalars-HIGHER β1=0.9 SOLO-ONLY confirmed across 3 axes**:
+
+| Axis | Compound PR | n=2 mean | Δ vs scalars-HIGHER solo (#2068 3.26910) |
+|---|---|---|---|
+| substrate-reset (embed) | #2101 alphonse | floor band | + (CANCELLATION) |
+| substrate-β1 (carrier 3-sub) | #2109 tanjiro | 3.270124 | +0.00102 (CANCELLATION 3 failure modes) |
+| **depth-orientation (MLP-SOAP front=fast)** | **#2139 (THIS)** | **3.27080** | **+0.00170 (CANCELLATION)** |
+
+→ Scalars-HIGHER β1=0.9 productive lever is **AXIS-AGNOSTIC SOLO-ONLY** — does NOT compound additively with ANY tested productive lever class.
+
+**Structural insight 1 — cycle-71 META-FINDING: PRODUCTIVE LEVERS ARE SOLO-ONLY**:
+- Scalars-HIGHER β1=0.9: 3/3 compounds cancellation (#2101/#2109/#2139)
+- Carrier (embed=0.5 + lm_head=0.7): 2/3 compounds POD-BLOCK (#2142/#2124/#2164), 1/3 cancellation (#2121)
+- MLP-SOAP front=fast: 1/3 compounds cancellation (#2139), 2/3 compounds POD-BLOCK (#2142/#2135)
+
+Sub-floor attractor at ~3.26910 is the EFFECTIVE CEILING for solo-mechanism productive levers. Breaking MERGE bar 3.26776 likely requires a **STRUCTURALLY DIFFERENT mechanism class** — not just compounding existing productive levers.
+
+**Structural insight 2 — RTM precedent extension**: n=2 mean 3.27080 in floor band [3.27000, 3.27200] → 54 → **55 RTM precedents**. Arm B 3.26983 is the 4th cycle-71 sub-floor single-seed reach (along with #2129 Arm B 3.26836, #2113 Arm A 3.269693, #2131 Arm B 3.26942).
+
+### tanjiro #2169 NEW — substrate decomposition of FULL-CARRIER × MLP-SOAP-front=fast POD-BLOCK (#2142)
+
+Decomposes #2142 BILATERAL POD-BLOCK into individual substrate contributions:
+
+| Cell | embed β1 | lm_head β1 | scalars β1 | × MLP-SOAP front=fast result |
+|---|---|---|---|---|
+| baseline | 0.8 | 0.8 | 0.8 | #1775 3.26789 SUB-FLOOR |
+| FULL-CARRIER | 0.5 | 0.7 | 0.8 | **#2142 BILATERAL POD-BLOCK** |
+| **EMBED-ONLY** | **0.5** | **0.8** | **0.8** | **#2169 (NEW) — TBD** |
+| LM_HEAD-ONLY | 0.8 | 0.7 | 0.8 | UNTESTED |
+
+Priors: 40% EMBED-ONLY-POD-BLOCK / 25% BOTH-REQUIRED-NEITHER-POD-BLOCK / 20% EMBED-ONLY-FLOOR-BAND / 10% PRODUCTIVE-DECOUPLING / 5% MERGE.
+
+If embed-only → POD-BLOCK: embed-asymmetric long-memory is the unique POD-BLOCK trigger at this compound. If embed-only → floor band: POD-BLOCK requires JOINT carrier coupling.
+
+### Fleet 8/8 WIP next-wake watch
+
+- **fern #2160** (M=2 F=1.0 matrix completion; 75% F=1.0-STABLE-MIRROR) — awaiting adoption
+- **thorfinn #2161** (MLP-SOAP front=fast × M=3 JOINT compound buffer; 45% M1-DOMINATES-POD-BLOCK) — awaiting adoption
+- **edward #2153** Arm A near-terminal (step 3075+/3175); Arm B pending sequential launch
+- **askeladd #2154** (EMBED-RESET M=2 F=0.25) — awaiting adoption
+- **alphonse #2156** (3-sub PKB1 × lm_head-reset M=2 F=0.25 INTERVAL=400; 8% MERGE prior) — awaiting adoption
+- **nezuko #2168** (CARRIER × V-EXCLUDED matrix completion; 35% GENERALIZE-POD-BLOCK / 30% K-SPECIFIC) — awaiting adoption
+- **frieren #2147** Arm B `xnth7dh3` running mid-training (CARRIER-CANCELLATION preliminary)
+- **tanjiro #2169** (MLP-SOAP front=fast × CARRIER-EMBED-ONLY substrate decomposition) — just assigned
+
+### Cumulative cycle-71 state (post-mid-536)
+
+- **439 refuted** / **300 mech classes** / **263 family closures** / **10 structural axes** / **55 RTM precedents** / **36 pod-stability observations**
+- Configuration-radius destab axis: **16 cells / 12 sub-axes**
+- Floor band [3.27000, 3.27200] STRUCTURALLY LOCKED with 55 RTM precedents
+- Sub-floor attractor ~3.26910 still active (carrier rescue minimum 3.268645)
+- MERGE bar 3.26776 still unbroken bilateral
+- **STRATEGIC NOTE**: meta-finding that productive levers are SOLO-ONLY suggests cycle 71 may need to pivot to a STRUCTURALLY DIFFERENT mechanism class to break MERGE bar. Current portfolio of cross-axis compounds is converging on CANCELLATION or POD-BLOCK patterns. Consider in next research-ideas round: novel preconditioner classes, schedule-side structural mechanisms, initialization-side phase changes, or fundamentally new optimizer state mechanisms beyond β1/β2/reset/cardinality.
+
 ## 2026-06-01 19:15 UTC — Cycle 71 mid-535 — nezuko #2164 CLOSED (438th refute / **NON-MONOTONIC CARDINALITY × CARRIER INTERACTION LANDMARK** — destab hierarchy from ISOLATED does NOT predict CARRIER-compound behavior / 14th pre-event NaN / 36th pod-stability; BILATERAL PRE-EVENT NaN POD-BLOCK at step 125; ONLY 23 min from assignment to terminal SENPAI-RESULT / **PRIORS RESHUFFLED**: K-excluded (LEAST destab ISOLATED) → POD-BLOCK × CARRIER while proj-excluded (MOST destab ISOLATED) → CANCELLATION × CARRIER; configuration-radius destab axis 16 cells / 12 sub-axes — NEW sub-axis 12: CARRIER × K-excluded cardinality compound) + nezuko #2168 new assignment (CARRIER × V-EXCLUDED cardinality matrix completion — discriminates K-substrate-specific vs proj-uniquely-safe; 35% GENERALIZE-POD-BLOCK / 30% K-SPECIFIC-POD-BLOCK / 15% MILD-DRIFT / 12% PRODUCTIVE / 8% MERGE). Fleet 8/8 WIP. Cumulative: **438 refuted / 300 mech classes / 262 family closures / 10 axes / 54 RTM precedents / 36 pod-stability observations**.
 
 ### nezuko #2164 CLOSED — 438th refute / NON-MONOTONIC CARDINALITY × CARRIER landmark
