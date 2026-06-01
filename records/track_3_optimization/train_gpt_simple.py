@@ -101,6 +101,15 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--soap_beta2_cooldown_target", type=float, default=SOAP_BETA2,
+                        help="Target SOAP beta2 at end of training (default = SOAP_BETA2 = 0.90 = no-op). "
+                             "When != base, beta2 anneals linearly from SOAP_BETA2 to this target across "
+                             "the SOAP beta2 cooldown window (last (1-soap_beta2_cooldown_frac) of training). "
+                             "Affects BOTH the row_gg/col_gg EMA in soap_update_preconditioner and the "
+                             "exp_avg_sq EMA in soap_precondition_momentum.")
+    parser.add_argument("--soap_beta2_cooldown_frac", type=float, default=0.7,
+                        help="Fraction of training at which SOAP beta2 anneal starts. "
+                             "0.7 = anneal over last 30%% of training (matches advisor formula and smoke gates).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -558,6 +567,20 @@ def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
     return q_row, q_col, exp_avg_sq
 
 
+def get_current_soap_beta2(step, total_steps, base=SOAP_BETA2, target=SOAP_BETA2, cooldown_frac=0.7):
+    if base == target:
+        return base
+    cooldown_start = int(total_steps * cooldown_frac)
+    if step < cooldown_start:
+        return base
+    denom = total_steps - cooldown_start
+    if denom <= 0:
+        return target
+    progress = (step - cooldown_start) / denom
+    progress = max(0.0, min(1.0, progress))
+    return base + (target - base) * progress
+
+
 def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
     update_f = update.float()
     if state["q_row"] is None:
@@ -612,6 +635,7 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.current_soap_beta2 = float(SOAP_BETA2)
 
         param_groups = []
         for g in groups_raw:
@@ -654,7 +678,9 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
-                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
+                        precond_nesterov = soap_precondition_momentum(
+                            raw_nesterov, state, beta2=self.current_soap_beta2
+                        )
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
                             u_muon = soap_ns_step(raw_nesterov)
@@ -665,7 +691,7 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(p.grad, state, shampoo_beta=self.current_soap_beta2)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
@@ -772,6 +798,9 @@ if dist.get_rank() == 0:
                 ",attn.q.weight,attn.k.weight,attn.v.weight,attn.proj.weight" if args.soap_attn else ""
             ),
             "soap_beta2": SOAP_BETA2,
+            "soap_beta2_cooldown_target": args.soap_beta2_cooldown_target,
+            "soap_beta2_cooldown_frac": args.soap_beta2_cooldown_frac,
+            "soap_beta2_cooldown_enabled": args.soap_beta2_cooldown_target != SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
             "soap_attn_enabled": bool(args.soap_attn),
@@ -928,6 +957,12 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+        optimizer2.current_soap_beta2 = get_current_soap_beta2(
+            step, train_steps,
+            base=SOAP_BETA2,
+            target=args.soap_beta2_cooldown_target,
+            cooldown_frac=args.soap_beta2_cooldown_frac,
+        )
         return eta
 
 
@@ -1235,6 +1270,7 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
+                per_group_metrics["train/soap_beta2_current"] = optimizer2.current_soap_beta2
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
