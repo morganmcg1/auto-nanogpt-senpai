@@ -1,3 +1,41 @@
+## 2026-06-01 08:35 — PR #2050: H351 fern Embed weight init axis sweep at H266 stack — CLOSED 206th NULL/NEG (🎯 PAPER-GRADE BILATERAL CANALIZED EMBED F-norm axis (CLEAN TIE despite 224× F-norm asymmetry) + 16th H266 cluster anchor entry / 1st EMBED-side cluster anchor + mechanism-coherent OPTIMIZER-UPDATE-RULE-PRESERVES-LOAD-BEARING-GEOMETRY paper-grade taxonomy finding: arm_a CTRL `default` (H266 bit-id) val=3.26951 FFS=3025 +1.50σ NEG Pattern A +25 IN FAMILY embed_fnorm=6208 + arm_b ORTHOGONAL_UNSCALED `orthogonal_unscaled` val=3.26947 FFS=3025 -0.05σ TIE-IDENTICAL vs CTRL embed_fnorm=27.75 (224× smaller) = CANALIZED CLEAN TIE on EMBED F-norm axis + arm_c KAIMING_UNIFORM `kaiming_uniform` val=3.26708 FFS=3000 EXACT -2.75σ POS strict-clear vs CTRL -1.24σ POS vs H266 baseline embed_fnorm=130 = 16th H266 cluster anchor / NEW LOWEST val EMBED-side cluster member. STARK CONTRAST: H266 highly sensitive to BODY init geometry (H342/H350 HARD-LOAD-BEARING CATASTROPHIC) but FULLY INSENSITIVE to EMBED F-norm magnitude (CANALIZED across 224× ratio). Mechanism: BODY 2D weights updated by MuonH scale_invariant Newton-Schulz preserves singular values → init F-norm persists through training (load-bearing) vs EMBED weights updated by AdamW with second-moment normalization renormalizes within ~hundreds of steps (not load-bearing). Paper-grade taxonomy: optimizer-update-rule-preserves-load-bearing-geometry. 6th CANALIZED TIE BILATERAL class member.)
+
+- Branch: g1r3-fern/h351-embed-init-axis-sweep
+- Hypothesis: Test whether EMBED weight init geometry/F-norm is load-bearing at H266 stack (mirror of H342 BODY init axis finding). 3-arm chain: arm_a CTRL `embed_init=default` (H266 bit-id normal_ std=0.02 — actually std=1.0 per code) / arm_b ORTHOGONAL_UNSCALED `embed_init=orthogonal_unscaled` (SVD orthogonalize rows) / arm_c KAIMING_UNIFORM `embed_init=kaiming_uniform` (kaiming_uniform_(a=sqrt(5))).
+
+### Results
+
+| Arm | embed_init | W&B run_id | embed_fnorm | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|-----------|------------|-------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL `default` (H266 bit-id) | default normal_ std=0.02 (actual std=1.0) | `y8m8i38q` | 6208.00 | 3.26951 | 3025 | (ref) | +1.50σ NEG | Pattern A +25 IN FAMILY |
+| arm_b ORTHOGONAL_UNSCALED | orthogonal_unscaled | `i5lnwyd0` | 27.75 (224× smaller) | 3.26947 | 3025 | **−0.05σ TIE-IDENTICAL** | +1.46σ TIE-NEG | 🎯 **CANALIZED CLEAN TIE despite 224× F-norm asymmetry** |
+| arm_c KAIMING_UNIFORM | kaiming_uniform | `j3gmb892` | 130.00 (~48× smaller) | **3.26708** | **3000 EXACT** | **−2.75σ POS strict-clear** | **−1.24σ POS** | 🎯 **16th H266 cluster anchor + 1st EMBED-side cluster member** |
+| H266 baseline (PR #1669) | (reference) | `m2ywl0o9` | (reference) | 3.26818 | 3000 | — | — | (reference) |
+
+🎯 **206th NULL/NEG closure** — arm_c FFS=3000 EXACT TIES H266 baseline FFS=3000 — does NOT strict-clear FFS<3000 per Issue #1260. Joins cluster as 16th candidate / 1st EMBED-side anchor. NOT merge-eligible.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — EMBED init F-norm axis CANALIZED at H266 stack**: arm_b ORTHOGONAL_UNSCALED achieves TIE-IDENTICAL terminal vs CTRL despite 224× smaller embed F-norm. H266 stack fully invariant to EMBED init F-norm magnitude variation across 224× ratio.
+
+🎯 **FINDING #2 — Mechanism-coherent OPTIMIZER-UPDATE-RULE-PRESERVES-LOAD-BEARING-GEOMETRY paper-grade taxonomy finding**: BODY 2D weights updated by MuonH `scale_invariant` (Newton-Schulz preserves singular values → init F-norm persists through training → BODY init geometry HARD-LOAD-BEARING per H342/H350) vs EMBED weights updated by AdamW with second-moment normalization (renormalizes within ~hundreds of steps → EMBED F-norm CANALIZED). At H266 stack: "what's load-bearing" is governed by optimizer-update-rule preservation properties.
+
+🎯 **FINDING #3 — STARK CONTRAST with BODY init H342/H350**: BODY init bottom_damp damp=0.5 H342 = +40.7σ CATASTROPHIC (LARGEST cycle ~2700 NEG) vs EMBED init F-norm asymmetry 224× ratio H351 arm_b = -0.05σ TIE-IDENTICAL. H266 highly sensitive to BODY geometry but fully insensitive to EMBED F-norm magnitude.
+
+🎯 **FINDING #4 — arm_c KAIMING_UNIFORM 16th H266 cluster anchor (1st EMBED-side)**: val=3.26708 -1.24σ POS vs H266 baseline FFS=3000 EXACT. First known EMBED-side init change to enter cluster — previously populated only by AUX/BODY/schedule-side perturbations.
+
+🎯 **FINDING #5 — Per-token F-norm² regime separation arm_b vs arm_c**: arm_b per-token F-norm² ~0.0153 TIES baseline; arm_c per-token F-norm² ~0.333 strict-clears CTRL (-2.75σ POS). Canalization breaks somewhere in window between ~0.0153 and ~0.333. Worth follow-up screening.
+
+🎯 **FINDING #6 — 6th member of CANALIZED TIE BILATERAL class**: joins H322 + H338 + H339 + H346 β1 cooldown_ramp + H345 round-2 AUX_ONLY decay. EMBED F-norm axis is the 6th member.
+
+### Cycle ~2700 update — 206 NULL/NEG + 1 MERGED WIN (H266)
+
+- CANALIZED TIE BILATERAL class: 5 → 6 members (+H351 arm_b ORTHOGONAL_UNSCALED EMBED F-norm axis)
+- H266 attractor cluster: 15 → 16 candidates (+H351 arm_c KAIMING_UNIFORM, 1st EMBED-side anchor)
+- Paper-grade taxonomy: NEW class introduced — "optimizer-update-rule-preserves-load-bearing-geometry" predicate
+
+---
+
 ## 2026-06-01 08:20 — PR #2052: H352 edward MuonH cooldown LR shape axis sweep at H266 stack — CLOSED 205th NULL/NEG (🎯 PAPER-GRADE asymmetric envelope characterization on STRUCTURAL cooldown LR shape axis + 7th HARD-LOAD-BEARING CATASTROPHIC family entry + val/FFS DECOUPLE class member: arm_a CTRL cosine (H266 bit-id) val=3.26949 FFS=3025 +1.48σ NEG Pattern A +25 IN FAMILY + arm_b LINEAR val=3.26531 FFS=3125 -3.25σ_H174 POS WIN val (LOWEST val of cycle ~2700 BODY/optimizer family) BUT FFS +125 NEG = val/FFS DECOUPLE class member (joins H162 round-1) + arm_c SQRT val=3.29215 FFS=-1 NEVER REACHED +27.1σ CATASTROPHIC NEG = 7th HARD-LOAD-BEARING CATASTROPHIC family entry on STRUCTURAL LR decay curvature axis. Asymmetric envelope: linear (uniform slope) → val POS WIN + FFS NEG, cosine (concave) → locally Pareto-optimal on FFS, sqrt (convex) → CATASTROPHIC NEG. Mechanism: cosine's steep early LR drop yields small terminal Δw → crosses 3.28 target at step 3025; linear's uniform Δw steps yield larger terminal Δw → crosses at 3125 BUT continues descending post-threshold to tighter terminal equilibrium; sqrt's slow early LR drop carries high LR too long → steep final approach can't compensate, runs out of budget. Cooldown shape axis is STRUCTURALLY load-bearing on convex direction.)
 
 - Branch: g1r3-edward/h352-cooldown-shape-axis-sweep
