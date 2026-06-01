@@ -109,6 +109,20 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    parser.add_argument("--body_init_lsuv", type=int, default=int(os.environ.get("BODY_INIT_LSUV", "0")),
+                        help="H373: enable LSUV (Layer-Sequential Unit-Variance, Mishkin & Matas 2015, "
+                             "arXiv:1511.06422) post-init rescaling. 0 = disabled (safe-default short-circuit, "
+                             "preserves Pattern A bit-id). 1 = enabled, runs after primary body_init scheme. "
+                             "Mechanism: iterative forward-pass-based per-layer weight rescaling so each body "
+                             "2D weight's output activations have body_init_lsuv_target_std variance.")
+    parser.add_argument("--body_init_lsuv_target_std", type=float,
+                        default=float(os.environ.get("BODY_INIT_LSUV_TARGET_STD", "1.0")),
+                        help="LSUV target output activation std per body 2D weight. Default 1.0 = unit variance "
+                             "(classical LSUV).")
+    parser.add_argument("--body_init_lsuv_max_iters", type=int,
+                        default=int(os.environ.get("BODY_INIT_LSUV_MAX_ITERS", "3")),
+                        help="Maximum LSUV iterations across all body modules (classical 1-3). Stops early once "
+                             "every body 2D weight's measured_std is within 5%% of target.")
     parser.add_argument("--polyak_ema_decay", type=float,
                         default=float(os.environ.get("POLYAK_EMA_DECAY", "0.0")),
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
@@ -856,6 +870,9 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "body_init_lsuv": args.body_init_lsuv,
+            "body_init_lsuv_target_std": args.body_init_lsuv_target_std,
+            "body_init_lsuv_max_iters": args.body_init_lsuv_max_iters,
         },
     )
 
@@ -922,6 +939,88 @@ for trial_idx in range(args.num_trials):
                         "blocks.11.attn.q.weight", "blocks.11.mlp.fc.weight")
         sample_rows = [e for e in body_init_log if e["name"] in sample_names]
         print0(f"[H148 body_init={args.body_init}] sample F-norms: {sample_rows}", console=True)
+
+    # H373: LSUV (Layer-Sequential Unit-Variance) post-init rescaling.
+    # Mishkin & Matas 2015 (arXiv:1511.06422). Applied AFTER primary body_init to
+    # rescale body 2D weights so each layer's post-Linear activation std matches
+    # target_std. Safe-default body_init_lsuv=0 short-circuits the whole block, so
+    # arm_a CTRL is bit-identical to the H266 baseline (Pattern A preserved).
+    if args.body_init_lsuv == 1:
+        try:
+            _lsuv_gen = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size=64*1024)
+            lsuv_inputs, lsuv_targets = next(_lsuv_gen)
+            del _lsuv_gen
+        except Exception as _lsuv_data_exc:
+            print0(f"[H373 LSUV] data load failed: {_lsuv_data_exc} — falling back to random tokens", console=True)
+            lsuv_inputs = torch.randint(0, 50304, (64, 1024), device="cuda", dtype=torch.int32)
+            lsuv_targets = torch.randint(0, 50304, (64, 1024), device="cuda", dtype=torch.int64)
+
+        # Collect body 2D weight modules in DEPTH order (front to back) — matches
+        # H148 body_init filter (attn.q/k/v/proj + mlp.fc/proj). lm_head proj is
+        # not in model.blocks so it is implicitly excluded.
+        body_module_list: list[tuple[str, nn.Module]] = []
+        for blk_idx, block in enumerate(model.blocks):
+            for sub_name, mod in (
+                ("attn.q", block.attn.q),
+                ("attn.k", block.attn.k),
+                ("attn.v", block.attn.v),
+                ("attn.proj", block.attn.proj),
+                ("mlp.fc", block.mlp.fc),
+                ("mlp.proj", block.mlp.proj),
+            ):
+                body_module_list.append((f"blocks.{blk_idx}.{sub_name}", mod))
+
+        # LSUV must run on the eager-mode forward so that nn.Module forward hooks
+        # fire on each Linear submodule. model.compile() at module-load time only
+        # set the lazy compile wrapper (_compiled_call_impl); the actual graph is
+        # built on first call. Temporarily clearing it forces eager-mode forward
+        # during LSUV and avoids polluting the eventual training-time compile cache
+        # with hook-trace artifacts.
+        _saved_compiled_call = model._compiled_call_impl
+        model._compiled_call_impl = None
+        try:
+            target_std = args.body_init_lsuv_target_std
+            lsuv_log: list[dict] = []
+            for iter_idx in range(args.body_init_lsuv_max_iters):
+                any_rescaled = False
+                for name, module in body_module_list:
+                    captured: dict = {}
+                    def _lsuv_hook(_mod, _inp, _out, _captured=captured):
+                        _captured["out"] = _out.detach()
+                    handle = module.register_forward_hook(_lsuv_hook)
+                    try:
+                        with torch.no_grad():
+                            _ = model(lsuv_inputs, lsuv_targets)
+                    finally:
+                        handle.remove()
+                    if "out" not in captured:
+                        continue
+                    measured_std = captured["out"].float().std().item()
+                    if measured_std < 1e-6 or not math.isfinite(measured_std):
+                        continue
+                    ratio = target_std / measured_std
+                    log_entry = {"name": name, "iter": iter_idx,
+                                 "measured_std": measured_std, "ratio": ratio}
+                    if abs(ratio - 1.0) < 0.05:
+                        log_entry["rescaled"] = False
+                        log_entry["new_fnorm"] = module.weight.data.norm().item()
+                    else:
+                        module.weight.data.mul_(ratio)
+                        any_rescaled = True
+                        log_entry["rescaled"] = True
+                        log_entry["new_fnorm"] = module.weight.data.norm().item()
+                    if iter_idx == 0:
+                        lsuv_log.append(log_entry)
+                if not any_rescaled:
+                    break
+        finally:
+            model._compiled_call_impl = _saved_compiled_call
+
+        if trial_idx == 0:
+            sample_log = [e for e in lsuv_log
+                          if any(b in e["name"] for b in ("blocks.0.", "blocks.5.", "blocks.11."))]
+            print0(f"[H373 LSUV target_std={target_std} max_iters={args.body_init_lsuv_max_iters}] "
+                   f"sample rescaling (iter 0): {sample_log}", console=True)
 
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
