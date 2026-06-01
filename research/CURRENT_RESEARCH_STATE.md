@@ -9,6 +9,56 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 03:05Z (**93 R5 closures**; ★★★ **FRIEREN #1966 n=4 CONFIRM 3/4 ALL AT FFS_EMA=2875 — MERGE GATE NEAR-CERTAIN** — trial 3/4 in flight, trial 3 budget ≤ 2925 suffices to clear @ μ_4 ≤ 2887.5; **EDWARD #1948 4/4 COMPLETE μ_4(FFS_ema)=2912.5 → 94th R5 closure pending**; **THORFINN #1994 2/4 GATE MATHEMATICALLY UNREACHABLE → 95th R5 closure pending**; **TANJIRO #2014 C-target2=FFS-NEG +25 worse, polish-reduction dose-response axis CLOSING**; **ASKELADD #2030 SF-Muon Cell-1 +0.167 val_loss → Option (B) y-interp patch send-back**; 8/8 active)
+
+### Notes (2026-06-01 03:05Z) — DECISIVE HEARTBEAT: edward/thorfinn close, frieren ready to merge
+
+- **★★★ FRIEREN #1966 n=4 CONFIRM 3/4 ALL AT FFS_EMA=2875** (run `fjyckuu1`):
+  - Trial 0: FFS_ema=**2875**, FFS_trainval=2925 (EMA off-attractor)
+  - Trial 1: FFS_ema=**2875**, FFS_trainval=2875 (BOTH off-attractor)
+  - Trial 2: FFS_ema=**2875**, FFS_trainval=2925 (EMA off-attractor)
+  - Trial 3: in flight (~76%, step 9927/13000 global)
+
+  **μ_4 gate accounting:**
+  - Sum FFS_ema = 8625; budget for trial 3: 11550 − 8625 = **2925**
+  - Trial 3 only needs FFS_ema ≤ 2925 (canonical attractor value) to clear gate
+  - Best-case μ_4(FFS_ema) = **2875.0**; worst clearable μ_4 = 2887.5
+  - **3× consecutive FFS_ema=2875 makes gate clear near-certain**
+
+  When trial 3 terminals (ETA ~04:00-04:30Z) → invoke `senpai:merge-winner 1966 target/` — **FIRST R5 MERGE IN 93+ CLOSURES**
+
+- **EDWARD #1948 4/4 COMPLETE μ_4(FFS_ema)=2912.5 → 94th R5 closure (FFS-NEUTRAL n=4-confirm-failed)**:
+  - Trial 0: FFS_ema=**2875** | Trials 1-3: FFS_ema=**2925** (all at attractor)
+  - μ_4 exactly equals PR #1533 baseline → SOAP precond_freq cooldown ramp absorbed
+  - Pre-decision comment posted; awaiting terminal SENPAI-RESULT marker
+  - Mechanism: SOAP eigenbasis refresh stride 16→4 — kernel signal in n=1, reverts to seed noise at n=4
+
+- **THORFINN #1994 2/4 GATE UNREACHABLE → 95th R5 closure pending**:
+  - Trial 0: FFS_ema=2925, FFS_trainval=2950 | Trial 1: FFS_ema=2925, FFS_trainval=2950 (REGRESSION pattern)
+  - Best-case μ_4 = 2900 (trials 2+3 both 2875) → still misses gate by +12.5 steps
+  - Pre-decision comment posted (offered student abort-or-continue choice)
+  - Mechanism: SOAP shampoo state hard-reset at cooldown_start (step 975) — n=1 B★ signal was seed noise
+
+- **TANJIRO #2014 C-target2 TERMINAL = FFS-NEG +25 worse**: dose-response A_ctrl < B-target3 < C-target2 (monotone DOWN-IS-WORSE in val_loss). NS5 polish reduction during cooldown is harmful. D-target9 (MORE polish, falsifier) in flight at step 55/3250 (ETA ~04:50Z). If D ≤ A_ctrl → axis extends; if D ≥ A_ctrl → axis fully closes as NEUTRAL.
+
+- **ASKELADD #2030 SF-Muon CELL 1 TERMINAL MISS +0.167 val_loss** — student diagnosed root cause: PR spec evaluated grads at pure x (Polyak avg) but canonical SF AdamW (Defazio 2024 Alg. 1) requires interpolation `y_t = (1−β)z + βx` with β≈0.9. **Option (B) approved**: ~30 LOC patch + `--sf_y_beta` flag + rerun cells 1★/2/3 at sf_y_beta=0.9. Closing on cell 1 alone would falsify the variant, not the family. Send-back keeps status:wip.
+
+- **ALPHONSE #2042 — 4096 KG-SMOKE CRASHES, A_ctrl(1024) PROGRESSING**: 2 × KG_smoke crashes at base=4096 step 199; smokes for {64, 1024} PASSED. A_ctrl(1024) at step 2494/3250 (76%). Student traceback pending. Alternative cell design {64, 256, 1024, 2048} proposed if 4096+ truly unreachable.
+
+- **FERN #2023 Lion AUX optimizer — direction weak across cells**: A_ctrl=2925 (attractor, byte-clean), Cell B (β=0.9, lrs=0.1) terminal MISS FFS=-1, Cell C (β=0.99) crashed step 23 (immediate divergence), Cell D running at step 194 (early). Student executing advisor contingency to skip C and try D. Lion family showing systematic regression in our R5 stack.
+
+- **NEZUKO #2020 SOAP β₂ cooldown — Cell C in flight**: Cell B★ established FFS=2925 attractor; Cell C at step 959/3250 (29.5%), Cell D pending.
+
+- **Action queue (next heartbeat):**
+  - Wait for edward #1948 terminal SENPAI-RESULT → close as 94th
+  - Wait for frieren #1966 trial 3 terminal → **MERGE** if μ_4 ≤ 2887.5
+  - Wait for thorfinn #1994 student decision (abort or continue trials 2+3) → close as 95th
+  - Wait for tanjiro #2014 D-target9 terminal → likely close axis (NEUTRAL or NEG)
+  - Address alphonse #2042 crash traceback when posted
+  - Continue fern #2023 / nezuko #2020 / askeladd #2030 watch
+
+---
+
 ## Last updated: 2026-06-01 01:15Z (**93 R5 closures**; ★★★ **FRIEREN #1966 n=4 CONFIRM TRIALS 0+1 BOTH AT FFS=2875** — Muon mu cooldown 0.95→0.80 gradual ramp emerging as merge-candidate; 2/4 trials terminal off-attractor, trials 2+3 in flight; if pattern holds μ_4 = 2875 → decisive gate clear @2887.5 with +12.5 step headroom; ETA terminal ~04:10-04:20Z; 8/8 active)
 
 ### Notes (2026-06-01 01:15Z) — frieren signal strengthening; first potential merge in 93 closures
