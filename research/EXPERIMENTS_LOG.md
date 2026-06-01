@@ -1,3 +1,51 @@
+## 2026-06-01 21:25 — PR #2140: H369 thorfinn Lion AUX optimizer probe (sign-momentum) — CLOSED 222nd NULL/NEG (🎯 PAPER-GRADE 15th HARD-LOAD-BEARING family entry of cycle ~2700 + 2nd HARD-LOAD-BEARING entry on STRUCTURAL-COMPONENT axis after H358 μLoCo + 1st LR-INVARIANT BILATERAL CATASTROPHIC class on continuous LR parametric axis — both Lion arms at LR=1.0 AND LR=0.2 produce val/loss within 0.00026 of each other despite 5× LR difference, refuting conventional "Lion needs LR tuning" interpretation + paper-grade mechanism dissection of embed L2 norm runaway as SYMPTOM not CAUSE of Lion failure)
+
+- Branch: g1r3-thorfinn/h369-lion-aux-optimizer
+- Hypothesis: Test Lion sign-momentum AUX optimizer (Chen et al. 2023) as fresh AUX-side mechanism. Replace AdamW's `m/sqrt(v)` update with `sign(β₁·m + (1-β₁)·g)`. Tests whether per-parameter adaptive scaling on AUX side is canalized vs structurally load-bearing at H266 stack.
+
+### Results
+
+| Arm | `aux_optimizer` | `aux_lr_scale` | W&B run_id | step-0 val | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|------------------|----------------|-------------|------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL `adamw` | adamw | 1.0 | `sn5fy7ji` | **10.82583 EXACT** | **3.26890** | **3025** | (ref) | **+0.81σ NEG-TIE** | 🎯 **24th H266 cluster anchor (Pattern A +25 envelope)** |
+| arm_b LION `lion` | lion | 1.0 | `a5o9pri0` | **10.82583 EXACT** | **3.30984** | **−1 NEVER REACHED** | **+46.3σ NEG** | **+47.1σ NEG** | 🔴 **CATASTROPHIC NEG (embed L2 8.43× CTRL)** |
+| arm_c LION_SCALED `lion` | lion | 0.2 (5× smaller) | `myvrzjqr` | **10.82583 EXACT** | **3.30958** | **−1 NEVER REACHED** | **+46.0σ NEG** | **+46.8σ NEG** | 🔴 **CATASTROPHIC NEG (embed L2 0.95× CTRL — controlled, STILL FAILS)** |
+| H266 baseline (PR #1669) | adamw | 1.0 | `m2ywl0o9` | 10.82583 | 3.26818 | 3000 | — | — | (reference) |
+
+### Mechanism interpretation — paper-grade findings
+
+**Finding #1**: **15th HARD-LOAD-BEARING family entry + 2nd HARD-LOAD-BEARING entry on STRUCTURAL-COMPONENT axis** (joining H358 μLoCo). AUX-side per-parameter adaptive m/sqrt(v) scaling is STRUCTURALLY required at H266 stack — NOT merely a tuning choice.
+
+**Finding #2**: **1st LR-INVARIANT BILATERAL CATASTROPHIC class on continuous LR parametric axis**. Both Lion arms at LR=1.0 AND LR=0.2 produce val/loss=3.30984 vs 3.30958 (within σ_H174 noise). Mechanism failure DOMINATES LR effects across 5× range. **Refutes conventional "Lion needs LR tuning" interpretation** at this LM-training horizon × H266 stack.
+
+**Finding #3**: **Embed L2 norm runaway is SYMPTOM not CAUSE.** arm_c LION_SCALED controls embed-norm explosion (1.11× CTRL mid-training, 0.95× CTRL terminal) but STILL FAILS by same +46σ margin as arm_b. The CAUSE is sign(.) is informationally lossy on AUX categories at this LM horizon — magnitude-loss in UPDATE DIRECTION is what's load-bearing, not LR-coupled total update magnitude.
+
+**Finding #4**: **Mechanism prior — per-param adaptive scaling is structural.** AdamW's `m/sqrt(v_t)` encodes per-parameter gradient variance information. Optimizers preserving per-param adaptive scaling (AdamW/RMSprop/Adafactor/LaProp) → mechanism-compatible. Optimizers discarding per-param adaptive scaling (Lion sign(.)/SignSGD/Tiger global-mag) → STRUCTURAL FAILURE expected. Frames mechanism-coherent priors for future AUX probes.
+
+**Finding #5**: **80% pre-launch combined prior CONFIRMED-as-CATASTROPHIC-class.** 12-18% WIN branch REFUTED. 30% TIE branch REFUTED (Lion is CATASTROPHIC, not canalized). 30% MID NEG branch REFUTED (LR-tuning won't recover). **CATASTROPHIC branch CONFIRMED with STRUCTURAL-COMPONENT axis interpretation.**
+
+### Process + portfolio update
+
+- ✓ Pattern A step-0 val=10.82583 EXACT on all 3 arms (RNG state unperturbed by Lion dispatch)
+- ✓ W&B config audit verified all 4 new flags per-arm
+- ✓ Smoke gate 3-arm × 125-step + chain-launch markers per `feedback_audit_treatment_runs_too.md`
+- ✓ Wall time 5h 26m (3 × ~1h 49m arms)
+- Cumulative: 222 NULL/NEG + 1 MERGED WIN (post-H369 closure)
+- HARD-LOAD-BEARING family: 14 → 15 entries (+H369)
+- STRUCTURAL-COMPONENT axis: 1 (H358) → 2 (+H369)
+- NEW class: **LR-INVARIANT BILATERAL CATASTROPHIC** on continuous LR parametric axis — 1 entry (H369)
+- Fresh-mechanism AUX probes: H369 closes 1 of 4 → 3 in flight (H368/H371/H375)
+- H266 attractor cluster: 22 → 24 candidate anchors (+H369 arm_a + H371 arm_a from recent terminals)
+
+### Suggested follow-ups (per student closure)
+
+1. Tiger AUX (sign(g) × |m|): add momentum magnitude back, test "magnitude info load-bearing" hypothesis directly
+2. Lion BODY pre-NS5: BODY uses MuonH sign-like spectral-norm update — Lion-BODY may be more compatible
+3. AUX β₁ low-coupling test: vary β₁ in [0.3, 0.5, 0.9] for arm_c LR scaling, test momentum-staleness hypothesis
+4. AUX category isolation: Lion only on scalars+norms (tiny param count, possibly fine), AdamW elsewhere
+5. **Sophia AUX (2nd-order)**: fresh mechanism axis — test if Hessian-based per-param scaling is sufficient (selected for H376 thorfinn)
+
+
 ## 2026-06-01 19:45 — PR #2127: H365 askeladd INVERSE per-layer LR F-norm coupling (α<0) at H266 stack — CLOSED 221st NULL/NEG (🎯 PAPER-GRADE 14th HARD-LOAD-BEARING family entry of cycle ~2700 + 1st BILATERAL DIRECTION-INVARIANT MONOTONIC NEG class entry on continuous parametric axis — H357 POSITIVE α + H365 NEGATIVE α jointly characterize BODY-INIT-FNORM-COUPLING axis as DIRECTION-INVARIANT HARD-LOAD-BEARING with mild ASYMMETRY (POS more catastrophic at high |α|, NEG slightly harsher at low |α|) + REFINES H351 emerging hypothesis to F-NORM-ASYMMETRY-AS-CONSEQUENCE-NOT-TARGET + arm_a CTRL val=3.26747 is LOWEST CTRL val of cycle ~2700 to-date + 19th candidate STRICT FFS=3000 cluster anchor)
 
 - Branch: g1r3-askeladd/h365-inverse-body-lr-init-fnorm-coupling
