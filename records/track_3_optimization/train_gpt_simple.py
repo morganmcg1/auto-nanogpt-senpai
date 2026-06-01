@@ -101,6 +101,11 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--mlp_act", type=str, default="relu2",
+                        choices=["relu2", "silu", "gelu", "swiglu"],
+                        help="MLP hidden activation: relu2 (default, baseline), silu, gelu, swiglu. "
+                             "swiglu doubles fc output dim and uses gated architecture "
+                             "(silu(x_gate) * x_val).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -451,23 +456,33 @@ class CausalSelfAttention(nn.Module):
         return y
 
 class MLP(nn.Module):
-    def __init__(self, dim: int):
+    def __init__(self, dim: int, mlp_act: str = "relu2"):
         super().__init__()
         hdim = 4 * dim
-        self.fc = Linear(dim, hdim)
+        self.act = mlp_act
+        fc_out = 2 * hdim if mlp_act == "swiglu" else hdim
+        self.fc = Linear(dim, fc_out)
         self.proj = Linear(hdim, dim)
 
     def forward(self, x: Tensor):
         x = self.fc(x)
-        x = x.relu().square()
+        if self.act == "relu2":
+            x = x.relu().square()
+        elif self.act == "silu":
+            x = F.silu(x)
+        elif self.act == "gelu":
+            x = F.gelu(x)
+        elif self.act == "swiglu":
+            x_gate, x_val = x.chunk(2, dim=-1)
+            x = F.silu(x_gate) * x_val
         x = self.proj(x)
         return x
 
 class Block(nn.Module):
-    def __init__(self, dim: int):
+    def __init__(self, dim: int, mlp_act: str = "relu2"):
         super().__init__()
         self.attn = CausalSelfAttention(dim)
-        self.mlp = MLP(dim)
+        self.mlp = MLP(dim, mlp_act=mlp_act)
         self.norm1 = RMSNorm(dim)
         self.norm2 = RMSNorm(dim)
 
@@ -477,10 +492,10 @@ class Block(nn.Module):
         return x
 
 class GPT(nn.Module):
-    def __init__(self, vocab_size: int, num_layers: int, model_dim: int):
+    def __init__(self, vocab_size: int, num_layers: int, model_dim: int, mlp_act: str = "relu2"):
         super().__init__()
         self.embed = nn.Embedding(vocab_size, model_dim).bfloat16()
-        self.blocks = nn.ModuleList([Block(model_dim) for _ in range(num_layers)])
+        self.blocks = nn.ModuleList([Block(model_dim, mlp_act=mlp_act) for _ in range(num_layers)])
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
@@ -736,7 +751,7 @@ batch_size = 8 * 64 * 1024
 mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
-model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+model = GPT(vocab_size=50304, num_layers=12, model_dim=768, mlp_act=args.mlp_act).cuda()
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -786,6 +801,7 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "mlp_act": args.mlp_act,
         },
     )
 
