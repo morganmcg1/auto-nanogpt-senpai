@@ -1,3 +1,42 @@
+## 2026-06-01 21:50 UTC — Cycle 71 mid-541 — fern #2178 CLOSED (445th refute / **EMBED M=1 F=0.25 BILATERAL POD-BLOCK** + **MAJOR STRUCTURAL FINDING — EMBED M=1 IS F-COUPLED IN REVERSED DIRECTION RELATIVE TO LM_HEAD** — overturns/refines #2153 closure interpretation / 7th step-1-saturation cell / 41st pod-stability observation; bilateral mean step-1 grad **233,618.18** [Arm A `6vb3o1p2` 233,797.60 / Arm B `lon5h97e` 233,438.76 spread 0.15% — tightest deterministic mechanism-coupled signature cycle-71]; IDENTICAL step-25 nonfinite_count=147,758,208 across arms; HYPOTHESIS 1 60% prior REALIZED; **EMBED M=1 F-AXIS NOW HAS REVERSED F-COUPLING — POD at F=0.25, STABLE at F=1.0 — DISTINCT from LM_HEAD M=1 F-DECOUPLED PATTERN**) + fern #2188 new assignment (EMBED-RESET M=1 F=0.5 ISOLATED — F-coupling axis TRANSITION PROBE; maps F-boundary between #2178 F=0.25 POD and #2153 F=1.0 STABLE endpoints; 45% STABLE / 30% POD-BLOCK / 15% MILD-DRIFT / 10% PRODUCTIVE). Fleet 8/8 WIP. Cumulative: **445 refuted / 300 mech classes / 269 family closures / 10 axes / 58 RTM precedents / 41 pod-stability observations / configuration-radius destab axis 18 cells / 15 sub-axes**.
+
+### fern #2178 CLOSED — 445th refute / EMBED M=1 F-COUPLING REVERSAL DISCOVERED
+
+**Bilateral terminal — STEP-1 GRAD-SATURATION POD-BLOCK (canonical 234k class)**:
+- Arm A `6vb3o1p2` SEED=1: step-1 grad/global_norm **233,797.60** → step-25 nonfinite_count 147,758,208 → NaN step 125
+- Arm B `lon5h97e` SEED=2: step-1 grad/global_norm **233,438.76** → step-25 nonfinite_count 147,758,208 (IDENTICAL) → NaN step 125
+- Mean step-1 grad/global_norm **233,618.18** (23.4× canonical ~10k)
+- Spread 358.84 (0.15%) — tightest deterministic mechanism-coupled signature observed cycle-71
+- W&B-verified config: per_kind_aux_periodic_reset_embed_enabled=1, aux_reset_moment_embed=1, aux_reset_partial_factor_embed=0.25, aux_reset_interval_embed=200 on BOTH arms
+
+### STRUCTURAL FINDING — EMBED M=1 F-COUPLING REVERSAL
+
+This finding **REVISES** the #2153 closure interpretation ("M=1 destab is LM_HEAD-SPECIFIC"):
+
+| Substrate \ F | F=0.25 | F=1.0 | F-coupling pattern |
+|---|---|---|---|
+| **lm_head** | #2152 POD-BLOCK (234,260) | #2145 POD-BLOCK (234,270) | **F-DECOUPLED** |
+| **embed** | **#2178 (THIS) POD-BLOCK (233,618)** | #2153 STABLE 3.27063 | **F-COUPLED REVERSED** |
+| scalars | UNTESTED | UNTESTED | TBD |
+
+→ EMBED substrate has F-COUPLING IN REVERSED DIRECTION compared to LM_HEAD F-DECOUPLED pattern. EMBED M=1 destab amplitude is INVERSELY MONOTONIC in F (small F=0.25 destab, large F=1.0 stable).
+
+**Mechanism interpretation**: F is not a simple "wipe magnitude" parameter — it controls a state-transition geometry that differs by substrate. Candidate mechanisms: (a) F is "retention factor" semantically (F=1=identity, F<1=partial wipe); (b) F=1.0 triggers clean Adam re-bootstrap that EMBED handles gracefully via bias-correction; (c) F-axis interacts with EMBED grad-magnitude distribution differently than LM_HEAD output-path. Exact mechanism requires reset-implementation inspection.
+
+### fern #2188 next — EMBED-RESET M=1 F=0.5 F-coupling transition probe
+
+Maps the F-axis boundary between #2178 F=0.25 POD-BLOCK and #2153 F=1.0 STABLE endpoints. Discriminates: SHARP-BOUNDARY-AT-F=0.5 (transition sharp, F=0.5 STABLE) vs SHARP-BOUNDARY-AT-F=1.0 (transition close to F=1.0, F=0.5 still POD) vs GRADUAL-MONOTONIC (F=0.5 intermediate MILD-DRIFT).
+
+Priors: 45% STABLE / 30% POD-BLOCK / 15% MILD-DRIFT / 10% PRODUCTIVE.
+
+### Cycle 71 mid-541 fleet status
+
+Fleet 8/8 WIP. Cumulative: **445 refuted / 300 mech classes / 269 family closures / 10 axes / 58 RTM precedents / 41 pod-stability observations / configuration-radius destab axis 18 cells / 15 sub-axes** (NEW sub-axis 15: EMBED M=1 F-coupling-reversal).
+
+EMBED M=1 F-axis is now the unique cycle-71 substrate-coupled F-AXIS-REVERSAL discovery. Awaiting completion of EMBED M=2 F=0.25 (askeladd #2154) and EMBED M=2 F=1.0 (edward #2185) to determine whether F-coupling reversal extends to M=2 path or is M=1-specific.
+
+---
+
 ## 2026-06-01 21:30 UTC — Cycle 71 mid-540 — edward #2153 CLOSED (443rd refute / **EMBED-SUBSTRATE M=1 SAFE — M=1 DESTAB IS LM_HEAD-SPECIFIC** — major structural finding overturning substrate-universality hypothesis / 57th RTM precedent / 39th pod-stability observation; bilateral terminal n=2 mean **3.27063** [Arm A `pb21t6ve` 3.27144 / Arm B `anxhxm3p` 3.26982 — 6th cycle-71 sub-floor single-seed reach]; clean floor band emergence with NORMAL step-1 grad — NO 234k saturation; mechanism: lm_head output-path through softmax+logit_softcap creates large grad that exp_avg_sq reset amplifies to 234k step-1 saturation, embed substrate gradients flow through full backward path smoothed by intermediate layers) + nezuko #2174 CLOSED (444th refute / **PROJ-UNIQUELY-SAFE CARDINALITY AXIS FULLY CLOSED** — Q-EXCLUDED × CARRIER BILATERAL PRE-EVENT NaN POD-BLOCK / 16th pre-event NaN cell / 40th pod-stability; Arm A `ynyfd9n9` + Arm B `uei6wsjq` step-125 nonfinite_count IDENTICAL **147,984,768** mechanism-deterministic; 4/4 CARDINALITY × CARRIER MATRIX RESOLVED — proj-excluded UNIQUELY SAFE, K/V/Q-excluded all POD-BLOCK with IDENTICAL ~147M nonfinite_count signatures) + edward #2185 new assignment (EMBED-RESET M=2 F=1.0 ISOLATED — substrate-generalization F=1.0 mirror on M=2 momentum-refresh path; 50% STABLE-UNIVERSAL-PROTECTION / 30% POD-BLOCK / 12% MILD-DRIFT / 8% PRODUCTIVE) + nezuko #2186 new assignment (CARRIER × PROJ-ONLY bitfield=7 proj-substrate decomposition probe — student-suggested follow-up; 60% PROJ-ONLY-POD-BLOCK confirming proj-uniquely-destabilizing / 25% MILD-DRIFT / 10% CANCELLATION / 5% MERGE). Fleet 8/8 WIP. Cumulative: **444 refuted / 300 mech classes / 268 family closures / 10 axes / 57 RTM precedents / 40 pod-stability observations / configuration-radius destab axis 18 cells / 14 sub-axes**.
 
 ### edward #2153 CLOSED — 443rd refute / EMBED-SUBSTRATE M=1 SAFE — major structural finding
