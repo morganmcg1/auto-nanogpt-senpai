@@ -609,12 +609,23 @@ NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_T
 # diagonal prior accumulated over K steps of "naked Muon" training (NM bypassed pre-K).
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART", "0"))
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K", "100"))
+# #2017: NM bilateral diagonal left-preconditioning by output-activation covariance.
+# When enabled, after the right-precond step (G @ R^{-1/2}) we apply a per-output-channel
+# diagonal left scale: G_left = diag(L_diag^{-1/4}) @ (G @ R^{-1/2}), where
+# L_diag = EMA[(1/N) sum_n Y_{n,:}^2] is the per-channel output-activation squared mean.
+# Exponent -1/4 follows SHAMPOO's partial-asymmetric left-factor choice.
+NANOGPT_NEWTON_MUON_LEFT_PRECOND = int(os.environ.get("NANOGPT_NEWTON_MUON_LEFT_PRECOND", "0"))
+NANOGPT_NEWTON_MUON_LEFT_MAX_D_OUT = int(os.environ.get("NANOGPT_NEWTON_MUON_LEFT_MAX_D_OUT", "768"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
 # NANOGPT_NEWTON_MUON=1 (hooks are not registered otherwise, so cache stays empty
 # and Muon.step() short-circuits Newton preconditioning).
 _newton_input_cache: dict[int, "torch.Tensor"] = {}
+# #2017: Global per-parameter output-activation cache. Keyed by id(weight_param)
+# → tensor of shape (B*T, d_out) on device. Only populated when
+# NANOGPT_NEWTON_MUON=1 AND NANOGPT_NEWTON_MUON_LEFT_PRECOND=1.
+_newton_output_cache: dict[int, "torch.Tensor"] = {}
 
 
 def _make_newton_input_hook(weight_param: "torch.Tensor", max_d_in: int):
@@ -637,6 +648,28 @@ def _make_newton_input_hook(weight_param: "torch.Tensor", max_d_in: int):
         # reshape to (B*T, d_in) for second-moment computation.
         x_flat = x.detach().reshape(-1, x.shape[-1])
         _newton_input_cache[weight_id] = x_flat
+
+    return hook
+
+
+def _make_newton_output_hook(weight_param: "torch.Tensor", max_d_out: int):
+    """Build a forward hook that caches the layer's output activations for NM left precond.
+
+    Hook signature: hook(module, args, output). We store the output tensor
+    reshaped to (B*T, d_out). Skips layers with d_out > max_d_out (e.g. MLP
+    up-projection d_out=3072 when max_d_out=768).
+    """
+    weight_id = id(weight_param)
+
+    def hook(module, inp, out):
+        if out is None:
+            return
+        y = out
+        if y.ndim < 2 or y.shape[-1] > max_d_out:
+            return
+        # detach() preserves dtype (bf16); reshape to (B*T, d_out) for L_diag mean.
+        y_flat = y.detach().reshape(-1, y.shape[-1])
+        _newton_output_cache[weight_id] = y_flat
 
     return hook
 
@@ -794,6 +827,10 @@ class Muon(torch.optim.Optimizer):
         self.newton_update_period = int(newton_update_period)
         self.newton_max_d_in = int(newton_max_d_in)
         self.newton_input_cache = newton_input_cache if newton_input_cache is not None else {}
+        # #2017: reference module-level output-activation cache for left-precond.
+        # Always set; if NANOGPT_NEWTON_MUON_LEFT_PRECOND=0 no hooks fill it and
+        # the left-precond branch in _apply_newton_precondition short-circuits.
+        self.newton_output_cache = _newton_output_cache
         self._newton_step_count = 0
         # #1600: data-driven R warmstart from state["v"] (Muon^2 second-moment EMA).
         # When enabled, R initialization is deferred until step >= k AND v has
@@ -901,8 +938,31 @@ class Muon(torch.optim.Optimizer):
         # G @ R_inv_sqrt: float32 matmul, then cast back to grad dtype.
         g32 = grad.float()
         g_precond32 = g32 @ R_inv_sqrt
+        # #2017: Bilateral diagonal left preconditioning by output-activation covariance.
+        # After right-precond, scale rows of G by L_diag^{-1/4} where
+        # L_diag = EMA[(1/N) sum_n Y_{n,:}^2] is per-channel output variance.
+        # Applied only when LEFT_PRECOND=1 AND output-hook fired for this param
+        # AND d_out <= LEFT_MAX_D_OUT (gates MLP up-proj for d_out=768 arm).
+        left_applied = False
+        if NANOGPT_NEWTON_MUON_LEFT_PRECOND:
+            y = self.newton_output_cache.get(pid)
+            if y is not None and y.shape[-1] <= NANOGPT_NEWTON_MUON_LEFT_MAX_D_OUT:
+                y32 = y.float()
+                l_diag_new = (y32 ** 2).mean(0)  # (d_out,)
+                if "L_diag" not in state:
+                    state["L_diag"] = l_diag_new.clone()
+                else:
+                    b = self.newton_beta
+                    state["L_diag"].mul_(b).add_(l_diag_new, alpha=1.0 - b)
+                # Tikhonov-style floor on L_diag: lambda_L = gamma * mean(L_diag).
+                lambda_l = NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA * state["L_diag"].mean()
+                l_inv_pow = (state["L_diag"] + lambda_l).pow(-0.25)  # (d_out,)
+                g_precond32 = g_precond32 * l_inv_pow.unsqueeze(1)  # (d_out, d_in)
+                left_applied = True
         tel = self.newton_telemetry
         tel["applied_n"] = tel.get("applied_n", 0) + 1
+        if left_applied:
+            tel["left_applied_n"] = tel.get("left_applied_n", 0) + 1
         # Only force CUDA syncs for telemetry on telemetry-due steps. The rest
         # of the time we keep the GPU pipeline full and avoid blocking the CPU.
         if self.newton_telemetry_due:
@@ -1037,7 +1097,9 @@ print0(
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
     f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
     f"r_warmstart={'True' if NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART else 'False'} "
-    f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K}",
+    f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K} "
+    f"left_precond={NANOGPT_NEWTON_MUON_LEFT_PRECOND} "
+    f"left_max_d_out={NANOGPT_NEWTON_MUON_LEFT_MAX_D_OUT}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1101,6 +1163,28 @@ if NANOGPT_NEWTON_MUON:
         f"(skipped {_newton_hook_skipped_d_in} d_in>{NANOGPT_NEWTON_MUON_MAX_D_IN})",
         console=True,
     )
+    # #2017: Register output hooks for NM left diagonal preconditioning.
+    if NANOGPT_NEWTON_MUON_LEFT_PRECOND:
+        _newton_left_hook_count = 0
+        _newton_left_hook_skipped_d_out = 0
+        for name, module in model.named_modules():
+            w = getattr(module, "weight", None)
+            if isinstance(w, torch.nn.Parameter) and id(w) in muon_param_ids:
+                out_features = getattr(module, "out_features", None)
+                if out_features is not None and out_features <= NANOGPT_NEWTON_MUON_LEFT_MAX_D_OUT:
+                    handle = module.register_forward_hook(
+                        _make_newton_output_hook(w, NANOGPT_NEWTON_MUON_LEFT_MAX_D_OUT)
+                    )
+                    _newton_hook_handles.append(handle)
+                    _newton_left_hook_count += 1
+                else:
+                    _newton_left_hook_skipped_d_out += 1
+        print0(
+            f"NEWTON_MUON: left-precond output hooks registered for "
+            f"{_newton_left_hook_count} modules "
+            f"(skipped {_newton_left_hook_skipped_d_out} d_out>{NANOGPT_NEWTON_MUON_LEFT_MAX_D_OUT})",
+            console=True,
+        )
 
 model.compile(dynamic=False)
 
@@ -1161,6 +1245,8 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
             "nanogpt_newton_muon_r_adamw_warmstart": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART,
             "nanogpt_newton_muon_r_adamw_warmstart_k": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
+            "nanogpt_newton_muon_left_precond": NANOGPT_NEWTON_MUON_LEFT_PRECOND,
+            "nanogpt_newton_muon_left_max_d_out": NANOGPT_NEWTON_MUON_LEFT_MAX_D_OUT,
         },
     )
 
@@ -1523,6 +1609,8 @@ for trial_idx in range(args.num_trials):
                 )
             # #1600 warmstart event counter (spikes once per param at step K).
             newton_metrics["newton_muon/r_warmstart_n"] = tel.get("r_warmstart_n", 0)
+            # #2017 left-precond application counter.
+            newton_metrics["newton_muon/left_applied_n"] = tel.get("left_applied_n", 0)
             wandb.log(newton_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
         # have stepped, apply `p -= lr_embed * lambda * (p - p_init)`. Order vs
