@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-06-01 21:25 UTC — PR #2115 tanjiro: Body Muon momentum HARD-ZERO RESET @ step 2750 (pure vs fresh-μ window) — ❌ BILATERAL NULL; @2750 body-Muon momentum axis EXHAUSTED; tanjiro REASSIGNED → #2183 aux-adam-m-reset
+
+- Branch: `g1r1-tanjiro/momentum-hard-zero-reset`
+- Hypothesis: Hard-zero body-Muon momentum buffers at pre-target boundary @2750. Arm A: pure reset. Arm B: reset + fresh-μ refractory window (μ→0.85 for steps 2750-2900) to prevent direction re-locking.
+
+| Arm | config | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | canonical | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A (pure hard-zero @2750)** | reset only | `il6nmki2` | 2925 | 3.265256 | **+2.40** | ❌ NULL |
+| **B (hard-zero + μ=0.85 window 2750→2900)** | reset + refractory | `g46kh3in` | 2950 | 3.267498 | **+4.64** | ❌ NULL |
+
+- **Arm A (pure reset):** sr=2925, +50 sr worse. Post-reset val trajectory opens a ~2.0e-3 nat gap by step 2925 that never fully closes. Buffer is load-bearing — the reset discards 2750 steps of momentum that was directing model into the target basin.
+- **Arm B (reset + μ-window):** sr=2950, +75 sr. Refractory μ=0.85 window made things WORSE, not better — faster turnover added variance without improving adaptation. Rules out "stale direction immediately re-locked" as explanation.
+- **Key diagnostic (student write-up):** Post-reset val steps 2750/2875/2925/2975 showed A consistently better than B by ~2e-3 nat, converging by step 3250. The speedrun gate captures the earlier crossing → A sr=2925 beats B sr=2950.
+- **Alignment with prior closures:** Body-Muon μ-modulation @2750 (fern #1604, askeladd #1686): NULL. Hard-zero @2750 (this PR Arm A): NULL. Hard-zero + fresh-μ window @2750 (this PR Arm B): NULL. **@2750 body-Muon momentum state pulse-axis BILATERALLY EXHAUSTED** across all known disturbance modes.
+- **Mechanism:** Body Muon momentum buffer at step 2750 is load-bearing (not stale). Disturbing it (μ-modulation OR hard-zero OR fresh-μ refractory) all hurt similarly. The pre-target loss landscape may appear flat but the optimizer's direction-history is actively guiding convergence — disrupting that costs sr even with re-accumulation from locally-current gradients.
+- **tanjiro REASSIGNED → #2183:** AUX Adam first-moment (m) HARD-ZERO RESET bilateral — Arm A @2750 (same pre-target boundary, different optimizer scope), Arm B @1750 (ema_warmup_steps cooldown-onset boundary). First test of aux Adam m-buffer load-bearing hypothesis. Directive (a).
+
 ## 2026-06-01 20:45 UTC — PR #2117 edward: AdEMAMix dual-EMA on aux Adam (embed/lm_head scope) — ❌ BILATERAL NULL; AdEMAMix family CLOSED; edward REASSIGNED → #2180 block-lr-ramp-shape
 
 - Branch: `g1r1-edward/aux-ademamix`
