@@ -1,3 +1,90 @@
+## 2026-06-01 14:40 UTC — Cycle 71 mid-521 DUAL-CLOSE — thorfinn #2106 423rd refute 292nd mech class MLP-SOAP-PER-DEPTH-HALF-MIRROR-BACK-FAST×EMBED-RESET-DOUBLE-DIRECTION-PERSISTS-DAMPENED (49th RTM precedent) + nezuko #2124 424th refute 293rd mech class REVERSE-CARRIER-LM_HEAD-FAST-EMBED-CANONICAL-BILATERAL-POD-BLOCK-PRE-EVENT-NAN-STEP-125 (28th pod-stability, 8th pre-event NaN cell — first DIRECTION-ASYMMETRIC config-radius destab axis) + thorfinn #2131 new assignment (MLP-SOAP front=fast × lm-head-reset M=2 DOUBLE substrate substitution mirror of #2075) + nezuko #2132 new assignment (per-kind β1 SCALARS-FAST scalars=0.5 third-substrate direction-specificity probe).
+
+### thorfinn #2106 bilateral terminal — 292nd mech class / DIRECTION-PERSISTS-DAMPENED
+
+**Bilateral terminal — EXTRAORDINARY tight n=2 spread 0.000078**:
+- Arm A `lxkuih6z` SEED=1 val=**3.272446** ffs=3050
+- Arm B `86exa2bc` SEED=2 val=**3.272368** ffs=3050
+
+n=2 mean **3.272407**. Stat margin (3.28 − 3.272407)·√2 = **0.010743 ≫ 0.004 → RTM-NEGATIVE**. Δ vs baseline = +0.004647 → NOT MERGE.
+
+**Compound depth-orientation discriminator**:
+
+| Cell | MLP-SOAP | n | μ | Δ vs floor | reading |
+|---|---|---|---|---|---|
+| #1956 embed-reset ISOLATED | OFF | 1 | 3.27023 | +0.00023 | 14th-RTM productive |
+| **#2075 CANONICAL** front=fast × embed-reset M=2 | front=fast | 2 | **3.27055** | +0.00055 | RTM floor-band lower edge |
+| **#2106 (this PR) MIRROR** back=fast × embed-reset M=2 | back=fast | 2 | **3.272407** | +0.00241 | destructive-drift-mild OUTSIDE floor upper |
+| #1775 SOAP-isolated front=fast | front=fast | 1 | 3.26789 | −0.00211 | productive isolated |
+| #1775 SOAP-isolated back=fast | back=fast | 1 | 3.27608 | +0.00608 | destructive isolated (sign-inversion +0.00819) |
+
+→ **MLP-SOAP per-depth-half orientation directional preference PERSISTS at compound but DAMPED ~77%**:
+- SOAP-isolated #1775 orientation gap (MIRROR vs CANONICAL): +0.00819
+- DOUBLE-compound this PR gap (MIRROR vs CANONICAL #2075): +0.00186
+- Damping factor: 1 − (0.00186 / 0.00819) = **77.3%**
+
+**Structural insight**: MLP-SOAP per-depth-half front-fast directional preference is INTRINSIC to the MLP-SOAP axis (Morgan #1259 depth axis lock), not a substrate-isolation artifact. embed-reset DOUBLE compound MASKS most but not all of the directional load-bearing structure.
+
+### nezuko #2124 bilateral terminal — 293rd mech class / REVERSE-CARRIER-BILATERAL-POD-BLOCK / 28th pod-stability
+
+**Bilateral terminal — POD-BLOCK at step 125**:
+- Arm A `f6pff7pe` SEED=1 NaN val step 125 (step-1 grad_norm=231931, step-25 nonfinite_count=147,758,208 ≈ entire 148M param-grad)
+- Arm B `3mxtvifn` SEED=2 NaN val step 125 (step-1 grad_norm=233007, step-25 nonfinite_count=147,758,208)
+
+**Banner verified bilateral**: `embed_beta1=0.8 lm_head_beta1=0.5 scalars_beta1=0.8` ✓ (REVERSE-CARRIER direction).
+
+**Direction-specificity question DEFINITIVELY ANSWERED with EXTREME asymmetry**:
+
+| Config | embed β1 | lm_head β1 | Result |
+|---|---|---|---|
+| #1972 CARRIER (FORWARD-FAST embed) | 0.5 | 0.7 | **3.268645 SUB-FLOOR rescue minimum** |
+| #2078 substrate-symmetric extension | 0.7 | 0.7 | 3.270185 floor edge (~85% lost) |
+| #2096 carrier with lm_head-reset substitution | 0.5 | 0.7+reset | 3.270496 floor edge (~100% lost) |
+| **#2124 REVERSE-CARRIER** (FAST on lm_head) | 0.8 | **0.5** | **BILATERAL POD-BLOCK step 125** |
+
+→ **Carrier rescue mechanism is NOT a generic FAST-on-either-substrate mechanism.** It is EMBED-substrate-FAST-DIRECTION privileged. lm_head-FAST direction is **ANTI-CARRIER** (catastrophic destabilization).
+
+**Structural insight 1 — embed-substrate-FAST is the LOAD-BEARING direction**: 3 failure modes (#2078, #2096, #2124) consistently confirm embed-substrate privilege.
+
+**Structural insight 2 — configuration-radius destab axis EXTENDED to direction-asymmetric cell (8 cells total)**:
+
+| Cell | Configuration | Pre-event NaN |
+|---|---|---|
+| #2072, #2076 | F=0.5 single-substrate | ✓ |
+| #2088 | INTERVAL=100 bilateral DOUBLE | ✓ |
+| #2099, #2103 | INTERVAL=100 single-substrate | ✓ |
+| #2107 | M=3 joint embed-isolated | ✓ |
+| #2119 | F-decoupling [0.25, 0.10] bilateral-active substrate-asymmetric | ✓ |
+| **#2124** | **REVERSE-CARRIER lm_head-FAST direction** | **✓ NEW DIRECTION-ASYMMETRIC** |
+
+**Structural insight 3 — initialization-coupled gradient explosion**: step-1 grad_norm ≈232k (vs canonical ≈10k) shows lm_head β1=0.5 produces extreme INITIAL gradient response that propagates to full-grad NaN by step 25. NOT late-stage instability — initialization-coupled destabilization.
+
+### thorfinn #2131 new assignment — substrate substitution mirror
+
+**MLP-SOAP front=fast × lm-head-reset M=2 DOUBLE** — direct mirror of #2075 (front=fast × embed-reset) with reset substrate substituted from embed → lm_head. Tests if MLP-SOAP × reset compound RTM emergence depends on embed-substrate reset specifically, or generalizes across substrate.
+
+Priors: 30% RTM-INVARIANT-AT-FLOOR / 25% MIRROR-PRODUCTIVE-SUB-FLOOR / 20% MILD-DRIFT-NEGATIVE / 15% MERGE-CANDIDATE / 5% POD-BLOCK / 5% DESTRUCTIVE-DRIFT.
+
+### nezuko #2132 new assignment — third-substrate direction-specificity
+
+**Per-kind β1 SCALARS-FAST (embed=0.8, lm_head=0.8, scalars=0.5)** — third substrate direction-specificity probe. Discriminates: does FAST decay on scalars substrate produce productive rescue, or is embed-substrate privilege absolute?
+
+Priors: 30% DIRECTION-SPECIFIC-EMBED-PRIVILEGED-ABSOLUTE / 25% DIRECTION-AGNOSTIC-SCALARS-PRODUCTIVE / 20% MILD-DRIFT-NEGATIVE / 10% POD-BLOCK / 10% MERGE / 5% MILD-DRIFT-POSITIVE. Added STEP-1 GRAD-EXPLOSION kill-gate (>100k) given #2124 initialization-coupled destabilization pattern.
+
+### Fleet state post-dual-close
+
+g1r2-{alphonse #2129, askeladd #2121, edward #2113, fern #2123, frieren #2114, nezuko #2132, tanjiro #2109, thorfinn #2131} all WIP. Fleet 8/8 active 0 idle.
+
+**Special watches for next wake-up**:
+- **edward #2113 Arm A `n4h94i9i` finished 3.269693 SUB-FLOOR** — Arm B `ion8nyfd` step 350 (~50-60 min). If Arm B confirms sub-floor, FIRST cycle-71 MERGE-CANDIDATE.
+- **tanjiro #2109 Arm A `99g6dsk8` 3.271233 floor lower edge** — Arm B `2q4zfdvt` step 2125 (~15 min). 
+- **fern #2123 NaN signal at step 425** — Arm A crashed, Arm B running with NaN — concerning later-stage (post-warmup) instability pattern; watch for terminal POD-BLOCK reading.
+- **alphonse #2129 Arm A crashed step 0** — Arm B `g70y6bn7` step 250; if Arm B succeeds, n=1 result.
+
+Cumulative: **424 refuted / 293 mech classes / 247 family closures / 10 structural axes / 49 RTM precedents / 28 pod-stability observations**.
+
+---
+
 ## 2026-06-01 13:55 UTC — Cycle 71 mid-520 — alphonse #2101 422nd refute 291st mech class 3-SUBSTRATE-PER-KIND-β1-SCALARS-0.9×EMBED-RESET-MOMENT-2-FRAGILE-COMPOUND-CANCELLATION-FLOOR-BAND-LOWER-MID (48th RTM precedent) + alphonse #2129 new assignment (reset substrate substitution mirror: 3-sub PKB1 scalars=0.9 × lm-head-reset M=2)
 
 ### alphonse #2101 bilateral terminal — 291st mech class / FRAGILE-COMPOUND-CANCELLATION
