@@ -107,6 +107,10 @@ def parse_args():
                              "of training). Default=0.80 (winning value, PR #1966). "
                              "Set to None or 0.95 to disable the ramp. "
                              "Affects all muon_* param groups.")
+    parser.add_argument("--embed_lr_scale", type=float, default=None,
+                        help="If set, embed lr = lr_mlp * embed_lr_scale. "
+                             "Default=None preserves current hardcoded lr=0.3 behavior. "
+                             "Current implicit ratio is 0.3/0.055 ≈ 5.45.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -794,6 +798,9 @@ if dist.get_rank() == 0:
             "ema_eval_enabled": args.ema_eval_decay is not None,
             "mu_cooldown_target": args.mu_cooldown_target,
             "mu_cooldown_enabled": args.mu_cooldown_target is not None,
+            "embed_lr_scale": args.embed_lr_scale,
+            "embed_lr_resolved": (args.embed_lr_scale * args.lr_mlp
+                                  if args.embed_lr_scale is not None else 0.3),
         },
     )
 
@@ -866,7 +873,9 @@ for trial_idx in range(args.num_trials):
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+    embed_lr = (args.embed_lr_scale * args.lr_mlp
+                if args.embed_lr_scale is not None else 0.3)
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=embed_lr, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
