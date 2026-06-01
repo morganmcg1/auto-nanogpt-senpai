@@ -9,6 +9,53 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 16:40Z (**fern #2133 stale_wip = false alarm; thorfinn #2126 + tanjiro #2128 B★ both launched; 4th-consecutive false alarm**)
+
+### Notes (2026-06-01 16:40Z) — Fleet check: B★ arms launching, 4 false-alarm stale_wip flags in a row
+
+- **PR #2133 fern stale_wip = false alarm.** W&B `0dzw5596` step 2974/3250 (from 2383 at 16:15Z, +591 steps in 22 min, normal pace). FFS_ema=2875 (canonical, expected for A_ctrl). Posted ack ([#2133 comment-4594601237](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/2133#issuecomment-4594601237)).
+- **PR #2126 thorfinn B★ LAUNCHED at 16:24Z** (responding to my nudge). `h2bkl9o3` (plateau_frac=0.4) running step 418. A_ctrl posted SENPAI-RESULT @16:24Z confirming canonical attractor. Cells C(0.6) + D(0.0) queued sequentially. ETA bundled result ~22:30Z.
+- **PR #2128 tanjiro A_ctrl TERMINAL @16:25Z + B★ chain auto-launched.** A_ctrl `k6q6szky` finished at canonical attractor {2875, 2925}. B★ `1hod394d` (cosine ease-in mu cooldown) running step 301. Student clarified 16:08Z that prior crashes were launch-script collision; single-chain is correct now. ETA B★ ~18:15Z.
+- **PR #2130 askeladd A_ctrl near terminal** (step 2950/3250, posted 16:32Z). KGsmoke `c3tbiuo7` (NOT `84y1fexd` — that was an earlier crash, replaced) completed at 200 steps. B★(scale=5.0) + C(scale=6.0) queued sequentially via `run_embed_lr_BC_after_A.sh`.
+
+### Pattern observation: 4 consecutive stale_wip false alarms
+
+The stale_wip triage flag is firing on PRs that are actively progressing in W&B. Root cause: the flag triggers on **PR-update inactivity** (no comments/commits for some threshold), but students typically only post intermediate updates when arms terminate. During a 1.75h cell run, students may be silent on the PR but the W&B run is healthy.
+
+**Mitigation**: Always W&B-verify before high-urgency stale_wip check-ins. Encourage students to post intermediate "Cell X@step Y" updates every ~1h to keep triage tidy.
+
+### Fleet status snapshot (16:40Z) — 8/8 active, 2 A_ctrl terminals at canonical, 2 B★ launched
+
+| PR | Student | W&B Run | State | Step | Verdict |
+|---|---|---|---|---|---|
+| #2042 | alphonse | `rblece7h` | running | 9973 | n=4 confirm rope_base=4096; trial 3 near terminal |
+| #2070 | **frieren** | `xdevn24r` | running | 9194 | **n=4 confirm mu+freq compound; trial 3 active; ETA ~17:30Z** |
+| #2118 | edward | `iqpkbtis` | running | 1971 | logit cap-DOWN; A_ctrl mid |
+| #2126 | thorfinn | `h2bkl9o3` (B★) | running | 418 | B★ trapezoid plateau_frac=0.4; A_ctrl@canonical |
+| #2128 | tanjiro | `1hod394d` (B★) | running | 301 | B★ cosine ease-in; A_ctrl@canonical |
+| #2130 | askeladd | `m2qgbnzs` (A_ctrl) | running | 3074 | A_ctrl near terminal; B★+C queued |
+| #2133 | fern | `0dzw5596` (A_ctrl) | running | 2974 | A_ctrl mid; FFS_ema=2875 canonical |
+| #2138 | nezuko | `b91wo9l4` (A_ctrl) | running | 2140 | A_ctrl mid; SOAP adaptive eps |
+
+### A_ctrl terminals this round (canonical attractor reproducibility)
+
+| PR | Student | Run | val/loss | ema_val | FFS_ema | FFS_trainval | Verdict |
+|---|---|---|---|---|---|---|---|
+| #2126 | thorfinn | `oteszbcp` | 3.2697 | 3.2701 | 2875 | 2925 | Canonical attractor ✓ |
+| #2128 | tanjiro | `k6q6szky` | (terminal) | (3.270x) | 2875 | 2925 | Canonical attractor ✓ |
+
+Both A_ctrl arms reproduce canonical attractor {2875, 2925} cleanly — baseline well-conditioned. Any signal must emerge from B★ test arms.
+
+### Heartbeat actions (16:37Z–16:40Z)
+
+1. W&B fleet check verified fern #2133 stale_wip = false alarm.
+2. Confirmed thorfinn B★ + tanjiro B★ launched (after my prior nudges + student auto-chain).
+3. Confirmed askeladd KGsmoke succeeded (clarified `c3tbiuo7` succeeded after `84y1fexd` crashed).
+4. Posted ack on fern #2133 to clear flag.
+5. Noted pattern: 4-in-a-row false-alarm stale_wip flags. Future: W&B-verify before high-urgency check-ins.
+
+---
+
 ## Last updated: 2026-06-01 16:25Z (**askeladd #2130 stale_wip = false alarm; thorfinn #2126 A_ctrl terminal at canonical attractor; B★ launch nudged**)
 
 ### Notes (2026-06-01 16:25Z) — Fleet check confirms steady progress + thorfinn A_ctrl complete
