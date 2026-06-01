@@ -1,3 +1,46 @@
+## 2026-06-01 17:15 UTC — Cycle 71 mid-530 — edward #2113 CLOSED (432nd refute / cardinality-axis K-excluded floor-band closure / 52nd RTM precedent) + edward #2153 new assignment (EMBED-RESET M=1 F=1.0 isolated — substrate-generalization mirror of #2145 BILATERAL POD-BLOCK; 50% SUBSTRATE-GENERAL / 30% LM_HEAD-SUBSTRATE-SPECIFIC) + issue #2122 Aurora research nudge response posted (DEFERRED, consistent with r1/r3/r5/c790g-18 multi-branch consensus). Fleet 8/8 WIP. Cumulative: 432 refuted / 300 mech classes / 255 family closures / 10 axes / 52 RTM precedents / 33 pod-stability.
+
+### edward #2113 CLOSED — 432nd refute / cardinality K-excluded floor-band / 52nd RTM precedent
+
+**Bilateral terminal**:
+- Arm A `n4h94i9i` SEED=1: val_loss **3.269693** (sub-floor band)
+- Arm B `uszx206t` SEED=2: val_loss **3.270516** (floor-band lower edge)
+- n=2 mean **3.270105** floor-band-lower-edge
+
+3-KIND-K-EXCLUDED (bitfield=2) ATTN_SOAP cardinality ISOLATED. Single-seed asymmetric sub-floor reach (Arm A 3.269693) is consistent with prior cardinality-axis exceptional seeds but does not load-bear closure. K-excluded confirmed floor-band-lower-edge equivalent to proj-excluded (bitfield=8) at the cardinality-axis closure family.
+
+### edward #2153 new assignment — EMBED-RESET M=1 F=1.0 SUBSTRATE GENERALIZATION
+
+**Substrate-substitution mirror of fern #2145** (lm_head → embed; identical MOMENT=1 PARTIAL_FACTOR=1.0 INTERVAL=200). Tests whether the FIRST ISOLATED SINGLE-MECHANISM POD-BLOCK signature (step-1 grad_norm 234k → bilateral POD-BLOCK at step 125) generalizes to embed substrate or is lm_head-substrate-specific.
+
+Priors: **50% SUBSTRATE-GENERAL POD-BLOCK** / 30% LM_HEAD-SUBSTRATE-SPECIFIC (embed stable) / 15% JOINT-PARTIAL / 4% SUB-FLOOR / 1% MERGE.
+
+### Issue #2122 Aurora optimizer — r2 response posted
+
+Multi-branch consensus DEFERRED Aurora (r1/r3/r5/c790g-18). r2 concurs:
+- Architecture mismatch (ReLU² not SwiGLU)
+- Tall-matrix scope limited to MLP c_fc (3072×768) at d_model=768
+- Aurora's public Record #17 (3175 steps) significantly behind r2's PMuon-analog stack
+- Current r2 frontier (EARLY-destab axis, 13 cells / 10 mech sub-axes) has higher expected information gain
+- Conditional reconsideration if EARLY-destab axis closes AND no other depth/per-group axes remain
+
+### Fleet state mid-530
+
+| Student | PR | Status |
+|---|---|---|
+| g1r2-alphonse | #2129 | Arm B mid-training |
+| g1r2-askeladd | #2121 | Arm A 3.272400 / Arm B recovering |
+| g1r2-edward | #2153 | NEW EMBED-RESET M=1 F=1.0 awaiting adoption |
+| g1r2-fern | #2152 | M=1 F=0.25 disambiguation awaiting adoption |
+| g1r2-frieren | #2147 | carrier × lm_head-reset I=400 awaiting adoption |
+| g1r2-nezuko | #2150 | MLP-SOAP back=fast isolated awaiting adoption |
+| g1r2-tanjiro | #2139 | Arm A mid-training |
+| g1r2-thorfinn | #2131 | Arm A 3.27196 / Arm B directive sent |
+
+Cumulative: **432 refuted / 300 mech classes / 255 family closures / 10 structural axes / 52 RTM precedents / 33 pod-stability observations**.
+
+---
+
 ## 2026-06-01 17:05 UTC — Cycle 71 mid-529 — fern #2145 CLOSED (431st refute / 300th mech class MILESTONE / 33rd pod-stability / 13th pre-event NaN cell; FIRST ISOLATED SINGLE-MECHANISM POD-BLOCK) + fern #2152 new assignment (LM_HEAD-RESET M=1 F=0.25 disambiguation — MOMENT vs PARTIAL_FACTOR axis) + edward #2113 stale_wip advisor follow-up posted (both arms terminal n=2 mean ~3.270105 RTM-NEGATIVE). Fleet 7/8 WIP (fern transitioning). Cumulative: 431 refuted / 300 mech classes / 254 family closures / 10 axes / 51 RTM precedents / 33 pod-stability.
 
 ### fern #2145 CLOSED — 431st refute / 300th mech class MILESTONE / FIRST ISOLATED SINGLE-MECHANISM POD-BLOCK
