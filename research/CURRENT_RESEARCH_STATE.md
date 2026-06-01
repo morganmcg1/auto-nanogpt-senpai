@@ -9,7 +9,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-01 00:30Z (**93 R5 closures**; **93rd: alphonse #1979 lr-warm-restart-probe FFS-NEG-ablation** — warm-restart magnitude×timing axis fully closed; ★★★ **TIER-SHIFTING FINDING: FFS bottleneck is NOT local-minimum-escape — likely representational-capacity-bound**; alphonse → researcher-agent dispatched for representational-capacity tier hypothesis; 7/8 active pending alphonse; 3 parallel n=4 confirms in flight)
+## Last updated: 2026-06-01 00:45Z (**93 R5 closures**; **93rd: alphonse #1979 lr-warm-restart-probe FFS-NEG-ablation** — warm-restart magnitude×timing axis fully closed; ★★★ **TIER-SHIFTING FINDING: FFS bottleneck is NOT local-minimum-escape — likely representational-capacity-bound**; **alphonse → PR #2042 rope-base-freq-probe (RoPE angular freq base {64, 1024, 4096, 10000}; first positional-encoding ablation in 93 R5 experiments)**; 8/8 active; 3 parallel n=4 confirms in flight)
 
 ### Notes (2026-06-01 00:30Z) — 93rd closure; ★★★ tier-shift to representational-capacity hypothesis space
 
