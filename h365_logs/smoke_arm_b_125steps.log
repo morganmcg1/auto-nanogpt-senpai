@@ -1,0 +1,187 @@
+logs/2555daa4-f0de-415c-b061-72d6ac7d72b6.txt
+MuLoCo outer optimizer ENABLED: outer_lr=0.7 outer_momentum=0.5 sync_interval=30
+MuonH mode=scale_invariant lr=0.018 budget_mult=1.0 cooldown_shape=cosine
+AGC ENABLED on aux AdamW groups: clip_ratio=0.05 eps=0.001
+AGC ENABLED on inner MuonH gradient: clip_ratio=0.05 eps=0.001
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from WANDB_API_KEY.
+wandb: W&B API key is configured. Use `wandb login --relogin` to force relogin
+wandb: setting up run 9z4wnb8v
+wandb: Tracking run with wandb version 0.27.0
+wandb: Run data is saved locally in /workspace/senpai/target/wandb/run-20260601_133858-9z4wnb8v
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run g1r3-askeladd/H365_smoke_arm_b_NEG_SQRT_alpha-0.5_125steps
+wandb: ⭐️ View project at https://wandb.ai/wandb-applied-ai-team/modded-nanogpt-senpai
+wandb: 🚀 View run at https://wandb.ai/wandb-applied-ai-team/modded-nanogpt-senpai/runs/9z4wnb8v
+[H148 body_init=orthogonal_fnorm_matched] sample F-norms: [{'name': 'blocks.0.attn.q.weight', 'shape': (768, 768), 'default_fnorm': 15.92503833770752, 'final_fnorm': 15.925039291381836}, {'name': 'blocks.0.mlp.fc.weight', 'shape': (3072, 768), 'default_fnorm': 47.612083435058594, 'final_fnorm': 47.612083435058594}, {'name': 'blocks.5.attn.q.weight', 'shape': (768, 768), 'default_fnorm': 15.917057991027832, 'final_fnorm': 15.917058944702148}, {'name': 'blocks.5.mlp.fc.weight', 'shape': (3072, 768), 'default_fnorm': 47.61009216308594, 'final_fnorm': 47.61009216308594}, {'name': 'blocks.11.attn.q.weight', 'shape': (768, 768), 'default_fnorm': 15.92918586730957, 'final_fnorm': 15.929186820983887}, {'name': 'blocks.11.mlp.fc.weight', 'shape': (3072, 768), 'default_fnorm': 47.63502502441406, 'final_fnorm': 47.63502502441406}]
+[H357] body init F-norms median=15.9619 range=[15.9012, 47.6567] count=72
+[H357] body_lr_init_fnorm_alpha = -0.5
+[H357] per-param lr_mult range = [0.5787, 1.0019] median=0.8949
+H266 Polyak EMA buffer initialized: decay=0.05, total_bytes=0.53GB
+step:0/125 val_loss:10.82583 train_time:0.000s step_avg:nanms
+[H148 body_init=orthogonal_fnorm_matched] hyperball radii: [{'name': 'blocks.0.attn.q.weight', 'radius': 15.925039291381836}, {'name': 'blocks.0.mlp.fc.weight', 'radius': 47.612083435058594}, {'name': 'blocks.5.attn.q.weight', 'radius': 15.917058944702148}, {'name': 'blocks.5.mlp.fc.weight', 'radius': 47.61009216308594}, {'name': 'blocks.11.attn.q.weight', 'radius': 15.929186820983887}, {'name': 'blocks.11.mlp.fc.weight', 'radius': 47.63502502441406}]
+step:1/125 train_time:9.972s step_avg:9971.62ms
+step:2/125 train_time:13.051s step_avg:6525.41ms
+step:3/125 train_time:15.306s step_avg:5102.09ms
+[rank0]:W0601 13:39:31.083000 693980 torch/_dynamo/convert_frame.py:1743] [1/8] torch._dynamo hit config.recompile_limit (8)
+[rank0]:W0601 13:39:31.083000 693980 torch/_dynamo/convert_frame.py:1743] [1/8]    function: 'muon_update' (/workspace/senpai/target/records/track_3_optimization/train_gpt_simple.py:581)
+[rank0]:W0601 13:39:31.083000 693980 torch/_dynamo/convert_frame.py:1743] [1/8]    last reason: 1/7: momentum.size()[0] <= momentum.size()[1]  # if G.size(-2) > G.size(-1):  # orkspace/senpai/target/records/track_3_optimization/train_gpt_simple.py:565 in zeropower_via_newtonschulz5 (_dynamo/variables/tensor.py:1951 in evaluate_expr)
+[rank0]:W0601 13:39:31.083000 693980 torch/_dynamo/convert_frame.py:1743] [1/8] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+[rank0]:W0601 13:39:31.083000 693980 torch/_dynamo/convert_frame.py:1743] [1/8] To diagnose recompilation issues, see https://docs.pytorch.org/docs/main/user_guide/torch_compiler/compile/programming_model.recompilation.html
+step:4/125 train_time:17.372s step_avg:4342.91ms
+step:5/125 train_time:19.171s step_avg:3834.25ms
+step:6/125 train_time:20.971s step_avg:3495.23ms
+step:7/125 train_time:22.772s step_avg:3253.19ms
+step:8/125 train_time:24.576s step_avg:3071.96ms
+step:9/125 train_time:26.380s step_avg:2931.06ms
+step:10/125 train_time:28.185s step_avg:2818.50ms
+step:11/125 train_time:29.990s step_avg:2726.37ms
+step:12/125 train_time:31.797s step_avg:2649.75ms
+step:13/125 train_time:33.602s step_avg:2584.78ms
+step:14/125 train_time:35.409s step_avg:2529.20ms
+step:15/125 train_time:37.218s step_avg:2481.20ms
+step:16/125 train_time:39.027s step_avg:2439.19ms
+step:17/125 train_time:40.836s step_avg:2402.13ms
+step:18/125 train_time:42.646s step_avg:2369.22ms
+step:19/125 train_time:44.456s step_avg:2339.79ms
+step:20/125 train_time:46.269s step_avg:2313.45ms
+step:21/125 train_time:48.079s step_avg:2289.49ms
+step:22/125 train_time:49.891s step_avg:2267.78ms
+step:23/125 train_time:51.703s step_avg:2247.96ms
+step:24/125 train_time:53.516s step_avg:2229.85ms
+step:25/125 train_time:55.604s step_avg:2224.14ms
+step:26/125 train_time:57.417s step_avg:2208.34ms
+step:27/125 train_time:59.229s step_avg:2193.68ms
+step:28/125 train_time:61.044s step_avg:2180.14ms
+step:29/125 train_time:62.857s step_avg:2167.48ms
+step:30/125 train_time:64.688s step_avg:2156.26ms
+step:31/125 train_time:66.502s step_avg:2145.21ms
+step:32/125 train_time:68.316s step_avg:2134.86ms
+step:33/125 train_time:70.129s step_avg:2125.13ms
+step:34/125 train_time:71.944s step_avg:2115.99ms
+step:35/125 train_time:73.758s step_avg:2107.36ms
+step:36/125 train_time:75.572s step_avg:2099.23ms
+step:37/125 train_time:77.387s step_avg:2091.54ms
+step:38/125 train_time:79.203s step_avg:2084.28ms
+step:39/125 train_time:81.018s step_avg:2077.37ms
+step:40/125 train_time:82.834s step_avg:2070.85ms
+step:41/125 train_time:84.649s step_avg:2064.61ms
+step:42/125 train_time:86.465s step_avg:2058.69ms
+step:43/125 train_time:88.281s step_avg:2053.04ms
+step:44/125 train_time:90.097s step_avg:2047.65ms
+step:45/125 train_time:91.912s step_avg:2042.50ms
+step:46/125 train_time:93.730s step_avg:2037.61ms
+step:47/125 train_time:95.548s step_avg:2032.94ms
+step:48/125 train_time:97.367s step_avg:2028.49ms
+step:49/125 train_time:99.184s step_avg:2024.17ms
+step:50/125 train_time:104.114s step_avg:2082.28ms
+step:51/125 train_time:105.929s step_avg:2077.04ms
+step:52/125 train_time:107.744s step_avg:2071.99ms
+step:53/125 train_time:109.558s step_avg:2067.14ms
+step:54/125 train_time:111.373s step_avg:2062.47ms
+step:55/125 train_time:113.188s step_avg:2057.96ms
+step:56/125 train_time:115.003s step_avg:2053.62ms
+step:57/125 train_time:116.817s step_avg:2049.43ms
+step:58/125 train_time:118.632s step_avg:2045.39ms
+step:59/125 train_time:120.449s step_avg:2041.50ms
+step:60/125 train_time:122.284s step_avg:2038.06ms
+step:61/125 train_time:124.099s step_avg:2034.40ms
+step:62/125 train_time:125.916s step_avg:2030.91ms
+step:63/125 train_time:127.732s step_avg:2027.49ms
+step:64/125 train_time:129.548s step_avg:2024.19ms
+step:65/125 train_time:131.365s step_avg:2020.99ms
+step:66/125 train_time:133.182s step_avg:2017.91ms
+step:67/125 train_time:134.999s step_avg:2014.91ms
+step:68/125 train_time:136.816s step_avg:2012.00ms
+step:69/125 train_time:138.632s step_avg:2009.17ms
+step:70/125 train_time:140.449s step_avg:2006.42ms
+step:71/125 train_time:142.265s step_avg:2003.73ms
+step:72/125 train_time:144.084s step_avg:2001.17ms
+step:73/125 train_time:145.902s step_avg:1998.65ms
+step:74/125 train_time:147.720s step_avg:1996.22ms
+step:75/125 train_time:149.809s step_avg:1997.45ms
+step:76/125 train_time:151.626s step_avg:1995.07ms
+step:77/125 train_time:153.442s step_avg:1992.76ms
+step:78/125 train_time:155.260s step_avg:1990.51ms
+step:79/125 train_time:157.077s step_avg:1988.32ms
+step:80/125 train_time:158.897s step_avg:1986.21ms
+step:81/125 train_time:160.714s step_avg:1984.13ms
+step:82/125 train_time:162.532s step_avg:1982.10ms
+step:83/125 train_time:164.349s step_avg:1980.10ms
+step:84/125 train_time:166.168s step_avg:1978.18ms
+step:85/125 train_time:167.984s step_avg:1976.29ms
+step:86/125 train_time:169.802s step_avg:1974.44ms
+step:87/125 train_time:171.621s step_avg:1972.65ms
+step:88/125 train_time:173.439s step_avg:1970.90ms
+step:89/125 train_time:175.256s step_avg:1969.17ms
+step:90/125 train_time:177.093s step_avg:1967.70ms
+step:91/125 train_time:178.910s step_avg:1966.04ms
+step:92/125 train_time:180.728s step_avg:1964.44ms
+step:93/125 train_time:182.547s step_avg:1962.87ms
+step:94/125 train_time:184.366s step_avg:1961.34ms
+step:95/125 train_time:186.186s step_avg:1959.86ms
+step:96/125 train_time:188.005s step_avg:1958.39ms
+step:97/125 train_time:189.823s step_avg:1956.94ms
+step:98/125 train_time:191.644s step_avg:1955.55ms
+step:99/125 train_time:193.462s step_avg:1954.16ms
+step:100/125 train_time:195.553s step_avg:1955.53ms
+step:101/125 train_time:197.370s step_avg:1954.16ms
+step:102/125 train_time:199.188s step_avg:1952.83ms
+step:103/125 train_time:201.005s step_avg:1951.50ms
+step:104/125 train_time:202.823s step_avg:1950.22ms
+step:105/125 train_time:204.640s step_avg:1948.95ms
+step:106/125 train_time:206.459s step_avg:1947.73ms
+step:107/125 train_time:208.277s step_avg:1946.51ms
+step:108/125 train_time:210.095s step_avg:1945.32ms
+step:109/125 train_time:211.912s step_avg:1944.14ms
+step:110/125 train_time:213.729s step_avg:1942.99ms
+step:111/125 train_time:215.546s step_avg:1941.86ms
+step:112/125 train_time:217.366s step_avg:1940.76ms
+step:113/125 train_time:219.185s step_avg:1939.69ms
+step:114/125 train_time:221.004s step_avg:1938.63ms
+step:115/125 train_time:222.822s step_avg:1937.58ms
+step:116/125 train_time:224.640s step_avg:1936.55ms
+step:117/125 train_time:226.460s step_avg:1935.55ms
+step:118/125 train_time:228.278s step_avg:1934.56ms
+step:119/125 train_time:230.096s step_avg:1933.58ms
+step:120/125 train_time:231.931s step_avg:1932.76ms
+step:121/125 train_time:233.748s step_avg:1931.80ms
+step:122/125 train_time:235.566s step_avg:1930.87ms
+step:123/125 train_time:237.384s step_avg:1929.95ms
+step:124/125 train_time:239.202s step_avg:1929.05ms
+step:125/125 train_time:244.119s step_avg:1952.95ms
+step:125/125 val_loss:5.19007 train_time:244.120s step_avg:1952.96ms
+trial:0 best_val_loss:5.19007 best_val_step:125 first_step_to_target:-1
+wandb: updating run metadata
+wandb: uploading output.log; uploading wandb-summary.json; uploading config.yaml; uploading history steps 24-24, summary, console lines 136-138
+wandb: uploading data
+wandb: 
+wandb: Run history:
+wandb:                           aux/beta2 ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:        speedrun/final_best_val_loss ▁
+wandb:        speedrun/final_best_val_step ▁
+wandb: speedrun/final_first_step_to_target ▁
+wandb:       speedrun/final_reached_target ▁
+wandb:       speedrun/first_step_to_target ▁▁
+wandb:             speedrun/reached_target ▁▁
+wandb:            speedrun/target_val_loss ▁▁▁▁▁▁
+wandb:                speedrun/train_steps ▁▁▁▁▁▁
+wandb:                    time/step_avg_ms  ▁
+wandb:                              +4,671 ...
+wandb: 
+wandb: Run summary:
+wandb:                    aux/beta2 0.99
+wandb:        body/init_fnorm_count 72
+wandb:          body/init_fnorm_max 47.65666
+wandb:       body/init_fnorm_median 15.96193
+wandb:          body/init_fnorm_min 15.90123
+wandb:             body/lr_mult_max 1.00191
+wandb:          body/lr_mult_median 0.8949
+wandb:             body/lr_mult_min 0.57874
+wandb:         body/per_group_count 72
+wandb: speedrun/final_best_val_loss 5.19007
+wandb:                       +4,679 ...
+wandb: 
+wandb: 🚀 View run g1r3-askeladd/H365_smoke_arm_b_NEG_SQRT_alpha-0.5_125steps at: https://wandb.ai/wandb-applied-ai-team/modded-nanogpt-senpai/runs/9z4wnb8v
+wandb: ⭐️ View project at: https://wandb.ai/wandb-applied-ai-team/modded-nanogpt-senpai
+wandb: Synced 6 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20260601_133858-9z4wnb8v/logs
