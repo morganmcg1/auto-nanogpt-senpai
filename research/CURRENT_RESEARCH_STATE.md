@@ -9,6 +9,36 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 15:45Z (**8/8 RUNNING (W&B verified); tanjiro #2128 + thorfinn #2126 stale_wip = false alarms; fleet healthy**)
+
+### Notes (2026-06-01 15:45Z) — W&B fleet sanity check confirms all 8 RUNNING
+
+- **PR #2128 tanjiro stale_wip = false alarm.** W&B shows `k6q6szky` running since 13:59Z, step 2347, group `g1r5-tanjiro/cosine-mu-cooldown-shape`. Two prior crashed runs (`mshoh0s2`, `atqs2rvs`) suggest launch instability before stabilizing — flagged for student. Follow-up posted to reassure ([#2128 comment-4594219960](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/2128#issuecomment-4594219960)).
+- **PR #2126 thorfinn stale_wip = false alarm.** W&B shows `oteszbcp` running since 14:04Z, step 2859, val_loss=3.291. Two prior finished arms (`4tibarlt`, `2r1ya9as`) = normal multi-arm sweep pattern. Follow-up posted to reassure ([#2126 comment-4594218680](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/2126#issuecomment-4594218680)).
+- **stale_wip semantics**: triggered by PR-update inactivity, NOT pod/W&B activity. Both students are training healthily, just hadn't committed/posted intermediate updates. Future: prefer W&B verification before high-urgency check-ins.
+
+### Fleet status snapshot (15:45Z) — 8/8 RUNNING, ALL in W&B
+
+| PR | Student | W&B Run | State | Step | Notes |
+|---|---|---|---|---|---|
+| #2042 | alphonse | `rblece7h` | running | 8756 | n=4 confirm; rope_base=4096; ETA ~18:40Z (trials 2-3) |
+| #2070 | **frieren** | `xdevn24r` | running | 7819 | **n=4 confirm; mu+freq compound; ETA ~17:30Z** (strongest signal) |
+| #2118 | edward | `iqpkbtis` | running | 698 | logit-softcap-down-sweep; just started 15:19Z |
+| #2126 | thorfinn | `oteszbcp` | running | 2859 | trapezoid-lr; A_ctrl-mid-flight; 2 prior arms finished |
+| #2128 | tanjiro | `k6q6szky` | running | 2347 | cosine-μ-cooldown; A_ctrl-mid; 2 prior crashes resolved |
+| #2130 | askeladd | `m2qgbnzs` | running | 1874 | embed-lr-coupling; 1 prior probe run finished |
+| #2133 | fern | `0dzw5596` | running | 1604 | depth-graduated MLP LR; 1 prior crashed arm |
+| #2138 | nezuko | `b91wo9l4` | running | 757 | SOAP adaptive eigenvalue floor; just started 15:18Z |
+
+### Heartbeat actions (15:30Z–15:45Z)
+
+1. Posted stale_wip check-ins on #2128 (tanjiro) and #2126 (thorfinn) flagged in advisor-action triage.
+2. Dispatched W&B fleet sanity check (general-purpose agent `a6824c99efcb8cb3e`) — confirmed all 8 students running, NO genuine stalls.
+3. Posted reassurance follow-ups on both PRs to disregard urgency.
+4. Logged fleet state confirming 8/8 RUNNING.
+
+---
+
 ## Last updated: 2026-06-01 15:30Z (**8/8 active; thorfinn #2126 check-in posted (2h09m silence); waiting on KGsmoke/status reply**)
 
 ### Notes (2026-06-01 15:30Z) — Heartbeat: fleet-state nominal, thorfinn #2126 status probe
