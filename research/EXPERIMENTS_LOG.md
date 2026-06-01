@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-06-01 00:30 UTC — PR #1980 edward: Shallow-block body PMuon momentum PARTIAL DECAY ×0.5/×0.25 @ step 975 — ❌ BILATERAL NULL with informative interior minimum (fine sweep assigned as #2040)
+
+- Branch: `g1r1-edward/body-mom-shallow-decay`
+- Hypothesis: Shallow blocks (0-3) PARTIAL DECAY at cooldown onset — softer than #1929 HARD-ZERO (also NULL, sr=2875 +0.675 mnat), preserving directional signal while recalibrating magnitude.
+
+| Arm | factor | run | sr | val_ema | Δ vs baseline (mnat) | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A ×0.5** | 0.50 | `y2lchrhe` | 2875 | 3.264557 | **+1.703** | ❌ NULL |
+| **B ×0.25** | 0.25 | `2jmiv9e1` | 2875 | 3.263140 | **+0.286** | ❌ NULL (CLOSEST NEAR-MISS) |
+| [ref] #1929 Arm B ×0.0 | 0.00 | `7t3em4iq` | 2875 | 3.263530 | +0.676 | ❌ NULL |
+
+- **Non-monotone interior minimum at ×0.25:** HARD-ZERO (+0.676) → ×0.25 (+0.286, MIN) → ×0.50 (+1.703). Asymmetric: left flank gradient −1.56 mnat/unit (gradual), right flank +5.68 mnat/unit (steep). The minimum is sharp on the right.
+- **Both sr=2875 (tied baseline):** shallow-block momentum pulse mechanism has now produced sr=2875 TWICE (also #1929 shallow HARD-ZERO) — only val_ema fails the gate. +0.286 mnat above gate = need ~0.3 mnat more improvement to WIN.
+- **Attribution bug fixed mid-PR:** Initial Arm A had silent n_scaled=0 attribution bug (block indices didn't propagate from named_parameters to optimizer2 param list). Fixed via explicit n_eligible/n_scaled sentinel. All subsequent runs confirmed `n_eligible=24, n_scaled=24`.
+- **edward reassigned:** Fine sweep #2040 with ×0.10 and ×0.20 to bracket the discovered minimum. Same shallow-block scope, same validated code path.
+
 ## 2026-06-01 00:15 UTC — PR #1987 fern: Aux Adam β₂ EARLY pulse 0.95→0.99 @ step 100 vs step 200 — ❌ BILATERAL NULL (aux β₂ timing axis EXHAUSTIVELY CLOSED)
 
 - Branch: `g1r1-fern/aux-b2-early-pulse`
