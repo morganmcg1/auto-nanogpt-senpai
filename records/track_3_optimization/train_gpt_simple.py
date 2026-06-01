@@ -84,6 +84,15 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--body_muon_momentum_zero_blockwise_step', type=int, default=0,
+                        help='Step at which to scale body-Muon momentum_buffer on a subset '
+                             'of transformer blocks. 0 or negative disables (default).')
+    parser.add_argument('--body_muon_momentum_zero_blockwise_subset', type=str, default='shallow',
+                        choices=['shallow', 'middle', 'deep'],
+                        help='Which block subset to target. shallow=0..3, middle=4..7, deep=8..11.')
+    parser.add_argument('--body_muon_momentum_zero_blockwise_factor', type=float, default=0.0,
+                        help='Multiplicative factor for momentum_buffer on target blocks. '
+                             '0.0 = HARD-ZERO (matches #1929). 0.5 = 50%% decay. 0.25 = 75%% decay.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +774,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "body_muon_momentum_zero_blockwise_step": args.body_muon_momentum_zero_blockwise_step,
+            "body_muon_momentum_zero_blockwise_subset": args.body_muon_momentum_zero_blockwise_subset,
+            "body_muon_momentum_zero_blockwise_factor": args.body_muon_momentum_zero_blockwise_factor,
             "seed": args.seed,
         },
     )
@@ -834,6 +846,16 @@ for trial_idx in range(args.num_trials):
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
     optimizer2._param_lr_mults = param_lr_mults
+
+    # Per-param block index attribution. Used by --body_muon_momentum_zero_blockwise_*
+    # to identify which body-Muon parameters belong to each transformer block.
+    param_block_idx_map: dict[int, int] = {}
+    for name, p in model.named_parameters():
+        if p.ndim >= 2 and name.startswith("blocks."):
+            idx = int(name.split(".")[1])
+            param_block_idx_map[id(p)] = idx
+            p._block_idx = idx
+    optimizer2._param_block_idx = param_block_idx_map
 
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1071,6 +1093,35 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.body_muon_momentum_zero_blockwise_step > 0
+                and step == args.body_muon_momentum_zero_blockwise_step):
+            subset = args.body_muon_momentum_zero_blockwise_subset
+            factor = args.body_muon_momentum_zero_blockwise_factor
+            target_blocks = {
+                "deep":    [8, 9, 10, 11],
+                "shallow": [0, 1, 2, 3],
+                "middle":  [4, 5, 6, 7],
+            }[subset]
+            target_set = set(target_blocks)
+            n_eligible = 0
+            n_scaled = 0
+            for g in optimizer2.param_groups:
+                for p in g["params"]:
+                    block_idx = getattr(p, "_block_idx", None)
+                    if block_idx in target_set:
+                        n_eligible += 1
+                        state = optimizer2.state.get(p)
+                        if state is not None and "momentum" in state:
+                            if factor == 0.0:
+                                state["momentum"].zero_()
+                            else:
+                                state["momentum"].mul_(factor)
+                            n_scaled += 1
+            label = "HARD-ZERO" if factor == 0.0 else f"DECAY x{factor}"
+            print0(f"[step {step}] body PMuon momentum {label} blockwise "
+                   f"(subset={subset}, target_blocks={target_blocks}, "
+                   f"n_eligible={n_eligible}, n_scaled={n_scaled})",
+                   console=True)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1189,6 +1240,12 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "body_muon_momentum_zero_blockwise/pulse_step": args.body_muon_momentum_zero_blockwise_step,
+                "body_muon_momentum_zero_blockwise/factor": args.body_muon_momentum_zero_blockwise_factor,
+                "body_muon_momentum_zero_blockwise/fired": int(
+                    args.body_muon_momentum_zero_blockwise_step > 0
+                    and step >= args.body_muon_momentum_zero_blockwise_step
+                ),
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
