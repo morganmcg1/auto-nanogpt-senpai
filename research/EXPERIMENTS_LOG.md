@@ -1,3 +1,50 @@
+## 2026-06-01 22:00 — PR #2137: H368 edward AdEMAMix AUX optimizer probe (dual-EMA first-moment) — CLOSED 223rd NULL/NEG (🎯 PAPER-GRADE 16th HARD-LOAD-BEARING family entry of cycle ~2700 + 1st MONOTONE DOSE-RESPONSE NEG class on continuous α parametric axis + 2nd FIRST-MOMENT-DUAL-EMA family probe at H266 stack joining H359 second-moment β₂ schedule probe + AUX dual-EMA at paper-default β₃=0.9999 is mechanism-clean NEG at every positive α value tested + arm_a CTRL FFS=3025 is 25th candidate H266 cluster anchor)
+
+- Branch: g1r3-edward/h368-ademamix-aux-optimizer
+- Hypothesis: Test AdEMAMix (Pagliardini et al. 2024) AUX optimizer as fresh dual-EMA first-moment mechanism. Replace AdamW's single first-moment EMA with `(m_fast + α·m_slow) / sqrt(v)` where m_slow has separate β₃=0.9999 decay. Tests if dual-EMA first-moment unlocks AUX-side convergence at H266 stack short horizon.
+
+### Results
+
+| Arm | `aux_optimizer` | `ademamix_alpha` | W&B run_id | step-0 val | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|------------------|-------------------|-------------|------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL `adamw` | adamw | n/a (unused) | `uhxnv0hy` | **10.82583 EXACT** | **3.26886** | **3025** | (ref) | **+0.77σ NEG-TIE** | 🎯 **25th H266 cluster anchor (Pattern A +25 envelope)** |
+| arm_b ADEMAMIX `ademamix` | ademamix | 8.0 (paper-default) | `6dr64871` | **10.82583 EXACT** | **3.28041** | **−1 NEVER REACHED** | **+13.06σ NEG** | **+13.83σ NEG** | 🔴 **CATASTROPHIC NEG** |
+| arm_c ADEMAMIX_MILD `ademamix` | ademamix | 4.0 (half-strength) | `aqfan99w` | **10.82583 EXACT** | **3.27485** | **3125** | **+6.78σ NEG** | **+7.54σ NEG** | 🟡 **MID NEG Pattern A +125** |
+| H266 baseline (PR #1669) | adamw | n/a | `m2ywl0o9` | 10.82583 | 3.26818 | 3000 | — | — | (reference) |
+
+### Mechanism interpretation — paper-grade findings
+
+**Finding #1**: **16th HARD-LOAD-BEARING family entry + 1st MONOTONE DOSE-RESPONSE NEG class on continuous α parametric axis.** The α dose-response is monotonic NEG within positive α range: α=0 (CTRL) Pattern A → α=4 MID NEG FFS=3125 → α=8 CATASTROPHIC FFS=-1. Linear extrapolation: ~+1.7σ_H174 per unit α increase. Mechanism-distinct from H365 BILATERAL DIRECTION-INVARIANT MONOTONIC NEG (which is bilateral around zero anchor) — H368 is monotone WITHIN positive α range only.
+
+**Finding #2**: **2nd FIRST-MOMENT-DUAL-EMA family probe joining H359 second-moment β₂ schedule.** Cycle ~2700 has now characterized BOTH dual-EMA mechanism families at H266 AUX: H359 SECOND-MOMENT-β₂-COOLDOWN-RAMP (BILATERAL ASYMMETRIC NEG) and H368 FIRST-MOMENT-α-DUAL-EMA-AT-β₃=0.9999 (MONOTONE NEG DOSE-RESPONSE). Both probes find H266 AUX is canalized to single-EMA AdamW-style behavior.
+
+**Finding #3**: **Short-horizon mismatch at H266 stack.** Paper-default β₃=0.9999 has ~10000-step half-life. H266 horizon is 3325 steps (~3.3× shorter). Slow EMA never reaches steady-state — accumulates stale, low-magnitude AUX gradient direction memory throughout the run. m_slow_rms trajectory grows monotonically to ~5e-05 by step 3325, confirming functional over-amplification (not numerical instability) is the failure mode.
+
+**Finding #4**: **Cooldown over-amplification mechanism.** AUX gradient magnitudes shrink during cosine cooldown, but α·m_slow term in numerator does NOT shrink at same rate (β₃=0.9999 EMA is slower than gradient envelope). AUX update direction becomes dominated by stale gradient memory at most sensitive part of training. Mechanism-orthogonal to H359 β₂ second-moment cooldown finding — both first and second-moment EMA augmentations to AUX during cooldown produce mechanism-coherent NEG envelopes.
+
+**Finding #5**: **Pre-launch ~25% WIN prob branch REFUTED.** AdEMAMix paper-grade speedup at 10000+ step horizon does NOT generalize to H266 stack 3325-step horizon. The ~75% non-WIN prior was approximately correct, but the specific outcome (MONOTONE DOSE-RESPONSE on α axis spanning both MID NEG and CATASTROPHIC) is sharper than predicted.
+
+### Process + portfolio update
+
+- ✓ Pattern A step-0 val=10.82583 EXACT on all 3 arms (AdEMAMix step-1 mechanism-coherent — α·m_slow=0 at step 1 regardless of α value)
+- ✓ W&B config audit verified all 3 new flags per-arm
+- ✓ Smoke gate 2-arm × 125-step + chain-launch markers per `feedback_audit_treatment_runs_too.md`
+- ✓ Adaptive arm_c decision after arm_b CATASTROPHIC — drop strict-clear branch, launch arm_c MILD α=4 to localize α dose-response
+- ✓ Wall time 5h 15m (3 × ~1h 41m arms)
+- Cumulative: 223 NULL/NEG + 1 MERGED WIN (post-H368 closure)
+- HARD-LOAD-BEARING family: 15 → 16 entries (+H368)
+- NEW class: **MONOTONE DOSE-RESPONSE NEG class on continuous α parametric axis** — 1 entry (H368)
+- 2nd FIRST-MOMENT-DUAL-EMA family entry (joining H359 second-moment β₂ schedule probe class)
+- Fresh-mechanism AUX probes: H368 closes 1 of 4 → 3 in flight (H371/H375/H376)
+- H266 attractor cluster: 24 → 25 candidate anchors (+H368 arm_a)
+
+### Suggested follow-ups (per student closure)
+
+1. Close H368 direction (recommended — accepted)
+2. LATE-ONLY AdEMAMix as orthogonal probe (analogous to H358 LATE-ONLY μLoCo MERGE candidate) — UNLIKELY VIABLE per H367 LATE-ONLY μLoCo CATASTROPHIC finding (cold-start of any momentum buffer at cooldown fails)
+3. Slow-EMA β₃ rescaling probe (β₃=0.999 / β₃=0.997, shorter half-life matched to H266 horizon) — could test horizon-mismatch hypothesis cheaply
+4. **Lookahead AUX wrapper as fresh OUTER-on-AUX mechanism** (selected for H377 edward) — mechanism-distinct from AdEMAMix dual-EMA, tests K-step outer-iterate averaging on AUX side
+
 ## 2026-06-01 21:25 — PR #2140: H369 thorfinn Lion AUX optimizer probe (sign-momentum) — CLOSED 222nd NULL/NEG (🎯 PAPER-GRADE 15th HARD-LOAD-BEARING family entry of cycle ~2700 + 2nd HARD-LOAD-BEARING entry on STRUCTURAL-COMPONENT axis after H358 μLoCo + 1st LR-INVARIANT BILATERAL CATASTROPHIC class on continuous LR parametric axis — both Lion arms at LR=1.0 AND LR=0.2 produce val/loss within 0.00026 of each other despite 5× LR difference, refuting conventional "Lion needs LR tuning" interpretation + paper-grade mechanism dissection of embed L2 norm runaway as SYMPTOM not CAUSE of Lion failure)
 
 - Branch: g1r3-thorfinn/h369-lion-aux-optimizer
