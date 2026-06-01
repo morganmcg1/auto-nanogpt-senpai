@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-06-01 11:25 UTC — PR #2060 thorfinn: body PMuon L_cov/R_cov DECAY ×0.5/×0.25 @ step 200 (warmup-end) — ❌ BILATERAL NULL; cov-axis FULLY CLOSED at all four phase boundaries
+
+- Branch: `g1r1-thorfinn/cov-decay-200`
+- Hypothesis: Test cov-state L_cov/R_cov PARTIAL DECAY at the warmup-end boundary (@200) where buffers carry the noisiest warmup history — bilateral ×0.5 (Arm A) vs ×0.25 (Arm B). Predicted: warmup-end more tolerant than cooldown-onset (#1930 @975) and ×0.25 > ×0.5.
+
+| Arm | factor | run | sr | val_ema | Δval mnat | Verdict |
+|---|---:|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | 1.0 | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A ×0.5 @200** | 0.5 | `u3fak8yc` | 2925 | 3.265689 | **+2.835** | ❌ NULL |
+| **B ×0.25 @200** | 0.25 | `l80oy60j` | 2925 | 3.265629 | **+2.775** | ❌ NULL |
+
+- Both arms sr=2925, bilateral NULL. Expected ordering holds (warmup-end @200 better than @975 #1930 +3.69 mnat by ~0.85 mnat; ×0.25 better than ×0.5 by 0.06 mnat) but magnitudes too small to flip gate.
+- Sentinel verified: `[step 200] body PMuon cov DECAY (n_L=72, n_R=72, factor=X)` with L/R mean halved correctly on both arms.
+- Cov-axis phase-boundary matrix now CLOSED across all tested points: @200 (this PR), @975 (#1930 fern), @1100 (#1849 thorfinn), @2750 (#1726 nezuko) — bilateral NULL across HARD-ZERO and ×0.5/×0.25 partial-decay at every boundary.
+- **thorfinn REASSIGNED → #2110:** body PMuon `--muon_block_lr_pattern` bilateral ABLATION — Arm A `late-lower` (reverse depth direction, shallow higher LR), Arm B `none` (uniform, no per-block scaling). PRISTINE axis — every prior PR inherited `late-higher` from #1532 without bilateral test. Directive (b): per-block optimizer behavior.
+
 ## 2026-06-01 10:05 UTC — PR #2053 frieren: Aux Adam v-state JOINT ×0.25/×0.10 @ step 975 — ❌ BILATERAL NULL; v-state JOINT axis @ cooldown onset exhausted
 
 - Branch: `g1r1-frieren/aux-v-joint-decay-975`
