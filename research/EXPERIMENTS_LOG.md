@@ -1,3 +1,38 @@
+## 2026-06-01 — PR #2044: H350 askeladd BODY init bisection of H342 conflated factors (per-module-match-broken vs depth-asymmetry) — CLOSED 203rd NULL/NEG (🎯 PAPER-GRADE BILATERAL DECOMPOSITION of H342 LARGEST single-direction NEG of cycle ~2700 (+40.7σ CATASTROPHIC) into LINEAR ADDITIVE per-module-match-broken + depth-asymmetry factors: arm_a CTRL `orthogonal_fnorm_matched` val=3.27011 FFS=3050 +2.18σ NEG Pattern A +50 outlier envelope + arm_b NO_DAMP_BAND `orthogonal_bottom_damp damp=1.0` val=3.27744 FFS=3200 +10.48σ MID NEG REACHES target with +200 FFS delay + arm_c MILD_DAMP `orthogonal_bottom_damp damp=0.75` val=3.29130 FFS=-1 NEVER REACHED +26.15σ HIGH NEG CATASTROPHIC = 6th HARD-LOAD-BEARING CATASTROPHIC entry on depth-asymmetry axis with sharp threshold in (0.75, 1.0]. Per-module-match-broken alone MILDLY-LOAD-BEARING (only +10.48σ NEG, reaches target). Depth-asymmetry HARD-LOAD-BEARING (any damp<1.0 → CATASTROPHIC FFS=-1). Linear additive damage ~15σ per 0.25 damp decrement. H342 catastrophic NEG decomposition: depth-asymmetry contributes ~75% (~+30σ), per-module-match-broken contributes ~25% (~+10σ). Mechanism: MuonH scale_invariant orthogonalization preserves init F-norm magnitudes through training; depth-asymmetry creates per-layer learning-rate imbalance via vanishing-gradient-compound effect through chain rule across attention/mlp blocks)
+
+- Branch: g1r3-askeladd/h350-body-init-bisection
+- Hypothesis: Bisect H342 arm_b `orthogonal_bottom_damp damp=0.5` (LARGEST single-direction NEG of cycle ~2700 +40.7σ CATASTROPHIC) into two conflated geometric factors: (1) per-module F-norm match broken (uniform-per-band F-norm vs H266 per-module-distinct attn≈15.94 / mlp≈47.62), (2) depth asymmetry (top-6 vs bottom-6 F-norm ratio). 3-arm chain: arm_a CTRL `orthogonal_fnorm_matched` (H266 bit-id, both factors OFF) / arm_b NO_DAMP_BAND `orthogonal_bottom_damp damp=1.0` (per-module-match-broken ON, depth-asym OFF) / arm_c MILD_DAMP `orthogonal_bottom_damp damp=0.75` (both factors ON, 1.33× depth ratio).
+
+### Results
+
+| Arm | W&B run_id | body_init / damp_factor | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|------------|--------------------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL `h7896zvu` | `orthogonal_fnorm_matched` (H266 bit-id) | 3.27011 | 3050 | (ref) | +2.18σ NEG Pattern A +50 outlier | Pattern A +50 |
+| arm_b NO_DAMP_BAND `dduqs43o` | `orthogonal_bottom_damp damp=1.0` | 3.27744 | 3200 | +8.29σ NEG | +10.48σ MID NEG +200 FFS (reaches target) | MID NEG |
+| arm_c MILD_DAMP `tl5c6adp` | `orthogonal_bottom_damp damp=0.75` | **3.29130** | **−1 NEVER REACHED** ⚡ | +23.97σ NEG | **+26.15σ HIGH NEG CATASTROPHIC** ⚡ | **6th HARD-LOAD-BEARING CATASTROPHIC entry** |
+| H342 arm_b BOTTOM_DAMP (ref) | `orthogonal_bottom_damp damp=0.5` | 3.30414 | -1 | +38.8σ | +40.7σ CATASTROPHIC | LARGEST NEG of cycle |
+| H266 baseline (PR #1669) | (bit-id) | 3.26818 | 3000 | (ref) | — | — |
+
+🎯 **203rd NULL/NEG closure** — BILATERAL DECOMPOSITION with LINEAR ADDITIVE structure. All arms FFS≥3050; none strict-clears FFS<3000 per Issue #1260.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — H342 LARGEST NEG decomposed into linear additive factors**: per-module-match-broken contributes ~25% (+10σ), depth-asymmetry contributes ~75% (+30σ). Depth-asymmetry damage ~15σ per 0.25 damp decrement (linear dose-response). Per-module-match-broken alone is MILDLY-LOAD-BEARING (REACHES target); depth-asymmetry is HARD-LOAD-BEARING with sharp catastrophic threshold in (0.75, 1.0].
+
+🎯 **FINDING #2 — 6th HARD-LOAD-BEARING CATASTROPHIC family entry**: extends H337 outer_momentum + H342 BODY init BOTTOM_DAMP + H343 AUX Cautious c=1.0 + H347 BODY orthogonalizer ns=6 + H348 Z-loss MEDIUM to 6 axes spanning OPTIMIZER × BODY init × AUX optimizer-mask × BODY orthogonalizer KERNEL × AUX-loss × **BODY init depth-asymmetry** axes.
+
+🎯 **FINDING #3 — Mechanism: MuonH scale_invariant preserves init F-norm asymmetry through training**: scale_invariant orthogonalization preserves init F-norm magnitudes. Depth-asymmetry creates per-layer learning-rate imbalance — bottom-6 layers with smaller F-norms produce smaller gradient signals at later layers via chain rule across attention/mlp blocks → vanishing-gradient-compound effect through cooldown. Per-module-match-broken alone (uniform-per-band 27.71 across all 12 layers) does NOT trigger this — all 12 layers have SAME F-norm = no per-layer imbalance.
+
+🎯 **FINDING #4 — Mid-training divergence onset analysis**: H342 arm_b at step 1000 already +0.16 above arm_a CTRL (massive early divergence). H350 arm_b +0.005, H350 arm_c +0.016 at step 1000 — confirms H342's catastrophic mid-training divergence was driven by depth-asymmetry factor, NOT per-module-match-broken alone.
+
+🎯 **FINDING #5 — Pattern A +50 drift on arm_a CTRL**: `orthogonal_fnorm_matched` is H266 bit-id but drifted to FFS=3050 / +2.18σ NEG (wider than recent cycle ~2700 +25 envelope on H344/H346/H347/H348/H349 CTRLs all at FFS=3025). Joins H345 round-2 arm_a +1.74σ as documented cycle ~2700 ±50 Pattern A drift class. Bisection interpretation robust to CTRL drift since arm_b/arm_c Δ vs CTRL (+8.29σ / +23.97σ) far exceed any plausible replication variance.
+
+### Cycle ~2700 update
+
+**203 NULL/NEG + 1 MERGED WIN** — cycle continues. H266 attractor cluster: 11 confirmed + H345 arm_c AUX_ONLY = 12th candidate. H350 askeladd reassigned to fresh mechanism axis (next assignment incoming).
+
+---
+
 ## 2026-06-01 — PR #2032: H349 frieren M4a Top-K right-singular-subspace alignment penalty on BODY 2D — CLOSED 202nd NULL/NEG (🎯 PAPER-GRADE BILATERAL MONOTONE-UP TIE-NEG closure + COMPLETES 4-MECHANISM FULL RULE-OUT for H326 BODY ORTHO POS narrowing programme: arm_a CTRL λ=0 val=3.26865 FFS=3025 +0.53σ TIE Pattern A +25 IN FAMILY = clean code-isolation for new --body_subspace_penalty flag + arm_b LIGHT λ=2e-6 val=3.26912 FFS=3025 +0.53σ TIE-NEG vs CTRL + arm_c MEDIUM λ=2e-5 val=3.26953 FFS=3025 +1.00σ TIE-NEG vs CTRL = monotone-up dose-response with IDENTICAL FFS across 10× λ ratio. Paper-grade mechanism finding: penalty IS gradient-active (10× λ → 10× scaled penalty value) but Grassmann-distance proj_dist_sq_sum SATURATES at IDENTICAL 228 plateau in both treatment arms — optimizer routes around the regularizer, pays cost without changing target subspace-tilt axis. 4-mechanism FULL RULE-OUT: M1 weight-decay analog (H328 RULED OUT) + M2 spectral-spread σ_max² (H341 RULED OUT bilaterally) + M3 F-norm contraction projection (H339 RULED OUT bilaterally) + M4a subspace alignment Grassmann distance (H349 RULED OUT bilaterally) = ALL 4 candidate mechanism classes for H326 BODY ORTHO POS direction RULED OUT. Resolution: H326 POS direction either (a) seed-luck artifact within H266 attractor cluster variance envelope, or (b) requires M4b Schatten-1 nuclear norm / M4c condition-number for resolution. Joins MILDLY-LOAD-BEARING ASYMMETRIC SATURATED class as first cycle ~2700 finding of regularizer with decoupled gradient action vs target-axis effect)
 
 - Branch: g1r3-frieren/h349-body-subspace-alignment-m4a
