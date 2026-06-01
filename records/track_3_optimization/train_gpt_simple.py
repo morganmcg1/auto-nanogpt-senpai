@@ -76,14 +76,27 @@ def parse_args():
         "--lr_cooldown_shape",
         type=str,
         default="linear",
-        choices=["linear", "cosine", "concave", "convex", "step"],
+        choices=["linear", "cosine", "concave", "convex", "step", "trapezoid"],
         help="Decay shape applied to all optimizer LRs during the cooldown window "
              "(last cooldown_frac of training). x = (progress - (1 - cooldown_frac)) / cooldown_frac. "
              "linear: eta = 1 - x (current default); "
              "cosine: eta = 0.5 * (1 + cos(pi * x)); "
              "concave: eta = sqrt(1 - x) (drops fast, stays low); "
              "convex: eta = (1 - x)^2 (stays high, crashes late); "
-             "step: eta = 1 if x < 0.8 else 0 (falsifier - no decay until last 20% of cooldown).",
+             "step: eta = 1 if x < 0.8 else 0 (falsifier - no decay until last 20% of cooldown); "
+             "trapezoid: eta = 1.0 for x<plateau_frac then linear ramp to 0 (extends high-LR SOAP "
+             "curvature accumulation; plateau width controlled by --lr_trapezoid_plateau_frac).",
+    )
+    parser.add_argument(
+        "--lr_trapezoid_plateau_frac",
+        type=float,
+        default=0.4,
+        help="Fraction of the cooldown window held at eta=1.0 before linear ramp to 0 "
+             "(only used when --lr_cooldown_shape=trapezoid). "
+             "0.0 = full linear (collapses to linear shape). "
+             "0.4 = B-star contract (PR #2126). "
+             "0.6 = C variant (longer plateau). "
+             "Must be in [0.0, 1.0).",
     )
     parser.add_argument(
         "--depth_init_mode",
@@ -112,6 +125,10 @@ def parse_args():
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if not (0.0 <= args.lr_trapezoid_plateau_frac < 1.0):
+        raise ValueError(
+            f"--lr_trapezoid_plateau_frac must be in [0.0, 1.0); got {args.lr_trapezoid_plateau_frac}"
+        )
     return args
 
 
@@ -790,6 +807,7 @@ if dist.get_rank() == 0:
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
             "lr_cooldown_shape": args.lr_cooldown_shape,
+            "lr_trapezoid_plateau_frac": args.lr_trapezoid_plateau_frac,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
             "mu_cooldown_target": args.mu_cooldown_target,
@@ -919,6 +937,11 @@ for trial_idx in range(args.num_trials):
             return (1.0 - x) ** 2
         elif shape == "step":
             return 1.0 if x < 0.8 else 0.0
+        elif shape == "trapezoid":
+            plateau = args.lr_trapezoid_plateau_frac
+            if x < plateau:
+                return 1.0
+            return (1.0 - x) / (1.0 - plateau)
         else:
             raise ValueError(f"Unknown lr_cooldown_shape: {shape}")
 
