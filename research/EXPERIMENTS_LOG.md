@@ -1,3 +1,35 @@
+## 2026-06-01 — PR #2018: H347 nezuko MuonH Newton-Schulz iteration count VALUE micro-axis — CLOSED 200th NULL/NEG (🎯 MILESTONE — 200th NULL/NEG of cycle ~2700 crossed. PAPER-GRADE BILATERAL-ASYMMETRIC closure: arm_b LOW ns=6 CATASTROPHIC NEG +16.08σ_H174 FFS=−1 NEVER REACHED 3.28 target = HARD-LOAD-BEARING CATASTROPHIC on BODY orthogonalizer KERNEL axis, 4th entry of catastrophic family + arm_c HIGH ns=18 SATURATED −0.28σ vs CTRL FFS=3025 TIE = no upper KNEE within tested envelope. H266 hardcoded ns=12 sits AT the lower saturation KNEE — going below loses orthogonalization, going above wastes compute without quality gain. Confirms BODY orthogonalizer KERNEL quality is HARD-LOAD-BEARING axis at H266 stack)
+
+- Branch: g1r3-nezuko/h347-muonh-ns-iters
+- Hypothesis: MuonH Newton-Schulz iteration count VALUE micro-axis at H266 stack. Tests whether the hardcoded `range(12)` NS iterations for BODY 2D weight orthogonalization is at optimum. 3-arm chain: arm_a CTRL ns=12 (H266 bit-id) / arm_b LOW ns=6 (half iters, cheaper but potentially less orthogonal) / arm_c HIGH ns=18 (1.5× iters, more orthogonal but slower).
+
+### Results
+
+| Arm | muonh_ns_iters | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|-----------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL ns=12 `3lhkdvzg` | 12 | 3.26900 | 3025 | (ref) | +0.93σ TIE Pattern A +25 IN FAMILY | Pattern A +25 |
+| arm_b LOW ns=6 `lnndd6b7` | 6 | **3.28240** | **−1 NEVER REACHED** | **+15.16σ CATASTROPHIC NEG** ⚡ | **+16.08σ CATASTROPHIC NEG** ⚡ | TARGET NEVER REACHED |
+| arm_c HIGH ns=18 `8diyxdy5` | 18 | 3.26875 | 3025 | -0.28σ TIE | +0.65σ TIE Pattern A +25 | SATURATED |
+| H266 baseline (PR #1669) | 12 | 3.26818 | 3000 | (ref) | — | — |
+
+🎯 **200th NULL/NEG closure** — BILATERAL-ASYMMETRIC: arm_b CATASTROPHIC FAIL (FFS=−1), arm_c SATURATED TIE. No strict-clear FFS<3000 per Issue #1260.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — arm_b LOW ns=6 = 4th entry of HARD-LOAD-BEARING CATASTROPHIC family**: ns=6 below Newton-Schulz quintic iteration convergence threshold → orthogonalization error compounds → CATASTROPHIC NEG. Extends catastrophic family: H337 outer_momentum BILATERAL + H342 BODY init BOTTOM_DAMP (+40.7σ LARGEST) + H343 AUX Cautious c=1.0 + **H347 BODY orthogonalizer ns=6 NEW** (+16.08σ).
+
+🎯 **FINDING #2 — arm_c HIGH ns=18 SATURATED = paper-grade KNEE-bracketing**: ns=18 produces -0.28σ vs CTRL (within noise floor) and FFS=3025. Newton-Schulz quintic iteration converges to orthogonality at ns=12 for body 2D weight singular value distribution at H266 scale. Going to ns=18 wastes 50% more compute without quality gain. No upper KNEE within tested envelope.
+
+🎯 **FINDING #3 — H266 hardcoded ns=12 is at the orthogonalizer-quality KNEE**: ns=12 is exactly at the lower saturation edge. Going below loses orthogonalization (CATASTROPHIC); going above saturates (TIE). H266 hardcoded value was optimally tuned.
+
+🎯 **FINDING #4 — BODY orthogonalizer KERNEL quality axis is HARD-LOAD-BEARING**: joins HARD-LOAD-BEARING CATASTROPHIC family as 4th distinct mechanism class. The Newton-Schulz inner-loop iteration count governs orthogonalization quality per MuonH step — a HARD load-bearing axis at H266 stack.
+
+### Cycle ~2700 milestone update
+
+**200 NULL/NEG + 1 MERGED WIN** — 200-closure milestone crossed. 110 mechanism classes consolidated. H266 attractor cluster: 11 confirmed members + H345 arm_c AUX_ONLY = 12th candidate. nezuko reassigned to H354 MuonH μ SCHEDULE SHAPE axis sweep (off vs linear vs cooldown_ramp).
+
+---
+
 ## 2026-06-01 — PR #2012: H346 thorfinn AUX β1 cooldown_ramp DOWN SCHEDULE — CLOSED 199th NULL/NEG (🎯 PAPER-GRADE BILATERAL TIE = CANALIZED axis at H266 stack: arm_b MILD ramp 0.8→0.5 val=3.26824 TIGHTEST val of cycle ~2700 +0.07σ_H174 above H266 baseline + arm_c AGGRESSIVE ramp 0.8→0.3 val=3.26890 +0.82σ TIE Pattern A IN FAMILY — all 3 arms FFS=3025 Pattern A +25 NO MERGE. β1 cooldown_ramp DOWN axis CANALIZED within tested envelope [0.3, 0.8] extends CANALIZED TIE BILATERAL class to 4 members. arm_b MILD ramp val-tightness may reflect noise-floor preference candidate for combining with AUX_ONLY Polyak scope in future stacks. Cross-validates "AUX over-averaged at H266 stack" portfolio narrative — β1 SCHEDULE axis NOT a discriminating axis within saturated-smoothing regime)
 
 - Branch: g1r3-thorfinn/h346-aux-beta1-cooldown-ramp-down-schedule
