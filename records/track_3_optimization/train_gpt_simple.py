@@ -109,6 +109,13 @@ def parse_args():
     parser.add_argument("--body_init_bottom_layers", type=int,
                         default=int(os.environ.get("BODY_INIT_BOTTOM_LAYERS", "6")),
                         help="Number of bottom layers to damp for --body_init=orthogonal_bottom_damp (default 6 = bottom half of 12 layers).")
+    parser.add_argument("--embed_init", type=str, default=os.environ.get("EMBED_INIT", "default"),
+                        choices=["default", "orthogonal_unscaled", "kaiming_uniform"],
+                        help="H351: token embedding weight initialization scheme. "
+                             "'default' = H266 bit-id torch.Tensor.normal_() (mean=0, std=1.0). "
+                             "'orthogonal_unscaled' = orthogonalize embedding via SVD U@Vh leaving "
+                             "the result unscaled (column-orthonormal for tall vocab≥dim matrix). "
+                             "'kaiming_uniform' = torch.nn.init.kaiming_uniform_(a=sqrt(5)).")
     parser.add_argument("--polyak_ema_decay", type=float,
                         default=float(os.environ.get("POLYAK_EMA_DECAY", "0.0")),
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
@@ -856,6 +863,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "embed_init": args.embed_init,
         },
     )
 
@@ -884,7 +892,18 @@ for trial_idx in range(args.num_trials):
             if name == "proj.weight":
                 w.zero_()  # LM head: keep zero like starter
             elif name == "embed.weight":
-                w.normal_()  # token embedding: default torch init
+                # H351: embed init axis sweep. Default branch is bit-identical to prior behavior.
+                if args.embed_init == "default":
+                    w.normal_()  # H266 bit-id: torch default normal_(mean=0, std=1.0)
+                elif args.embed_init == "orthogonal_unscaled":
+                    # Random normal, then orthogonalize via SVD; leave unscaled.
+                    w.normal_()
+                    W_fp32 = w.float()
+                    U, S, Vh = torch.linalg.svd(W_fp32, full_matrices=False)
+                    w.copy_((U @ Vh).to(w.dtype))
+                elif args.embed_init == "kaiming_uniform":
+                    torch.nn.init.kaiming_uniform_(w, a=math.sqrt(5))
+                embed_init_fnorm = w.norm().item()
             elif "attn.proj" in name or "mlp.proj" in name or "mlp.fc" in name or "attn." in name:
                 # Body 2D weights — subject to init-axis sweep.
                 if "attn.proj" in name:
@@ -922,6 +941,9 @@ for trial_idx in range(args.num_trials):
                         "blocks.11.attn.q.weight", "blocks.11.mlp.fc.weight")
         sample_rows = [e for e in body_init_log if e["name"] in sample_names]
         print0(f"[H148 body_init={args.body_init}] sample F-norms: {sample_rows}", console=True)
+        print0(f"[H351 embed_init={args.embed_init}] embed_fnorm={embed_init_fnorm:.4f}", console=True)
+        if dist.get_rank() == 0 and wandb.run is not None:
+            wandb.config.update({"embed_init_fnorm": embed_init_fnorm}, allow_val_change=True)
 
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
