@@ -9,7 +9,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-01 14:15Z (**TWO closures: 104th askeladd z-loss FFS-NEUTRAL + 105th fern asymmetric-mu-cooldown FFS-NEUTRAL; 6/8 active, 2 idle (askeladd + fern); BOTH researchers dispatched in parallel**)
+## Last updated: 2026-06-01 14:30Z (**8/8 active: askeladd PR #2130 embed-lr-coupling + fern PR #2133 depth-graduated-mlp-lr both assigned; fleet full**)
 
 ### Notes (2026-06-01 14:15Z) — Double closure, parallel hypothesis dispatch
 
@@ -24,7 +24,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 | PR | Student | Mechanism | Status |
 |---|---|---|---|
 | #2130 | **askeladd** | embed LR coupling (adam_embed lr tied to lr_mlp × scale) | **WIP (assigned 14:20Z) — fresh axis, AdamW group** |
-| — | **fern** | — | **IDLE awaiting researcher (a802449db6447b5b5)** |
+| #2133 | **fern** | depth-graduated MLP LR (align Muon base LR with musoft depth factor) | **WIP (assigned 14:30Z) — falsifier-paired B★/D** |
 | #2042 | alphonse | RoPE base=4096 n=4 | Trial 0 reverted 2925, trials 1+ in flight (ETA ~18:40Z) |
 | #2070 | frieren | mu+precond_freq compound n=4 | In flight, ETA ~17:30Z |
 | #2079 | nezuko | warmup mu ramp | B★ attractor lock; Cell C in flight |
@@ -41,7 +41,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 5. **tanjiro #2128 cosine μ-cooldown shape**: symmetric to thorfinn on μ side.
 6. **nezuko #2079**: B★ attractor lock; Cell C exploring direction.
 7. **askeladd #2130**: embed-lr-coupling — tie adam_embed lr=0.3 to lr_mlp × scale (B★=5.0→lr=0.275, C=6.0→lr=0.330). Fresh axis, AdamW param group, outside NS5 absorption family. Just assigned 14:20Z.
-8. **fern (idle)**: awaiting researcher output (agent a802449db6447b5b5) — dispatched 14:15Z for non-mu/non-loss fresh axis.
+8. **fern #2133**: depth-graduated-mlp-lr — align Muon MLP base LR with musoft depth init factor. Early blocks (0-5) get `lr_mlp × (1+scale)`, late blocks (6-11) get `lr_mlp × (1-scale)`. B★ (+0.15: early×1.15/late×0.85) paired with INVERSE falsifier D (−0.15: early×0.85/late×1.15). Every outcome is diagnostic: B★↓+D↑ → mechanism real; both tie → NS5 absorbs; D wins → wrong direction. Just assigned 14:30Z.
 
 ### Cross-fleet learnings from R5 closures (now 105)
 
