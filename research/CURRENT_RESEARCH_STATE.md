@@ -1,3 +1,72 @@
+## 2026-06-01 18:30 UTC — Cycle 71 mid-534 — nezuko #2150 CLOSED (437th refute / **FIRST ISOLATED CANONICAL-CONFIG SINGLE-STRUCTURAL-LEVER POD-BLOCK** / 13th pre-event NaN / 35th pod-stability; mean step-1 grad 233,618 / depth-orientation isolated lever MAP CLOSED / **DIRECTION-ASYMMETRIC-FRONT-PRIVILEGED-ABSOLUTE confirmed**; configuration-radius destab axis 15 cells / 11 sub-axes — NEW sub-axis 11: structural-depth-orientation-back-fast) + nezuko #2164 new assignment (CARRIER × K-EXCLUDED cross-axis cardinality compound — tests carrier-cancellation universality vs proj-excluded-specific; 35% CARRIER-CANCELLATION-UNIVERSAL / 25% CARRIER-PRESERVED-AT-FLOOR / 15% PRODUCTIVE-COMPOUND-MILD / 10% MERGE-CANDIDATE / 10% POD-BLOCK) + frieren #2147 Arm A `0syxs32k` TERMINAL val_loss=3.271724 floor band — CARRIER-CANCELLATION direction confirmed on lm_head reset M=3 INTERVAL=400; Arm B `xnth7dh3` step 475 healthy (preliminary CANCELLATION confirmation; stale_wip cleared). Fleet 8/8 WIP. Cumulative: **437 refuted / 300 mech classes / 261 family closures / 10 axes / 54 RTM precedents / 35 pod-stability observations**.
+
+### nezuko #2150 CLOSED — 437th refute / FIRST ISOLATED-STRUCTURAL POD-BLOCK landmark
+
+**Bilateral terminal — BILATERAL POD-BLOCK at step-1 grad ~234k saturated** (mean 233,618 / spread 0.15% — deterministic mechanism-coupled fixed point):
+- Arm A `hmhhcxeu` SEED=1: step-1 grad_norm **233,797.6** → step-2 Inf → 91% non-finite step-3+ → killed step 585
+- Arm B `ttdapvtw` SEED=2: step-1 grad_norm **233,438.8** → step-2 Inf → 91% non-finite step-3+ → killed step 543
+
+Banner verified bilateral: `MLP-SOAP per-depth-half ENABLED=1 front=0 back=1` (INVERSE of #1775).
+
+**Depth-orientation isolated matrix MAP CLOSED**:
+
+| Cell | Configuration | Result |
+|---|---|---|
+| Canonical baseline | front=slow back=slow (MLP-SOAP disabled) | ~3.270 floor |
+| #1775 | **front=fast back=slow** | **3.26789 SUB-FLOOR productive** |
+| **#2150 (THIS)** | **front=slow back=fast** | **BILATERAL POD-BLOCK** |
+
+→ MLP-SOAP fast-preconditioning is **direction-specific and front-half privileged at extreme magnitude**. Back-half catastrophically destabilizes; front-half uniquely productive.
+
+**Structural insight 1** — **FIRST ISOLATED CANONICAL-CONFIG SINGLE-STRUCTURAL-LEVER POD-BLOCK**. All 5 prior POD-BLOCK cells were compounds (#2124, #2132, #2135, #2142) or single-mechanism reset (#2145). #2150 is the FIRST pure single-isolated-structural-lever POD-BLOCK at canonical config (no reset, no per-kind β1, no compound modifier). Pure structural direction toggle is sufficient to destabilize.
+
+**Structural insight 2** — **Compound dampening of canonical-config destabilizers is a NEW emergent structural pattern**. #2106 thorfinn (back=fast × embed-reset) → 3.27241 floor band (compound DAMPENED). #2150 ISOLATED → POD-BLOCK (no damping → catastrophic). Second cell after #2145 vs #2152 reset compounds where ISOLATED → POD-BLOCK while COMPOUND → floor band.
+
+**Structural insight 3** — Gradient flow asymmetry as root cause: back-half MLP layers (6-11) see larger gradient magnitudes during backprop (deeper position → accumulated growth). Fast β2=0.85 SOAP refresh on these layers → faster basis adaptation → larger preconditioned momentum updates → step-1 saturation at ~234k. Front-half tolerates fast β2 because warmup gradient magnitudes are smaller. Asymmetry is intrinsic to gradient flow, not optimizer math.
+
+### nezuko #2164 NEW — Carrier × K-excluded cross-axis cardinality compound
+
+Tests whether the just-confirmed CARRIER × PROJ-EXCLUDED CANCELLATION (#2121, 3.272415 floor-band-upper) generalizes across cardinality cells, OR whether it's specific to the destabilizing proj-excluded cell:
+
+| Cardinality cell | Bitfield | ISOLATED result | × CARRIER result |
+|---|---|---|---|
+| proj-excluded | 8 | #2031 floor band | **#2121 3.272415 CANCELLATION (just closed)** |
+| K-excluded (LEAST destabilizing) | 2 | **#2113 3.270105 floor-band-lower** | **THIS PR — TBD** |
+
+Cardinality destab hierarchy: proj-excluded INTRINSICALLY UNSTABLE (3/3 cross-axis POD-BLOCK at #2123 / #2135 / #2124); K-excluded stable at floor band; Q/V-excluded floor band. If carrier × K-excluded is also CANCELLATION → cancellation is UNIVERSAL across cardinality cells. If ADDITIVE → cancellation is proj-excluded-specific.
+
+Priors: 35% CARRIER-CANCELLATION-UNIVERSAL / 25% CARRIER-PRESERVED-AT-FLOOR / 15% PRODUCTIVE-COMPOUND-MILD / 10% MERGE-CANDIDATE / 10% POD-BLOCK / 5% MILD-DRIFT.
+
+### frieren #2147 Arm A preliminary CARRIER-CANCELLATION evidence
+
+Arm A `0syxs32k` SEED=1 TERMINAL: val_loss **3.271724** (floor band lower-mid).
+- Δ vs MERGE bar 3.26776: +0.00396 (NOT MERGE)
+- Δ vs CARRIER ISOLATED #1972 (3.268645): +0.00308 (regression from rescue minimum)
+- Direction (2) CARRIER-CANCELLATION (20% prior) → CONFIRMED for Arm A
+
+Sparse lm_head reset (I=400 M=3) DISRUPTS β1=0.7 long-memory plateau, pulling the rescue back toward floor band. β1-axis decoupling rescue mechanism is FRAGILE to periodic exp_avg reset.
+
+Arm B `xnth7dh3` step 475 healthy mid-warmup (train_loss 3.903949). ETA terminal ~2.5h. Stale_wip cleared.
+
+### Fleet 8/8 WIP next-wake watch
+
+- **fern #2160** (M=2 F=1.0 matrix completion; 75% F=1.0-STABLE-MIRROR) — awaiting adoption
+- **thorfinn #2161** (MLP-SOAP front=fast × M=3 JOINT compound buffer; 45% M1-DOMINATES-POD-BLOCK) — awaiting adoption
+- **edward #2153** (EMBED-RESET M=1 F=1.0; 50% SUBSTRATE-GENERAL POD-BLOCK) — awaiting adoption
+- **askeladd #2154** (EMBED-RESET M=2 F=0.25; 45% SUBSTRATE-GENERAL-FLOOR-BAND-LOWER) — awaiting adoption
+- **alphonse #2156** (3-sub PKB1 × lm_head-reset M=2 F=0.25 INTERVAL=400; 8% MERGE prior) — awaiting adoption
+- **nezuko #2164** (CARRIER × K-excluded; 10% MERGE) — assigned this cycle
+- **frieren #2147** Arm B running step 475 of 3175 — preliminary CANCELLATION
+- **tanjiro #2139** (MLP-SOAP front=fast × scalars-HIGHER) — Arm A 3.272 terminal; Arm B pending student launch
+
+### Cumulative cycle-71 state (post-mid-534)
+
+- **437 refuted** / **300 mech classes** / **261 family closures** / **10 structural axes locked** / **54 RTM precedents** / **35 pod-stability observations**
+- Configuration-radius destab axis: **15 cells / 11 sub-axes** (NEW sub-axis 11: structural-depth-orientation-back-fast)
+- Floor band [3.27000, 3.27200] STRUCTURALLY LOCKED with 54 RTM precedents
+- Sub-floor attractor ~3.26910 still active (carrier rescue minimum 3.268645)
+- MERGE bar 3.26776 still unbroken bilateral; cycle-71 sub-floor reach landmarks: #2129 Arm B 3.26836 single-seed, #2113 Arm A 3.269693 single-seed, #2131 Arm B 3.26942 single-seed
+
 ## 2026-06-01 17:45 UTC — Cycle 71 mid-533 — fern #2152 CLOSED (435th refute / **DISAMBIGUATION COMPLETED: MOMENT-AXIS LOAD-BEARING CONFIRMED / PARTIAL_FACTOR DECOUPLED**; 14th pre-event NaN / 34th pod-stability; step-1 grad 234,260 bilateral spread 0.19%) + thorfinn #2131 CLOSED (436th refute / SUBSTRATE-SUBSTITUTION-INVARIANT AT MLP-SOAP-FRONT-FAST × M=2 COMPOUND; n=2 mean 3.27069 floor-band Δ vs #2075 +0.00014 RTM-equivalent; 54th RTM precedent) + fern #2160 new assignment (M=2 F=1.0 matrix completion; 75% F=1.0-STABLE-MIRROR / 15% F=1.0-DESTAB-SECONDARY) + thorfinn #2161 new assignment (MLP-SOAP front=fast × lm_head-reset M=3 JOINT compound buffer test; 45% M1-DOMINATES-POD-BLOCK / 35% COMPOUND-BUFFERS-M1). Fleet 8/8 WIP. Cumulative: 436 refuted / 300 mech classes / 259 family closures / 10 axes / 54 RTM precedents / 34 pod-stability.
 
 ### fern #2152 CLOSED — 435th refute / DISAMBIGUATION COMPLETED
