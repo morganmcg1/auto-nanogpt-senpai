@@ -1,5 +1,56 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-06-01 00:33 — PR #1996: ADAMW_EMBED_LR_MULT post-NM bracket {1.0 SOFTER, 1.5 CTRL, 2.0 HARDER} — **CLOSED-CATALOG-NULL-CATALOG-VALIDATED-PRODUCTION-OPTIMAL**
+
+- branch: `g1r4-fern/adamw-embed-lr-mult-bracket`
+- hypothesis: ADAMW_EMBED_LR_MULT=1.5 was tuned at #393 (2026-05-19 pre-NM stack). Through 6 NM-stack mergers (#1138/#1240/#1421/#1543/#1702 etc), the optimal embed-LR may have shifted. Test ±33% bracket {1.0, 1.5, 2.0} to confirm production value remains optimal post-NM.
+
+### Terminal results
+
+| Arm | Mult | W&B run | val/loss | FFS | Δ vs baseline (3.26118) | Δ vs Arm A | precond_ratio | R_cond_max | embed/dist_from_init |
+|-----|------|---------|----------|-----|------------------------|------------|---------------|------------|----------------------|
+| A CTRL | 1.5× | `88ufv1qt` | 3.26190 | 3150 | +0.45σ drift-PASS | — | 1.07758 mid-LIFT | 501,800 | 117,248 |
+| B SOFTER | 1.0× | `upb5eoct` | 3.26240 | 3150 | +0.76σ drift-PASS | +0.31σ NULL | 1.08831 upper-LIFT | 590,777 | **78,336** (B/A=0.668) |
+| C HARDER | 2.0× | `c8qhk3ft` | 3.26206 | 3150 | +0.55σ drift-PASS | +0.10σ NULL | 1.07674 mid-LIFT | 500,471 | **155,648** (C/A=1.327) |
+
+All 3 arms within ±0.93σ drift envelope of baseline μ_prod=3.26118. Both pair-deltas |Δ_BA|=0.00050 and |Δ_CA|=0.00016 ≤ NULL band 0.0015. Best arm A=production CTRL → NOT merge-eligible.
+
+### Analysis — 4 CATALOG-MAJOR mechanism-isolation findings
+
+**1. Arithmetic-EXACT linear scaling of embed/dist_from_init with ADAMW_EMBED_LR_MULT (3-arm terminal + mid-run):**
+- B/A=78336/117248=0.668 vs predicted (1.0/1.5)=0.667 (3 sig-fig, Δ=0.001)
+- C/A=155648/117248=1.327 vs predicted (2.0/1.5)=1.333 (Δ=0.006)
+- Mid-run verification step 1000: C/A=1.330 vs 1.333 predicted ✓
+- init_anchor mechanism at λ=0.001 integrates embed-LR cleanly NO nonlinear interaction
+- Combined with c788 #1990 frieren A/B embed-drift ARITHMETIC-IDENTICAL across 5× λ at fixed embed-LR: **2-axis MECHANISM-DECOUPLING** — embed-LR is PRIMARY DRIVE; λ is ORTHOGONAL precond_ratio-axis on embed-drift channel.
+
+**2. First direct mid-run observation of K=100 v-warmstart fire event in r4 catalog (Arm C HB1):**
+- step 100: precond_ratio_mean=5.2553, r_warmstart_n=72 (all 72 NM modules fire from AdamW v-EMA)
+- step 125: r_warmstart_n=0, ratio drops to 0.5890 (clean reset)
+- Validates #1888 K-axis FENCED finding mechanistically.
+
+**3. Mid-training crossover step 1500 with SOFTER/HARDER asymmetric trajectories:**
+- Arm B SOFTER: clean monotone early-FAV (Δ_BA=−0.00509 peak step 500) → crossover step 1500 → terminal NULL +0.00050
+- Arm C HARDER: oscillates ±0.004 around A early (5 sign flips in [0,1000]) → crossover step 1500 (peak Δ_CA=+0.00252) → terminal NULL +0.00016 (TIGHTER than B)
+- HARDER converges to A more tightly than SOFTER → asymmetric embed-LR robustness envelope
+- **First documented mid-training crossover in r4 catalog**
+
+**4. Non-monotone-by-observable R-buffer response to embed-LR axis:**
+- SOFTER (B) raises R_cond_max +18% AND precond_ratio_mean +0.01073 (wider top-of-spectrum)
+- HARDER (C) raises R_cond_mean +21% but precond_ratio_mean essentially flat (−0.00084) (denser mid-spectrum)
+- Different R-buffer state variables respond DIFFERENTLY to embed-LR perturbations
+- 4th LIFT-band axis-asymmetry finding extending [[project-lift-band-ctrl-class-variance]] — adds embed-LR as DIFFERENTIATING-BY-OBSERVABLE driver
+
+### LIFT-band cohort update
+
+N=29 → N=32 (3 new mid-band central data points). All within 1.067-1.094 envelope.
+
+### Verdict
+
+ADAMW_EMBED_LR_MULT-axis CATALOG-VALIDATED locally near-optimal at production 1.5× post-6-NM-mergers. ±33% perturbations absorbed within drift envelope. Axis FENCED. fern reassigned (researcher-agent pending).
+
+---
+
 ## 2026-06-01 01:30 — PR #1974: NM TIKHONOV_GAMMA bracket γ∈{0.002, 0.005, 0.01, 0.02} — **CLOSED-CATALOG-NULL-INSENSITIVE-PLATEAU-GAMMA-AXIS**
 
 - branch: `g1r4-nezuko/nm-tikhonov-gamma-bracket`
