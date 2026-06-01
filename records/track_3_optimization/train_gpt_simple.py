@@ -616,6 +616,12 @@ NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K = int(os.environ.get("NANOGPT_NEWTON_MUO
 # Exponent -1/4 follows SHAMPOO's partial-asymmetric left-factor choice.
 NANOGPT_NEWTON_MUON_LEFT_PRECOND = int(os.environ.get("NANOGPT_NEWTON_MUON_LEFT_PRECOND", "0"))
 NANOGPT_NEWTON_MUON_LEFT_MAX_D_OUT = int(os.environ.get("NANOGPT_NEWTON_MUON_LEFT_MAX_D_OUT", "768"))
+# #2066: parametric exponent on L_diag for LEFT-precond. Default 0.25 matches the
+# original #2017 implementation magnitude (L_diag^{-1/4}); 0.125 = gentler shrinkage;
+# 0.5 = full inverse-sqrt magnitude (Adam-like per-row).
+NANOGPT_NEWTON_MUON_LEFT_PRECOND_POWER = float(os.environ.get(
+    "NANOGPT_NEWTON_MUON_LEFT_PRECOND_POWER", "0.25"
+))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -956,9 +962,24 @@ class Muon(torch.optim.Optimizer):
                     state["L_diag"].mul_(b).add_(l_diag_new, alpha=1.0 - b)
                 # Tikhonov-style floor on L_diag: lambda_L = gamma * mean(L_diag).
                 lambda_l = NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA * state["L_diag"].mean()
-                l_inv_pow = (state["L_diag"] + lambda_l).pow(-0.25)  # (d_out,)
+                # #2066: parametric exponent. α=0.25 reproduces #2017 (L_diag^{-1/4});
+                # α=0.125 gentler shrinkage; α=0.5 Adam-like per-row inverse-sqrt.
+                l_inv_pow = (state["L_diag"] + lambda_l).pow(
+                    -NANOGPT_NEWTON_MUON_LEFT_PRECOND_POWER
+                )  # (d_out,)
                 g_precond32 = g_precond32 * l_inv_pow.unsqueeze(1)  # (d_out, d_in)
                 left_applied = True
+                # #2066 extreme-value math-check telemetry: gated on telemetry_due
+                # to avoid extra CUDA syncs every step.
+                if self.newton_telemetry_due:
+                    tel_l = self.newton_telemetry
+                    tel_l["l_diag_mean_sum"] = tel_l.get("l_diag_mean_sum", 0.0) + float(
+                        state["L_diag"].mean().item()
+                    )
+                    tel_l["l_inv_pow_mean_sum"] = tel_l.get("l_inv_pow_mean_sum", 0.0) + float(
+                        l_inv_pow.mean().item()
+                    )
+                    tel_l["l_diag_telemetry_n"] = tel_l.get("l_diag_telemetry_n", 0) + 1
         tel = self.newton_telemetry
         tel["applied_n"] = tel.get("applied_n", 0) + 1
         if left_applied:
@@ -1099,7 +1120,8 @@ print0(
     f"r_warmstart={'True' if NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART else 'False'} "
     f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K} "
     f"left_precond={NANOGPT_NEWTON_MUON_LEFT_PRECOND} "
-    f"left_max_d_out={NANOGPT_NEWTON_MUON_LEFT_MAX_D_OUT}",
+    f"left_max_d_out={NANOGPT_NEWTON_MUON_LEFT_MAX_D_OUT} "
+    f"left_precond_power={NANOGPT_NEWTON_MUON_LEFT_PRECOND_POWER}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1247,6 +1269,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_r_adamw_warmstart_k": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
             "nanogpt_newton_muon_left_precond": NANOGPT_NEWTON_MUON_LEFT_PRECOND,
             "nanogpt_newton_muon_left_max_d_out": NANOGPT_NEWTON_MUON_LEFT_MAX_D_OUT,
+            "nanogpt_newton_muon_left_precond_power": NANOGPT_NEWTON_MUON_LEFT_PRECOND_POWER,
         },
     )
 
@@ -1611,6 +1634,16 @@ for trial_idx in range(args.num_trials):
             newton_metrics["newton_muon/r_warmstart_n"] = tel.get("r_warmstart_n", 0)
             # #2017 left-precond application counter.
             newton_metrics["newton_muon/left_applied_n"] = tel.get("left_applied_n", 0)
+            # #2066 extreme-value math-check: L_diag mean and L_diag.pow(-α).mean
+            # averaged across telemetry-due param applications this step.
+            l_diag_n = tel.get("l_diag_telemetry_n", 0)
+            if l_diag_n > 0:
+                newton_metrics["newton_muon/L_diag_mean"] = (
+                    tel["l_diag_mean_sum"] / l_diag_n
+                )
+                newton_metrics["newton_muon/L_inv_pow_mean"] = (
+                    tel["l_inv_pow_mean_sum"] / l_diag_n
+                )
             wandb.log(newton_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
         # have stepped, apply `p -= lr_embed * lambda * (p - p_init)`. Order vs
