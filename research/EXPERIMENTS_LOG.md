@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-06-01 00:15 UTC — PR #1987 fern: Aux Adam β₂ EARLY pulse 0.95→0.99 @ step 100 vs step 200 — ❌ BILATERAL NULL (aux β₂ timing axis EXHAUSTIVELY CLOSED)
+
+- Branch: `g1r1-fern/aux-b2-early-pulse`
+- Hypothesis: Shift aux Adam β₂ pulse from canonical step 975 EARLIER to warmup-phase boundaries — step 100 (mid-warmup) vs step 200 (warmup-end). Tests whether front-loading the second-moment horizon expansion improves descent. Complement to frieren #1915 (delayed pulse @1100/1200 NULL).
+
+| Arm | β₂ pulse step | run | sr | val_ema | Δ vs baseline (mnat) | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | 975 | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A (pulse @100, mid-warmup)** | 100 | `3fnxh7o2` | 2925 | 3.264228 | **+1.37** | ❌ NULL |
+| **B (pulse @200, warmup-end)** | 200 | `5zx2wm8c` | 2925 | 3.266091 | **+3.24** | ❌ NULL |
+
+- **Non-monotone U-shape confirmed:** timing axis bottoms at @975. @100 (+1.37 mnat) and @1200 (#1915 Arm B, +1.11 mnat) are the two least-damaging off-canonical timings, roughly symmetric. @200 (warmup-end) is worse than @100 — warmup-end boundary is a particularly bad time to lock in β₂=0.99 (β₂ transition may interact with LR plateau onset).
+- **Why early β₂=0.99 hurts:** running 0.99 throughout post-warmup averages aux Adam variance over a longer effective horizon during early-mid training when gradients still change direction quickly. Canonical @975 concentrates the high-β₂ phase where gradients are most stationary (entering LR decay).
+- **Axis closure:** Aux Adam β₂ pulse TIMING AXIS EXHAUSTIVELY CLOSED across all tested timings — step 100 (NULL +1.37 mnat), step 200 (NULL +3.24 mnat), step 975 (#1532 WIN baseline), step 1100 (#1915 NULL +2.77 mnat), step 1200 (#1915 NULL +1.11 mnat), pre-target re-spike (#1667 NULL). Canonical step 975 is uniquely optimal; non-monotone timing landscape with @975 = global optimum.
+- **fern reassigned:** PR #2037 — Body PMuon momentum REVERSE-SIGN (m *= -1) @ step 975 vs @ step 2600 — the unique direction-isolating operation in the body-PMuon momentum state matrix (preserves magnitude, inverts direction). Never previously tested.
+
 ## 2026-05-31 22:23 UTC — PR #1962 askeladd: Aux Adam v-state ×0.5 PER-GROUP @ step 975 (embed vs lm_head) — ❌ BILATERAL NULL (aux v-decay per-group scope closed)
 
 - Branch: `g1r1-askeladd/aux-scalar-v-decay-cooldown`

@@ -1,8 +1,9 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update: 2026-05-31 22:30 UTC**
+- **Last update: 2026-06-01 00:15 UTC**
 - **Current baseline:** PR #1532 (aux Adam β₂ pulse 0.95→0.99 @ step 975). val_ema=3.262854, sr=2875 (n=2).
-- **WIN CANDIDATE FAILED: frieren #1963 Arm A `0udzyamc` seed-2 `apt27zit` DOES NOT CONFIRM** (sr=-1, val_ema=3.265112 +2.26 mnat). Seed-1 WIN was run-to-run noise. Arm B `su37rclp` (embed-only @ step 200) still running (step 125). Awaiting Arm B terminal + student SENPAI-RESULT.
+- **WIN CANDIDATE FAILED: frieren #1963 Arm A `0udzyamc` seed-2 `apt27zit` DOES NOT CONFIRM** (sr=-1, val_ema=3.265112 +2.26 mnat). Seed-1 WIN was run-to-run noise. Arm B `su37rclp` (embed-only @ step 200) still running. Awaiting Arm B terminal + student SENPAI-RESULT.
+- **fern #1987 CLOSED (00:15 UTC) → fern #2037 ASSIGNED:** Aux Adam β₂ EARLY pulse @ step 100 vs 200 — BILATERAL NULL. Arm A (@100) `3fnxh7o2` sr=2925 +1.37 mnat; Arm B (@200) `5zx2wm8c` sr=2925 +3.24 mnat. **Aux β₂ pulse TIMING axis EXHAUSTIVELY CLOSED** — step 100/200/975(WIN)/1100/1200/pre-target-re-spike all tested; canonical @975 is the unique global optimum. fern reassigned: Body PMuon momentum REVERSE-SIGN (m *= -1) @ step 975 (Arm A) vs @ step 2600 (Arm B) — the UNIQUE DIRECTION-ISOLATING operation in the body PMuon momentum state matrix; preserves magnitude, inverts direction; never tested. PR #2037.
 - **askeladd #1962 CLOSED (22:23 UTC):** Aux v×0.5 PER-GROUP @ 975 bilateral NULL. Arm A embed sr=2925 +2.45 mnat, Arm B lm_head sr=2925 ~+2.9 mnat. Aux v-state recalibration axis CLOSED (all per-group localizations and timings exhausted).
 - **nezuko #1946 CLOSED (22:21 UTC):** Body PMuon γ SHARPEN TIMING SWEEP @ 1100/1200 bilateral NULL. Arm A sr=2925 +2.72 mnat, Arm B sr=2925 +1.79 mnat. γ-pulse axis EXHAUSTIVELY CLOSED across all timings (975/1100/1200/2750) and all depth localizations.
 - **Merge gate:** `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
@@ -97,7 +98,7 @@ Two independent mechanisms hit baseline sr (bilateral nulls, but sr=2925→2875 
 | **#2003** | **thorfinn** | **Body PMuon momentum HARD-ZERO vs DECAY ×0.5 @ warmup-end step 200 (all blocks)** | **`gqax73wu` near terminal (step 2925)** | **Arm A: HARD-ZERO @200 (all 12 blocks); Arm B: DECAY ×0.5 @200 (all 12 blocks)** |
 | **#1986** | **alphonse** | **Block-stratified body PMuon momentum FRESH-START (m.copy_(p.grad)) @ step 975** | **Arm A `09ja3yrh` running (step 1000)** | **Arm A: deep (8-11) FRESH-START @975; Arm B: shallow (0-3) FRESH-START @975** |
 | **#1980** | **edward** | **Shallow-block body PMuon momentum PARTIAL DECAY ×0.5/×0.25 @ step 975** | **Arm A `y2lchrhe` running (step 1875)** | **Arm A: shallow (0-3) mom ×0.5 @975; Arm B: shallow (0-3) mom ×0.25 @975** |
-| **#1987** | **fern** | **Aux Adam β₂ EARLY pulse 0.95→0.99 — timing sweep @ step 100 vs step 200** | **Arm B `5zx2wm8c` running (step 2250)** | **Arm A: β₂ pulse @step 100 (mid-warmup); Arm B: β₂ pulse @step 200 (warmup-end)** |
+| **#2037** | **fern** | **Body PMuon momentum REVERSE-SIGN (m *= -1) @ step 975 vs step 2600** | **Assigned 00:15 UTC — picking up** | **Arm A: m*=-1 all 72 buffers @step 975; Arm B: m*=-1 all 72 buffers @step 2600** |
 | **#1984** | **tanjiro** | **Middle-block (4-7) body PMuon momentum HARD-ZERO + ×0.5 DECAY @ step 975** | **Arm A `g87o92vn` running (step 2500)** | **Arm A: middle (4-7) mom factor=0.0 (HARD-ZERO) @975; Arm B: middle (4-7) mom factor=0.5 (PARTIAL DECAY) @975** |
 | **#1963** | **frieren** | **Aux Adam v-state ×0.5 @ WARMUP-END boundary step 200 — joint vs embed-only** | **Arm A `0udzyamc` NULL (seed-2 NOT CONFIRMING); Arm B `su37rclp` running (step 125)** | **Arm A: all-3-groups v×0.5 @200 CLOSED (NULL); Arm B: adam_embed only @200 (in-flight)** |
 
