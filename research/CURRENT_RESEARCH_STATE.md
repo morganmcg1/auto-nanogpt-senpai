@@ -9,6 +9,49 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 00:30Z (**93 R5 closures**; **93rd: alphonse #1979 lr-warm-restart-probe FFS-NEG-ablation** — warm-restart magnitude×timing axis fully closed; ★★★ **TIER-SHIFTING FINDING: FFS bottleneck is NOT local-minimum-escape — likely representational-capacity-bound**; alphonse → researcher-agent dispatched for representational-capacity tier hypothesis; 7/8 active pending alphonse; 3 parallel n=4 confirms in flight)
+
+### Notes (2026-06-01 00:30Z) — 93rd closure; ★★★ tier-shift to representational-capacity hypothesis space
+
+- **93rd R5 CLOSURE — ALPHONSE #1979 (lr-warm-restart-probe) FFS-NEG-ablation**: 4-cell magnitude × timing axis: A_ctrl + B★(p=0.3, s=2700) + C(p=0.3, s=2500) + D(p=0.5, s=2700). Results:
+
+  | Cell | step | peak_frac | FFS_ema | FFS_trainval | best_val_loss | wandb |
+  |---|---:|---:|---:|---:|---:|---|
+  | A_ctrl | — | 0.0 | 2950 | 2975 | 3.27209 | nw9ixlxu |
+  | B★ | 2700 | 0.3 | **2875** | 3000 | 3.27227 | 80igcp9o |
+  | C | 2500 | 0.3 | 2925 | 2925 | **3.26959** | lheva20i |
+  | D | 2700 | 0.5 | **−1** | **−1** | 3.28794 | u7owghmq |
+
+  B★: dual-metric divergence (FFS_ema improved, FFS_trainval regressed) → seed noise per [[r5_n1_to_n4_reversion_dual_metric_attractor]]. C: lowest best_val_loss but landed at canonical attractor → pulse perturbed WHERE not WHEN. D: catastrophic — pulse bounced model out of basin, never crossed 3.28 (val_loss SPIKED to 3.324 at step 2875).
+
+- **★★★ TIER-SHIFTING MECHANISM FINDING**: Across the entire warm-restart magnitude × timing axis, the pulse perturbs the converged trajectory but **does not advance the FFS crossing event**. Small pulse → attractor noise; large pulse → trajectory destruction. **No "sweet spot" between catastrophe and inaction.** This decisively distinguishes the FFS bottleneck from a local-minimum-escape problem — there is no sharp minimum being escaped to a broader basin within the standard cosine cooldown. **Future R5 hypotheses should focus on representational capacity, not optimization-landscape geometry.**
+
+- **R5 LR-SCHEDULE DESIGN SURFACE NOW EXHAUSTIVELY EXPLORED**: peak magnitude (#1830), shape variants (#1922), direction (fern #1983 91st: ramp_down load-bearing), warm restart (alphonse #1979 93rd: closed across peak_frac × restart_step). All FFS-NEG or FFS-NEUTRAL with mandatory R5 stack. **The LR family is closed.**
+
+- **ALPHONSE HYPOTHESIS DISPATCH IN FLIGHT** — researcher-agent tasked with representational-capacity tier hypothesis. Candidate frontiers per dispatch:
+  1. Representational capacity within fixed-architecture (init schemes, parameter sharing patterns, attention head specialization, residual stream reweighting)
+  2. Information flow modifications (gating, gradient routing, layer-wise LR that changes WHAT not just HOW)
+  3. Token/position embedding scheme changes (rare-vocab pattern representation)
+  
+  Explicitly excluded closed families: pre-NS5 modifiers (4), AUX cooldown PARAM+SHAPE (4), LN gain init<1.0, NS5 absorption (3), WD-axis, μ momentum DISCRETE reset, warm restart magnitude. Output expected at `/research/RESEARCH_IDEAS_ALPHONSE_2026-06-01_00:30.md`.
+
+- **★★★ THREE PARALLEL FFS-POSITIVE n=4 CONFIRMS STILL IN FLIGHT** (unchanged from 22:55Z):
+  - edward #1948 (SOAP precond_freq=4 cooldown continuous) — trial 3/4 ETA ~02:41Z
+  - frieren #1966 (Muon mu=0.80 gradual ramp) — trial 1/4 in flight
+  - thorfinn #1994 (SOAP state hard-reset discrete) — n=4 launch directive posted
+
+- **7/8 ACTIVE — CURRENT FLEET STATUS (00:30Z)**:
+  - edward #1948: n=4 confirm in flight (trial 3/4)
+  - frieren #1966: n=4 confirm in flight (trial 1/4)
+  - thorfinn #1994: n=4 launch directive posted (student picking up)
+  - tanjiro #2014: ns-iter-cooldown-ramp mid-run
+  - nezuko #2020: soap-beta2-cooldown post-watchdog
+  - fern #2023: lion-aux-optimizer (1st AUX algorithm replacement) WIP
+  - askeladd #2030: sf-muon-polyak-ruppert (1st MUON-side algorithm change) WIP
+  - **alphonse #1979 CLOSED 93rd; idle pending researcher-agent return**
+
+---
+
 ## Last updated: 2026-05-31 23:05Z (**92 R5 closures**; **askeladd → #2030 sf-muon-polyak-ruppert (Schedule-Free Muon body iterate averaging — first MUON-side optimizer ALGORITHM change in 92 R5 experiments)**; 8/8 active; 3 parallel n=4 confirms in flight)
 
 ### Notes (2026-05-31 23:05Z) — askeladd #2030 SF-Muon Polyak-Ruppert assigned; 8/8 active

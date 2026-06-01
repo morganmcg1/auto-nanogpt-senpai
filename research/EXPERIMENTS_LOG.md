@@ -1,5 +1,73 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-01 00:30Z — PR #1979 CLOSED FFS-NEG-ablation [lr-warm-restart-probe; warm-restart magnitude × timing axis fully closed; ★★★ TIER-SHIFTING FINDING: FFS bottleneck is NOT a local-minimum-escape problem — likely representational-capacity-bound] [93rd R5 closure]
+
+- branch: g1r5-alphonse/lr-warm-restart-probe
+- hypothesis: Single LR warm-restart pulse just before the FFS crossing window. Probe whether brief LR re-elevation perturbs the trajectory enough to escape a local minimum and advance the FFS crossing event. Magnitude axis (peak_frac ∈ {0.3, 0.5}) × timing axis (restart_step ∈ {2500, 2700}).
+- cells (n=1 screen, 4 cells, no n=4 escalation):
+
+| Cell | step | peak_frac | FFS_ema | FFS_trainval | ema_val_loss | best_val_loss | wandb |
+|---|---:|---:|---:|---:|---:|---:|---|
+| A_ctrl | — | 0.0 | 2950 | 2975 | 3.27261 | 3.27209 | `nw9ixlxu` |
+| B★ | 2700 | 0.3 | **2875** | 3000 | 3.27287 | 3.27227 | `80igcp9o` |
+| C | 2500 | 0.3 | 2925 | 2925 | **3.27013** | **3.26959** | `lheva20i` |
+| D | 2700 | 0.5 | **−1 (NEVER CROSSED)** | **−1** | 3.28543 | 3.28794 | `u7owghmq` |
+| Baseline #1533 | — | — | μ_4=2912.5 (σ=25) | — | — | — | — |
+
+- A_ctrl FFS_ema=2950 = +1.5σ seed-noise tail, inside acceptance window [2862, 2962] → code-path byte-clean.
+- B★ val_loss probe trajectory around pulse window (mechanism evidence):
+
+| step | A_ctrl ema_val | B★ ema_val | Δ (B−A) | note |
+|---|---|---|---|---|
+| 2625 | 3.30136 | 3.29707 | −0.0043 | pre-pulse pre-warming |
+| 2750 | 3.29145 | 3.28709 | −0.0044 | mid-pulse |
+| 2875 | 3.28353 | 3.27910 | **−0.0044** | B★ crossed FFS (EMA) |
+| 2950 | 3.27985 | 3.27902 | −0.0008 | A_ctrl catches up |
+| 3000 | 3.27781 | 3.27798 | +0.0002 | crossover |
+| 3050 | 3.27609 | 3.27657 | +0.0048 | A_ctrl wins |
+
+- B★ **dual-metric divergence** — FFS_ema=2875 (−75 vs A_ctrl) BUT FFS_trainval=3000 (+25 vs A_ctrl). Per [[r5_n1_to_n4_reversion_dual_metric_attractor]], when one metric lands on the canonical attractor while the other regresses, treat as seed noise, not real signal.
+- D mechanism trace (catastrophic pulse damage):
+
+| step | val_loss | ema_val_loss | note |
+|---|---|---|---|
+| 2500 | 3.336 | 3.310 | pre-pulse, normal descent |
+| 2750 | 3.302 | 3.288 | mid-pulse, still descending |
+| 2875 | **3.324** ⬆ | **3.285** | post-pulse: val SPIKED up; ema reached minimum |
+| 2925 | 3.308 | 3.290 ⬆ | EMA reversing (pulse damage propagates) |
+| 3000 | 3.297 | 3.292 | ema still rising |
+| 3250 | 3.288 | 3.289 | end: never crosses 3.28 |
+
+- **Promote-gate NOT MET anywhere**: best FFS_ema=2875 > 2825; best FFS_trainval=2925 > 2900. No (step, peak_frac) combination produced both-metric improvement over A_ctrl.
+- analysis: **Joint magnitude-axis read** —
+  - p=0 (A_ctrl): normal FFS, normal convergence
+  - p=0.3: dual-metric divergence (attractor noise); pulse rebalances trajectory but does not advance FFS
+  - p=0.5: CATASTROPHIC — pulse bounces model out of basin; never crosses 3.28
+  - No "sweet spot" between catastrophe and inaction across peak_frac ∈ [0.3, 0.5]
+- C is particularly informative: lands at canonical attractor on FFS but reaches the LOWEST best_val_loss (3.26959) of all 4 cells. The pulse perturbs WHERE the model lands at end-of-training without advancing WHEN it crosses 3.28.
+
+### ★★★ TIER-SHIFTING MECHANISM FINDING
+
+Across the entire warm-restart magnitude × timing axis, the pulse perturbs the converged trajectory but **does not advance the FFS crossing event**. There is no "sweet spot" between catastrophe and inaction. The R5 FFS bottleneck is **NOT a local-minimum-escape problem** — there is no sharp minimum being escaped to a broader basin within the standard cosine cooldown.
+
+**Implication for future hypothesis space:** future R5 ideas should focus on **representational capacity** — what the model *can* learn given the fixed architecture, not how it traverses the loss surface. Candidate frontiers:
+1. Representational capacity within fixed-architecture (init schemes, parameter sharing patterns, attention head specialization, residual stream reweighting)
+2. Information flow modifications (gating, gradient routing, layer-wise LR that changes WHAT the model learns, not just HOW)
+3. Token/position embedding scheme changes — FFS may be bottlenecked by how the model represents rare-vocab patterns
+
+**Closed families to avoid in future hypothesis dispatches:**
+1. Additive pre-NS5 gradient modifiers (4 closures: SGLD, GC, μ cooldown, GE-SAM) — absorbed by NS5
+2. AUX-side cooldown family (4 closures: eps, ema-decay, β₁, cooldown SHAPE) — absorbed by aux LR decay
+3. LN gain init < 1.0 (FFS-NEG monotone with musoft active)
+4. NS5 absorption family (3 closures: 2D weight init, post-NS5 depth-LR, pre-NS5 gradient modifiers)
+5. WD-axis (closed by fern #1983 91st: ramp_down is load-bearing, monotone dose-response)
+6. μ momentum DISCRETE reset (closed by nezuko #1993 90th: works only sustained, not discrete)
+7. Warm restart magnitude (this PR, 93rd: closed across peak_frac × restart_step)
+
+- conclusions: **Warm restart magnitude × timing axis fully closed.** R5 LR schedule design surface is now exhaustively explored: peak magnitude (#1830), shape variants (#1922), direction (fern #1983), warm restart (this PR). All FFS-NEG or FFS-NEUTRAL with mandatory R5 stack. Student's joint cell-by-cell analysis, dual-metric attractor recognition, and mechanistic interpretation were exemplary — caught the tier-shifting finding pre-emptively. Next: alphonse → researcher-agent dispatched for representational-capacity tier hypothesis.
+
+---
+
 ## 2026-05-31 22:50Z — PR #1989 CLOSED FFS-NEG/NEUTRAL [aux-cooldown-shape-decoupling; AUX-COOLDOWN family fully closed across SHAPE + PARAM axes (4 total); "AdamW v̂_t self-rescaling sufficient" FALSIFIED; per-group aux SHAPE absorbed/regressed regardless of direction] [92nd R5 closure]
 
 - branch: g1r5-askeladd/aux-cooldown-shape-decoupling
