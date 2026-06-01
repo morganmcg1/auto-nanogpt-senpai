@@ -84,6 +84,11 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--muon_momentum_reverse_sign_step", type=int, default=-1,
+                        help="Step at which to flip the sign of all body PMuon momentum "
+                             "buffers (state['momentum'].mul_(-1.0)). -1 disables. "
+                             "Closes the direction-isolating cell of the momentum state-op "
+                             "matrix: inverts direction while preserving magnitude.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +770,7 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "muon_momentum_reverse_sign_step": args.muon_momentum_reverse_sign_step,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1077,27 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.muon_momentum_reverse_sign_step >= 0
+                and step == args.muon_momentum_reverse_sign_step):
+            n_reversed = 0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, None)
+                    if state is None:
+                        continue
+                    buf = state.get("momentum", None)
+                    if buf is not None:
+                        buf.mul_(-1.0)
+                        n_reversed += 1
+            if dist.get_rank() == 0:
+                print0(f"[step {step}] muon_momentum_reverse_sign: m *= -1 on "
+                       f"{n_reversed} buffers (all body PMuon groups)",
+                       console=True)
+                if wandb.run is not None:
+                    wandb.log({
+                        "muon_momentum_reverse_sign/step": step,
+                        "muon_momentum_reverse_sign/n_reversed": n_reversed,
+                    }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
