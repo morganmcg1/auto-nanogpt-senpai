@@ -85,7 +85,7 @@ def parse_args():
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
     # Inner MuonH µ schedule (H109). Static µ=0.95 baseline preserved when schedule=off.
     # 'linear' ramps µ across all train_steps. 'cooldown_ramp' stays at mu_start until
-    # cooldown starts (using h_cooldown_frac), then ramps linearly across the cooldown.
+    # the last muonh_mu_cooldown_frac of training, then ramps linearly across that window.
     parser.add_argument("--muonh_mu_schedule", type=str, default=os.environ.get("MUONH_MU_SCHEDULE", "off"),
                         choices=["off", "linear", "cooldown_ramp"],
                         help="Schedule for inner MuonH momentum coefficient µ. "
@@ -96,6 +96,11 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    parser.add_argument("--muonh_mu_cooldown_frac", type=float,
+                        default=float(os.environ.get("MUONH_MU_COOLDOWN_FRAC", "1.0")),
+                        help="Fraction of training to ramp µ over when schedule=cooldown_ramp. "
+                             "1.0 (default) = full linear ramp from step 0 (mathematically equivalent to schedule=linear). "
+                             "0.15 = ramp only during last 15%% of training.")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
                         choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
@@ -855,6 +860,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "muonh_mu_cooldown_frac": args.muonh_mu_cooldown_frac,
             "polyak_ema_decay": args.polyak_ema_decay,
         },
     )
@@ -1013,19 +1019,19 @@ for trial_idx in range(args.num_trials):
         # MuonH µ schedule (H109): 'off' is a no-op — mu stays at the MuonH
         # default 0.95 and we skip the param_group write so arm_a is bit-identical
         # to baseline. 'linear' ramps mu_start → mu_end across all train_steps.
-        # 'cooldown_ramp' stays at mu_start until cooldown begins (using
-        # h_cooldown_frac, matching the optimizer2 LR cooldown), then ramps
-        # linearly to mu_end across the cooldown.
+        # 'cooldown_ramp' stays at mu_start until the last
+        # args.muonh_mu_cooldown_frac of training, then ramps linearly to mu_end
+        # across that window (independent of optimizer2 LR cooldown).
         if args.muonh_mu_schedule != "off":
             if args.muonh_mu_schedule == "linear":
                 prog = step / max(1, train_steps - 1)
                 mu_t = args.muonh_mu_start + prog * (args.muonh_mu_end - args.muonh_mu_start)
             elif args.muonh_mu_schedule == "cooldown_ramp":
-                cooldown_start_frac = 1.0 - h_cooldown_frac
+                cooldown_start_frac = 1.0 - args.muonh_mu_cooldown_frac
                 if progress < cooldown_start_frac:
                     mu_t = args.muonh_mu_start
                 else:
-                    cooldown_prog = (progress - cooldown_start_frac) / h_cooldown_frac
+                    cooldown_prog = (progress - cooldown_start_frac) / args.muonh_mu_cooldown_frac
                     mu_t = args.muonh_mu_start + cooldown_prog * (args.muonh_mu_end - args.muonh_mu_start)
             else:
                 raise ValueError(f"unknown muonh_mu_schedule: {args.muonh_mu_schedule}")
