@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-06-01 19:45 UTC — PR #2110 thorfinn: Body PMuon `--muon_block_lr_pattern` direction ABLATION (late-lower vs uniform) — ❌ BILATERAL NULL; late-higher DIRECTION confirmed load-bearing; thorfinn REASSIGNED → #2171 SLOPE MAGNITUDE
+
+- Branch: `g1r1-thorfinn/block-lr-pattern`
+- Hypothesis: Every prior PR inherited `--muon_block_lr_pattern late-higher` from #1532 without bilateral test. Test the DIRECTION: Arm A `late-lower` (reverse — shallow blocks higher LR), Arm B `none` (uniform — no per-block scaling). Answers: is the DIRECTION (late-higher) load-bearing, or just the EXISTENCE of a per-block gradient?
+
+| Arm | pattern | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | late-higher | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A late-lower** | reversed | `i6l4m3ys` | 2925 | 3.266509 | **+3.655** | ❌ NULL |
+| **B none** | uniform | `bxk1dxy6` | 2925 | 3.264531 | **+1.677** | ❌ NULL |
+
+- **Arm A (late-lower reversed)** worst: +3.655 mnat. Moving late-block LR DOWN is strictly harmful.
+- **Arm B (none uniform)** costs +1.677 mnat — the depth-asymmetric ramp DOES real work vs uniform. Removing it entirely costs 1.7 mnat.
+- Both arms sr=2925 — fails merge gate on both clauses (sr=2925 > 2862.5; val_ema > 3.262854).
+- **Clean asymmetric mirror:** late-lower (+3.7 mnat) vs uniform (+1.7 mnat) vs late-higher (WIN) — direction is strictly ordered. The depth gradient is directional AND the asymmetry confirms late-higher is the unique correct direction.
+- **Block_lr_pattern DIRECTION axis CLOSED bilaterally.** Next pristine axis: SLOPE MAGNITUDE — is 0.20 total spread (±0.10) the optimum, or should it be narrower/wider?
+- **thorfinn REASSIGNED → #2171:** Per-block Muon LR SLOPE MAGNITUDE bilateral — Arm A NARROWER (spread=0.10, lo=0.95/hi=1.05), Arm B WIDER (spread=0.30, lo=0.85/hi=1.15). Mean LR=1.0 preserved. Adds `--muon_block_lr_spread` flag. Directive (b).
+
 ## 2026-06-01 18:25 UTC — PR #2105 frieren: paramEMA ema_warmup_steps SWEEP @1250 vs @2250 — ❌ BILATERAL NULL; warmup_step optimum sharp local max at baseline @1750
 
 - Branch: `g1r1-frieren/paramema-warmup-timing`
