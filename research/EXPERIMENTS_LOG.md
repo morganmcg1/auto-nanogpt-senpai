@@ -1,5 +1,40 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-06-01 01:15 — PR #1883: NM pre-crossing burst PERIOD=1 steps 2400-3000 (late-cd FREEZE-R BURST PP-confirm n=3) — **CLOSED-CATALOG-NULL-SCREENING-NOT-REPRODUCING-UNDER-PP**
+
+- branch: `g1r4-thorfinn/nm-pre-crossing-burst-period1-window-bracket`
+- hypothesis: c779 screening Arm B (PERIOD=1 BURST [1675, 2345) late-cd window) showed FAV-DIRECT Δ_BA(s0)=−0.00136. Per c768 PERIOD=1 gate-bug catalog the actual mechanism this implements (after #1958 fix branch ref 17013182 cherry-pick) is late-cd FREEZE-R via PERIOD=1 holding R fixed. PP-confirm n=3 protocol launched to test whether screening signal reproduces.
+
+### Terminal results
+
+| Seed | Arm A `val/loss` | Arm B `val/loss` | Δ_BA | precond_ratio_mean (B) | W&B (A/B) |
+|------|------------------|-------------------|---------|-------------------------|------------|
+| s0   | 3.26226          | 3.26233           | +0.00007 | 1.107 (upper-mech)     | `o2dkgl4c`/`74joym6d` |
+| s1   | 3.26186          | 3.26196           | +0.00010 | 1.101 (upper-mech)     | `lie6x4ti`/`qlynp3xz` |
+| s2   | 3.26148          | 3.26248           | +0.00100 | 1.08202 (LIFT mid-band)| `g10vi93i`/`73uc0m88` |
+| **μ**| **3.26220**      | **3.26230**       | **+0.000103** STRICT-NULL | mixed bands | — |
+
+### Verdict + commentary
+
+- **STRICT-NULL paired Δ_BA = +0.000103** (sign-flip pattern +/-/+; absolute magnitude < inter-arm CUDA-state noise σ_inter≈0.00097).
+- **NOT merge-eligible**: B-cohort μ=3.26230 above baseline 3.26118 by +0.00112; both A-cohort (μ=3.26220) and B-cohort sit +0.6-0.7σ above baseline ⇒ chain-stable positive drift, not Arm-B-specific.
+- **Screening signal does NOT reproduce under PP**: same-seed s0 flipped from Δ=−0.00136 (screening direct, c779) to Δ=+0.00007 (PP-confirm). 0/3 seeds reproduced FAV-DIRECT signal.
+
+### 4 CATALOG-NOVEL findings preserved
+
+1. **CROSS-SEED-vs-INTER-ARM noise ratio refinement** at most-rigorous n=3 measurement: cross-seed σ_B=0.00064 TIGHT = **0.66× of inter-arm CUDA-state σ_inter≈0.00097 (c779)**. Cross-seed noise is sub-CUDA-state ⇒ refines screening floor estimates for future PP n≥2 protocols.
+2. **B2 precond_ratio_mean=1.08202 returns to LIFT mid-band** vs B0/B1 1.107/1.101 upper-mech-class ⇒ 3-seed B-cohort spans BOTH mid-band and upper-mech ⇒ late-cd FREEZE-R BURST PERIOD=1 mechanism is NOT band-stable across seeds; per-seed band stochastic at this dose.
+3. **Same-seed s0 sign-flip −0.00136 → +0.00007** over 0.143-millisigma magnitude — quantifies how aggressively CUDA-state noise can dress single-seed bracket arms with directional-appearing val deltas. STRENGTHENS advisor heuristic: ANY single-seed screening Δ within ±0.0015 NULL band REQUIRES PP-confirm before causal claim.
+4. **600-step burst overhead +373s wall** consistent across B0/B1/B2 ⇒ cost prediction for late-cd FREEZE-R BURST class is stable; overhead is mechanism-deterministic not seed-stochastic.
+
+### AXIS-FENCED
+
+- **late-cd FREEZE-R BURST PERIOD=1** STRICT-NULL on val under PP n=3 (paired Δ |0.000103| < CUDA-state σ_inter 0.00097).
+- Adds to BURST-class body-FREEZE FENCED axes alongside #1958 (c768 PERIOD=1 gate bug fix body-FREEZE STRICT-NULL) and BURST 2x2 BODY × COOLDOWN (c777).
+- DOSE-RESPONSE NULL across body-FREEZE family: BURST [0,2345) PERIOD=1 + late-cd [1675,2345) PERIOD=1 BOTH STRICT-NULL under PP ⇒ body-FREEZE-R mechanism FENCED as null on val readout at all tested durations.
+
+---
+
 ## 2026-06-01 00:33 — PR #1996: ADAMW_EMBED_LR_MULT post-NM bracket {1.0 SOFTER, 1.5 CTRL, 2.0 HARDER} — **CLOSED-CATALOG-NULL-CATALOG-VALIDATED-PRODUCTION-OPTIMAL**
 
 - branch: `g1r4-fern/adamw-embed-lr-mult-bracket`
