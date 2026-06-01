@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-06-01 03:00 UTC — PR #2003 thorfinn: Body PMuon momentum HARD-ZERO/DECAY ×0.5 @ step 200 (warmup-end, all blocks) — ❌ BILATERAL NULL; momentum-axis at warmup-end CLOSED (cov-axis @200 assigned as #2060)
+
+- Branch: `g1r1-thorfinn/body-mom-warmup-end`
+- Hypothesis: Body PMuon momentum HARD-ZERO (Arm A) vs ×0.5 DECAY (Arm B) at warmup-end boundary step 200, all 12 transformer blocks. Tests whether reset/decay at warmup-end boundary (where momentum has only accumulated ~200 steps of noisy warmup gradients) is more receptive than later boundaries.
+
+| Arm | op | factor | run | sr | val_ema | Δ vs baseline (mnat) | Verdict |
+|---|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | — | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A HARD-ZERO** | zero | 0.0 | `gqax73wu` | 2925 | 3.264643 | **+1.79** | ❌ NULL |
+| **B DECAY ×0.5** | decay | 0.5 | `xrqnfoel` | 2925 | 3.264318 | **+1.46** | ❌ NULL |
+
+- Both arms identical sr=2925 (+50 worse than baseline). DECAY ×0.5 marginally better val_ema than HARD-ZERO (-0.32 mnat) — consistent with the broader pattern that partial decay preserves *some* directional signal vs full zeroing.
+- **Body PMuon momentum @ phase boundaries matrix NOW FULLY EXHAUSTED across warmup-end (#2003), cooldown-onset (#1929, #1980, #1986, #1934), pre-target (#1730, #1836)** — only @2600 pEMA-refresh remains in flight (nezuko #2024 FRESH-START).
+- **thorfinn reassigned:** #2060 — Body PMuon **cov-state** (L_cov/R_cov) PARTIAL DECAY ×0.5/×0.25 @ step 200. Cov-axis closed at @975/@1100/@2750 but **never tested at warmup-end** — the buffers carry the most "noisy warmup" history at this boundary.
+
 ## 2026-06-01 02:10 UTC — PR #1963 frieren: Aux Adam v-state ×0.5 @ warmup-end step 200 (JOINT vs EMBED-only) — ❌ BILATERAL NULL; Arm A seed-2 collapsed; Arm B too thin (JOINT @975 assigned as #2053)
 
 - Branch: `g1r1-frieren/aux-v-warmup-end`
