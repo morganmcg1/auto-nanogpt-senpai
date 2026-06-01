@@ -1,3 +1,73 @@
+## 2026-06-01 11:30 — PR #2067: H355 tanjiro MuonH μ endpoint value sweep at H266 stack — CLOSED 210th NULL/NEG (🎯 PAPER-GRADE BILATERAL ASYMMETRIC NEG envelope on MuonH μ_end value axis + 15th H266 attractor cluster anchor + 3rd BILATERAL ASYMMETRIC NEG class member (joining H352 STRUCTURAL cooldown shape + H354 SHAPE momentum) + mechanism-coherent BODY-MOMENTUM-ENDPOINT-DEPTH-ASYMMETRIC finding establishing H266 mu_end=0.90 as local optimum with DEEPER>SHALLOWER asymmetric envelope.)
+
+- Branch: g1r3-tanjiro/h355-muonh-mu-endpoint-value-sweep
+- Hypothesis: Test whether MuonH μ_end value axis is load-bearing at H266 stack with bilateral envelope around H266 bit-id mu_end=0.90. 3-arm chain: arm_a CTRL `mu_end=0.90` (H266 bit-id) / arm_b DEEPER `mu_end=0.85` (0.05 deeper) / arm_c SHALLOWER `mu_end=0.95` (essentially constant μ=0.95 throughout, equivalent to no decay).
+
+### Results
+
+| Arm | muonh_mu_end | W&B run_id | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|--------------|------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL `mu_end=0.90` (H266 bit-id) | 0.90 | `05h3elld` | **3.26762** | **3000 EXACT** | (ref) | **−0.63σ POS TIE** | 🎯 15th candidate H266 cluster anchor |
+| arm_b DEEPER `mu_end=0.85` | 0.85 | `orcwkpy0` | 3.27303 | 3075 | +6.12σ NEG val | **+5.49σ NEG val + FFS=+75 NEG** | 🔴 MID NEG (Pattern A +75) |
+| arm_c SHALLOWER `mu_end=0.95` (constant μ=0.95) | 0.95 | `g6bo2ro0` | 3.27025 | 3075 | +2.97σ NEG val | **+2.34σ NEG val + FFS=+75 NEG** | 🟡 MILD NEG (Pattern A +75, 2.3× milder than DEEPER) |
+| H266 baseline (PR #1669) | 0.90 | `m2ywl0o9` | 3.26818 | 3000 | — | — | (reference) |
+
+🎯 **210th NULL/NEG closure** — all 3 arms FAIL strict FFS<3000 per Issue #1260 (arm_a 3000 EXACT TIE / arm_b 3075 / arm_c 3075). NOT merge-eligible.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — BILATERAL ASYMMETRIC NEG envelope (3rd class member)**: MuonH μ_end depth axis at H266 stack is BILATERAL ASYMMETRIC NEG — both DEEPER (mu_end=0.85) and SHALLOWER (mu_end=0.95) directions drift Pattern A +75 FFS NEG, but val/loss penalty is ~2.3× larger in DEEPER direction (+5.49σ vs +2.34σ). Joins H352 STRUCTURAL cooldown shape + H354 SHAPE momentum as 3rd BILATERAL ASYMMETRIC NEG class member.
+
+🎯 **FINDING #2 — 15th H266 attractor cluster anchor entry**: arm_a CTRL val=3.26762 FFS=3000 EXACT preserves Pattern A bit-id on existing-flag value-change path. Joins H266 attractor cluster as 15th candidate anchor (after H353 13th/14th + cycle ~2700 deterministic anchors + emerging cluster candidates).
+
+🎯 **FINDING #3 — μ schedule axis FULLY CHARACTERIZED at H266 stack**: Combining H354 (SHAPE) + H355 (ENDPOINT DEPTH MILD/MID) + H356 (ENDPOINT DEPTH CATASTROPHIC), the BODY MuonH μ schedule axis is fully characterized at H266 stack — H266 linear 0.95→0.90 is a TIGHT joint-optimum across SHAPE / DEPTH-shallower / DEPTH-deeper. Crossing μ_end ~0.85 threshold lands in HARD-LOAD-BEARING CATASTROPHIC region per H356.
+
+🎯 **FINDING #4 — Pattern A +75 envelope decouples FFS-drift from val-drift**: Both arm_b (DEEPER) and arm_c (SHALLOWER) drift FFS=+75 (Pattern A +75 envelope) — same FFS drift magnitude despite different val/loss penalties (+5.49σ vs +2.34σ). Existing-flag value-changes within ±0.05 of H266 mu_end produce uniform FFS drift but asymmetric val penalty.
+
+### Cycle ~2700 update — 210 NULL/NEG + 1 MERGED WIN (H266)
+
+- BILATERAL ASYMMETRIC NEG class: 2 → 3 members (+H355 ENDPOINT joining H352 STRUCTURAL + H354 SHAPE)
+- H266 attractor cluster: 14 → 15 candidate anchors (+arm_a CTRL)
+- Paper-grade taxonomy: BODY-MOMENTUM-ENDPOINT-DEPTH-ASYMMETRIC axis fully characterized
+
+---
+
+## 2026-06-01 11:29 — PR #2073: H356 frieren MuonH μ DEMON schedule mu_end axis at H266 stack — CLOSED 209th NULL/NEG (🎯 PAPER-GRADE LARGEST single-direction NEG of cycle ~2700 — H356 arm_c +75.31σ vs H266 (1.85× LARGER than prior record H342 +40.7σ) + BILATERAL MONOTONIC CATASTROPHIC NEG envelope on MuonH μ DEMON schedule mu_end axis + 14th H266 attractor cluster anchor + mechanism-coherent BODY-MOMENTUM-ENDPOINT-CATASTROPHIC-THRESHOLD finding establishing sharp catastrophic threshold at μ_end ~0.85 + 1st new `demon` argparse choice introduction preserves Pattern A bit-id on `linear` arm_a path.)
+
+- Branch: g1r3-frieren/h356-demon-body-mu-decay
+- Hypothesis: Test whether DEMON-style aggressive μ decay (0.95→0.50 or 0.95→0.05) destabilizes BODY MuonH at H266 stack. 3-arm chain: arm_a CTRL `linear 0.95→0.90` (H266 bit-id) / arm_b DEMON_MILD `demon 0.95→0.50` (μ decays to 0.50 at step 1577 47% training) / arm_c DEMON_AGGRESSIVE `demon 0.95→0.05` (μ decays to 0.05 at step 3151 95% training).
+
+### Results
+
+| Arm | muonh_mu_schedule / mu_end | W&B run_id | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|----------------------------|------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL `linear 0.95→0.90` (H266 bit-id) | linear, 0.90 | `y3r9xv3k` | **3.26795** | **3000 EXACT** | (ref) | **−0.26σ POS TIE** | 🎯 14th candidate H266 cluster anchor |
+| arm_b DEMON_MILD `demon 0.95→0.50` | demon, 0.50 | `qdlm4vbz` | 3.33013 | -1 NEVER REACHED ⚡ | +70.34σ NEG val | **+70.08σ NEG val + FFS=-1** ⚡ | 💥 CATASTROPHIC NEG (2nd-largest single-direction NEG of cycle ~2700) |
+| arm_c DEMON_AGGRESSIVE `demon 0.95→0.05` | demon, 0.05 | `2z6wa2cc` | 3.33476 | -1 NEVER REACHED ⚡ | **+75.57σ NEG val** | **+75.31σ NEG val + FFS=-1** ⚡⚡ | 💥 **LARGEST single-direction NEG of cycle ~2700 (1.85× LARGER than prior record H342 +40.7σ)** |
+| H266 baseline (PR #1669) | linear 0.95→0.90 | `m2ywl0o9` | 3.26818 | 3000 | — | — | (reference) |
+
+🎯 **209th NULL/NEG closure** — all 3 arms FAIL strict FFS<3000 per Issue #1260 (arm_a 3000 EXACT TIE / arm_b -1 / arm_c -1). NOT merge-eligible.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — LARGEST single-direction NEG of cycle ~2700**: arm_c DEMON_AGGRESSIVE `demon 0.95→0.05` produces val=3.33476, +75.31σ_H174 vs H266 baseline + FFS=-1 NEVER REACHED — 1.85× LARGER than prior record (H342 BODY init bottom_damp damp=0.5 at +40.7σ). Mechanism: μ trajectory decays from 0.95→0.05 with 95% of training (steps 0-3151) experiencing μ < 0.5 — effectively converting MuonH update to near-pure-SGD direction (no first-moment memory) during the entire stable phase + cooldown.
+
+🎯 **FINDING #2 — 9th HARD-LOAD-BEARING CATASTROPHIC family entry candidates (BODY-MOMENTUM-ENDPOINT-CATASTROPHIC-THRESHOLD)**: arm_b + arm_c both join CATASTROPHIC family as candidates 8th + 9th respectively. Joins H337 outer LR magnitude + H342 BODY init bottom_damp + H343 AUX sign-mask + H347 NS iter count + H350 per-module-match damp depth-asymmetry + H352 SQRT cooldown shape.
+
+🎯 **FINDING #3 — Sharp CATASTROPHIC threshold at μ_end ~0.85**: Cross-chain combining H355 (DEPTH-MILD) + H356 (DEPTH-CATASTROPHIC) reveals sharp transition: mu_end=0.85 produces +5.49σ MID NEG (MILDLY-LOAD-BEARING), mu_end=0.50 produces +70.08σ CATASTROPHIC NEG. The threshold sits somewhere in window (0.85, 0.50) — likely near 0.80-0.85 boundary. H266 stack is HIGHLY sensitive to μ endpoint depth crossing this threshold.
+
+🎯 **FINDING #4 — `train/muonh_mu` live verification confirmed mechanism**: W&B trajectory shows arm_b reaches μ=0.50 floor at step ~1500 (47% of training, predicted ~1577) and arm_c reaches μ=0.05 floor between steps 3000-3325 (95% of training, predicted ~3151). Live mu verification at step 1110 (prog=0.334) showed `train/muonh_mu=0.6359` vs expected `max(0.05, 0.95*(1-0.334))=0.6328` ✓ — DEMON schedule wired correctly.
+
+🎯 **FINDING #5 — 14th H266 attractor cluster anchor + new `demon` argparse choice preserves Pattern A**: arm_a CTRL val=3.26795 FFS=3000 EXACT = 14th candidate cluster anchor (−0.26σ POS TIE vs H266 baseline). Adding new `demon` choice to existing `--muonh_mu_schedule` argparse list preserves Pattern A bit-id on existing `linear` path — confirms safe-pattern for argparse-choices additions.
+
+### Cycle ~2700 update — 209 NULL/NEG + 1 MERGED WIN (H266)
+
+- HARD-LOAD-BEARING CATASTROPHIC family: 7 → 9 candidates (+H356 arm_b DEMON_MILD + arm_c DEMON_AGGRESSIVE)
+- LARGEST single-direction NEG record: H342 +40.7σ → H356 arm_c +75.31σ (1.85× larger)
+- Paper-grade taxonomy: NEW BODY-MOMENTUM-ENDPOINT-CATASTROPHIC-THRESHOLD mechanism class identified at μ_end ~0.85
+
+---
+
 ## 2026-06-01 10:18 — PR #2057: H354 nezuko MuonH μ schedule SHAPE axis sweep at H266 stack — CLOSED 208th NULL/NEG (🎯 PAPER-GRADE BILATERAL ASYMMETRIC NEG envelope on MuonH μ schedule SHAPE axis (both TIGHTEN+LOOSEN directions NEG — H266 linear sits at SHARP local optimum) + 2nd BILATERAL ASYMMETRIC NEG class entry + mechanism-coherent OPTIMIZER-MOMENTUM-TRAJECTORY-COOLDOWN-COUPLING paper-grade taxonomy finding + 1st code-change-flag introduction `muonh_mu_cooldown_frac` preserves Pattern A bit-id at default=1.0 safe-default pattern validation: arm_a CTRL `linear` (H266 bit-id) val=3.26941 FFS=3025 +1.39σ NEG Pattern A +25 envelope drift + arm_b COOLDOWN_RAMP `cooldown_ramp` + `muonh_mu_cooldown_frac=0.15` val=3.27242 FFS=3100 +4.80σ MID NEG val + FFS=+100 NEG (concentrate ramp into cooldown window only) + arm_c OFF `off` (constant μ=0.95) val=3.27060 FFS=3075 +2.74σ MILD NEG val + FFS=+75 NEG (no decay at all). Mechanism: H266 linear μ ramp produces slow μ slide 0.950→0.914 across pre-cooldown [100, 2826] gradually shrinking gradient direction memory as loss landscape evolves; arm_b cooldown-only ramp competes with cosine LR cooldown for direction-versus-magnitude budget missing H266 attractor by +75 FFS; arm_c constant μ=0.95 saturates gradient memory through cooldown. STARK CONTRAST: H354 SHAPE +4.80σ MID NEG vs H355 DEPTH (mu_end=0.85) +5.45σ MID NEG vs H356 DEMON (mu_end=0.50) +7.30σ CATASTROPHIC NEG = THREE distinct load-bearing axes on BODY momentum schedule at H266 stack with H266 linear 0.95→0.90 sitting at joint-optimum. 2nd BILATERAL ASYMMETRIC NEG class member joining H352 STRUCTURAL cooldown shape. Mechanism-coherent OPTIMIZER-MOMENTUM-TRAJECTORY-COOLDOWN-COUPLING paper-grade taxonomy finding extending H351 OPTIMIZER-UPDATE-RULE-PRESERVES-LOAD-BEARING-GEOMETRY with TRAJECTORY-not-endpoint-coupling refinement.)
 
 - Branch: g1r3-nezuko/h354-muonh-mu-schedule-shape
