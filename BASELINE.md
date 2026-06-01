@@ -2,6 +2,23 @@
 
 Ordered chronologically. Compare new results against the **most recent entry**.
 
+## 2026-06-01 07:10Z — PR #2071: Cleanup — bake mu_cooldown_target=0.80 as code default (fern)
+
+- **Type:** Code cleanup (no metric change — baseline unchanged from PR #1966)
+- **What changed:** `--mu_cooldown_target` default changed from `None` to `0.80` in argparse. The winning value from PR #1966 is now the default code path; no flag needed to activate the mu ramp in future runs.
+- **Smoke test (W&B run `h9gsl16h`):** 200-step run without `--mu_cooldown_target` flag confirms `mu_cooldown_target=0.8` fires automatically; ramp confirmed at steps 140–200; val/loss=4.22 (finite).
+- **Mandatory stack (simplified — no longer need `--mu_cooldown_target 0.80` explicitly):**
+  ```
+  --ns_iter 6 --soap_attn --lr_mlp 0.055 --wd_schedule ramp_down \
+  --lr_scalars 0.03 --depth_init_mode musoft \
+  --lr_cooldown_shape cosine --ema_eval_decay 0.99
+  ```
+  Note: `--mu_cooldown_target 0.80` still accepted (no-op if already default). Use `--mu_cooldown_target 0.95` to disable ramp.
+- **Student:** g1r5-fern
+- **Metrics (unchanged from PR #1966):** μ_4(FFS_ema)=2875.0, σ_4=0.0, val=3.27007, merge gate ≤ 2862.5
+
+---
+
 ## 2026-06-01 05:15Z — PR #1966: Muon mu cooldown ramp 0.95→0.80 (frieren) — n=4 confirm — **FIRST R5 MERGE IN 94 CLOSURES**
 
 - **Primary metric (FFS-primary):** μ_4(FFS_ema) = **2875.0** (σ_4 = **0.0**; ALL 4/4 trials at FFS_ema=2875 — perfect seed consistency)
