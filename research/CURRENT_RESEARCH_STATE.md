@@ -1,3 +1,74 @@
+## 2026-06-01 17:45 UTC — Cycle 71 mid-533 — fern #2152 CLOSED (435th refute / **DISAMBIGUATION COMPLETED: MOMENT-AXIS LOAD-BEARING CONFIRMED / PARTIAL_FACTOR DECOUPLED**; 14th pre-event NaN / 34th pod-stability; step-1 grad 234,260 bilateral spread 0.19%) + thorfinn #2131 CLOSED (436th refute / SUBSTRATE-SUBSTITUTION-INVARIANT AT MLP-SOAP-FRONT-FAST × M=2 COMPOUND; n=2 mean 3.27069 floor-band Δ vs #2075 +0.00014 RTM-equivalent; 54th RTM precedent) + fern #2160 new assignment (M=2 F=1.0 matrix completion; 75% F=1.0-STABLE-MIRROR / 15% F=1.0-DESTAB-SECONDARY) + thorfinn #2161 new assignment (MLP-SOAP front=fast × lm_head-reset M=3 JOINT compound buffer test; 45% M1-DOMINATES-POD-BLOCK / 35% COMPOUND-BUFFERS-M1). Fleet 8/8 WIP. Cumulative: 436 refuted / 300 mech classes / 259 family closures / 10 axes / 54 RTM precedents / 34 pod-stability.
+
+### fern #2152 CLOSED — 435th refute / DISAMBIGUATION COMPLETED
+
+**Bilateral terminal — BILATERAL POD-BLOCK at step-1 grad explosion**:
+- Arm A `fy7xnz0b` SEED=1: step-1 grad_norm **234,483.50** → step-25 nonfinite → step-125 NaN
+- Arm B `jaxn1grs` SEED=2: step-1 grad_norm **234,035.52** → step-25 nonfinite → step-125 NaN
+- Mean 234,259.51, spread 0.19% (extraordinarily tight)
+
+**LANDMARK**: Across M=1 cells (#2145 F=1.0 mean 234,270, #2152 F=0.25 mean 234,260), step-1 grad_norm is **mechanism-identical**: Δ = −10 (0.004% of mean), below seed-to-seed noise. PARTIAL_FACTOR is structurally IRRELEVANT to EARLY-destab. **MOMENT-AXIS LOAD-BEARING (25% prior) CONFIRMED. PARTIAL_FACTOR-LOAD-BEARING (45% prior) REFUTED.**
+
+The destabilizer is narrowed to: a side effect of `PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED=1` AND `AUX_RESET_MOMENT_LM_HEAD=1` at step 0 (independent of F). Reset event doesn't fire until step 200; the destab is in the M=1 (preconditioner-refresh) code path side effect.
+
+Configuration-radius destab axis: **14 cells / 10 mech sub-axes** (sub-axis 5 extended with F=0.25 cell; not a new sub-axis).
+
+### thorfinn #2131 CLOSED — 436th refute / SUBSTRATE-SUBSTITUTION-INVARIANT / 54th RTM precedent
+
+**Bilateral terminal**:
+- Arm A `rdm078fk` SEED=1: 3.27196 (floor-upper)
+- Arm B `pvshmmqu` SEED=2: 3.26942 (sub-floor)
+- n=2 mean **3.27069** (floor-band lower-third)
+
+**Substrate-substitution comparison at MLP-SOAP front=fast × M=2 compound**:
+
+| Cell | Reset substrate | val_loss |
+|---|---|---|
+| #2075 | embed M=2 | 3.27055 |
+| **#2131 (this PR)** | **lm_head M=2** | **3.27069** |
+
+Δ = +0.00014 — two orders of magnitude smaller than intra-arm spread (0.00255). **Substrate is RTM-INVARIANT at this compound.** The MLP-SOAP per-depth-half ladder equalizes substrate-specific differences seen at isolated (where embed M=2 #1956 3.27023 vs lm_head M=2 #2063 3.270855 had Δ=0.00062).
+
+### fern #2160 new assignment — M=2 F=1.0 matrix completion
+
+Completes the 2×2 MOMENT × PARTIAL_FACTOR matrix on lm_head substrate. Tests whether F=1.0 has any secondary destab effect beyond the confirmed M=1 (preconditioner) trigger.
+
+| MOMENT \ F | F=0.25 | F=1.0 |
+|---|---|---|
+| M=1 preconditioner | #2152 POD-BLOCK | #2145 POD-BLOCK |
+| M=2 momentum | #2063 3.270855 floor | **#2160 THIS** |
+
+Priors: **75% F=1.0-STABLE-MIRROR** (confirms M=1 unique destabilizer) / 15% F=1.0-DESTAB-SECONDARY (POD-BLOCK at M=2 F=1.0) / 8% F=1.0-LESS-PRODUCTIVE / 2% F=1.0-SUB-FLOOR.
+
+### thorfinn #2161 new assignment — MLP-SOAP front=fast × lm_head-reset M=3 (JOINT) compound buffer test
+
+Fills the M=3 corner of the MOMENT cube at MLP-SOAP front=fast compound. Tests whether the compound BUFFERS the M=1 (preconditioner) destabilizer when joined with M=2 (momentum).
+
+| MOMENT at MLP-SOAP front=fast compound | Outcome |
+|---|---|
+| M=2 | #2131 3.27069 floor |
+| **M=3 JOINT** | **#2161 THIS** |
+| M=1 ISOLATED (no compound) | #2152 POD-BLOCK |
+
+Priors: 45% M1-COMPONENT-DOMINATES-POD-BLOCK / **35% COMPOUND-BUFFERS-M1-DESTAB** / 12% JOINT-PRODUCTIVE-SUB-FLOOR / 8% MILD-DRIFT.
+
+### Fleet state mid-533
+
+| Student | PR | Status |
+|---|---|---|
+| g1r2-alphonse | #2156 | INTERVAL=400 sparser perturbation awaiting adoption |
+| g1r2-askeladd | #2154 | EMBED-RESET M=2 F=0.25 awaiting adoption |
+| g1r2-edward | #2153 | EMBED-RESET M=1 F=1.0 awaiting adoption |
+| g1r2-fern | #2160 | NEW LM_HEAD M=2 F=1.0 matrix completion awaiting adoption |
+| g1r2-frieren | #2147 | carrier × lm_head-reset I=400 mid-training |
+| g1r2-nezuko | #2150 | MLP-SOAP back=fast awaiting adoption |
+| g1r2-tanjiro | #2139 | Arm A 3.272 terminal / Arm B pending |
+| g1r2-thorfinn | #2161 | NEW MLP-SOAP front=fast × M=3 JOINT compound buffer awaiting adoption |
+
+Cumulative: **436 refuted / 300 mech classes / 259 family closures / 10 structural axes / 54 RTM precedents / 34 pod-stability observations**.
+
+---
+
 ## 2026-06-01 17:30 UTC — Cycle 71 mid-532 — alphonse #2129 CLOSED (434th refute / MIRROR-PRODUCTIVE-SUB-FLOOR landmark; substrate-asymmetric reset compound structure CONFIRMED; n=2 mean 3.26973 sub-floor by 0.00027, +0.00197 above merge bar) + alphonse #2156 new assignment (3-sub PKB1 × lm_head-reset M=2 F=0.25 INTERVAL=400 sparser perturbation; 40% INTERVAL-INVARIANT / 30% SPARSER-ADVANTAGE / 8% MERGE). Fleet 8/8 WIP. Cumulative: 434 refuted / 300 mech classes / 257 family closures / 10 axes / 53 RTM precedents / 33 pod-stability.
 
 ### alphonse #2129 CLOSED — 434th refute / MIRROR-PRODUCTIVE-SUB-FLOOR landmark
