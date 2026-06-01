@@ -1,5 +1,40 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-01 07:15Z — PR #2071 MERGED (2nd R5 MERGE) [cleanup-mu-cooldown-default; bake mu_cooldown_target=0.80 as argparse default; smoke verified; code default now matches merged winner PR #1966]
+
+- branch: g1r5-fern/cleanup-mu-cooldown-default
+- hypothesis: Cleanup — bake `--mu_cooldown_target 0.80` as the argparse default (winning value from PR #1966 first merge). Ensures all future runs use the mu ramp without requiring an explicit flag, reducing risk of mis-running with old defaults.
+- results: One-line argparse change: `default=None` → `default=0.80`. Smoke test (W&B `h9gsl16h`, 200 steps) confirms ramp fires automatically: mu=0.95 until step 140, ramps linearly to 0.80107 by step 200. All 6 verification checks pass (config, pre-ramp plateau, ramp trajectory, both param groups).
+- commentary: **Second R5 merge.** No metric change — metrics unchanged from PR #1966 (μ_4=2875.0, σ_4=0.0, val=3.27007, merge gate ≤2862.5). The mandatory stack simplification removes `--mu_cooldown_target 0.80` as an explicit flag requirement.
+
+## 2026-06-01 07:12Z — PR #1994 CLOSED FFS-NEUTRAL n=4-confirm-failed [soap-state-cooldown-reset; SOAP shampoo hard-reset at cooldown start; ALL 4 trials at FFS_ema=2925, μ_4=2925.0 (+62.5 above gate); n=1 B★ FFS=2875 was attractor-coincidence; SOAP-state family exhausted] [100th R5 closure]
+
+- branch: g1r5-thorfinn/soap-state-cooldown-reset
+- hypothesis: Hard-reset SOAP shampoo state (zero preconditioner buffers) at cooldown_start (step 975) so the optimizer rebuilds its eigenbasis from scratch in the cooldown regime. Mechanism: stale eigenbasis computed in high-LR phase may mislead preconditioned update directions during low-LR cooldown. Reset gives a fresh, cooldown-calibrated preconditioner.
+- cell results (n=4 confirm, W&B group `g1r5-thorfinn/soap-state-cd-reset-n4`, runs `58nec9mr`, `h2bcs41p`, `ok9uc4uk`):
+
+| Trial | FFS_ema | FFS_trainval | best_val_loss | ema_best_val_loss |
+|---:|---:|---:|---:|---:|
+| 0 | 2925 | 2950 | 3.27040 | 3.27092 |
+| 1 | 2925 | 2950 | 3.27080 | 3.27130 |
+| 2 | 2925 | 2925 | 3.26941 | 3.26992 |
+| 3 | 2925 | 2925 | 3.26941 | 3.26992 |
+| **μ_4** | **2925.0** | **2937.5** | **3.27001** | **3.27052** |
+| **σ_4 (pop)** | 0.0 | 12.5 | 6.1e-4 | 6.1e-4 |
+
+Gate: μ_4(FFS_ema) ≤ 2862.5 (post-frieren-merge baseline). Actual: 2925.0. **Miss by +62.5.**
+
+Probe-step EMA val_loss comparison (B★ n=4 μ_4 vs n=1 A_ctrl):
+
+| step | B★ n=4 μ_4 | A_ctrl n=1 | Δ |
+|---:|---:|---:|---:|
+| 1000 | 3.53406 | 3.53239 | +0.00167 (worse) |
+| 2000 | 3.37075 | 3.37086 | −0.00011 |
+| 2500 | 3.31083 | 3.31083 | +0.00000 |
+| 3250 | 3.27052 | 3.27031 | +0.00020 |
+
+- commentary: Textbook [[r5_n1_to_n4_reversion_dual_metric_attractor]] discriminator pattern. n=1 B★ FFS_ema=2875 was the canonical lower attractor lobe; completely reverted to {2925, 2937.5} at n=4. The step-1000 transient (+0.00167 vs A_ctrl) confirms the **eigenbasis rebuild cost**: resetting the preconditioner at cooldown-start forces SOAP to collect gradients from scratch across 275 steps before it has enough curvature signal to precondition effectively. The supposed sustained advantage region (steps 2000+) that appeared in n=1 B★ (Δ=−0.00011 to +0.00020) is noise — within ±2e-4 of A_ctrl at n=4. Family closed: **SOAP-state cooldown interventions** (3 PRs: precond_freq, β₂ smoothing, state reset) all FFS-NEUTRAL at n=4. The cooldown-onset is not a productive intervention point for SOAP state.
+
 ## 2026-06-01 06:50Z — PR #2062 CLOSED FFS-NEG [mlp-act-variant; SiLU replaces ReLU²; target never crossed within 3250 steps; ReLU² is load-bearing in the R5 co-tuned stack] [99th R5 closure]
 
 - branch: g1r5-edward/mlp-act-variant

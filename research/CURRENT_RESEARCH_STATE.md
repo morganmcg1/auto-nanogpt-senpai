@@ -9,7 +9,48 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-01 06:55Z (**99 R5 closures total; 3 new closures + 3 new assignments this heartbeat; 8/8 active**)
+## Last updated: 2026-06-01 07:20Z (**101 R5 closures total; 2nd R5 MERGE; 2 new closures + 2 new assignments this heartbeat; 8/8 active**)
+
+### Notes (2026-06-01 07:20Z) — 100th R5 closure; fern cleanup merge (#2 R5 merge); 2 fresh assignments; edward pivoted
+
+- **PR #1994 CLOSED — 100th closure (thorfinn SOAP-state-cooldown-reset FFS-NEUTRAL n=4-confirm-failed)**:
+  - All 4 trials locked at FFS_ema=2925 (σ_pop=0). Textbook [[r5_n1_to_n4_reversion_dual_metric_attractor]] pattern — n=1 B★=2875 was lower attractor lobe, reverted at n=4.
+  - μ_4=2925.0 misses new gate by +62.5 (gate moved from 2887.5→2862.5 after frieren merge).
+  - Step-1000 transient (+0.00167 vs A_ctrl) confirms eigenbasis rebuild cost after hard-reset.
+  - **SOAP-state cooldown family fully closed** (3 PRs: precond_freq, β₂ smoothing, state reset — all FFS-NEUTRAL n=4-failed).
+  - **→ THORFINN assigned #2083 adamw-wd-schedule** (extend merged Muon WD ramp_down to AdamW scalar/embed groups)
+
+- **PR #2071 MERGED (2nd R5 MERGE) — fern cleanup: mu_cooldown_target=0.80 as code default**:
+  - One-line argparse change bakes merged frieren winner as default. Smoke test verified (W&B `h9gsl16h`).
+  - Mandatory stack simplified: `--mu_cooldown_target 0.80` no longer needs explicit flag.
+  - **→ FERN assigned #2084 asymmetric-mu-cooldown** (attn vs MLP separate mu cooldown targets)
+
+- **Edward #2080 PIVOTED** (advisor error acknowledged):
+  - Original PR claimed "first logit-domain modification" — INCORRECT; line 498 already has soft-sign cap=15.
+  - Pivot: test existing softcap VALUE sweep (cap ∈ {15, 30, 50, ∞}) keeping soft-sign form (single-variable).
+  - Added `train/logit_abs_mean` and `train/logit_saturation_frac` diagnostics.
+  - Status:wip; edward implementing revised design.
+
+- **Active in-flight at 07:20Z**:
+  | PR | Mechanism | Status |
+  |---|---|---|
+  | #2014 tanjiro | NS5 ns_iter=9 cooldown n=4 | trials 2-3 of 4, ETA ~12:00Z |
+  | #2042 alphonse | RoPE base sweep | C(4096)/D(10000) in flight |
+  | #2070 frieren | compound mu+precond_freq | A_ctrl+B★ running |
+  | #2077 askeladd | z-loss regularization | KG_smoke → cells running |
+  | #2079 nezuko | warmup mu ramp | KG_smoke → cells running |
+  | #2080 edward | logit softcap value sweep | PIVOTED: revised cap-value design; implementing |
+  | #2083 thorfinn | adamw-wd-schedule | NEW assigned 07:20Z |
+  | #2084 fern | asymmetric-mu-cooldown | NEW assigned 07:20Z |
+
+- **Research portfolio (07:20Z) — 100 R5 closures, 2 merges:**
+  - **Primary targets**: frieren #2070 compound test (additivity of two n=1 mechanisms); tanjiro #2014 ns_iter=9 (inverted dose-response, strongest recent signal)
+  - **New loss-boundary cluster**: askeladd z-loss + edward logit-cap-value + askeladd all test different ways to constrain logit/loss behavior
+  - **Phase transition cluster**: nezuko warmup-mu + fern asymmetric-mu test different dimensions of momentum schedule
+  - **Extension cluster**: thorfinn adamw-wd-schedule extends the successful Muon WD ramp to AdamW groups
+  - **Next gate**: μ_4(FFS_ema) ≤ **2862.5** (= 2875 − 12.5; requires ≥2/4 trials at FFS=2850)
+
+---
 
 ### Notes (2026-06-01 06:55Z) — 97th/98th/99th R5 closures; 3 fresh assignments
 
