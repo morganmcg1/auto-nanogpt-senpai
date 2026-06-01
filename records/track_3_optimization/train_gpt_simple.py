@@ -603,6 +603,8 @@ NANOGPT_NEWTON_MUON_BETA = float(os.environ.get("NANOGPT_NEWTON_MUON_BETA", "0.9
 NANOGPT_NEWTON_MUON_EPS = float(os.environ.get("NANOGPT_NEWTON_MUON_EPS", "1e-4"))
 NANOGPT_NEWTON_MUON_MAX_D_IN = int(os.environ.get("NANOGPT_NEWTON_MUON_MAX_D_IN", "1024"))
 NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA", "0.0"))
+NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_START = float(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_START", str(NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA)))
+NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_END = float(os.environ.get("NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_END", str(NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA)))
 # #1600: data-driven R warmstart from Muon^2 state["v"] second-moment EMA. When enabled,
 # defer R initialization to step K (instead of cold-start X^T X / N at first call).
 # At step K, R[0] = diag(state["v"].mean(0)) normalized to unit mean — gradient-based
@@ -874,10 +876,19 @@ class Muon(torch.optim.Optimizer):
                     state["R"].mul_(b).add_(R_new, alpha=1.0 - b)
             # Tikhonov regularization: R_reg = R + gamma * (tr(R)/d_in) * I.
             # Applied only at eigendecomp time; state["R"] EMA buffer is unmodified.
-            if NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA > 0.0:
+            # #2047: TIKHONOV γ DECAY SCHEDULE — linearly interpolate γ across
+            # training. Denom 1675 = train_steps(3350) / update_period(2). When
+            # START==END==NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA the behavior is
+            # bit-identical to the static fenced production form.
+            _newton_total = 1675
+            _frac = min(1.0, self._newton_step_count / _newton_total)
+            gamma_eff = NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_START + (
+                NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_END - NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_START
+            ) * _frac
+            if gamma_eff > 0.0:
                 n_dim = state["R"].shape[0]
                 trace_mean = state["R"].diagonal().mean()
-                lambda_reg = NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA * trace_mean
+                lambda_reg = gamma_eff * trace_mean
                 R_for_decomp = state["R"] + lambda_reg * torch.eye(
                     n_dim, device=state["R"].device, dtype=state["R"].dtype
                 )
@@ -1036,6 +1047,8 @@ print0(
     f"beta={NANOGPT_NEWTON_MUON_BETA} eps={NANOGPT_NEWTON_MUON_EPS} "
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
     f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
+    f"tikhonov_gamma_start={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_START} "
+    f"tikhonov_gamma_end={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_END} "
     f"r_warmstart={'True' if NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART else 'False'} "
     f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K}",
     console=True,
@@ -1159,6 +1172,8 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_eps": NANOGPT_NEWTON_MUON_EPS,
             "nanogpt_newton_muon_max_d_in": NANOGPT_NEWTON_MUON_MAX_D_IN,
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
+            "nanogpt_newton_muon_tikhonov_gamma_start": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_START,
+            "nanogpt_newton_muon_tikhonov_gamma_end": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA_END,
             "nanogpt_newton_muon_r_adamw_warmstart": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART,
             "nanogpt_newton_muon_r_adamw_warmstart_k": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
         },
