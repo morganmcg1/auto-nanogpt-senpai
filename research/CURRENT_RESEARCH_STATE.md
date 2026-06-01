@@ -9,6 +9,49 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 06:40Z (**★★★ FIRST R5 MERGE + 97th closure; ASKELADD → z-loss; 8/8 active**)
+
+### Notes (2026-06-01 06:40Z) — 97th R5 closure SF-Muon; askeladd assigned z-loss
+
+- **PR #2030 CLOSED — 97th R5 closure (SF-Muon y-interp FFS-NEG, cooldown-freezing failure mode)**:
+  - Cell 1 y-interp `2hjv966e` terminal: val_loss=3.36632, **FFS_ema=-1** (target never crossed)
+  - Δ vs baseline = **+0.096** — significant underperformance
+  - Student diagnosed mechanism: lr-weighted Polyak averaging × cosine LR cooldown = cooldown-freezing. During cooldown c_t/C_t → 7e-8, so x freezes at cooldown-onset value (~3.367); baseline descends another 0.10 through cooldown. Incompatibility is fundamental, not tunable.
+  - **Saved to memory**: `[[sf-polyak-cooldown-freeze-failure]]` — future SF/Polyak/Lookahead ideas need cooldown-reset or SWA-style accumulation to be viable on R5 cosine-cooldown stack
+  - SF iterate-averaging family CLOSED on R5 (SF Muon grad-at-x + y-interp + prior fern/askeladd AUX variants all FFS-NEG)
+
+- **NEW ASSIGNMENT #2077 (askeladd) — z-loss-regularization**:
+  - **First loss-side mechanism in 97 R5 closures** — all prior experiments touched optimizer-state, schedules, architecture
+  - Z-loss: add `0.5 · λ_z · (logsumexp(logits))²` term to CE loss. PaLM/Gopher/Chinchilla canonical λ=1e-4
+  - Screen: A_ctrl, B★(λ=1e-4), C(λ=1e-3), D(λ=1e-2) — dose-response
+  - Gate: B★ FFS_ema ≤ 2862.5 + monotone-better trajectory → n=4
+  - Fresh axis: loss-side ≠ gradient-processing; won't be absorbed by NS5 family
+
+- **THORFINN #1994 n=4 trial 4 imminent** (step 12539/13000, ~96%):
+  - Pre-decision: 95th closure, gate unreachable. Final μ_4 will be ~2900-2912.5. Await terminal SENPAI-RESULT.
+  - **→ Next: assign thorfinn fresh hypothesis post-closure**
+
+- **Active in-flight at 06:40Z**:
+  | PR | Mechanism | ETA |
+  |---|---|---|
+  | #1994 thorfinn | SOAP state reset n=4 trial 4 | ~06:50Z terminal |
+  | #2014 tanjiro | NS5 ns_iter=9 cooldown n=4 | ~12:00Z terminal |
+  | #2020 nezuko | SOAP β₂ cooldown D(0.95) | TERMINAL by now |
+  | #2042 alphonse | RoPE base sweep C(4096), D(10000) | C~07:13Z, D~09:00Z |
+  | #2062 edward | MLP-act SiLU n1-probe | ~06:50Z terminal |
+  | #2070 frieren | compound mu+precond_freq | KG_smoke done, A_ctrl+B in flight |
+  | #2071 fern | cleanup mu=0.80 default | 200-step smoke pending |
+  | #2077 askeladd | z-loss regularization | new assignment 06:35Z |
+
+- **Research portfolio balance (06:40Z):**
+  - **Exploitation**: frieren #2070 compound test (highest-value — additivity of two n=1 mechanisms)
+  - **Exploitation**: tanjiro #2014 n=4 ns_iter=9 (surprising inverse signal, gate needs ≤2862.5)
+  - **Exploration**: askeladd z-loss (first loss-side mechanism), edward MLP-act, alphonse RoPE sweep
+  - **Cleanup**: fern #2071 bakes mu=0.80 default → reduces footgun risk
+  - **Next gate**: μ_4(FFS_ema) ≤ **2862.5** requires ≥2/4 trials at FFS_ema=2850
+
+---
+
 ## Last updated: 2026-06-01 05:20Z (**★★★ FIRST R5 MERGE COMPLETE — 95 R5 total events**; **FRIEREN #1966 MERGED** μ_4=2875.0 σ_4=0.0 new baseline −37.5 steps; **FERN #2023 CLOSED 96th FFS-NEG** Lion AUX axis; **FRIEREN assigned #2070** compound-mu-precond-freq; **FERN assigned #2071** cleanup-mu-cooldown-default; **THORFINN #1994 gate unreachable → 95th closure pending** (trial 3 in flight); **TANJIRO #2014 D-target9 ★ FFS=2875 SURPRISE** (MORE polish during cooldown); **NEZUKO #2020 D(0.95) in flight**; **ASKELADD #2030 relaunch alive**; **ALPHONSE #2042 B(64) in flight**; **EDWARD #2062 SiLU probe in flight**; 8/8 active)
 
 ## Last updated: 2026-06-01 04:20Z (**94 R5 closures**; ★★★ **FRIEREN #1966 TRIAL 3 AT 87% — μ_4 PROJECTED ≈ 2875.2 — FIRST R5 MERGE IMMINENT** (ETA terminal ~04:35Z; merge-winner ready to invoke); **THORFINN #1994 trial 2 at 88% — gate unreachable, 95th closure pending**; **NEZUKO #2020 Cell C(0.80)=FFS-NEG +50** dose-response shape non-monotone (B=0.70 at 2925 vs C=0.80 at 2975); **ASKELADD #2030 y-interp RELAUNCH alive at step 271** with relaxed kill gate 3.88; **EDWARD #2062 PICKED UP** — SiLU n1-probe at step 212 + KG smoke; **TANJIRO #2014 D-target9 falsifier at 77%** trending FFS-NEG; **ALPHONSE #2042 B-64 at 52%**; **FERN #2023 D(lrs=0.3) projected FFS≈3150 FFS-NEG**; 8/8 active)
