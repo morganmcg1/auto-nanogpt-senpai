@@ -114,6 +114,23 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H375: Schedule-Free AdamW (Defazio 2024, arXiv:2405.15682). Replaces explicit
+    # AUX LR schedule with iterate averaging + interpolation. Maintains z (gradient
+    # iterate) and x (averaged primary iterate); y = (1-β₁)*z + β₁*x is the forward
+    # pass point used during training, and x is the eval point. Safe-default flag=0
+    # keeps the path bit-identical to standard AdamW.
+    parser.add_argument("--aux_schedulefree", type=int,
+                        default=int(os.environ.get("AUX_SCHEDULEFREE", "0")),
+                        help="Replace AdamW AUX optimizer with Schedule-Free AdamW (Defazio 2024, arXiv:2405.15682). "
+                             "0 = standard AdamW (safe-default, preserves Pattern A bit-id). "
+                             "1 = Schedule-Free AdamW with iterate averaging + interpolation.")
+    # H375: aux_cooldown_frac exposed as a flag so arm_c can disable the explicit
+    # cosine AUX cooldown (set to 0.0). Default 0.4 preserves H266 bit-id behavior.
+    parser.add_argument("--aux_cooldown_frac", type=float,
+                        default=float(os.environ.get("AUX_COOLDOWN_FRAC", "0.4")),
+                        help="Fraction of training over which AUX (AdamW) LR cools down. "
+                             "Default 0.4 = H266 bit-id. Set to 0.0 to disable cosine cooldown entirely "
+                             "(e.g. for Schedule-Free AUX where iterate averaging provides implicit cooldown).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -769,6 +786,86 @@ if dist.get_rank() == 0:
     os.makedirs("logs", exist_ok=True)
     logfile = f"logs/{uuid.uuid4()}.txt"
     print(logfile)
+class ScheduleFreeAdamW(torch.optim.Optimizer):
+    """Schedule-Free AdamW (Defazio 2024, arXiv:2405.15682).
+
+    Maintains z (gradient-step iterate) and x (iterate-averaged primary iterate).
+    Forward pass during training uses y = (1-β₁)*z + β₁*x (interpolation point);
+    eval uses x. Call .train() before forward/backward and .eval() before validation
+    so that p.data swaps between y and x. At step 0, z = x = init weights, so y =
+    init weights — step-0 val matches Pattern A bit-id (10.82583 EXACT) regardless
+    of β₁.
+
+    Iterate-averaging weight c_t = 1/(t+1) gives equal weighting to all z's. Second
+    moment v uses raw gradient (not y or z). AGC clip is expected to fire BEFORE
+    .step() (operates on p.grad in-place).
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-6,
+                 weight_decay=0, fused=False):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, fused=fused)
+        super().__init__(params, defaults)
+        self.is_train_mode = True
+
+    @torch.no_grad()
+    def _set_y(self, p, state, beta1):
+        # p.data = y = (1-β₁)*z + β₁*x — point used for the next forward pass.
+        p.data.copy_(state["z"]).mul_(1.0 - beta1).add_(state["x"], alpha=beta1)
+
+    @torch.no_grad()
+    def train(self):
+        if self.is_train_mode:
+            return
+        for group in self.param_groups:
+            beta1 = group["betas"][0]
+            for p in group["params"]:
+                state = self.state[p]
+                if "z" in state:
+                    self._set_y(p, state, beta1)
+        self.is_train_mode = True
+
+    @torch.no_grad()
+    def eval(self):
+        if not self.is_train_mode:
+            return
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state[p]
+                if "x" in state:
+                    p.data.copy_(state["x"])
+        self.is_train_mode = False
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["z"] = p.data.clone()
+                    state["x"] = p.data.clone()
+                    state["v"] = torch.zeros_like(p.data)
+                state["step"] += 1
+                t = state["step"]
+                state["v"].mul_(beta2).addcmul_(p.grad, p.grad, value=1 - beta2)
+                v_hat = state["v"] / (1 - beta2 ** t)
+                denom = v_hat.sqrt_().add_(eps)
+                state["z"].addcdiv_(p.grad, denom, value=-lr)
+                if wd != 0:
+                    state["z"].mul_(1 - lr * wd)
+                # x ← (1 - c) * x + c * z  with c = 1/(t+1)
+                c = 1.0 / (t + 1)
+                state["x"].mul_(1.0 - c).add_(state["z"], alpha=c)
+                # Re-establish y on p.data so the next forward pass sees y.
+                self._set_y(p, state, beta1)
+
+
 def print0(s, console=False, log=True):
     if dist.get_rank() == 0:
         if console:
@@ -796,6 +893,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_schedulefree == 1:
+    print0("H375 Schedule-Free AdamW ENABLED for AUX optimizer (iterate averaging + interpolation)", console=True)
+else:
+    print0("H375 Schedule-Free AdamW DISABLED (standard AdamW for AUX, safe-default bit-id)", console=True)
+print0(f"AUX cooldown_frac={args.aux_cooldown_frac} (H266 default=0.4; set to 0.0 to disable AUX cosine cooldown)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -856,6 +958,8 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "aux_schedulefree": args.aux_schedulefree,
+            "aux_cooldown_frac": args.aux_cooldown_frac,
         },
     )
 
@@ -931,11 +1035,20 @@ for trial_idx in range(args.num_trials):
     # fused AdamW reads betas from param_groups on every .step(), but to avoid any
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
-    _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    _aux_fused = (args.aux_beta2_schedule == "constant") and (args.aux_schedulefree == 0)
+    _aux_groups = [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                   dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                   dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")]
+    if args.aux_schedulefree == 1:
+        # H375: Schedule-Free AdamW. Replaces explicit AUX LR schedule with iterate
+        # averaging + interpolation. β₁ kept at 0.8 (H266 bit-id), β₂ from aux_beta2_start.
+        optimizer1 = ScheduleFreeAdamW(_aux_groups,
+                                       betas=(0.8, args.aux_beta2_start),
+                                       eps=args.aux_adamw_eps,
+                                       weight_decay=0, fused=False)
+    else:
+        optimizer1 = AdamW(_aux_groups, betas=(0.8, args.aux_beta2_start),
+                           eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -957,7 +1070,7 @@ for trial_idx in range(args.num_trials):
     # (h_cooldown_frac=1.0); AdamW aux groups use a shorter cooldown so the
     # embed / head keep learning for the first ~60% of training.
     h_cooldown_frac = 1.0
-    aux_cooldown_frac = 0.4
+    aux_cooldown_frac = args.aux_cooldown_frac
     for group in optimizer1.param_groups:
         group["cooldown_frac"] = aux_cooldown_frac
         group["cooldown_shape"] = "linear"
@@ -1112,6 +1225,15 @@ for trial_idx in range(args.num_trials):
                 live_backup = None
                 ema_deviation_l2 = 0.0
 
+            # H375: Schedule-Free AUX uses p.data = x (iterate-averaged) at eval time
+            # and p.data = y (interpolation) at train time. Call AFTER the Polyak swap
+            # so that Schedule-Free x takes precedence over the Polyak EMA for AUX
+            # params (the Polyak EMA tracks an EMA of post-step y, but Schedule-Free's
+            # x is the canonical eval point). At step 0 the optimizer state is empty,
+            # so eval() is a no-op and step-0 val stays bit-id (10.82583 EXACT).
+            if args.aux_schedulefree == 1:
+                optimizer1.eval()
+
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
@@ -1123,6 +1245,13 @@ for trial_idx in range(args.num_trials):
                 for name, param in model.named_parameters():
                     param.data.copy_(live_backup[name])
                 del live_backup
+            # H375: re-establish p.data = y for Schedule-Free AUX params so the next
+            # forward pass sees the interpolation point. Toggles is_train_mode back to
+            # True. When polyak_ema is on, live_backup already restored y, so this is
+            # idempotent (only flips the flag); when polyak_ema is off, this is the
+            # restoration call that puts aux p.data back to y from x.
+            if args.aux_schedulefree == 1:
+                optimizer1.train()
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
@@ -1277,6 +1406,28 @@ for trial_idx in range(args.num_trials):
                 histogram_samples=args.histogram_samples,
                 param_histogram_limit=args.param_histogram_limit,
             )
+        # H375: Schedule-Free AUX iterate-divergence diagnostic. F-norm of (z - x)
+        # for embed.weight and proj.weight at sample steps. Should GROW during
+        # training as Schedule-Free maintains diverging z (gradient iterate) and
+        # x (averaged iterate). Logged only when aux_schedulefree=1 since otherwise
+        # the optimizer has no z/x state.
+        sf_div_due = (
+            dist.get_rank() == 0
+            and args.aux_schedulefree == 1
+            and train_step in (1, 100, 500, 1000, 2000, 3000, train_steps)
+        )
+        if sf_div_due:
+            sf_metrics = {"trial": trial_idx, "train/step": train_step}
+            for name, p in [("embed.weight", model.embed.weight),
+                            ("proj.weight", model.proj.weight)]:
+                st = optimizer1.state.get(p, {})
+                if "z" in st and "x" in st:
+                    diff = (st["z"] - st["x"]).detach()
+                    sf_metrics[f"train/sf/z_minus_x_fnorm/{clean_metric_name(name)}"] = float(diff.norm().item())
+                    sf_metrics[f"train/sf/x_fnorm/{clean_metric_name(name)}"] = float(st["x"].norm().item())
+                    sf_metrics[f"train/sf/z_fnorm/{clean_metric_name(name)}"] = float(st["z"].norm().item())
+            if len(sf_metrics) > 2:
+                wandb.log(sf_metrics, step=wandb_step)
         # H148: NS5-alignment telemetry. Singular values of MuonH body weights
         # at a small set of probe steps. Captures whether orthogonal init
         # (arm_b/arm_c) actually starts the trajectory closer to the NS5
