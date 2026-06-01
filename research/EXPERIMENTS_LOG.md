@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-06-01 02:10 UTC — PR #1963 frieren: Aux Adam v-state ×0.5 @ warmup-end step 200 (JOINT vs EMBED-only) — ❌ BILATERAL NULL; Arm A seed-2 collapsed; Arm B too thin (JOINT @975 assigned as #2053)
+
+- Branch: `g1r1-frieren/aux-v-warmup-end`
+- Hypothesis: Aux Adam second-moment buffer ×0.5 at warmup-end step 200 — tests whether recalibrating v-state at phase transition helps more than at cooldown onset (@975). Arm A = JOINT scope (all 3 groups), Arm B = EMBED-only (highest-LR group).
+
+| Arm | scope | seed | run | sr | val_ema | Δ vs baseline (mnat) | Verdict |
+|---|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | — | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A JOINT v×0.5 @200** | all groups | 1 | `0udzyamc` | 2875 | 3.262159 | **-0.695** | seed-1 PASS |
+| **A JOINT v×0.5 @200** | all groups | 2 | `apt27zit` | 2925 | 3.265112 | **+2.258** | ❌ NULL |
+| **A JOINT n=2 mean** | — | — | — | **2900** | **3.263636** | **+0.781** | ❌ NULL (gate fails) |
+| **B EMBED v×0.5 @200** | adam_embed | 1 | `su37rclp` | 2875 | 3.262719 | **-0.135** | thin n=1 PASS, not confirmed |
+
+- **Arm A: Seed-2 collapse.** Mean sr=2900, mean val_ema=+0.781 mnat — fails both gate clauses. Single-seed clause-2 PASS evaporated on seed-2, matching historical pattern (#1605, #1637).
+- **Arm B: Margin too thin.** -0.135 mnat at n=1 is well below 0.5 mnat seed-2 threshold. Given Arm A's seed-2 collapse on the exact same family, seed-2 probability of confirming 0.135 mnat margin is very low.
+- **Decision:** Declined seed-2 for Arm B — Arm A's fragility signals the warmup-end v-state mechanism is noisy at this scale, and the pre-written JOINT @975 hypothesis is a higher-EV use of GPU time.
+- **frieren reassigned:** #2053 — JOINT v-state ×0.25/×0.10 @ step 975 (cooldown onset). Combines the best factor from the scalar near-miss matrix (×0.25 at +0.88 mnat = closest per-group near-miss) with the JOINT scope that's completely untested at @975.
+
 ## 2026-06-01 02:08 UTC — PR #1986 alphonse: Blockwise body PMuon momentum FRESH-START (m.copy_(grad)) @ step 975 — ❌ BILATERAL NULL (FRESH-START CLOSED; deep/shallow depth-asymmetry REVERSED vs HARD-ZERO; deep-decay ×0.25/×0.50 assigned as #2048)
 
 - Branch: `g1r1-alphonse/body-mom-fresh-start-blockwise`
