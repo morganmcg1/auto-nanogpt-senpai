@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-06-01 02:08 UTC — PR #1986 alphonse: Blockwise body PMuon momentum FRESH-START (m.copy_(grad)) @ step 975 — ❌ BILATERAL NULL (FRESH-START CLOSED; deep/shallow depth-asymmetry REVERSED vs HARD-ZERO; deep-decay ×0.25/×0.50 assigned as #2048)
+
+- Branch: `g1r1-alphonse/body-mom-fresh-start-blockwise`
+- Hypothesis: Body PMuon momentum FRESH-START (m.copy_(grad)) at step 975 — third state-arithmetic primitive after HARD-ZERO (#1929) and DECAY (#1980). Arm A=deep blocks (8-11), Arm B=shallow blocks (0-3). Hypothesis: FRESH-START recovers cold-start penalty from HARD-ZERO by installing current-step gradient as new buffer.
+
+| Arm | subset | run | sr | val_ema | Δ vs baseline (mnat) | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A FRESH-START** | deep (8-11) | `09ja3yrh` | 2950 | 3.267520 | **+4.67** | ❌ NULL |
+| **B FRESH-START** | shallow (0-3) | `h54qoftj` | 2975 | 3.268977 | **+6.12** | ❌ NULL |
+| [ref] HARD-ZERO deep #1929A | deep | `20w3r8zr` | 2925 | 3.265842 | +2.99 | ❌ NULL |
+| [ref] HARD-ZERO shallow #1929B | shallow | `7t3em4iq` | 2875 | 3.263530 | +0.68 | ❌ NULL |
+
+- **FRESH-START is the WORST tested operation** — worse than HARD-ZERO in BOTH directions. Installing a single-step gradient introduces noise without EMA averaging benefit.
+- **DEPTH ASYMMETRY REVERSES:** HARD-ZERO shows shallow 4.4× better than deep (+0.68 vs +2.99 mnat). FRESH-START shows deep better than shallow (+4.67 vs +6.12 mnat). This reversal suggests shallow blocks react poorly to having their direction forcefully replaced by a single noisy gradient.
+- **Body PMuon momentum FRESH-START blockwise axis CLOSED** at step 975 across all depth localizations.
+- **alphonse reassigned:** #2048 — deep-block DECAY ×0.25/×0.50 @ step 975. Completes the depth × decay-factor matrix (shallow well-covered by edward #1980/#2040; deep DECAY completely untested).
+
 ## 2026-06-01 00:30 UTC — PR #1980 edward: Shallow-block body PMuon momentum PARTIAL DECAY ×0.5/×0.25 @ step 975 — ❌ BILATERAL NULL with informative interior minimum (fine sweep assigned as #2040)
 
 - Branch: `g1r1-edward/body-mom-shallow-decay`
