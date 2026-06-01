@@ -114,6 +114,16 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H357: per-layer BODY MuonH LR scaled by init F-norm. α=0.0 keeps a single
+    # MuonH param group with uniform LR (bit-identical to H266 baseline). α>0.0
+    # builds one MuonH param group per body 2D param with
+    # LR_p = muonh_lr * (||p.init||_F / median(||p_all.init||_F))^α.
+    parser.add_argument("--body_lr_init_fnorm_alpha", type=float,
+                        default=float(os.environ.get("BODY_LR_INIT_FNORM_ALPHA", "0.0")),
+                        help="Per-layer BODY MuonH LR scaling exponent α. Each BODY 2D param p gets "
+                             "LR_p = muonh_lr * (||p.init||_F / median(||p_all.init||_F))^α. "
+                             "α=0 (default, H266 bit-id) = uniform LR. α=0.5 = sqrt scaling (light). "
+                             "α=1.0 = linear scaling (strong).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -675,9 +685,13 @@ class MuonH(torch.optim.Optimizer):
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
                  hyperball=True, budget_mult=1.0, mode="clip"):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert isinstance(params, list) and len(params) >= 1
         assert mode in ("clip", "scale_invariant")
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        # Accept either a flat list of Parameters (baseline path, sorted by size
+        # for cross-rank load balancing) or a pre-built list of param_group
+        # dicts (H357 per-param-group construction, passed through unchanged).
+        if isinstance(params[0], torch.nn.Parameter):
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
                         hyperball=hyperball, budget_mult=budget_mult, mode=mode)
         super().__init__(params, defaults)
@@ -856,6 +870,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "body_lr_init_fnorm_alpha": args.body_lr_init_fnorm_alpha,
         },
     )
 
@@ -923,6 +938,27 @@ for trial_idx in range(args.num_trials):
         sample_rows = [e for e in body_init_log if e["name"] in sample_names]
         print0(f"[H148 body_init={args.body_init}] sample F-norms: {sample_rows}", console=True)
 
+    # H357: per-layer BODY MuonH LR coupling. Capture body 2D init F-norms NOW
+    # (after the body_init pass, before optimizer construction) so the scaling
+    # exponent α can fix per-param LR multipliers at init time. The list is
+    # built in model.blocks.parameters() iteration order so per-param-group
+    # construction below indexes consistently.
+    body_2d_params = [p for p in model.blocks.parameters() if p.ndim >= 2]
+    body_init_fnorms = [float(p.data.norm().item()) for p in body_2d_params]
+    body_init_fnorm_median = float(torch.tensor(body_init_fnorms).median().item())
+    body_init_fnorm_min = float(min(body_init_fnorms))
+    body_init_fnorm_max = float(max(body_init_fnorms))
+    if trial_idx == 0:
+        print0(f"[H357] body init F-norms median={body_init_fnorm_median:.4f} "
+               f"range=[{body_init_fnorm_min:.4f}, {body_init_fnorm_max:.4f}] "
+               f"count={len(body_init_fnorms)}", console=True)
+        print0(f"[H357] body_lr_init_fnorm_alpha = {args.body_lr_init_fnorm_alpha}", console=True)
+        if dist.get_rank() == 0:
+            wandb.run.summary["body/init_fnorm_median"] = body_init_fnorm_median
+            wandb.run.summary["body/init_fnorm_min"] = body_init_fnorm_min
+            wandb.run.summary["body/init_fnorm_max"] = body_init_fnorm_max
+            wandb.run.summary["body/init_fnorm_count"] = len(body_init_fnorms)
+
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
@@ -936,11 +972,47 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
-    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
-    optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # H357: if α=0.0, keep the single-group baseline construction (bit-identical
+    # to H266). Otherwise build one MuonH param group per body 2D param with
+    # LR_p = muonh_lr * (||p.init||_F / median)^α. Each per-param group's
+    # cooldown_frac, cooldown_shape, mu, initial_lr are set later in the same
+    # per-group loops used by the baseline, so the LR ratios are preserved
+    # throughout warmup, cooldown, and µ scheduling.
+    if args.body_lr_init_fnorm_alpha == 0.0:
+        optimizer2 = MuonH(body_2d_params,
+                           lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
+        optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    else:
+        muonh_param_groups = []
+        for i, (p, fnorm) in enumerate(zip(body_2d_params, body_init_fnorms)):
+            ratio = fnorm / body_init_fnorm_median
+            lr_mult = ratio ** args.body_lr_init_fnorm_alpha
+            muonh_param_groups.append(dict(
+                params=[p],
+                lr=args.muonh_lr * lr_mult,
+                name=f"muonh_block_{i}",
+                init_fnorm=fnorm,
+                lr_mult=lr_mult,
+            ))
+        optimizer2 = MuonH(muonh_param_groups,
+                           lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
+        if trial_idx == 0:
+            lr_mults = [g["lr_mult"] for g in optimizer2.param_groups]
+            lr_mult_min = float(min(lr_mults))
+            lr_mult_max = float(max(lr_mults))
+            lr_mult_median = float(torch.tensor(lr_mults).median().item())
+            print0(f"[H357] per-param lr_mult range = "
+                   f"[{lr_mult_min:.4f}, {lr_mult_max:.4f}] "
+                   f"median={lr_mult_median:.4f}", console=True)
+            if dist.get_rank() == 0:
+                wandb.run.summary["body/lr_mult_min"] = lr_mult_min
+                wandb.run.summary["body/lr_mult_max"] = lr_mult_max
+                wandb.run.summary["body/lr_mult_median"] = lr_mult_median
+                wandb.run.summary["body/per_group_count"] = len(lr_mults)
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1242,6 +1314,17 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    # H357: when α>0 we have one group per body 2D param. Log
+                    # min/median/max of the current effective LR so the per-arm
+                    # cooldown trajectory of the per-param LR distribution is
+                    # captured. For α=0 these reduce to the single group's LR.
+                    if len(opt.param_groups) > 1:
+                        group_lrs = [g["lr"] for g in opt.param_groups]
+                        muonh_metrics["train/muonh/effective_lr_min"] = float(min(group_lrs))
+                        muonh_metrics["train/muonh/effective_lr_max"] = float(max(group_lrs))
+                        muonh_metrics["train/muonh/effective_lr_median"] = float(
+                            torch.tensor(group_lrs).median().item()
+                        )
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
