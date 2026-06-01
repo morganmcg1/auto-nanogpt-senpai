@@ -101,6 +101,17 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--lr_warm_restart_step", type=int, default=None,
+                        help="Step at which to apply LR warm-restart pulse (None = disabled). "
+                             "Pulse rebounds eta to lr_warm_restart_peak_frac and anneals back to "
+                             "underlying cooldown over lr_warm_restart_duration steps. "
+                             "Default test value: 2700 (just before FFS crossing window 2800-3050).")
+    parser.add_argument("--lr_warm_restart_peak_frac", type=float, default=0.3,
+                        help="Peak eta multiplier during warm restart pulse (e.g. 0.3 = 30%% of peak LR). "
+                             "Applied multiplicatively on top of underlying cooldown eta.")
+    parser.add_argument("--lr_warm_restart_duration", type=int, default=200,
+                        help="Duration of warm restart pulse in steps. Pulse peaks at step+duration/2, "
+                             "returns to underlying cooldown trajectory at step+duration.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -914,6 +925,16 @@ for trial_idx in range(args.num_trials):
         else:
             raise ValueError(f"Unknown lr_cooldown_shape: {shape}")
 
+    def _warm_restart_pulse(step, restart_step, duration, peak_frac, base_eta):
+        # Half-cosine bump 0->1->0 across [restart_step, restart_step + duration).
+        # Returns max(base_eta, pulse_value) so the pulse only RAISES eta, never lowers it.
+        if step < restart_step or step >= restart_step + duration:
+            return base_eta
+        pulse_progress = (step - restart_step) / duration
+        pulse_amplitude = 0.5 * (1.0 - math.cos(2.0 * math.pi * pulse_progress))
+        pulse_eta = peak_frac * pulse_amplitude
+        return max(base_eta, pulse_eta)
+
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -922,6 +943,14 @@ for trial_idx in range(args.num_trials):
         else:
             x = (progress - (1 - cooldown_frac)) / cooldown_frac
             eta = _cooldown_eta(x, args.lr_cooldown_shape)
+        if args.lr_warm_restart_step is not None:
+            eta = _warm_restart_pulse(
+                step,
+                args.lr_warm_restart_step,
+                args.lr_warm_restart_duration,
+                args.lr_warm_restart_peak_frac,
+                eta,
+            )
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
