@@ -1,3 +1,37 @@
+## 2026-06-01 22:00 UTC — Cycle 71 mid-542 — askeladd #2154 CLOSED (446th refute / **EMBED M=2 F=0.25 BILATERAL STABLE FLOOR-LOWER-EDGE — SUBSTRATE-GENERAL PRODUCTIVE CONFIRMED ON SAFE MATRIX CORNER** / 58th RTM precedent / 42nd pod-stability observation; bilateral n=2 mean **3.270575** [Arm A `rcdjxfzp` 3.27075 / Arm B `58r8v512` 3.27040 — 7th cycle-71 sub-floor single-seed reach below 3.27050]; Δ vs #2063 lm_head −0.00028 within n=2 sample-noise → SUBSTRATE-SYMMETRIC productive minimum at SAFE corner; HYPOTHESIS 1 45% prior REALIZED; F-coupling reversal on EMBED appears M=1-SPECIFIC since M=2 F=0.25 is STABLE) + askeladd #2189 new assignment (**MLP-SOAP front=fast × EMBED-RESET M=2 F=0.25 productive-lever STACKING** — first non-carrier productive-lever × productive-lever compound testing whether SOLO-ONLY meta-finding is carrier-specific or universal; 30% PRODUCTIVE-STACKING-MILD / 25% PRODUCTIVE-MERGE / 25% CANCELLATION / 15% MILD-DRIFT / 5% POD-BLOCK). Fleet 8/8 WIP. Cumulative: **446 refuted / 300 mech classes / 270 family closures / 10 axes / 58 RTM precedents / 42 pod-stability observations / configuration-radius destab axis 18 cells / 15 sub-axes**.
+
+### askeladd #2154 CLOSED — 446th refute / EMBED M=2 F=0.25 SUBSTRATE-SYMMETRIC PRODUCTIVE
+
+**Bilateral terminal — floor band lower edge (clean RTM-NEGATIVE)**:
+- Arm A `rcdjxfzp` SEED=1: val_loss **3.27075** (floor lower-edge mid)
+- Arm B `58r8v512` SEED=2: val_loss **3.27040** (floor lower-edge mid; 7th cycle-71 sub-floor single-seed reach)
+- **n=2 mean 3.270575** (tight range 0.00035); stat margin 0.01333 ≫ 0.004
+- Δ vs MERGE bar 3.26776: +0.002815 (NOT MERGE)
+- Δ vs #2063 lm_head M=2 F=0.25 (3.270855): **−0.00028** (embed slightly better, within n=2 sample-noise)
+
+### EMBED × M × F MATRIX — 3/4 cells resolved
+
+| EMBED \ F | F=0.25 | F=1.0 |
+|---|---|---|
+| **M=1 (preconditioner)** | #2178 BILATERAL POD-BLOCK (233,618) | #2153 STABLE 3.27063 |
+| **M=2 (momentum)** | **#2154 (THIS) STABLE 3.270575** | edward #2185 in flight |
+
+→ **EMBED M=2 F=0.25 STABLE matches lm_head #2063 pattern**. F-coupling reversal on EMBED appears M=1-SPECIFIC, not substrate-wide. M=2 momentum-refresh at F=0.25 is substrate-general productive territory.
+
+### askeladd #2189 next — MLP-SOAP front=fast × EMBED-RESET M=2 F=0.25 STACKING
+
+First **non-carrier productive-lever × productive-lever compound**. Stacks MLP-SOAP front=fast (#1775 3.26789 sub-floor) with EMBED-RESET M=2 F=0.25 (#2154 floor lower-edge). Tests whether the 5/5 CARRIER compound CANCELLATION pattern ("PRODUCTIVE LEVERS ARE SOLO-ONLY") is carrier-specific or universal.
+
+Priors: 30% PRODUCTIVE-STACKING-MILD / 25% PRODUCTIVE-MERGE / 25% CANCELLATION / 15% MILD-DRIFT / 5% POD-BLOCK.
+
+### Cycle 71 mid-542 fleet status
+
+Fleet 8/8 WIP. Cumulative: **446 refuted / 300 mech classes / 270 family closures / 10 axes / 58 RTM precedents / 42 pod-stability observations**.
+
+The mid-542 closure completes the EMBED M=2 F=0.25 cell as substrate-symmetric productive. Awaiting edward #2185 (EMBED M=2 F=1.0) and fern #2188 (EMBED M=1 F=0.5) to complete EMBED matrix mapping. The MLP-SOAP × EMBED-RESET stacking probe (askeladd #2189) is the highest-leverage productive-compound test this cycle.
+
+---
+
 ## 2026-06-01 21:50 UTC — Cycle 71 mid-541 — fern #2178 CLOSED (445th refute / **EMBED M=1 F=0.25 BILATERAL POD-BLOCK** + **MAJOR STRUCTURAL FINDING — EMBED M=1 IS F-COUPLED IN REVERSED DIRECTION RELATIVE TO LM_HEAD** — overturns/refines #2153 closure interpretation / 7th step-1-saturation cell / 41st pod-stability observation; bilateral mean step-1 grad **233,618.18** [Arm A `6vb3o1p2` 233,797.60 / Arm B `lon5h97e` 233,438.76 spread 0.15% — tightest deterministic mechanism-coupled signature cycle-71]; IDENTICAL step-25 nonfinite_count=147,758,208 across arms; HYPOTHESIS 1 60% prior REALIZED; **EMBED M=1 F-AXIS NOW HAS REVERSED F-COUPLING — POD at F=0.25, STABLE at F=1.0 — DISTINCT from LM_HEAD M=1 F-DECOUPLED PATTERN**) + fern #2188 new assignment (EMBED-RESET M=1 F=0.5 ISOLATED — F-coupling axis TRANSITION PROBE; maps F-boundary between #2178 F=0.25 POD and #2153 F=1.0 STABLE endpoints; 45% STABLE / 30% POD-BLOCK / 15% MILD-DRIFT / 10% PRODUCTIVE). Fleet 8/8 WIP. Cumulative: **445 refuted / 300 mech classes / 269 family closures / 10 axes / 58 RTM precedents / 41 pod-stability observations / configuration-radius destab axis 18 cells / 15 sub-axes**.
 
 ### fern #2178 CLOSED — 445th refute / EMBED M=1 F-COUPLING REVERSAL DISCOVERED
