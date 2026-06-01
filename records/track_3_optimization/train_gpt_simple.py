@@ -609,6 +609,10 @@ NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_T
 # diagonal prior accumulated over K steps of "naked Muon" training (NM bypassed pre-K).
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART", "0"))
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K", "100"))
+# #2036: cooldown-entry R-buffer re-warm. When > 0, re-init R from current state["v"]
+# at the specified step (mechanism-identical to WARMSTART_K but fires later). Default
+# 0 = disabled (production behaviour unchanged, bit-identical fallback).
+NANOGPT_NEWTON_MUON_R_ADAMW_REWARM_STEP = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_REWARM_STEP", "0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -755,7 +759,8 @@ class Muon(torch.optim.Optimizer):
                  newton_max_d_in: int = 1024,
                  newton_input_cache: dict | None = None,
                  newton_r_warmstart: bool = False,
-                 newton_r_warmstart_k: int = 100):
+                 newton_r_warmstart_k: int = 100,
+                 newton_r_rewarm_step: int = 0):
         assert isinstance(params, list) and len(params) >= 1
         if isinstance(params[0], dict):
             # list-of-dicts param_groups: sort each group's params by size.
@@ -802,6 +807,10 @@ class Muon(torch.optim.Optimizer):
         # initialized — _apply_newton_precondition returns None.
         self.newton_r_warmstart = bool(newton_r_warmstart)
         self.newton_r_warmstart_k = int(newton_r_warmstart_k)
+        # #2036: cooldown-entry re-warm step. 0 = disabled (default, bit-identical to
+        # prior production). Fires exactly once at _newton_step_count == rewarm_step,
+        # overwriting state["R"] with diag(v.mean(0))/v.mean() and forcing eigendecomp.
+        self.newton_r_rewarm_step = int(newton_r_rewarm_step)
         # Accumulator dict reset each step() — read by the training loop after
         # step() for W&B logging. Keys: cond_max, cond_min, cond_sum, cond_n,
         # inv_sqrt_norm_sum, precond_ratio_sum, precond_ratio_n, applied_n.
@@ -855,14 +864,40 @@ class Muon(torch.optim.Optimizer):
             tel_w = self.newton_telemetry
             tel_w["r_warmstart_n"] = tel_w.get("r_warmstart_n", 0) + 1
             did_warmstart = True
+        # #2036 cooldown-entry re-warm: at the configured step (if > 0) overwrite
+        # state["R"] with diag(v.mean(0))/v.mean() — mechanism-identical to warmstart
+        # but fires after R has already been EMA-evolved. Records BEFORE norm of
+        # R_inv_sqrt for telemetry, then forces eigendecomp below.
+        did_rewarm = False
+        if (
+            self.newton_r_rewarm_step > 0
+            and self._newton_step_count == self.newton_r_rewarm_step
+            and "R" in state
+            and not did_warmstart
+        ):
+            v_buffer_rw = state.get("v")
+            if v_buffer_rw is not None and v_buffer_rw.abs().sum().item() > 1e-12:
+                existing_R_inv_sqrt = state.get("R_inv_sqrt")
+                tel_w = self.newton_telemetry
+                if existing_R_inv_sqrt is not None:
+                    tel_w["r_rewarm_inv_sqrt_norm_before_sum"] = (
+                        tel_w.get("r_rewarm_inv_sqrt_norm_before_sum", 0.0)
+                        + float(existing_R_inv_sqrt.norm().item())
+                    )
+                v_diag_rw = v_buffer_rw.float().mean(dim=0)  # (d_in,)
+                v_diag_rw = v_diag_rw / (v_diag_rw.mean() + 1e-8)  # unit-mean normalize
+                state["R"] = torch.diag(v_diag_rw).contiguous()
+                tel_w["r_rewarm_n"] = tel_w.get("r_rewarm_n", 0) + 1
+                did_rewarm = True
         # Update R EMA + eigendecomp every newton_update_period steps (and at first call).
         update_R = (
             "R" not in state
             or did_warmstart
+            or did_rewarm
             or (self._newton_step_count % self.newton_update_period == 1)
         )
         if update_R:
-            if not did_warmstart:
+            if not did_warmstart and not did_rewarm:
                 x32 = x.float()
                 # R_new = (X^T X) / N, shape (d_in, d_in) in float32 for eigendecomp stability.
                 n = x32.shape[0]
@@ -892,6 +927,13 @@ class Muon(torch.optim.Optimizer):
                 state["R_inv_sqrt"] = (vecs * inv_sqrt_vals.unsqueeze(0)) @ vecs.T
                 # Stash eigvals on-device for lazy telemetry — no sync here.
                 state["_R_vals_clamped"] = vals_clamped
+                # #2036 rewarm AFTER snapshot — only fires once per param at rewarm step.
+                if did_rewarm:
+                    tel_w = self.newton_telemetry
+                    tel_w["r_rewarm_inv_sqrt_norm_after_sum"] = (
+                        tel_w.get("r_rewarm_inv_sqrt_norm_after_sum", 0.0)
+                        + float(state["R_inv_sqrt"].norm().item())
+                    )
             except Exception:
                 state.pop("R_inv_sqrt", None)
                 state.pop("_R_vals_clamped", None)
@@ -1037,7 +1079,13 @@ print0(
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
     f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
     f"r_warmstart={'True' if NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART else 'False'} "
-    f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K}",
+    f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K} "
+    f"r_rewarm_step={NANOGPT_NEWTON_MUON_R_ADAMW_REWARM_STEP}",
+    console=True,
+)
+print0(
+    f"NM_REWARM: rewarm_step={NANOGPT_NEWTON_MUON_R_ADAMW_REWARM_STEP} "
+    f"({'ACTIVE' if NANOGPT_NEWTON_MUON_R_ADAMW_REWARM_STEP > 0 else 'DISABLED'})",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1161,6 +1209,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
             "nanogpt_newton_muon_r_adamw_warmstart": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART,
             "nanogpt_newton_muon_r_adamw_warmstart_k": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
+            "nanogpt_newton_muon_r_adamw_rewarm_step": NANOGPT_NEWTON_MUON_R_ADAMW_REWARM_STEP,
         },
     )
 
@@ -1230,6 +1279,7 @@ for trial_idx in range(args.num_trials):
         newton_input_cache=_newton_input_cache,
         newton_r_warmstart=bool(NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART),
         newton_r_warmstart_k=NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
+        newton_r_rewarm_step=NANOGPT_NEWTON_MUON_R_ADAMW_REWARM_STEP,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
@@ -1483,9 +1533,16 @@ for trial_idx in range(args.num_trials):
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
         # Tell Newton-Muon whether to compute telemetry diagnostics this step
-        # (gated to avoid per-param CUDA syncs on the hot path).
+        # (gated to avoid per-param CUDA syncs on the hot path). #2036: also
+        # enable on the rewarm step so the per-param syncs land at the moment
+        # the rewarm event is recorded (otherwise the next telemetry_due tick
+        # would zero-out the per-step accumulators).
         if getattr(optimizer2, "newton_precond", False):
-            optimizer2.newton_telemetry_due = bool(telemetry_due)
+            rewarm_step_here = (
+                NANOGPT_NEWTON_MUON_R_ADAMW_REWARM_STEP > 0
+                and (step + 1) == NANOGPT_NEWTON_MUON_R_ADAMW_REWARM_STEP
+            )
+            optimizer2.newton_telemetry_due = bool(telemetry_due) or rewarm_step_here
         for opt in optimizers:
             opt.step()
         # === Newton-Muon (#1138) per-step telemetry. ===
@@ -1493,10 +1550,14 @@ for trial_idx in range(args.num_trials):
         # it back on rank 0 and emit summary scalars to W&B at telemetry_due
         # cadence. When newton_precond=False the dict stays empty so no extra
         # keys are logged (bit-identical reporting to baseline).
+        rewarm_step_here = (
+            NANOGPT_NEWTON_MUON_R_ADAMW_REWARM_STEP > 0
+            and (step + 1) == NANOGPT_NEWTON_MUON_R_ADAMW_REWARM_STEP
+        )
         if (
             dist.get_rank() == 0
             and getattr(optimizer2, "newton_precond", False)
-            and telemetry_due
+            and (telemetry_due or rewarm_step_here)
         ):
             tel = optimizer2.newton_telemetry
             applied = tel.get("applied_n", 0)
@@ -1523,6 +1584,18 @@ for trial_idx in range(args.num_trials):
                 )
             # #1600 warmstart event counter (spikes once per param at step K).
             newton_metrics["newton_muon/r_warmstart_n"] = tel.get("r_warmstart_n", 0)
+            # #2036 cooldown-entry re-warm event (boolean + counter + before/after
+            # R_inv_sqrt norms aggregated over fired params).
+            r_rewarm_n = tel.get("r_rewarm_n", 0)
+            newton_metrics["newton_muon/r_rewarm_n"] = r_rewarm_n
+            newton_metrics["newton_muon/rewarm_fired"] = bool(r_rewarm_n > 0)
+            if r_rewarm_n > 0:
+                newton_metrics["newton_muon/r_rewarm_inv_sqrt_norm_before"] = (
+                    tel.get("r_rewarm_inv_sqrt_norm_before_sum", 0.0) / r_rewarm_n
+                )
+                newton_metrics["newton_muon/r_rewarm_inv_sqrt_norm_after"] = (
+                    tel.get("r_rewarm_inv_sqrt_norm_after_sum", 0.0) / r_rewarm_n
+                )
             wandb.log(newton_metrics, step=wandb_step)
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
         # have stepped, apply `p -= lr_embed * lambda * (p - p_init)`. Order vs
