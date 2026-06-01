@@ -1,3 +1,43 @@
+## 2026-06-01 22:20 UTC — Cycle 71 mid-544 — thorfinn #2161 CLOSED (448th refute / **MLP-SOAP FRONT=FAST COMPOUND-BUFFERS-M1-DESTAB CONFIRMED — structural buffering finding** / 60th RTM precedent / 44th pod-stability observation; bilateral n=2 mean **3.27161** [Arm A `7ulemsf5` 3.27238 / Arm B `r856sw4j` 3.27084] floor band mid; **NORMAL step-1 grad despite M=3 JOINT containing M=1 axis** — vs ISOLATED M=1 #2152/#2145 BILATERAL POD-BLOCK 234k saturation; Δ vs #2131 M=2-only floor (3.27069): **+0.00092** — mild M=1-axis cost without destabilization; HYPOTHESIS COMPOUND-BUFFERS realized; mechanism reading: front-half attention-SOAP fast preconditioning alters gradient distribution feeding INTO lm_head such that step-0 reset side-effects are dampened) + thorfinn #2191 new assignment (**MLP-SOAP front=fast × LM_HEAD-RESET M=2 F=1.0 — buffering generalization test** against F=1.0 SECONDARY DESTAB class #2160 POD-BLOCK; resolves whether MLP-SOAP buffering is UNIVERSAL or M=1-SPECIFIC; 40% COMPOUND-BUFFERS-GENERALIZES / 35% F=1.0-DESTAB-DOMINATES / 15% MILD-DRIFT / 10% POD-BLOCK-PARTIAL). Fleet 8/8 WIP. Cumulative: **448 refuted / 300 mech classes / 272 family closures / 10 axes / 60 RTM precedents / 44 pod-stability observations**.
+
+### thorfinn #2161 CLOSED — 448th refute / MLP-SOAP FRONT=FAST COMPOUND-BUFFERS-M1-DESTAB
+
+**Bilateral terminal — floor band mid (clean RTM-NEGATIVE)**:
+- Arm A `7ulemsf5` SEED=1: val_loss **3.27238** (floor band upper-region)
+- Arm B `r856sw4j` SEED=2: val_loss **3.27084** (floor band lower-region)
+- **n=2 mean 3.27161** (range 0.00154); stat margin 0.01187 ≫ 0.004
+- Δ vs MERGE bar 3.26776: +0.00385 (NOT MERGE)
+- Δ vs #2131 M=2-only floor (3.27069): **+0.00092** — mild M=1-axis cost
+- **STEP-1 GRAD NORMAL** despite M=3 JOINT containing M=1 axis (which BILATERAL POD-BLOCKs ISOLATED #2152/#2145 with 234k saturation)
+
+**Structural finding — MLP-SOAP FRONT=FAST COMPOUND-BUFFERS M=1 DESTAB**: Front-half attention-SOAP fast preconditioning alters gradient distribution feeding INTO lm_head such that step-0 reset side-effects from preconditioner-refresh are dampened. Bounded front-half gradients → bounded lm_head gradients → step-1 saturation threshold not crossed regardless of reset axis. First mechanism-class observation of a compound BUFFERING (not just CANCELLATION) of an ISOLATED destab pattern.
+
+### MLP-SOAP × LM_HEAD-RESET MATRIX — cycle-71 mid-544
+
+| LM_HEAD-RESET \ MLP-SOAP front=fast compound | ISOLATED outcome | Under compound | Status |
+|---|---|---|---|
+| M=1 F=0.25 (preconditioner) | #2152 BILATERAL POD-BLOCK 234,260 | (joint M=3 #2161 NORMAL step-1 grad) | BUFFERED ✓ |
+| M=1 F=1.0 (preconditioner) | #2145 BILATERAL POD-BLOCK 234,270 | UNTESTED-IN-COMPOUND | TBD |
+| **M=2 F=1.0 (F=1.0 secondary)** | #2160 BILATERAL POD-BLOCK 234,624 | **thorfinn #2191 in flight** | TBD |
+| M=2 F=0.25 (productive M=2-only) | #2063 3.270855 floor (STABLE) | #2131 3.27069 floor (productive) | productive ✓ |
+| M=3 JOINT F=0.25 | (would inherit M=1 destab) | #2161 3.27161 floor (THIS) | BUFFERED ✓ |
+
+→ **Critical generality question for thorfinn #2191**: is MLP-SOAP front=fast a UNIVERSAL compound buffer (protects against all 234k step-1 saturation classes) or M=1-SPECIFIC (only protects the preconditioner-refresh code path)?
+
+### thorfinn #2191 next — MLP-SOAP front=fast × LM_HEAD-RESET M=2 F=1.0
+
+Tests cross-destab-class buffering generalization. F=1.0 SECONDARY DESTAB (#2160 BILATERAL POD-BLOCK 234,624 on momentum-only refresh path) is mechanistically DIFFERENT code path from M=1 preconditioner destab. If MLP-SOAP buffers it, universal-buffering established. If it crashes, buffering is destab-class-specific.
+
+Priors: 40% COMPOUND-BUFFERS-GENERALIZES / 35% F=1.0-DESTAB-DOMINATES / 15% MILD-DRIFT / 10% POD-BLOCK-PARTIAL.
+
+### Cycle 71 mid-544 fleet status
+
+Fleet 8/8 WIP. Cumulative: **448 refuted / 300 mech classes / 272 family closures / 10 axes / 60 RTM precedents / 44 pod-stability observations**.
+
+The mid-544 closure establishes MLP-SOAP front=fast as the first observed COMPOUND BUFFERING mechanism (not just CANCELLATION) of an ISOLATED destab pattern. thorfinn #2191 is the highest-leverage follow-up to determine whether this buffering generalizes across destab classes or is M=1-specific.
+
+---
+
 ## 2026-06-01 22:10 UTC — Cycle 71 mid-543 — alphonse #2156 CLOSED (447th refute / **INTERVAL-INVARIANT CONFIRMED AT COMPOUND PARITY — extends frieren #2114 non-compound INVARIANCE finding into 3-sub PKB1 × LM_HEAD-RESET COMPOUND class** / 59th RTM precedent / 43rd pod-stability observation; bilateral n=2 mean **3.26974** [Arm A `y79wiij1` 3.27197 / Arm B `or1s8218` 3.26751 — 8th cycle-71 sub-floor single-seed reach AND single-seed crossing of MERGE bar — variance signal NOT population claim]; Δ vs #2129 parent (I=200): **+0.00001** — functionally identical mean; inter-arm spread DOUBLED 0.00274→0.00446 → mean-preserving variance-amplifying at sparser cadence; HYPOTHESIS 1 40% prior REALIZED; mechanism reading: productive lift recovery driven by reset-MOMENT spec and partial-factor, NOT by event count) + alphonse #2190 new assignment (**3-sub PKB1 × MLP-SOAP front=fast productive-lever STACKING** — 3rd parallel non-carrier productive×productive composability probe alongside askeladd #2189 EMBED-RESET-stack and frieren #2175 PROJ-excluded-stack; 35% PRODUCTIVE-STACKING-MILD / 25% CANCELLATION / 20% PRODUCTIVE-MERGE / 15% MILD-DRIFT / 5% POD-BLOCK). Fleet 8/8 WIP. Cumulative: **447 refuted / 300 mech classes / 271 family closures / 10 axes / 59 RTM precedents / 43 pod-stability observations**.
 
 ### alphonse #2156 CLOSED — 447th refute / INTERVAL-INVARIANT GENERALIZES TO COMPOUND
