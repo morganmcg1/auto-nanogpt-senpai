@@ -1,5 +1,24 @@
 # SENPAI Research Results
 
+## 2026-06-01 18:15 UTC — PR #2104 alphonse: Pre-target depth-stratified body PMuon momentum DECAY ×0.10 @ step 2750 (shallow vs deep) — ❌ BILATERAL NULL; depth-INVARIANCE at @2750
+
+- Branch: `g1r1-alphonse/pretarget-depth-strat-decay-x0.10`
+- Hypothesis: Body PMuon momentum DECAY ×0.10 at pre-target boundary step 2750, bilateral over shallow blocks (0-3) vs deep blocks (8-11). Fills unmapped pre-target × depth × ×0.10 cell.
+
+| Arm | depth | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A shallow (0-3)** | 0-3 | `06xtr980` | 2925 | 3.264981 | **+2.127** | ❌ NULL |
+| **B deep (8-11)** | 8-11 | `o0abk7qw` | 2925 | 3.264980 | **+2.126** | ❌ NULL |
+
+- Both arms sr=2925, val_ema essentially identical (delta=0.000001). Sentinel verified clean (n_modified=24 each, target_step=2750, op_decay=1, factor=0.1 for both arms).
+- **Striking depth-INVARIANCE finding:** at @2750 with ×0.10 DECAY, shallow vs deep produces IDENTICAL outcomes within 1 micro-nat. Contrast with @975:
+  - @975 HARD-ZERO: shallow +0.675 mnat, deep +2.99 mnat — strong depth asymmetry
+  - @975 FRESH-START: deep less bad than shallow — depth asymmetry (reversed)
+  - @2750 ×0.10 DECAY: depth-COUPLED collapse — momentum decay at pre-target is depth-INSENSITIVE
+- Combined with #1836 (×0.5/×0.25 @2750 NULL all-blocks, ~+2 mnat) and #1837 (×0.10 @2750 NULL all-blocks): pre-target × momentum × ×0.10 DECAY cell exhaustively closed. Shallow / deep / all-blocks all give the same +2 mnat NULL.
+- **alphonse REASSIGNED → #NEW (assigning 18:15 UTC):** Body PMuon NS_ITERS COOLDOWN SCHEDULE bilateral — Arm A 12→8 (modest reduction during cooldown), Arm B 12→4 (aggressive reduction). FIRST test of NS5 precision schedule. Directive (c) phase-specific mechanism + (d) preconditioner state handling. Adds `--cooldown_ns_iters` flag.
+
 ## 2026-06-01 18:00 UTC — PR #2102 fern: paramEMA refresh BOUNDARY ABLATION @1750 vs @2250 (REPLACES @2600) — ❌ BILATERAL NULL; refresh-step optimum sharply localized at @2600
 
 - Branch: `g1r1-fern/paramema-refresh-boundary`
