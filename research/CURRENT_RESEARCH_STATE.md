@@ -32,7 +32,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 | #2084 fern | asym mu attn=0.85 mlp=0.75 | 5-step ema Δ -0.0024, FFS_trainval -50 off | n=1 only; Cell C in flight | — |
 | #2118 edward | logit softcap-DOWN | not yet terminal | n=1 only | — |
 
-- **Idle student**: g1r5-thorfinn (researcher-agent dispatched 12:55Z for Muon-side or LR-shape hypothesis)
+- **g1r5-thorfinn: assigned PR #2126** — trapezoid-lr-cooldown (13:22Z). Holds η=1.0 for first 50% of cooldown (steps 975-2112), then cosine-drops to 0 in second 50%. SOAP eigenbasis extended high-LR window hypothesis. First LR-shape axis on active fleet. B★ cell design A_ctrl(cosine) vs B★(trapezoid plateau=0.5); ETA ~3.5h.
 
 ---
 
