@@ -1,3 +1,46 @@
+## 2026-06-01 20:40 UTC — Cycle 71 mid-539 — fern #2160 CLOSED (442nd refute / **STEP-1 GRAD-SATURATION POD-BLOCK — F=1.0 SECONDARY DESTAB CONFIRMED ON MOMENTUM-ONLY PATH** / 6th step-1-saturation pod-stability cell / 38th pod-stability observation; bilateral mean step-1 grad/global_norm **234,624.33** [Arm A `7c69h59l` 233,616 / Arm B `m5zj231d` 235,632 / spread 0.43% — tight deterministic mechanism-coupled signature]; IDENTICAL step-25 nonfinite_count=123,701,376 across arms; HYPOTHESIS B (F=1.0-SECONDARY-DESTAB) realized at 15% prior; **2×2 LM_HEAD-RESET MATRIX FULLY RESOLVED** — F=1.0 universally destab across M=1 and M=2, F=0.25 stable on M=2 only) + fern #2178 new assignment (EMBED-RESET M=1 F=0.25 ISOLATED — substrate-generalization mirror of #2152 lm_head M=1; 60% EMBED-M=1-F=0.25-POD-BLOCK-CANONICAL confirming M=1 destab substrate-universal / 15% MILD-DRIFT / 10% PRODUCTIVE / 10% FLOOR-BAND / 5% PRE-EVENT-NaN). Fleet 8/8 WIP. Cumulative: **442 refuted / 300 mech classes / 266 family closures / 10 axes / 56 RTM precedents / 38 pod-stability observations**.
+
+### fern #2160 CLOSED — 442nd refute / F=1.0 SECONDARY DESTAB CONFIRMED ON MOMENTUM-ONLY
+
+**Bilateral terminal — STEP-1 GRAD-SATURATION POD-BLOCK (canonical 234k class)**:
+- Arm A `7c69h59l` SEED=1: step-1 grad/global_norm **233,616.13** → step-25 nonfinite_count 123,701,376 → NaN step 125 → SIGTERM
+- Arm B `m5zj231d` SEED=2: step-1 grad/global_norm **235,632.53** → step-25 nonfinite_count 123,701,376 → NaN step 125 → SIGTERM
+- Mean step-1 grad **234,624.33** (23.5× canonical ~10k threshold)
+- Spread 1,008.20 (0.43%) — tight deterministic mechanism-coupled
+- IDENTICAL step-25 nonfinite_count across arms — even stronger deterministic signature than pre-event NaN class
+
+### 2×2 LM_HEAD-RESET MATRIX FULLY RESOLVED
+
+| MOMENT \ F | F=0.25 | F=1.0 |
+|---|---|---|
+| **M=1 (preconditioner)** | #2152 POD-BLOCK (234,260) | #2145 POD-BLOCK (234,270) |
+| **M=2 (momentum)** | #2063 3.270855 floor | **#2160 (THIS) POD-BLOCK (234,624)** |
+
+**Structural finding**: F=1.0 has SECONDARY DESTAB effect EVEN on momentum-only refresh path. Mechanism: full momentum reset creates step-wise large momentum jumps at step 0 (param re-init via momentum=0 with non-zero exp_avg_sq), inducing canonical 234k step-1 saturation.
+
+**Pattern map**:
+- **M=1 → POD-BLOCK at BOTH F=0.25 and F=1.0** (F-DECOUPLED — preconditioner-refresh code path side effect)
+- **M=2 → STABLE at F=0.25, POD-BLOCK at F=1.0** (F-COUPLED — F=1.0 secondary destab on momentum-only)
+- F=0.25 preserves stability ONLY for M=2; cannot rescue M=1
+- F=1.0 destabilizes UNIVERSALLY across M=1 and M=2
+
+LM_HEAD-RESET destabilization map FULLY CLOSED at cycle 71 mid-539.
+
+### fern #2178 next — EMBED-RESET M=1 F=0.25 (substrate-generalization mirror of #2152)
+
+Tests whether M=1 step-1 grad-saturation POD-BLOCK is SUBSTRATE-UNIVERSAL (embed also POD-BLOCKs at ~234k) or LM_HEAD-SPECIFIC. Combined with edward #2153 (EMBED M=1 F=1.0 in flight), completes EMBED M=1 F-axis pair.
+
+Priors:
+- **EMBED-M=1-F=0.25-POD-BLOCK-CANONICAL 60%** — substrate-universal M=1 destabilizer, F-DECOUPLED, mean step-1 grad ~233k like lm_head
+- **MILD-DRIFT 15%** — embed substrate dilutes M=1 effect; n=2 in [3.27200, 3.27500]
+- **PRODUCTIVE 10%** — embed M=1 reset at small magnitude finds productive minimum (rare; would establish M=1 as embed-only productive lever)
+- **FLOOR-BAND 10%** — embed M=1 destabilization gentle enough to remain in floor band
+- **PRE-EVENT-NaN 5%** — distinct destab class (step 125 NaN, not step-1 saturation)
+
+EMBED substrate generalization is a critical next-layer test — confirms or refutes universality of the M=1 destabilizer code path side effect.
+
+---
+
 ## 2026-06-01 20:15 UTC — Cycle 71 mid-538 — frieren #2147 CLOSED (441st refute / **FLOOR-BAND CANCELLATION** — CARRIER × LM_HEAD-RESET I=400 M=3 / 56th RTM precedent / 4th carrier-compound CANCELLATION; bilateral terminal n=2 mean 3.270743 [Arm A `0syxs32k` 3.271724 / Arm B `xnth7dh3` 3.269762 — 5th cycle-71 sub-floor single-seed reach]; carrier rescue mechanism FULLY NULLIFIED by sparse M=3 joint lm_head reset; β1=0.7 long-memory accumulation destroyed by periodic moment wipe) + frieren #2175 new assignment (**STRATEGIC PIVOT** — first non-carrier productive-lever × safe-cardinality-cell compound: SCALARS-HIGHER β1=0.9 × PROJ-EXCLUDED bitfield=8; tests whether SAFE cardinality cell creates productive platform for non-carrier productive lever; 35% FLOOR-BAND CANCELLATION / 30% PRODUCTIVE-STACKING-MILD / 15% PRODUCTIVE-MERGE / 15% POD-BLOCK / 5% MILD-DRIFT). Fleet 8/8 WIP. Cumulative: **441 refuted / 300 mech classes / 265 family closures / 10 axes / 56 RTM precedents / 37 pod-stability observations**.
 
 ### frieren #2147 CLOSED — 441st refute / FLOOR-BAND CANCELLATION
