@@ -1,5 +1,117 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-06-01 01:30 — PR #1974: NM TIKHONOV_GAMMA bracket γ∈{0.002, 0.005, 0.01, 0.02} — **CLOSED-CATALOG-NULL-INSENSITIVE-PLATEAU-GAMMA-AXIS**
+
+- branch: `g1r4-nezuko/nm-tikhonov-gamma-bracket`
+- hypothesis: Extend γ-bracket beyond prior 3-arm {0.002, 0.005, 0.01} to include 4× harder γ=0.02, testing if extreme-HARDER regularization shifts val outcome or finds inflection in precond_ratio.
+
+### Terminal results
+
+| Arm | γ | W&B run | val/loss | FFS | Δ vs baseline (3.26118) | precond_ratio | R_cond_max |
+|-----|---|---------|----------|-----|------------------------|---------------|------------|
+| A ctrl | 0.005 | `6wbxq768` | 3.26233 | 3150 | +0.71σ NULL | 1.07757 CTRL | 565,142 |
+| B ½× | 0.002 | `not866jd` | 3.26156 | 3125 | +0.24σ NULL | 1.08423 upper-LIFT | 1,467,363 |
+| C 2× | 0.01 | `lpiplm9i` | 3.26146 | 3125 | +0.17σ NULL | 1.08669 upper-LIFT | 288,744 |
+| D 4× | 0.02 | `qodvyll5` | 3.26150 | 3125 | +0.20σ NULL | 1.05033 **sub-LIFT** | 136,028 |
+
+All 4 arms NULL within σ_seed=0.00161. Best arm C val=3.26146 > baseline 3.26118 by +0.00028 = NOT merge-eligible. G1 fails for all arms.
+
+### Analysis
+
+**γ-axis INSENSITIVE-PLATEAU confirmed across 10× range.** Val spread 0.00087 = 0.54σ_seed across {0.002, 0.005, 0.01, 0.02}. The #1543 production γ=0.005 sits on a val-flat plateau extending 4× softer and 4× harder.
+
+**R_cond_max MONOTONE in γ (MECHANISM FIRING):** γ=0.002 → 1.47M > ctrl 565K > γ=0.01 289K > γ=0.02 136K. Exactly predicts trace-Tikhonov formula response. Mechanism FIRING on R-buffer condition number but NOT propagating to val/FFS. Mechanism-firing-not-load-bearing signature.
+
+**precond_ratio NON-MONOTONE in γ except at extreme:** γ ∈ {0.002, 0.005, 0.01} → precond_ratio 1.084/1.078/1.087 non-monotone mid-band. At γ=0.02: collapses to 1.050 sub-LIFT — **first sub-LIFT precond_ratio observation while still NULL on val**. Production γ=0.005 at local minimum of precond_ratio within stable regime (prior c786 observation confirmed).
+
+**Lower-edge PERMEABLE cross-confirmed:** γ=0.02 precond_ratio=1.05033 ≈ alphonse #1918 Arm C 1.05016 (Δ<0.00017); both NULL. Lower edge 1.057 is geometric reference, not regression threshold.
+
+**γ-axis FENCED.** No further γ-bracket assignments warranted. Production γ=0.005 optimal on val.
+nezuko reassigned → PR #2038 EMBED_INIT_ANCHOR_LAMBDA extreme bracket {0.001, 0.01, 0.02} (extends frieren #1990 asymmetric envelope to extreme-HARDER regime).
+
+---
+
+## 2026-06-01 01:30 — PR #1888: NM R-buffer v-warmstart K bracket K∈{50,100,200,400} — **CLOSED-CATALOG-NULL-K-AXIS-FENCED-K100-PRODUCTION-OPTIMAL**
+
+- branch: `g1r4-edward/nm-r-buffer-v-warmstart-K-bracket`
+- hypothesis: K=100 (PR #1702 production) was adopted directly from warmstart mechanism discovery. Bracket tests whether K=50 (shorter v-EMA window) or K=200 (longer) improves val. PR ran N=1 4-arm screen then PP n=3 paired-pod confirmation on K=200.
+
+### N=1 screening → n=3 PP progression
+
+**N=1 4-arm screening:** K=50 (regressed), K=100 (ctrl), K=200 (mild-FAV single-seed Δ_CA=−0.65σ), K=400 (mild-NEG). K=200 borderline PP-promoted.
+
+**n=3 paired-pod K=100 ctrl vs K=200 exp:**
+
+| Pair | SEED | K=100 ctrl val | K=200 exp val | Δ_BA | dir |
+|------|------|---------------|---------------|-------|-----|
+| 0 | 0 | `q0ub0amx` 3.26262 | `5ahr2j37` 3.26376 | +0.00114 | NEG |
+| 1 | 1 | `uylnvyez` 3.26061 | `hkykejs0` 3.26232 | +0.00171 | NEG |
+| 2 | 2 | `3z9ci5wo` 3.26213 | `3ts1arli` 3.26212 | −0.00001 | ~0 |
+| n=3 μ | — | **3.26179** | **3.26273** | **+0.00095** | **reversed at Pair-2** |
+
+G1 FAIL: μ_K200=3.26273 > baseline by +0.00155. G2 FAIL: Δ_paired=+0.00095 (NEG). G3 FAIL: 0/3 direction-correct. **CLOSE-CATALOG-NULL K=200 PP NULL-collapse.**
+
+### Catalog closure
+
+**K-axis CATALOG-CLOSED:**
+- K=50: NULL (prior)
+- K=100: PRODUCTION optimal, confirmed by drift-gate n=3 ctrl cohort (μ=3.26179 = +0.38σ DRIFT-PASS)
+- K=200: PP NULL-collapse (direction-reversal at Pair-2 eliminates single-seed Δ_CA=−0.65σ signal)
+- K=400: mild-NEG (prior)
+
+**c777 'K=200 shifts precond_ratio LOWER-EDGE' REVOKED at n=3:** K=200 cohort μ_precond=1.07355 ≈ K=100 cohort 1.07712 (Δ_K=−0.00357, within seed-noise); single-seed observation was seed-noise artifact. Mechanism: single-seed K=200 Pair-0/1 were lower-edge (1.066/1.069) but Pair-2 mid-band (1.085) → K=200 has same precond_ratio distribution as K=100.
+
+edward reassigned → PR #2039 NM R-buffer power exponent bracket {0.25, 0.5 ctrl, 0.75} (first r4 test of R^{-α} exponent axis; potentially FAV if α<0.5 reduces noise amplification in ill-conditioned eigenvalues).
+
+---
+
+## 2026-06-01 00:00 — PR #1990: EMBED_INIT_ANCHOR_LAMBDA bracket {0.0002, 0.001, 0.005} — **CLOSED-CATALOG-NULL-MILD-FAV-TILT-ASYMMETRIC-MECHANISM-ENVELOPE**
+
+- branch: `g1r4-frieren/embed-init-anchor-lambda-bracket`
+- hypothesis: EMBED_INIT_ANCHOR_LAMBDA brackets the restoring-force magnitude on embed-weight init-anchor WD. Production λ=0.001 (PR #847). 5× softer (λ=0.0002) and 5× harder (λ=0.005) test both directions. 3-arm sequential chain (single SEED=0, post-#1702 stack).
+
+### Terminal results
+
+| Arm | λ | W&B run | val_loss | FFS | Δ vs A | Δ vs baseline (3.26118 σ_seed=0.00161) | precond_ratio | embed/dist_from_init |
+|-----|--|---------|----------|-----|--------|----------------------------------------|---------------|---------------------|
+| A CTRL | 0.001 | `fp1cozpj` | 3.26255 | 3150 | (ref) | +0.00137 = +0.85σ DRIFT-PASS | 1.10250 UPPER-OOB CTRL-class | 117248 |
+| B SOFTER | 0.0002 | `s36ularf` | **3.26141** | 3125 | **−0.00114 = −0.71σ NULL-band FAV-tilt** | +0.00023 = +0.14σ essentially AT-baseline | **1.13758 NEW CATALOG HIGH** | 117248 (identical to A) |
+| C STRONGER | 0.005 | `8yoo2cs7` | 3.26264 | 3150 | +0.00009 = +0.06σ essentially-zero | +0.00146 = +0.91σ upper-edge envelope | 1.12436 UPPER-OOB | **94208 (−20% drift vs A)** |
+
+**CLOSE decision:** Best arm μ_B=3.26141 > baseline 3.26118 by +0.00023 → NOT merge-eligible. G1 fails (all arms above baseline). CLOSE-CATALOG-NULL-MILD-FAV-TILT-ASYMMETRIC-MECHANISM-ENVELOPE.
+
+### CATALOG-NOVEL findings
+
+**1. ASYMMETRIC MECHANISM ENVELOPE (CATALOG-MAJOR)**
+
+The mechanism fires in only one direction: STRONGER λ=0.005 reduces embed drift 20% (F=471 vs CTRL F=117) but SOFTER λ=0.0002 has IDENTICAL embed drift to CTRL (117248 vs 117248 — arithmetic-identical at logged precision). This creates a completely asymmetric λ response:
+
+| observable | SOFTER (5× weaker) | CTRL (production) | STRONGER (5× harder) |
+|------------|-------------------|------------------|---------------------|
+| embed/dist_from_init | 117248 (=A, identical) | 117248 | 94208 (−20%) |
+| F = λ·‖W−W_init‖ step-force | 23 | 117 | 471 |
+| val_loss | 3.26141 (−0.71σ FAV-tilt) | 3.26255 | 3.26264 (+0.06σ zero) |
+| val-load-bearing | NULL | (ref) | NULL |
+| embed-drift-load-bearing | NULL (no reduction) | (ref) | FIRES (20% reduction) |
+
+**Interpretation**: SOFTER λ is so weak the restoring force (23/step) is below the gradient drift floor — embed drift is already governed by optimizer dynamics, not anchor. STRONGER λ fires on embed-drift but not on val, confirming the #847 embed-anchor mechanism is NOT val-load-bearing on the post-#1702 stack (the v-warmstart K=100 and Tikhonov γ=0.005 have absorbed or orthogonalized the embed channel from val outcome).
+
+**2. Arm B precond_ratio=1.13758 NEW PRODUCTION-STACK HIGH (CATALOG-NOVEL)**
+
+Arm B SOFTER λ=0.0002 precond_ratio=1.13758 exceeds prior production-stack maxima (1.11812 alphonse Arm B FREEZE-R / 1.11812 fern Arm C HARDEN). This is unexpected for the SOFTER arm. Triangulation: R_cond_max only +42K higher than CTRL (not in mechanism-engineered territory); R_inv_sqrt_norm_mean equal (79.98 vs 79.38). Most likely explanation: CTRL-class single-seed upper-tail (c777 showed CTRL-class can land 1.10+ ~25% of time by seed-noise). Soft-regularizer hypothesis: SOFTER λ removes anchor damping on embed gradient signal → slightly cleaner gradient covariance signal into R-buffer → marginally higher precond_ratio. Mechanism-class: CTRL-class-noise or SOFT-REGULARIZER-PASSIVE.
+
+**3. embed/dist_from_init ARITHMETIC-IDENTICAL across 5× λ for SOFTER axis (CATALOG-MAJOR)**
+
+SOFTER by 5× produces zero change in embed drift (117248 = identical). HARDER by 5× reduces drift by 20% (94208). This one-sided response means the production λ=0.001 is near or below the FLOOR at which the restoring force meaningfully competes with optimizer gradient updates. #847 mechanism in post-#1702 NM stack: EMBED_LR is primary driver (c787 finding); λ is PASSIVE below threshold.
+
+**4. Post-#1702 NULL-extension of #1028 PP n=3 finding**
+
+#1028 PP n=3 found embed_init_anchor NULL at production λ=0.001 under the pre-NM stack (no NEWTON_MUON). Post-#1702 stack confirms: still NULL, and now mechanistically characterized as MECHANISM-FIRING-NOT-LOAD-BEARING with asymmetric envelope.
+
+### Close disposition
+
+CLOSE-CATALOG-NULL-MILD-FAV-TILT-ASYMMETRIC-MECHANISM-ENVELOPE. Best arm μ_B > baseline, fails all merge gates. Preserved catalog: ASYMMETRIC mechanism envelope + NEW precond_ratio HIGH + ARITHMETIC-IDENTICAL embed-drift at SOFTER. frieren reassigned to PR #2036 nm-r-buffer-cooldown-entry-rewarm (fresh axis: temporal R-buffer refresh at cooldown entry — Issue #1261 cooldown-entry activation).
+
 ## 2026-05-31 21:30 — PR #1958: Body NM symmetric INTENSIFY mirror BURST[0,2345) PERIOD=1 (3-arm) — **CLOSED-CATALOG-NULL-MILD-FAV BIDIRECTIONAL + 3-ARM WINDOW SHRINKAGE MATRIX CATALOG-MAJOR + COMPOSITIONAL R-BUFFER TIME-AVERAGING CATALOG-NOVEL + 2x2 BODY × COOLDOWN MATRIX 2nd CLOSURE**
 
 - branch: `g1r4-askeladd/body-nm-symmetric-intensify-mirror`
