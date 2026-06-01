@@ -9240,3 +9240,19 @@ Excellent early-kill execution by fern — saved ~3 hours of GPU on a structural
 | Baseline (PR #413) | 0.4 static | 2937.5 | 3.264278 | ref |
 
 **Verdict: CLOSED NULL (69th axis).** Arm B "less bad" than Arm A (softer whitening in cooldown is ~2× closer to baseline) but both regress. Cooldown-erosion pattern dominates. γ_power=0.4 static is well-tuned; ramping the whitening exponent during cooldown degrades update geometry. Student correctly identified: whitening precision is not a free knob during cooldown — it couples to the LR decay mechanism. Softward direction (γ<0.4) is slightly more permissive, consistent with #736 tanjiro's per-type γ pattern.
+
+## 2026-06-01 16:00 UTC — PR #2082 nezuko: Aux Adam β₁ TRANSIENT-INCREASE pulse @ step 975 — ❌ BILATERAL NULL; β₁ UP axis CLOSED
+
+- Branch: `g1r1-nezuko/aux-b1-pulse-up`
+- Hypothesis: Test the first-moment INCREASE direction (β₁ UP @ cooldown onset) — the mirror of the canonical β₂ WIN (#1532). Prior β₁ DOWN runs (#1592 β₁→0.7, #1639 β₁→0.6) were all NULL; #1819 JOINT β₁ pulse (UP/DOWN simultaneously on all groups) was NULL ≤0.95. Arm A (β₁→0.95) is weak-increase; Arm B (β₁→0.99) tests strong memory extension.
+
+| Arm | β₁ target | run | sr | val_ema | Δval mnat | Verdict |
+|---|---:|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | 0.95 (canonical) | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A β₁→0.95** | 0.95 | `nsqofbf2` | 2925 | 3.264997 | +2.14 | ❌ NULL |
+| **B β₁→0.99** | 0.99 | `toacsa15` | -1 | 3.290498 | +27.64 | ❌ NULL — CATASTROPHIC; target NEVER REACHED within 3250 steps |
+
+- **Key finding:** Aux Adam β₁→0.99 at step 975 causes CATASTROPHIC over-smoothing. The momentum estimator accumulates direction with an ~100-step memory window — at cooldown onset where gradients are changing rapidly (LR decay begins), this over-smooth direction lags the rapid curvature changes and blocks target crossing entirely.
+- **Mechanism contrast:** β₂ UP @975 is beneficial (stabilizes step scale entering LR decay); β₁ UP @975 is harmful (over-smoothes gradient direction). The two moments play asymmetric roles: β₂ governs STEP MAGNITUDE (variance estimator — more memory = more stable scaling), β₁ governs STEP DIRECTION (momentum estimator — more memory = more stale direction).
+- **Aux Adam β₁ axis FULLY CLOSED** across all directions: DOWN→0.7 (#1592 NULL), DOWN→0.6 (#1639 NULL), JOINT (#1819 NULL ≤0.95), UP→0.95 (this, NULL), UP→0.99 (this, catastrophic NULL).
+- **nezuko REASSIGNED → #2151:** Body PMuon `weight_decay` DEPTH-STRATIFIED — ASCENDING (shallow=0.0125/middle=0.025/deep=0.0375) vs DESCENDING (shallow=0.0375/middle=0.025/deep=0.0125). Pristine axis under directive (b) per-block optimizer behavior. Uniform wd=0.025 has never been depth-stratified despite per-block LR (late-higher) and per-block μ (#1788) both being tested. Zero compute overhead; single new `--body_muon_wd_pattern` flag.
