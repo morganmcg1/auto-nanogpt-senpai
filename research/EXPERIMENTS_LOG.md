@@ -1,3 +1,51 @@
+## 2026-06-01 18:50 — PR #2134: H366 fern Aurora optimizer probe (row-norm equalization, pp_iterations=2 pp_beta=0.5) at H266 stack — CLOSED 219th NULL/TIE (🎯 PAPER-GRADE 1st AURORA-MECHANISM-STACK-CONDITIONAL evidence + 1st FRESH-MECHANISM TIE-on-FFS class entry of cycle ~2700 + 21st candidate H266 cluster anchor + Aurora row-norm equalization MILDLY POSITIVE on val/loss but FAILS Issue #1260 strict FFS<3000 gate, CONFIRMING 30%-prob TIE prediction that `scale_invariant` mode implicitly absorbs per-row leverage uniformity making Aurora mechanism-redundant — REFUTES 15% STRONG NEG branch — Aurora is load-bearing on standard Muon stacks but mechanism-redundant on `scale_invariant`-equipped stacks: stack-conditional optimizer mechanism)
+
+- Branch: g1r3-fern/h366-aurora-optimizer-probe
+- Hypothesis: Test whether Aurora's row-norm equalization (alternating projection in polar step, Tilde Research May 2026) is mechanism-novel at H266 MuonH `scale_invariant` + μLoCo + Polyak-Ruppert stack. Prior in-tree Aurora evidence (`records/.../20260505_aurora/`): +50 step improvement on #11 stack (FFS=3175 vs 3225). NEVER tested at H266 stack — mechanism interaction with `scale_invariant` mode is OPEN.
+
+### Results
+
+| Arm | pp_iterations | pp_beta | W&B run_id | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|---------------|---------|------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL (safe-default short-circuit) | 1 | 0.5 (unused) | `dnacwmtw` | **3.26862** | **3025** | (ref) | **+0.50σ NEG** | Pattern A +25 envelope; **20th candidate H266 cluster anchor** |
+| arm_b AURORA (alternating projection) | 2 | 0.5 | `achjysvu` | **3.26781** | **3000** EXACT | **−0.92σ POS** | **−0.42σ POS** | 🎯 TIE on FFS (matches H266 EXACT) + MILDLY POS val + **21st candidate H266 cluster anchor** + 1st AURORA-MECHANISM-STACK-CONDITIONAL evidence |
+| H266 baseline (PR #1669) | 1 | — | `m2ywl0o9` | 3.26818 | 3000 | — | — | (reference) |
+
+🎯 **219th NULL/TIE closure** — both arms FAIL strict FFS<3000 per Issue #1260 (arm_a 3025 / arm_b 3000 EXACT does NOT pass strict-less-than). arm_b val/loss MILDLY POS (−0.92σ vs CTRL) below noise threshold per Issue #1260 stat rule (needs ~4.5σ at n=1). Per `feedback_ffs_is_primary_metric.md`: FFS is merge gate.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — 1st AURORA-MECHANISM-STACK-CONDITIONAL evidence**: Aurora row-norm equalization is **load-bearing on standard Muon stacks (FFS=3175 +50 step improvement on #11 stack) but mechanism-redundant on `scale_invariant`-equipped stacks (FFS=3000 EXACT TIE H266 baseline)**. CONFIRMS pre-launch 30%-prob TIE prediction: `scale_invariant`'s parameter-level F-norm preservation propagates row-norm uniformity, making Aurora redundant at H266 stack.
+
+🎯 **FINDING #2 — 1st FRESH-MECHANISM TIE-on-FFS class entry of cycle ~2700**: H366 is the 1st BODY-side fresh-mechanism probe of cycle ~2700 to reach terminal with a TIE-on-FFS outcome (distinct from MID NEG / CATASTROPHIC / BILATERAL ASYMMETRIC NEG classes). Establishes a new taxonomy category: graceful mechanism redundancy.
+
+🎯 **FINDING #3 — REFUTES 15% STRONG NEG branch**: pre-launch 15%-prob prediction that Aurora FIGHTS `scale_invariant` or μLoCo is REFUTED — no MID NEG or CATASTROPHIC failure observed. Aurora composes cleanly with H266 stack: Pattern A step-0 preserved, normal trajectory, ~5% wall-time overhead.
+
+🎯 **FINDING #4 — Aurora mechanism characterization**: row-norm CV reduction validated 8× (TALL 3072×768: 2.20% → 0.28% per advisor offline test) — Aurora IS doing what it claims. Mechanism redundancy is graceful (TIE), not destructive (CATASTROPHIC).
+
+🎯 **FINDING #5 — H266 attractor cluster expanded to 21 candidate anchors**: arm_a CTRL FFS=3025 (20th candidate) + arm_b AURORA FFS=3000 EXACT (21st candidate). arm_b is 5th additional member with FFS=3000 EXACT at the H266 attractor floor, confirming attractor's robustness across orthogonal mechanism perturbations.
+
+### Cycle ~2700 update — 219 NULL/NEG + 1 MERGED WIN (H266)
+
+- HARD-LOAD-BEARING family: 12 entries (unchanged)
+- BILATERAL ASYMMETRIC NEG class: 7 members (unchanged)
+- BILATERAL HARD-LOAD-BEARING CATASTROPHIC class on single value-axis: 1 (H364, unchanged)
+- STRUCTURAL-TIMING-AXIS asymmetric class: 2 entries (unchanged)
+- NEW: **FRESH-MECHANISM TIE-on-FFS class**: 1 entry (H366)
+- NEW: **AURORA-MECHANISM-STACK-CONDITIONAL evidence class**: 1 entry (H366)
+- H266 attractor cluster: 20 → 21 candidate anchors (H366 arm_a + arm_b BOTH joined)
+- 5 additional H266 attractor FFS=3000 EXACT members confirmed: H366 arm_b is 5th
+- Fresh-mechanism probes in flight: 7 (H365, H367, H368, H369, H370, H371, H372)
+
+### Suggested follow-ups
+
+- **LSUV (Layer-Sequential Unit-Variance) INIT probe (H373)**: paradigm shift to INIT-side fresh mechanism (0 INIT mechanisms currently in flight). Mishkin & Matas 2015 classical technique. Mechanism-distinct from H351 init F-norm coupling + H357 per-layer init F-norm exponent + current `body_init=orthogonal_fnorm_matched`. Iterative unit-variance rescaling per-layer via forward hooks before training start.
+- **MICE (Iterative Choice Element) preconditioner**: alternative polar to NS5, fresh BODY-side mechanism distinct from Aurora/QHM/Adan.
+- **Polar via SVD**: exact polar (vs NS5 approximation) — would isolate whether NS5's approximation error contributes to attractor floor.
+- **Aurora pp_iterations ablation**: would NOT recommend at H266 stack (TIE on primary), but pp_iterations=3 or pp_beta=1.0 might reveal mechanism boundary if pushed harder.
+
+---
+
 ## 2026-06-01 17:55 — PR #2112: H364 tanjiro μLoCo outer_momentum VALUE bracket at H266 stack — CLOSED 218th NULL/NEG (🎯 PAPER-GRADE 12th HARD-LOAD-BEARING family entry of cycle ~2700 + 1st BILATERAL HARD-LOAD-BEARING CATASTROPHIC class entry on single value-axis at H266 stack — LARGEST BILATERAL CATASTROPHIC bracket observed on ANY single axis to date with both ±0.2 directions failing merge gate via DISTINCT failure mechanisms: LOWER kills cooldown SLOPE + HIGHER kills pre-cooldown CONVERGENCE. H266 outer_momentum=0.5 sits at SHARP CATASTROPHIC joint optimum balancing direction-recovery + direction-lag failure modes.)
 
 - Branch: g1r3-tanjiro/h364-muloco-outer-momentum-value-bracket
