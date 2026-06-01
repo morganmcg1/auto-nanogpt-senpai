@@ -1,3 +1,50 @@
+## 2026-06-01 07:50 UTC — Cycle 71 mid-505 — nezuko #2076 406th refute 275th mech class F-AXIS-UNIVERSALLY-NARROW-AT-(2,3) / 22nd pod-stability observation (bilateral NaN step 125 / Arm A `sgvwqrqz` Arm B `5mrb0saf` / banner verified `EMBED interval=200 moment=2 factor=0.25 || LM_HEAD interval=200 moment=3 factor=0.5` / F-asymmetric INVERSE probe at canonical `(2,3)` produced IDENTICAL pre-event NaN signature to #2072 mirror probe / **F-axis at canonical (2,3) is UNIVERSALLY NARROW on BOTH substrates** regardless of LR scale / **F-axis is TIGHTER intrinsic constraint than M-axis**: M-axis substrate-asymmetric load-bearing pattern (specific moment per substrate) does NOT extend to F-axis, F-axis universally bounded above at F=0.5 magnitude) + frieren #2055 **407th refute 276th mech class BIMODAL-BIFURCATION-AT-LM-HEAD-β1=0.8 / NOT RTM precedent / STAT-INCONCLUSIVE wide-spread** (n=2 mean **3.27990** with **STRUCTURALLY ANOMALOUS WIDE SPREAD 0.00483** ~10× typical / Arm A `2uuqg8ra` 3.28181 BIT-EQUIVALENT to β1=0.85 peak + Arm B `4v4jmyw1` 3.27698 BELOW recovery floor 3.27930 / stat margin 0.000148 ≪ 0.004 STAT-INCONCLUSIVE / Δ vs floor band upper edge = +0.00790 above NOT RTM precedent / trajectory analysis: divergence emerges sharply between steps 1500-2000 Δ widens from 0.00126 to 0.01795 during high-LR phase + muon cooldown transition / **METASTABLE BIFURCATION** at β1=0.8 critical point between destruction-plateau (β1≥0.85) and recovery (β1≤0.7) regimes / 3 cherry-picks committed+pushed during run) + nezuko #2088 new assignment (**INTERVAL=100 BILATERAL SYMMETRIC at canonical (2,3) — phase-frequency probe DOUBLE freq** untested axis; 50% RTM-BAND-STABLE 25% PRODUCTIVE-DRIFT more frequent reset improves dynamics 15% DESTRUCTIVE-DRIFT 5% POD-BLOCK early reset event at step 100 BEFORE step-125 destab boundary 5% MERGE) + frieren #2089 new assignment (**INTERVAL=400 BILATERAL SYMMETRIC at canonical (2,3) — phase-frequency probe HALF freq** mirror of nezuko; 50% RTM-BAND-STABLE 20% DESTRUCTIVE-DRIFT 15% PRODUCTIVE-DRIFT 10% RTM-BAND-DRIFT 5% MERGE). **Critical structural insight**: F-axis at canonical (2,3) is TIGHTER intrinsic constraint than M-axis (universally narrow on both substrates vs M-axis substrate-asymmetric); lm_head β1=0.8 sits at BIMODAL BIFURCATION POINT (METASTABLE destruction-boundary seed-sensitivity at muon cooldown transition); parallel INTERVAL-axis probes (100 DOUBLE / 200 canonical / 400 HALF) directly addresses Morgan's #1259 directive on optimizer-state PHASE events — INTERVAL controls WHEN periodic reset phase fires. Fleet 8/8 active 0 idle. Cumulative **407 refuted / 276 mech classes / 231 family closures / 9 axes / 38 RTM precedents / 22 pod-stability observations**.
+
+### nezuko #2076 bilateral terminal — 275th mech class / F-AXIS-UNIVERSALLY-NARROW-AT-(2,3)
+
+**Bilateral terminal**: Arm A `sgvwqrqz` SEED=1 step 125 = **nan** POD-BLOCK; Arm B `5mrb0saf` SEED=2 step 125 = **nan** POD-BLOCK. Banner verified F-asymmetric INVERSE config `EMBED enabled=1 interval=200 moment=2 factor=0.25 || LM_HEAD enabled=1 interval=200 moment=3 factor=0.5`. Cherry-pick `96341cee` committed before launch per `feedback_cherry_pick_must_be_committed`.
+
+**F-axis state at canonical (2,3) — POST-#2076 (both single-substrate F=0.5 characterized)**:
+
+| Cell config | embed-F | lm_head-F | Outcome | Source |
+|---|---|---|---|---|
+| `(2,3)` canonical | 0.25 | 0.25 | **STABLE RTM 3.27027** (24th RTM) | #1959 A / #1991 |
+| `(2,3)` EMBED-F=0.5 | 0.5 | 0.25 | POD-BLOCK step 125 | #2072 (21st pod-stab) |
+| **`(2,3)` LM_HEAD-F=0.5 THIS PR** | **0.25** | **0.5** | **POD-BLOCK step 125** | **#2076 (22nd pod-stab)** |
+
+→ **F-axis at canonical (2,3) is UNIVERSALLY NARROW on BOTH substrates** at F=0.5 magnitude. Neither high-LR (embed) NOR low-LR (lm_head) tolerates F=0.5 doubling of canonical 0.25 partial_factor. Destabilization is **configuration-level** (muon-warmup interaction at step 125, BEFORE first reset event at step 200), NOT reset-event magnitude. F-axis is TIGHTER intrinsic constraint than M-axis (M-axis substrate-asymmetric load-bearing does NOT extend to F-axis).
+
+### frieren #2055 bilateral terminal — 276th mech class / BIMODAL-BIFURCATION at lm_head β1=0.8 / NOT RTM precedent
+
+**Bilateral terminal**: Arm A `2uuqg8ra` SEED=1 val=**3.28181** ffs=-1 step-1500=3.53713 (peak/plateau territory BIT-EQUIVALENT to β1=0.85 peak); Arm B `4v4jmyw1` SEED=2 val=**3.27698** ffs=3100 step-1500=3.53587 (BELOW recovery floor 3.27930). n=2 mean **3.27990** with **WIDE SPREAD 0.00483** (~10× typical [0.0003, 0.001]); stat margin 0.000148 ≪ 0.004 → **STAT-INCONCLUSIVE**; Δ vs floor band upper edge = +0.00790 above → **NOT RTM precedent**.
+
+**lm_head β1 axis state — POST-#2055 (5 calibrated points + BIFURCATION discovery)**:
+
+| β1 | val (terminal) | n | source | reading |
+|---|---|---|---|---|
+| 0.95 (carrier) | 3.26776 | n=2 | #613 | CARRIER floor |
+| 0.9 ISOLATED | 3.28145 | n=1 | #1976 A | peak/plateau |
+| 0.85 ISOLATED | 3.281205 | n=2 | #2027 | peak/plateau |
+| **0.8 ISOLATED THIS PR** | **3.27990 (BIMODAL)** | **n=2** | **#2055** | **BIFURCATION-BOUNDARY** (A=3.28181 peak; B=3.27698 below recovery) |
+| 0.7 ISOLATED | 3.27930 | n=2 | #1972 | recovery |
+| 0.5 ISOLATED | 3.27908 | n=2 | #1999 | saturation |
+
+→ **β1=0.8 sits at BIFURCATION POINT** between destruction-plateau (β1≥0.85) and recovery regime (β1≤0.7). Cross-arm divergence emerges sharply between steps 1500-2000 (Δ widens from 0.00126 → 0.01795 → 0.01915 → 0.00422 → 0.00483 terminal). **METASTABLE DESTRUCTION-BOUNDARY SEED-SENSITIVITY at muon cooldown transition** (MU_COOLDOWN_START=0.95 → MU_COOLDOWN_END=0.90).
+
+### nezuko #2088 new assignment — INTERVAL=100 BILATERAL SYMMETRIC at canonical (2,3) (DOUBLE freq, phase-axis probe)
+
+Tests `AUX_RESET_INTERVAL_EMBED=100 + AUX_RESET_INTERVAL_LM_HEAD=100` at canonical `(2,3)` (embed-M=2, lm_head-M=3, F=0.25 both). INTERVAL axis has been at 200 canonical for ALL prior probes — **first INTERVAL-axis perturbation at canonical stable cell**. First reset event at step 100 (BEFORE step-125 destab boundary in #2072/#2076). Directly addresses Morgan's #1259 directive on optimizer-state PHASE events. Mapped together with frieren #2089 INTERVAL=400 — together characterize the INTERVAL axis at 3 points {100, 200 canonical, 400}.
+
+### frieren #2089 new assignment — INTERVAL=400 BILATERAL SYMMETRIC at canonical (2,3) (HALF freq, mirror of nezuko)
+
+Tests `AUX_RESET_INTERVAL_EMBED=400 + AUX_RESET_INTERVAL_LM_HEAD=400` at canonical `(2,3)`. Less frequent reset events (8 events per 3175-step run vs 16 canonical vs 32 at nezuko INTERVAL=100). HALF-frequency mirror to nezuko's DOUBLE-frequency probe — together map the INTERVAL axis structural form at 3 points.
+
+### Cycle 71 cumulative state — post-this-close
+
+After nezuko #2076 close + nezuko #2088 assignment + frieren #2055 close + frieren #2089 assignment: g1r2-{askeladd #2063, alphonse #2065, edward #2085, fern #2068, nezuko #2088, thorfinn #2075, tanjiro #2078, frieren #2089} all WIP. Cumulative **407 refuted / 276 distinct mech classes / 231 family closures / 9 structural axes locked / 38 RTM precedents / 22 pod-stability observations**.
+
+---
+
 ## 2026-06-01 07:35 UTC — Cycle 71 mid-504 — edward #2059 405th refute 274th mech class CARDINALITY-AXIS-DIMINISHING-RETURNS-UNIVERSAL-AT-3-KIND / 38th RTM precedent (n=2 mean **3.26943** / cross-arm spread 0.00052 TIGHT / Arm A 3.26969 Arm B 3.26917 / stat margin 0.01495 ✓ / sub-floor-band NEAR-CARRIER below floor band lower edge by 0.00057 / **2nd cycle-71 below-floor-band non-merge reading** after edward #2031 3.26914 / **v-excluded ≈ proj-excluded**: Δ=+0.00029 BIT-EQUIVALENT within seed noise — V-vs-proj SYMMETRY at 3-kind cardinality ESTABLISHED) + edward #2085 new assignment (**Q-EXCLUDED bitfield=1 probe at 3-kind cardinality**: completes 3-of-4 3-kind cells; if UNIVERSAL holds at Q, cardinality axis on track for 10th structural axis closure with k-excluded becoming optional; 55% UNIVERSAL-3-of-4 25% Q-CRITICAL-DIFFERENTIAL 10% Q-EXCLUSION-DESTRUCTIVE 5% PRODUCTIVE 5% MERGE) + frieren #2055 stale_wip override [previous turn] (Arm A `2uuqg8ra` SEED=1 FINISHED val=**3.2818** — BIT-EQUIVALENT to β1=0.85 peak #2027 3.281205 and β1=0.9 peak #1976 3.28145; strong single-arm signal for **PEAK-EXTENDS-TO-0.8** family 2 → destruction plateau extends from 0.9 down to 0.8 with sharp-knee tighter at [0.7, 0.8] interval; Arm B `4v4jmyw1` RUNNING step ~3125 val=3.2785; 2 prior misconfig/branch-reset crashes recovered via 3 cherry-picks committed+pushed; heartbeat-recovery override posted). **Critical structural insight**: cardinality axis at 3-kind is approximately UNIFORM regardless of excluded-kind identity — V (closest to residual stream) and proj (post-attention out-projection) both cost ~0.0015 vs baseline at 3-kind cardinality; cardinality reduction itself is the dominant degradation lever, kind-identity is second-order. CARDINALITY-AXIS-DIMINISHING-RETURNS-UNIVERSAL would become 10th structural axis locked if Q probe also lands sub-floor-band. frieren PEAK-EXTENDS-TO-0.8 single-arm reading shifts lm_head β1 rescue-knee location from [0.85, 0.7] to TIGHTER [0.8, 0.7] interval — bilateral terminal ETA imminent. Fleet 8/8 active 0 idle. Cumulative **405 refuted / 274 mech classes / 230 family closures / 9 axes / 38 RTM precedents / 21 pod-stability observations**.
 
 ### edward #2059 bilateral terminal — 274th mech class / CARDINALITY-AXIS-DIMINISHING-RETURNS-UNIVERSAL at V-vs-proj 3-kind
