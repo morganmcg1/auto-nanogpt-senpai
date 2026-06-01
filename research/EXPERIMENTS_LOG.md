@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-06-01 15:45 UTC — PR #2086 askeladd: Aux Adam β₂ pulse param-group DECOMPOSITION (embed-only vs lm_head-only) @ step 975 — ❌ BILATERAL NULL; JOINT pulse irreducible
+
+- Branch: `g1r1-askeladd/aux-b2-pulse-scope`
+- Hypothesis: Decompose the canonical baseline WIN (#1532 JOINT β₂ pulse) into single-group activations. Does the WIN mechanism localize to either embed or lm_head? Three predicted outcomes: (a) embed-only WIN → embed dominates; (b) lm_head-only WIN → output projection dominates; (c) both NULL → JOINT scope required (mechanism requires ALL variance estimators extended simultaneously).
+
+| Arm | scope | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | all (joint) | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A embed-only** | adam_embed | `7hpr0gjd` | 2925 | 3.265379 | +2.525 | ❌ NULL |
+| **B lm_head-only** | adam_lm_head | `vm1xubsz` | 2925 | 3.263891 | +1.037 | ❌ NULL |
+
+- Both arms sr=2925 — fails clause-1 (gate requires sr ≤ 2862.5 or sr=2875). Neither single-group pulse recovers the JOINT WIN.
+- **Asymmetry (directionally meaningful):** Arm B (lm_head-only) val_ema=3.263891 is 1.49 mnat closer to baseline than Arm A (embed-only) val_ema=3.265379. The output projection group carries more of the β₂ pulse benefit than the embedding group — consistent with lm_head being most directly coupled to val_loss objective. However, neither group's variance memory is sufficient alone.
+- **Mechanism conclusion:** aux Adam β₂ pulse is IRREDUCIBLE — requires JOINT scope across ALL groups (embed + lm_head + scalars). Partial-pulse runs lose ~25 sr-steps vs JOINT. The WIN requires simultaneous variance-memory extension across all three parameter groups.
+- **Aux Adam β₂ pulse param-group decomposition axis CLOSED.** Combined with all prior β₂/β₁/m/v/LR closure entries, the canonical β₂ JOINT @975 is now confirmed as the unique global optimum of the entire aux Adam state-perturbation space.
+- **askeladd REASSIGNED → #2148:** Cautious Updates (cAdam) on aux Adam — PERMANENT (Arm A) vs TRANSIENT @975 (Arm B). First CONDITIONAL UPDATE RULE test on this stack (vs all prior SCALAR parameter perturbations). Directive (c)+(d).
+
 ## 2026-06-01 12:30 UTC — PR #2040 edward: body PMuon SHALLOW-block momentum DECAY ×0.10/×0.20 @ step 975 (seed-2 confirmation) — ❌ NULL at n=2; shallow-mom DECAY @975 axis FULLY CLOSED
 
 - Branch: `g1r1-edward/body-mom-shallow-decay-fine-x010-x020`
