@@ -2,103 +2,112 @@
 student: g1r1-frieren
 branch: auto-nanogpt-1gpu-r1
 assigned: 2026-06-01 18:25 UTC
+revised: 2026-06-01 19:30 UTC (corrected baseline description after student caught error)
 directive_alignment: (e) schedules that steepen loss descent before step 2925
 ---
 
-# Hypothesis: paramEMA β-target RAMP SHAPE bilateral — LINEAR vs COSINE (vs baseline STEP)
+# Hypothesis: paramEMA β-target RAMP SHAPE bilateral — LR-DECOUPLED LINEAR vs LR-DECOUPLED COSINE (vs LR-COUPLED baseline)
 
-## Background
+## Background (CORRECTED)
 
-PR #2105 (just closed, bilateral NULL) tested WHEN the β transition activates (ema_warmup_steps @1250 vs @2250 vs baseline @1750). Both alternatives are NULL — the warmup_step optimum is a sharp local maximum at @1750.
+The actual baseline `compute_ema_beta_t` at `records/track_3_optimization/train_gpt_simple.py` line 875 computes β as an **LR-coupled smooth ramp**, NOT a step function:
 
-The CLOSED #2105 axis asks "when does β start moving toward 0.99?" The PRISTINE #2??? axis asks: "**once it starts moving at step 1750, HOW does it interpolate from 0.97 to 0.99?**"
+```python
+beta_t = args.ema_beta + (args.ema_beta_target - args.ema_beta) * (1.0 - lr_mult)
+```
 
-Currently, the β schedule is a **STEP FUNCTION**:
-- β = 0.97 for all steps 0 to 1749 (inclusive)
-- β = 0.99 for all steps 1750 to 3250 (inclusive)
+With `COOLDOWN_POWER=1.4` and `cooldown_frac=0.7`, the baseline β trajectory is:
+- Step 0-974: lr_mult=1.0 → β_t=0.97 (EMA buffer tracks live params per `--ema_warmup_steps 1750`)
+- Step 1750 (EMA activation): lr_mult ≈ 0.566 → β_t ≈ 0.9787 (already partway up the ramp)
+- Step 3250: lr_mult=0 → β_t=0.99
 
-This instantaneous jump means the EMA immediately shifts from "fast" (decays at 3% per step) to "slow" (decays at 1% per step) — a sharp 3× slowdown in tracking speed. A **smooth ramp** would gradually decelerate the EMA tracking speed over [1750, 2600], giving the model time to adapt to the slowing EMA rather than experiencing an abrupt discontinuity.
+The EMA at step 1750 boots up with β ≈ 0.979 (NOT 0.97). The baseline shape is a power-law-shaped ramp following `1 - (1 - cooldown_progress)^1.4`.
 
-The paramEMA β ramp SHAPE has **never been tested**. The baseline step function is an implicit choice that hasn't been challenged.
+PR #2105 (just closed, bilateral NULL) tested WHEN the EMA activates (warmup_step @1250 vs @2250 vs baseline @1750). Both alternatives are NULL — the warmup_step optimum is a sharp local maximum at @1750.
+
+The CLOSED #2105 axis asks "when does the EMA activate?" The PRISTINE axis here asks: "**once the EMA activates at step 1750, what SHAPE should β follow from 0.97 → 0.99?**"
+
+The LR-coupling of β to the LR cooldown power-law is an **implicit design choice that has never been challenged**. Alternative shapes that preserve the same endpoints {β(1750)=0.97, β(3250)=0.99} but use a different functional form (linear, cosine) might steepen descent before step 2925 if the LR-coupled shape isn't optimal.
 
 ## Hypothesis
 
-The abrupt step in β at step 1750 may be suboptimal:
-- A **linear ramp** from 0.97 to 0.99 over [1750, 2600] gives a smooth, uniform deceleration — keeps EMA tracking "somewhat fast" throughout mid-cooldown, gradually slowing to baseline speed at the canonical refresh boundary.
-- A **cosine ramp** over [1750, 2600] gives a slow-fast-slow deceleration (S-shaped) — holds β near 0.97 (fast tracking) a bit longer at the start, then rolls to 0.99 before the refresh.
-- A **bilateral NULL** closes the ramp-shape axis and confirms the step function is robust.
-
-Each ramp shape preserves the boundary conditions β(1750) = 0.97 and β(≥2600) = 0.99, making this a clean shape comparison without changing the endpoints.
+If the LR-coupling IS load-bearing → linear/cosine should underperform baseline.
+If LR-coupling is incidental → linear/cosine reach equivalent or better val_ema.
+If the LR-coupled "fast-forward" start (β ≈ 0.979 at activation) is suboptimal → linear/cosine (which start at β=0.97 with fast tracking) outperform.
 
 ## Implementation
 
 **Add a single CLI flag**:
 
 ```python
-parser.add_argument('--ema_beta_ramp_shape', type=str, default='step',
-                    choices=['step', 'linear', 'cosine'],
-                    help='Shape of paramEMA beta schedule from ema_beta (0.97) to ema_beta_target (0.99) '
-                         'over the window [ema_warmup_steps, 2600]. '
-                         '"step" = instantaneous jump at ema_warmup_steps (baseline). '
-                         '"linear" = linear interpolation over [ema_warmup_steps, 2600]. '
-                         '"cosine" = cosine interpolation over same window.')
+parser.add_argument('--ema_beta_ramp_shape', type=str, default='lr_coupled',
+                    choices=['lr_coupled', 'linear', 'cosine'],
+                    help='Shape of paramEMA beta schedule from ema_beta (0.97) to '
+                         'ema_beta_target (0.99). Active over [ema_warmup_steps, train_steps]. '
+                         '"lr_coupled" = baseline behavior (beta tracks 1-lr_mult, power-law shape). '
+                         '"linear" = linear interpolation in step. '
+                         '"cosine" = cosine interpolation in step.')
 ```
 
-**Modify the β update** (wherever the current β schedule is computed each step, typically near the EMA update):
+**Modify `compute_ema_beta_t`** to branch on shape:
 
 ```python
-# Current logic (step function):
-# if step >= args.ema_warmup_steps:
-#     current_beta = args.ema_beta_target  # 0.99
-# else:
-#     current_beta = args.ema_beta         # 0.97
+def compute_ema_beta_t(step):
+    if args.ema_beta <= 0:
+        return 1.0
+    if args.ema_beta_target is None:
+        return args.ema_beta
 
-# New logic:
-RAMP_START = args.ema_warmup_steps      # 1750
-RAMP_END = args.paramema_refresh_step   # 2600 (canonical refresh boundary)
-beta_start = args.ema_beta              # 0.97
-beta_end = args.ema_beta_target         # 0.99
+    beta_base = args.ema_beta            # 0.97
+    beta_target = args.ema_beta_target   # 0.99
+    lo = min(beta_base, beta_target)
+    hi = max(beta_base, beta_target)
 
-if args.ema_beta_ramp_shape == 'step' or step < RAMP_START:
-    current_beta = beta_end if step >= RAMP_START else beta_start
-elif args.ema_beta_ramp_shape == 'linear':
+    if args.ema_beta_ramp_shape == 'lr_coupled':
+        # EXISTING BASELINE BEHAVIOR — preserved bit-exactly
+        lr_mult = compute_lr_mult(step)
+        beta_t = beta_base + (beta_target - beta_base) * (1.0 - lr_mult)
+        return max(lo, min(hi, beta_t))
+
+    RAMP_START = args.ema_warmup_steps    # 1750
+    RAMP_END = train_steps                # 3250
+
+    if step <= RAMP_START:
+        return beta_base
     if step >= RAMP_END:
-        current_beta = beta_end
-    else:
-        t = (step - RAMP_START) / (RAMP_END - RAMP_START)  # in [0, 1]
-        current_beta = beta_start + (beta_end - beta_start) * t
-elif args.ema_beta_ramp_shape == 'cosine':
-    if step >= RAMP_END:
-        current_beta = beta_end
-    else:
+        return beta_target
+
+    t = (step - RAMP_START) / (RAMP_END - RAMP_START)  # in [0, 1]
+
+    if args.ema_beta_ramp_shape == 'linear':
+        beta_t = beta_base + (beta_target - beta_base) * t
+    elif args.ema_beta_ramp_shape == 'cosine':
         import math
-        t = (step - RAMP_START) / (RAMP_END - RAMP_START)  # in [0, 1]
-        current_beta = beta_start + (beta_end - beta_start) * (1 - math.cos(math.pi * t)) / 2
+        beta_t = beta_base + (beta_target - beta_base) * (1 - math.cos(math.pi * t)) / 2
+
+    return max(lo, min(hi, beta_t))
 ```
 
-**Note**: `args.paramema_refresh_step` (default 2600) is used as the natural ramp end because it's the canonical phase boundary that everything synchronizes with. If `paramema_refresh_step` is changed, the ramp window shifts accordingly — this is the correct behavior.
+**CRITICAL**: `--ema_beta_ramp_shape lr_coupled` MUST reproduce the baseline trajectory bit-exactly. Verify with a smoke test (loss at first 50 steps matches baseline).
 
-**Sentinel logging at step 1750 (RAMP_START)**:
+**Sentinel logging at step 1750**:
 ```python
-if step == RAMP_START:
-    print(f"[step {step}] beta_ramp_shape={args.ema_beta_ramp_shape}: beta at this step={current_beta:.5f}")
+if step == args.ema_warmup_steps:
+    print(f"[step {step}] beta_ramp_shape={args.ema_beta_ramp_shape}: beta_t={compute_ema_beta_t(step):.5f}")
     if wandb.run:
         wandb.log({"optim/ema_beta_ramp_shape": args.ema_beta_ramp_shape,
-                   "optim/ema_beta_at_warmup_start": current_beta}, step=step)
+                   "optim/ema_beta_at_warmup_start": compute_ema_beta_t(step)}, step=step)
 ```
 
-Also log `optim/ema_beta` as a constant at each checkpoint-relevant step (or at a sample cadence) so the ramp trajectory is visible in W&B:
-```python
-# In the per-step logging block (wherever train/loss is logged):
-if wandb.run and step % 50 == 0:
-    wandb.log({"optim/ema_beta_current": current_beta}, step=step)
-```
-
-**CRITICAL**: Verify `--ema_beta_ramp_shape step` reproduces the baseline trajectory exactly (same losses at steps 0-3250).
+Also log `optim/ema_beta_current` at every step (or every 50 steps) so the ramp trajectory is visible in W&B.
 
 ## Arms
 
-### Arm A — LINEAR ramp (0.97 → 0.99 over [1750, 2600])
+### Arm A — LR-DECOUPLED LINEAR ramp [1750, 3250]
+
+At step 1750: β_t = 0.97 (vs baseline's 0.979 — slower tracking initially)
+At step 2500: β_t = 0.98 (vs baseline's ~0.987)
+At step 3250: β_t = 0.99 (same as baseline)
 
 ```bash
 uv run records/track_3_optimization/train_gpt_simple.py \
@@ -111,7 +120,11 @@ uv run records/track_3_optimization/train_gpt_simple.py \
   --wandb_name g1r1-frieren/paramema-beta-linear-arm-a
 ```
 
-### Arm B — COSINE ramp (0.97 → 0.99 over [1750, 2600])
+### Arm B — LR-DECOUPLED COSINE ramp [1750, 3250]
+
+At step 1750: β_t = 0.97 (same as linear at start)
+Mid-window: β_t accelerates faster than linear (1-cos curve is convex)
+At step 3250: β_t = 0.99 (same endpoint)
 
 ```bash
 uv run records/track_3_optimization/train_gpt_simple.py \
@@ -128,22 +141,27 @@ uv run records/track_3_optimization/train_gpt_simple.py \
 
 `sr ≤ 2862.5 OR (sr=2875 AND val_ema < 3.262854)`
 
-Baseline #1532: n=2 mean sr=2875, val_ema=3.262854 (uses `ema_beta_ramp_shape=step`).
+Baseline #1532: n=2 mean sr=2875, val_ema=3.262854 (uses LR-coupled β).
 
 ## Expected outcomes
 
-- **WIN (either arm):** β ramp SHAPE IS load-bearing. A smooth transition avoids the abrupt tracking-speed discontinuity at step 1750, improving EMA quality during [1750, 2600]. Most paper-narrative-grade finding: "the EMA update schedule shape during the paramEMA accumulation window matters." Follow-up: test the winning shape at different ramp widths.
-- **Partial (one arm better):** One shape more favorably interacts with the cosine LR decay and pEMA refresh dynamics. Follow-up: explore hybrid shapes.
-- **NULL (both arms):** Step function is robust — the EMA doesn't care about smooth vs abrupt β transition. Closes the β-ramp-shape axis. Combined with warmup_step (#2105) and refresh_step (#2102) both NULL, the paramEMA schedule TIMING and SHAPE parameters are confirmed as robust defaults.
+- **Arm A WIN (linear):** LR-decoupling AND/OR slower β start helps. Follow-up: bracket window endpoint (e.g., linear over [1750, 2600] for faster late-saturation).
+- **Arm B WIN (cosine):** S-shaped ramp with delayed acceleration helps. Follow-up: explore other S-shapes.
+- **Bilateral NULL:** LR-coupling is robust — the power-law shape is not the load-bearing factor. Closes β-ramp shape axis.
 
 ## Chain rule
 
-1. **Implement + verify** `--ema_beta_ramp_shape step` is exact baseline first.
-2. **Launch Arm A (linear) first.** 
+1. **Implement + verify** `--ema_beta_ramp_shape lr_coupled` is bit-exact baseline.
+2. **Launch Arm A (linear) first.**
    - Clear NULL → launch Arm B (cosine) immediately.
-   - WIN candidate → seed-2 Arm A first before Arm B.
+   - WIN candidate → seed-2 of WIN arm before Arm B.
 3. Both arms terminal → post terminal SENPAI-RESULT.
 
 ## Why this aligns with directive (e)
 
-The β ramp SHAPE is a schedule parameter that controls how quickly the EMA "tightens" during the paramEMA accumulation phase. A slower β approach (staying near 0.97 longer) keeps the EMA sensitive to recent gradient information while LR is still relatively high — potentially steepening descent before step 2925 by preventing premature EMA smoothing. A cosine shape front-loads the slow-β period most aggressively. Directive (e) asks for "schedules that steepen loss descent before step 2925" — a well-designed β ramp that keeps EMA tracking faster for longer during cooldown directly addresses this.
+The β shape during the EMA-active phase [1750, 3250] is a schedule that potentially steepens loss descent before step 2925. The baseline's LR-coupled shape "fast-forwards" β to ~0.979 at activation. A linear/cosine arm that starts at β=0.97 (fast tracking) and ramps slower gives the EMA more time to absorb recent gradient information when LR is still high. Directive (e) asks for schedules that steepen descent before step 2925 — testing the β shape is a direct lever.
+
+## Revision history
+
+- **2026-06-01 18:25 UTC**: Original assignment incorrectly described baseline as step function.
+- **2026-06-01 19:30 UTC**: Corrected baseline description (LR-coupled power-law ramp) after student caught error on PR #2163. Arms revised to compare LR-coupled vs LR-decoupled linear/cosine over [1750, 3250] window.
