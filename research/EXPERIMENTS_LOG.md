@@ -1,5 +1,55 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-01 03:15Z — PR #1948 CLOSED FFS-NEUTRAL n=4-confirm-failed [precond-freq-cooldown-schedule; SOAP eigenbasis refresh stride cooldown axis closed; μ_4(FFS_ema)=2912.5 exactly = baseline] [94th R5 closure]
+
+- branch: g1r5-edward/precond-freq-cooldown-schedule
+- hypothesis: SOAP eigenbasis refresh stride cooldown ramp (precond_freq 16 → 4 during cooldown) as continuous variant of shampoo-state hard-reset. Hypothesis: increasing eigendecomposition frequency 4× during cooldown phase exposes the SOAP preconditioner to fresher gradient eigenbasis and advances the FFS crossing event. Continuous mechanism orthogonal to thorfinn #1994 discrete reset.
+- n=1 dose-response across precond_freq_cooldown ∈ {16, 8, 4, 2}:
+
+| Cell | freq_cooldown | FFS_ema | FFS_trainval | best_val_loss | wandb |
+|---|---:|---:|---:|---:|---|
+| A_ctrl | 16 (no change) | 2925 | 2925 | 3.26925 | (baseline) |
+| B | 8 | 2925 | 2925 | 3.26953 | (n=1 screen) |
+| C | 4 | **2875** | 2925 | 3.26891 | (n=1 screen) |
+| D | 2 | **2875** | 2925 | 3.26934 | (n=1 screen) |
+
+- C was the chosen n=4 confirm point (clean off-attractor signal at non-extreme freq).
+- n=4 CONFIRM RESULT at freq_cooldown=4:
+
+| Trial | FFS_ema | FFS_trainval | val_loss | ema_val_loss |
+|---:|---:|---:|---:|---:|
+| 0 | **2875** | 2925 | 3.26816 | 3.26865 |
+| 1 | 2925 | 2925 | 3.26966 | 3.27016 |
+| 2 | 2925 | 2925 | 3.26986 | 3.27038 |
+| 3 | 2925 | 2925 | 3.26908 | 3.26959 |
+| **μ_4** | **2912.5** | 2925 | 3.26919 | 3.26970 |
+| σ_4 | 25.0 | 0 | 0.00076 | 0.00077 |
+| Baseline #1533 | μ_4=2912.5 | 2925 | — | — |
+
+- W&B group: `g1r5-edward/precond-freq-cooldown-schedule-n4`, single torchrun id `1r8b1zmi`.
+- **Merge gate**: μ_4(FFS_ema)=2912.5 → gate ≤ 2887.5 → **FAIL by exactly +25 steps**. Net improvement = 0.
+- analysis: **Canonical n=1→n=4 dual-metric-attractor reversion.** Trial 0 reproduced n=1 C result (FFS_ema=2875) but trials 1-3 reverted to canonical seed-noise attractor {FFS_ema=2925, FFS_trainval=2925}. Mechanism is mathematically alive at n=1 but absorbed by NS5+SOAP coupling at n=4.
+
+### Mechanism — why the eigenbasis-refresh-stride mechanism is absorbed
+
+SOAP's `precond_freq` controls how often the cumulative outer-product accumulator L_t is eigendecomposed. Cooling from 16 → 4 means 4× more eigenbasis refreshes during the cooldown phase. But:
+
+1. The eigenbasis at `precond_freq=16` is already a sufficient statistic for the slow gradient direction during cooldown — lr is decreasing rapidly toward 0, so the "true" eigenbasis is barely changing.
+2. Reducing the refresh stride from 16 to 4 introduces more eigendecomposition operations but extracts ~no additional signal from the gradient distribution at this stage.
+3. The n=1 effect is variance-of-variance: more frequent eigendecomposition adds more numerical perturbation to the preconditioner, occasionally nudging the trajectory in a favorable direction. This is high-variance noise, not a robust mechanism.
+
+### SOAP-state cooldown family — closure status
+
+This closure joins:
+- nezuko #2020 SOAP β₂ cooldown (B★ at attractor — closing as NEUTRAL)
+- thorfinn #1994 SOAP shampoo state hard-reset n=4 (gate mathematically unreachable → 95th closure pending)
+
+**The SOAP-state cooldown family is now exhaustively probed.** Three independent SOAP-state cooldown mechanisms (eigenbasis refresh stride, β₂ smoothing rate, shampoo state hard-reset) all produce n=1 signals that do not reproduce at n=4 confirmation. Per the tier-shifting finding from #1979 closure, future R5 hypotheses should leave SOAP-state-cooldown space and explore representational-capacity domains.
+
+- conclusions: **SOAP eigenbasis refresh stride cooldown axis fully closed.** Student's n=1 dose-response analysis was rigorous, correctly identified C(freq=4) as the cleanest single-seed candidate, and the n=4 confirm cleanly falsifies the hypothesis. The canonical attractor reversion across 3 of 4 trials is informative: it tells us the n=1 effect was seed-noise alignment, not a load-bearing mechanism. Edward → researcher-agent dispatched for fresh hypothesis post-94th closure.
+
+---
+
 ## 2026-06-01 00:30Z — PR #1979 CLOSED FFS-NEG-ablation [lr-warm-restart-probe; warm-restart magnitude × timing axis fully closed; ★★★ TIER-SHIFTING FINDING: FFS bottleneck is NOT a local-minimum-escape problem — likely representational-capacity-bound] [93rd R5 closure]
 
 - branch: g1r5-alphonse/lr-warm-restart-probe
