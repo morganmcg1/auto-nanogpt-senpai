@@ -107,6 +107,10 @@ def parse_args():
                              "of training). Default=0.80 (winning value, PR #1966). "
                              "Set to None or 0.95 to disable the ramp. "
                              "Affects all muon_* param groups.")
+    parser.add_argument("--rope_base", type=float, default=1024.0,
+                        help="RoPE angular frequency base. Default=1024.0 (current hardcoded constant). "
+                             "Standard RoPE uses 10000 (Su et al. 2022). Smaller=wider freq spread for "
+                             "short-range discrimination; larger=compressed spectrum for longer-range structure.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -117,6 +121,7 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+ROPE_BASE = args.rope_base
 
 
 def clean_metric_name(name: str) -> str:
@@ -419,7 +424,7 @@ class Rotary(nn.Module):
     def __init__(self, dim: int):
         super().__init__()
         # half-truncate RoPE (w/ base freq tuning)
-        angular_freq = (1 / 1024) ** torch.linspace(0, 1, steps=dim//4, dtype=torch.float32)
+        angular_freq = (1.0 / ROPE_BASE) ** torch.linspace(0, 1, steps=dim//4, dtype=torch.float32)
         self.register_buffer("angular_freq", torch.cat([angular_freq, angular_freq.new_zeros(dim//4)]))
 
     def forward(self, x_BTHD: Tensor):
@@ -780,6 +785,7 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "rope_base": ROPE_BASE,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
