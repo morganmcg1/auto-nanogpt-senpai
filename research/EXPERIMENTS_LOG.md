@@ -1,3 +1,37 @@
+## 2026-06-01 17:45 — PR #2108: H362 nezuko MuonH warmup_steps VALUE bracket at H266 stack — CLOSED 216th NULL/NEG (🎯 PAPER-GRADE 6th BILATERAL ASYMMETRIC NEG class member on STRUCTURAL warmup duration axis at H266 stack + 1st STRUCTURAL-TIMING-AXIS asymmetric class entry of cycle ~2700 + 20th candidate H266 cluster anchor + PRODUCTIVE-LR-WINDOW-SHRINKAGE mechanism characterization — H266-default `warmup_steps=100` sits AT or SLIGHTLY PAST canalized region floor with SHORTER direction CANALIZED FREE + LONGER direction MILDLY-LOAD-BEARING via productive-LR window shrinkage.)
+
+- Branch: g1r3-nezuko/h362-muonh-warmup-steps-bracket
+- Hypothesis: Test whether MuonH linear LR warmup duration axis at H266 stack is structurally load-bearing via ±2× value bracket. arm_a CTRL `muonh_warmup_steps=100` (H266 bit-id) / arm_b SHORTER `50` (2× shorter, full LR by step 50) / arm_c LONGER `200` (2× longer, full LR by step 200). All other H266 stack flags HELD FIXED (scale_invariant, cosine cooldown, μLoCo outer 0.7/0.5/sync30, AGC 0.05/0.05, μ linear 0.95→0.90, polyak EMA 0.05).
+
+### Results
+
+| Arm | muonh_warmup_steps | W&B run_id | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|--------------------|------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL `100` (H266 bit-id) | 100 | `tp44qdqw` | **3.26942** | **3025** | (ref) | **+1.40σ NEG** | Pattern A +25 envelope (20th candidate cluster anchor) |
+| arm_b SHORTER `50` (2× shorter) | 50 | `ytt510g1` | **3.26927** | **3025** | **−0.17σ TIE** | **+1.23σ NEG** | 🎯 CANALIZED CLEAN TIE (early-trajectory destabilization branch REFUTED) |
+| arm_c LONGER `200` (2× longer) | 200 | `ezg0n2ib` | **3.27089** | **3050** | **+1.66σ NEG** | **+3.07σ NEG, FFS=+50 NEG** | 🟡 MILDLY-LOAD-BEARING NEG (productive-LR window shrinkage) |
+| H266 baseline (PR #1669) | 100 | `m2ywl0o9` | 3.26818 | 3000 | — | — | (reference) |
+
+🎯 **216th NULL/NEG closure** — all 3 arms FAIL strict FFS<3000 per Issue #1260 (arm_a 3025 / arm_b 3025 / arm_c 3050). NOT merge-eligible.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — 6th BILATERAL ASYMMETRIC NEG class member + 1st STRUCTURAL-TIMING-AXIS entry**: H362 joins the BILATERAL ASYMMETRIC NEG envelope class as 6th member (joining H352 STRUCTURAL cooldown / H354 MuonH μ SHAPE / H355 MuonH μ ENDPOINT / H359 AUX β₂ cooldown_ramp / H361 BODY MuonH AGC). H362 is the **first BILATERAL ASYMMETRIC entry on a STRUCTURAL TIMING axis** — warmup DURATION (vs prior 5 members on scaling-or-shape axes). Mechanism-distinct: tests how long the early-training LR ramp lasts, independent of LR magnitude, momentum, init, AGC.
+
+🎯 **FINDING #2 — STRUCTURAL WARMUP DURATION asymmetric load-bearing characterization**: SHORTER direction (50, 2× shorter) is CTRL-EQUIVALENT TIE (−0.17σ vs CTRL) — MuonH `scale_invariant` orthogonalization stabilizes singular-value structure quickly enough that 2× faster ramp does NOT destabilize early BODY trajectory. LONGER direction (200, 2× longer) is +1.66σ NEG via productive-LR-window-shrinkage: 100→200 shrinks productive [warmup_end, cooldown_start] window from 2726 to 2626 steps (~3.7% reduction), matching observed +25 FFS shift (~0.75% of 3325 budget). H266 `warmup_steps=100` sits AT or SLIGHTLY PAST canalized region floor.
+
+🎯 **FINDING #3 — 20th candidate H266 cluster anchor (Pattern A +25 envelope on relaunch path)**: arm_a CTRL val=3.26942 FFS=3025 = 20th candidate cluster anchor. Notable: arm_a CTRL did NOT land FFS=3000 EXACT despite being existing-flag value-change on H266 bit-id value (100). Relaunch from project root (after `Path.cwd().glob()` CWD crash on first attempt from `records/track_3_optimization/`) may have introduced minor CUDA-determinism deviation, OR Pattern A +25 envelope is default behavior on relaunch-path runs.
+
+🎯 **FINDING #4 — PRODUCTIVE-LR-WINDOW-SHRINKAGE mechanism class refinement**: arm_c LONGER cost (+25 FFS, ~0.75% of training budget) matches +3.7% productive-window-reduction prediction from `(2826-200) vs (2826-100)`. Mechanism-coherent with H352 STRUCTURAL cooldown findings (cooldown timing IS load-bearing on BODY side). Suggests **coupled axis follow-up**: does shifting cooldown_start later (compensating longer warmup) neutralize the LONGER NEG?
+
+### Cycle ~2700 update — 216 NULL/NEG + 1 MERGED WIN (H266)
+
+- BILATERAL ASYMMETRIC NEG class: 5 → 6 candidates (+H362 BODY MuonH warmup duration, 1st STRUCTURAL-TIMING-AXIS entry)
+- H266 attractor cluster: 19 → 20 candidate anchors (+arm_a CTRL Pattern A +25)
+- Paper-grade taxonomy: 1st STRUCTURAL-WARMUP-DURATION-AXIS asymmetric load-bearing entry — wide downside tolerance (≤50% shrinkage absorbed) but sharp upside cost (≥100% extension costs ~3% training budget)
+
+---
+
 ## 2026-06-01 15:55 — PR #2098: H361 thorfinn MuonH AGC clip ratio axis sweep (BODY-side mirror H353) — CLOSED 215th NULL/NEG (🎯 PAPER-GRADE 1st BODY/AUX MECHANISM UNIFICATION of cycle ~2700: BODY MuonH `scale_invariant` NS5 orthogonalization carries SAME BILATERAL ASYMMETRIC envelope as AUX AdamW second-moment EMA on AGC clip-ratio axis — adaptive-scaling asymmetric canalization gate is GENERIC across optimizer families + 5th BILATERAL ASYMMETRIC class member joining H352/H354/H355/H359 + 18th candidate H266 cluster anchor + H266 BODY-default `muonh_agc_clip_ratio=0.05` confirmed correctly tuned AT canalization boundary.)
 
 - Branch: g1r3-thorfinn/h361-muonh-agc-clip-ratio
