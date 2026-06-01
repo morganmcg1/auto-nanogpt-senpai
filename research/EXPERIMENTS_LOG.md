@@ -1,5 +1,28 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-01 19:20Z — PR #2070 CLOSED FFS-NEUTRAL [compound-mu-precond-freq n=4 confirm; ALL 4 trials FFS_ema=2875 (σ_4=0); n=1 dual-metric departure driven by trial-3 single seed; canonical attractor lock; precond_freq + mu cooldown share cooldown-phase bottleneck — DO NOT compose] [109th R5 closure]
+
+- branch: g1r5-frieren/compound-mu-precond-freq
+- hypothesis: Stack mu_cooldown_target=0.80 (merged R5 winner #1966) with precond_freq_cooldown=4 (ramp SOAP eigenbasis refresh stride 16→4 in cooldown). Both are cooldown-phase optimizer-state mechanisms but operate on structurally orthogonal axes (Muon momentum window vs SOAP Hessian approximation cadence) — hope for additive FFS gain.
+- n=4 confirm (W&B run `xdevn24r`, group `g1r5-frieren/compound-mu-freq4-n4`):
+
+| Trial | FFS_ema | FFS_trainval | best_val_loss | ema_corr_best |
+|---:|---:|---:|---:|---:|
+| 0 | 2875 | 2925 | 3.27019 | 3.27061 |
+| 1 | 2875 | 2925 | 3.27028 | 3.27070 |
+| 2 | 2875 | 2925 | 3.27093 | 3.27135 |
+| 3 | **2875** | **2875** | 3.26895 | **3.26936** |
+| **μ_4** | **2875.0** | 2912.5 | 3.27009 | **3.27050** |
+| σ_4 | **0.0** | 25.0 | 0.00083 | 0.00083 |
+
+Gate: μ_4(FFS_ema) ≤ 2862.5. Actual: 2875.0. **Miss by +12.5.** Δ(μ_4 ema_corr vs baseline 3.27007) = **+0.00043 nat** (worse ~0.5σ_4).
+
+- commentary: **109th R5 closure on compound-cooldown axis.** σ_4(FFS_ema)=0.0 = canonical attractor lock; trial 3 alone hit off-attractor {2875, 2875} which was the n=1 dual-metric departure driver. When n=4 averaged, the trajectory regression toward canonical was complete. Memory rule [[r5_n1_to_n4_reversion_dual_metric_attractor]] vindicated exactly. Student initially closed at n=1 (FFS_ema=2875 attractor lock); advisor correctly escalated to n=4 based on FFS_trainval -50 dual-metric departure + monotone Δval=-0.0018; n=4 then confirmed attractor lock. Protocol-correct discrimination.
+
+**KEY FINDING — 2875 floor as structural bottleneck:** 5 distinct cooldown-side optimizer mechanisms (mu cooldown #1966 merged, precond_freq cooldown #1948+#2070, NS5 iter cooldown #2014, ema decay cooldown #1957, adamw eps cooldown #1955) all collapse to FFS_ema=2875 at n=1+. **Cooldown-phase optimizer noise is saturated at the new baseline.** Future R5 compounds must pair one cooldown-side with one NON-cooldown-side mechanism (init variant, attention geometry, AdamW aux variant). This is structural insight for R6 planning.
+
+precond_freq_cooldown confirmed FFS-NEUTRAL on TWO consecutive baselines: pre-#1966 (#1948 n=4 reverted) AND post-#1966 (#2070 n=4 locked). Axis CLOSED.
+
 ## 2026-06-01 18:35Z — PR #2042 CLOSED FFS-NEUTRAL [rope-base-freq-probe n=4 confirm at rope_base=4096; μ_4(FFS_ema)=2887.5 vs gate 2862.5 (miss +25.0); RoPE base axis ABSORBED by mu_cooldown_target=0.80 R5 stack] [108th R5 closure]
 
 - branch: g1r5-alphonse/rope-base-freq-probe

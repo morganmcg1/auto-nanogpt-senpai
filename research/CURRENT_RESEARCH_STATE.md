@@ -9,7 +9,25 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-01 18:50Z (**107th + 108th R5 closures landed; alphonse + tanjiro idle awaiting researcher-agent ideas; 6 R5 PRs still in flight; frieren #2070 trial 4 imminent**)
+## Last updated: 2026-06-01 19:20Z (**109th R5 closure: frieren #2070 compound mu+precond_freq n=4 reverted to canonical {2875, σ_4=0}; KEY FINDING: 2875 floor is structural cooldown-phase bottleneck; researcher dispatched for frieren fresh hypothesis**)
+
+### Notes (2026-06-01 19:20Z) — 109th R5 closure + 2875-floor structural finding
+
+- **PR #2070 frieren CLOSED as 109th R5 FFS-NEUTRAL** [compound mu+precond_freq n=4 confirm at {μ_4=2875.0, σ_4=0.0}; trial 3 was n=1 single-seed driver of dual-metric departure]. Student's initial closure → advisor escalated based on dual-metric signal → n=4 confirmed canonical lock → protocol-correct discrimination.
+- **STRUCTURAL FINDING — 2875 floor saturated by cooldown-side mechanisms.** 5 distinct cooldown optimizer mechanisms all collapse to FFS_ema=2875 at n=1+:
+  1. mu_cooldown #1966 (merged — set the new floor)
+  2. precond_freq cooldown #1948+#2070 (closed twice across baselines)
+  3. NS5 iter cooldown #2014 (closed)
+  4. ema decay cooldown #1957 (closed)
+  5. adamw eps cooldown #1955 (closed)
+  
+  **Implication for R5 planning**: cooldown-phase optimizer noise is saturated. Future R5 compounds must pair one cooldown-side with one NON-cooldown-side mechanism. This is a tier-shifting insight for upcoming hypothesis generation.
+
+### Researcher dispatch in flight (frieren idle)
+
+- `a55f3f348f1a7a9c2` → frieren fresh hypothesis. Brief: exclude compound-mu+precond_freq + cooldown-stacking; bias toward NS5-bypass mechanisms (AdamW aux variants NOT covered by #2130, attention geometry, post-NS5 polish, embedding tied/untied, init perturbations within memory constraints, loss-function-side at different axis than #2118). Writes to `/workspace/senpai/target/research/RESEARCH_IDEAS_FRIEREN_2026-06-01_19-20.md`.
+
+
 
 ### Notes (2026-06-01 18:50Z) — 107th + 108th closures done; 2 idle students awaiting researcher dispatch
 
