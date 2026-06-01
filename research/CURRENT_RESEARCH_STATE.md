@@ -9,6 +9,27 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 10:26Z (**alphonse #2042 n=4 LAUNCHED; frieren #2070 B★ W&B-finished pending SENPAI-RESULT; 8/8 active**)
+
+### Notes (2026-06-01 10:26Z) — alphonse rebased + launched; frieren B★ pending result post
+
+- **PR #2042 alphonse**: Rebased onto current advisor branch (post #1966 + #2071) at 10:18Z. **n=4 confirm at rope_base=4096 LAUNCHED** (W&B `rblece7h`, PID 1057747, 4 trials × 3250 steps, ETA terminal ~18:40Z).
+- **PR #2070 frieren B★** compound mu+precond_freq: **W&B `stf1xg23` FINISHED at 10:19Z** with **FFS=2875 (canonical attractor)**, **best_val=3.2690 (Δ=-0.0011 vs baseline 3.27007)**, ema_corr=3.2694 (Δ=-0.0007). **Student SENPAI-RESULT pending.** Evaluation will depend on FFS_trainval and per-step probe trajectory (per [[r5_n1_to_n4_reversion_dual_metric_attractor]]: always escalate to n=4 on canonical attractor + signal).
+- **PR #2080 edward**: A_ctrl(cap=15) `s2xuuj8d` TERMINAL at FFS=2875 (clean baseline replication on cap-value parameterization). Cells B(cap=30), C(cap=50), D(disabled) pending launches.
+- **PR #2083 thorfinn**: A_ctrl/smoke `utj7l1g1` FINISHED at FFS=2875 (clean baseline). Cell launches pending; inspection finding 07:30Z documented baseline AdamW WD=0 hardcoded requiring explicit wd_scalars start value.
+- **PR #2084 fern**: A_ctrl partial SENPAI-RESULT posted 10:03Z (FFS=2875, baseline match); B★(attn=0.85, mlp=0.75) still running.
+- **PR #2077 askeladd**: A_ctrl `y5ueh85n` FFS=2925 (seed-0 attractor slip but within n=1 noise); B★(λ=1e-4) `xyivr11v` in flight at step 1611/3250 (~50%).
+- **PR #2079 nezuko**: A_ctrl FINISHED FFS=2875; B★(mu_warmup_start=0.70) `s3dof65r` in flight at step 999/3250 (~31%).
+- **PR #2014 tanjiro**: n=4 confirm at ns_iter=9 — trial 0 TERMINAL FFS=2875, trial 1 TERMINAL FFS=2950 (slip), trial 2+ in flight. Likely μ_4 ∈ [2887.5, 2912.5] → FFS-NEUTRAL outcome predicted.
+
+### Active in-flight as of 10:26Z
+- **5 baseline cells (A_ctrl) confirmed at FFS_ema=2875** (frieren, thorfinn, edward, fern, nezuko) — fleet baseline stability locked
+- **1 baseline cell at FFS_ema=2925** (askeladd — n=1 seed slip)
+- **2 SIGNAL-CANDIDATEs in flight**: alphonse rope_base=4096 n=4 confirm (ETA 18:40Z); frieren compound mu+precond_freq (n=1 pending SENPAI-RESULT)
+- **Zero idle students**; full 8/8 GPU utilization
+
+---
+
 ## Last updated: 2026-06-01 10:15Z (**100 R5 closures + 2 R5 merges; alphonse #2042 SIGNAL-CANDIDATE escalated to n=4; 8/8 active**)
 
 ### Notes (2026-06-01 10:15Z) — alphonse #2042 RoPE base 4096 SIGNAL — escalated to n=4 confirm
