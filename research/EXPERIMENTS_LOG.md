@@ -1,5 +1,37 @@
 # SENPAI Research Results
 
+## 2026-06-01 12:30 UTC — PR #2040 edward: body PMuon SHALLOW-block momentum DECAY ×0.10/×0.20 @ step 975 (seed-2 confirmation) — ❌ NULL at n=2; shallow-mom DECAY @975 axis FULLY CLOSED
+
+- Branch: `g1r1-edward/body-mom-shallow-decay-fine-x010-x020`
+- Hypothesis: Fine-grained PARTIAL DECAY at the U-shape minimum identified by #1980 (×0.25 was prior best +0.286 mnat). Test ×0.10 (Arm A) and ×0.20 (Arm B) to localize the optimum and confirm via seed-2 if Arm A near-misses.
+
+| Arm | factor | run | sr | val_ema | Δval mnat | Verdict |
+|---|---:|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | 1.0 | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A ×0.10 seed-1** | 0.10 | `dkzem60q` | **2875** | 3.262918 | **+0.064** | ❌ NULL (clause-2 fails by 64 µNat — closest near-miss this axis has produced) |
+| **B ×0.20** | 0.20 | `q10qd8tz` | 2925 | 3.265844 | +2.990 | ❌ NULL |
+| **A ×0.10 seed-2** | 0.10 | `rwwge1jd` | 2900 | 3.264542 | +1.688 | ❌ NULL (regression vs seed-1) |
+
+- Arm A seed-1 +0.064 mnat was closest-ever near-miss on this axis. **Seed-2 of best arm did NOT reproduce sr=2875** (sr=2900, +1.624 mnat regression vs seed-1). Confirms the +0.064 mnat result was seed-noise at the bottom of the well, not a stable minimum.
+- Arm B ×0.20 breaks U-shape monotonicity between ×0.10 and ×0.25 (+2.990 vs +0.286 / +0.064 at neighbors) — further evidence of high seed-to-seed noise on this fine-magnitude axis.
+- **Shallow-mom-DECAY @975 axis SUMMARY:** 6+ runs across 5 factor points {0.00 (#1929), 0.10 (this), 0.20 (this), 0.25 (#1980), 0.50 (#1980)} all NULL. Closest-ever near-miss (+0.064 mnat) did not survive n=2 confirmation. Axis structurally CLOSED.
+- **edward REASSIGNED → #TBD:** Pivoting OFF body-mom (exhausted). Fresh hypothesis: AdEMAMix dual-EMA on AUX Adam (Idea 1 from PLATEAU_BOLD_IDEAS). Body Muon AdEMAMix was tested (#1749 closed NULL); aux Adam side is pristine. Directive (d) momentum/preconditioner handling on a different optimizer scope.
+
+## 2026-06-01 12:25 UTC — PR #2061 tanjiro: Body PMuon momentum BLEND with grad α=0.5/0.75 @ step 975 (subset=all) — ❌ BILATERAL NULL; body PMuon mom-state @975 transform matrix CLOSED
+
+- Branch: `g1r1-tanjiro/body-mom-blend-975`
+- Hypothesis: BLEND existing momentum_buffer with current gradient at step 975 (cooldown onset). Bilateral α: 0.5 (Arm A, half-blend) vs 0.75 (Arm B, mostly-keep-grad). Tests whether mixing fresh grad direction into mom recovers near-miss signal that pure DECAY/HARD-ZERO couldn't.
+
+| Arm | α | run | sr | val_ema | Δval mnat | Verdict |
+|---|---:|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A α=0.5** | 0.5 | `an1exnw4` | 2925 | 3.266019 | +3.165 | ❌ NULL |
+| **B α=0.75** | 0.75 | `ysd236s2` | 2925 | 3.265980 | +3.126 | ❌ NULL |
+
+- Both arms miss merge gate on both clauses (sr=2925 ≥ 2900 fails clause-1; +3.1 mnat ≫ 0 fails clause-2 strict tiebreak). Arms essentially tied (0.04 mnat α-gap, well inside noise) — no interior structure on the α axis.
+- **Completes body PMuon mom-state @975 transform matrix:** DECAY ×{0.0, 0.10, 0.20, 0.25, 0.50, 0.75, 1.0} (#1929/#1980/#2040), HARD-ZERO subset-stratified (#1929/#1930/#1934/#1935), FRESH-START, REVERSE-SIGN (fern #2041), BLEND-with-grad α={0.5, 0.75} (this PR), depth-stratified DEEP DECAY ×0.25/×0.50 (alphonse #2048). All NULL across shallow/middle/deep partitions and all factor magnitudes.
+- **tanjiro REASSIGNED → #TBD:** Body Muon momentum HARD-ZERO RESET @ step 2750 (pre-target boundary, NOT @975). Pristine axis — never tested at pre-target phase boundary. Directive (a) + (c) + (d): structural state intervention at the pre-target phase boundary. Bilateral: pure reset vs reset+fresh-momentum-window (μ→0.85 transient).
+
 ## 2026-06-01 11:25 UTC — PR #2060 thorfinn: body PMuon L_cov/R_cov DECAY ×0.5/×0.25 @ step 200 (warmup-end) — ❌ BILATERAL NULL; cov-axis FULLY CLOSED at all four phase boundaries
 
 - Branch: `g1r1-thorfinn/cov-decay-200`
