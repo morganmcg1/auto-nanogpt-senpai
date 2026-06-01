@@ -84,6 +84,13 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--aux_v_decay_step', type=int, default=-1,
+                        help='Step at which to apply aux Adam v-state (exp_avg_sq) decay. '
+                             '-1 disables.')
+    parser.add_argument('--aux_v_decay_scope', type=str, default='joint',
+                        help='Scope for v-state decay: joint | adam_embed | adam_lm_head | adam_scalars.')
+    parser.add_argument('--aux_v_decay_factor', type=float, default=0.5,
+                        help='Multiplicative factor applied to exp_avg_sq at aux_v_decay_step.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +772,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_v_decay_step": args.aux_v_decay_step,
+            "aux_v_decay_scope": args.aux_v_decay_scope,
+            "aux_v_decay_factor": args.aux_v_decay_factor,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1081,19 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if args.aux_v_decay_step > 0 and step == args.aux_v_decay_step:
+            scope = args.aux_v_decay_scope
+            factor = args.aux_v_decay_factor
+            n_scaled = 0
+            for g in optimizer1.param_groups:
+                if scope == "joint" or g.get("name") == scope:
+                    for p in g["params"]:
+                        state = optimizer1.state.get(p)
+                        if state is not None and "exp_avg_sq" in state:
+                            state["exp_avg_sq"].mul_(factor)
+                            n_scaled += 1
+            print0(f"[step {step}] aux_v_decay: scope={scope} factor={factor} ({n_scaled} params)",
+                   console=True)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1189,6 +1212,10 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "aux_v_decay/pulse_step": args.aux_v_decay_step,
+                "aux_v_decay/factor": args.aux_v_decay_factor,
+                "aux_v_decay/fired": int(args.aux_v_decay_step > 0
+                                         and step >= args.aux_v_decay_step),
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
