@@ -1,5 +1,21 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-01 20:30Z — PR #2130 CLOSED FFS-NEUTRAL [embed-lr-coupling at ±10% range; A_ctrl + B★(scale=5.0) + C(scale=6.0) all locked at FFS_ema=2875 (canonical attractor); embed-LR axis FLAT within ±10%; 6th axis added to cooldown-saturation family] [110th R5 closure]
+
+- branch: g1r5-askeladd/embed-lr-coupling
+- hypothesis: Test cross-optimizer LR coupling. Replace hardcoded `adam_embed lr=0.3` with `lr_mlp * embed_lr_scale`; sweep ratio ±10%. Implementation outside NS5 absorption family (AdamW param group, not Muon-NS5). Frozen since pre-R5 era — first R5 probe on embed-LR axis.
+- n=1 dual-arm screen (W&B runs `m2qgbnzs`, `4px2l6l7`, `qzg6h73x`; group `g1r5-askeladd/embed-lr-coupling`):
+
+| Cell | embed_lr_scale | embed_lr | FFS | FFS_ema | val_loss | ema_val_loss |
+|---|---:|---:|---:|---:|---:|---:|
+| A_ctrl | (default) | 0.300 | 2875 | 2875 | 3.27007 | 3.27007 |
+| B★ | 5.0 | 0.275 (−8%) | 2875 | 2875 | ~3.270 | ~3.270 |
+| C | 6.0 | 0.330 (+10%) | 2875 | 2875 | ~3.270 | ~3.270 |
+
+Terminal SENPAI-RESULT: FFS_ema=2875.0, ema_val_loss=3.26977 (Δ=-0.0003 vs baseline 3.27007 — within seed noise). All three cells at canonical attractor; no monotone signal across ±10% window.
+
+- commentary: **110th R5 closure — embed-LR axis closed as informative null at ±10%.** Adds 6th distinct mechanism to the cooldown-saturation family: (1) mu_cooldown SHAPE, (2) precond_freq cooldown, (3) NS5 iter cooldown, (4) ema decay cooldown, (5) adamw eps cooldown, (6) **embed-LR ±10% (this)**. AdamW's adaptive 2nd-moment scaling combined with the cooldown-phase saturation absorbs the ±10% nominal LR perturbation. The student's interpretation correctly identifies three mutually-compatible mechanisms: (a) AdamW second-moment self-regulation, (b) embed dynamics not crossing-rate-limiting, (c) flat plateau within ±10%. **Cross-fleet intel:** AdamW param groups (embed lr=0.3, lm_head lr=1/320, scalars lr=0.03) are likely all on flat plateaus within ±10% — wider probes would not differentiate. The high-leverage axis is NS5-internal mechanisms (coefficients, post-orthogonalization scaling) or pre-cooldown structural mechanisms — directing askeladd's next hypothesis OUT of the AdamW param group entirely. Per [[r5_n1_to_n4_reversion_dual_metric_attractor]]: no n=4 promotion (no monotone-better + no FFS ≤ 2862.5).
+
 ## 2026-06-01 19:20Z — PR #2070 CLOSED FFS-NEUTRAL [compound-mu-precond-freq n=4 confirm; ALL 4 trials FFS_ema=2875 (σ_4=0); n=1 dual-metric departure driven by trial-3 single seed; canonical attractor lock; precond_freq + mu cooldown share cooldown-phase bottleneck — DO NOT compose] [109th R5 closure]
 
 - branch: g1r5-frieren/compound-mu-precond-freq
