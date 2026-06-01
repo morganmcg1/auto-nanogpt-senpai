@@ -1,3 +1,50 @@
+## 2026-06-01 09:35 UTC — Cycle 71 mid-509 — alphonse #2065 411th refute 280th mech class PER-KIND-β1-×-EMBED-RESET-M-AXIS-CLOSURE-JOINT-RTM-ADDITIVE / 41st RTM precedent / **10th STRUCTURAL AXIS CLOSED** (per-kind β1 × embed-reset M-axis) (n=2 mean **3.27183** Arm A `1yoascwy` 3.27274 Arm B v2 `xg6c0pg0` 3.27093 / stat margin 0.01155 ≫ 0.004 ✓ clean NEGATIVE / inside floor band [3.27000, 3.27200] at upper edge by −0.00017 / NOT merge gap +0.00407 / Family 1 RTM-ADDITIVE-FLOOR 60% prior CONFIRMED / banner verified bilateral `embed_beta1=0.8 lm_head_beta1=0.7 scalars_beta1=0.8 || aux_reset_embed enabled=1 interval=200 moment=3 partial_factor=0.25` ✓ / joint reset payload `applied=['exp_avg', 'exp_avg_sq']` re-verified every reset event ✓ / Arm B v1 `puhvlgeo` carrier-less discarded; v2 cherry-pick `2fbc572e` pushed to remote / step-1500 kill-gate PASSED both arms) + alphonse #2101 new assignment (**3-substrate per-kind β1 scalars-HIGHER (β1=0.9) × embed-reset MOMENT=2 canonical — NOVEL 3-MECHANISM PRODUCTIVE STACK compound**; combines TWO confirmed productive carrier classes — fern #2068 scalars-HIGHER lever (just discovered, n=2 mean 3.26910 BELOW floor band) + embed-reset MOMENT=2 isolated 14th-RTM productive 3.27023; tests stacking of strongest scalars productive lever with strongest embed-reset productive lever; 35% RTM-ADDITIVE-PRODUCTIVE-SUB-FLOOR 25% RTM-ADDITIVE-AT-FLOOR 20% MERGE-CANDIDATE 10% PRODUCTIVE-EMERGENCE-SUB-MERGE 5% DESTRUCTIVE 5% POD-BLOCK). **Critical structural insight 1**: per-kind β1 × embed-reset M-axis at compound is **FULLY INVARIANT** across all 3 MOMENT cells {1, 2, 3} within seed noise — joint reset MOMENT=3 lands at 3.27183 with small +0.0012 upward bias vs single-buffer cells (#2008 MOMENT=2 3.27064 / #2034 MOMENT=1 3.27057) structurally consistent with joint reset being marginally larger perturbation at same partial_factor=0.25. **Critical structural insight 2**: **10th structural axis CLOSED** at cycle 71 — per-kind β1 × embed-reset M-axis joins {MLP-SOAP-α, MLP-SOAP-θ, per-kind β1 substrate, β2, EPS, NS-iters, cardinality, F-axis substrate-symmetric, Substrate-reset-class isolation} for cumulative axes count 9→10. **Critical structural insight 3 (carryforward)**: below-floor-band CROSS-AXIS ATTRACTOR at ~3.26910 still active — fern #2100 β1=0.95 extension probe will discriminate productive band boundary; alphonse #2101 productive stack tests synergistic interaction at structurally distinct mech axes. Fleet 8/8 active 0 idle. Cumulative **411 refuted / 280 mech classes / 234 family closures / 10 structural axes locked / 41 RTM precedents (extension) / 23 pod-stability observations**.
+
+### alphonse #2065 bilateral terminal — 280th mech class / PER-KIND-β1-×-EMBED-RESET-M-AXIS-CLOSURE-JOINT
+
+**Bilateral terminal**: Arm A `1yoascwy` SEED=1 val=**3.27274** ffs=3050; Arm B v2 `xg6c0pg0` SEED=2 val=**3.27093** ffs=3025. n=2 mean **3.27183** (spread 0.00181 RTM seed noise); stat margin 0.01155 ≫ 0.004 ✓; Δ vs floor band upper edge = −0.00017 (INSIDE floor band, just below upper edge); Δ vs baseline = +0.00407 (NOT merge).
+
+**M-axis at per-kind β1 × embed-reset compound — POST-#2065 CLOSURE**:
+
+| Cell | MOMENT | reset payload | n=2 mean | Δ vs single-buffer cluster |
+|---|---|---|---|---|
+| #2008 | 2 (exp_avg only) | momentum reset | 3.27064 | reference |
+| #2034 | 1 (exp_avg_sq only) | variance reset | 3.27057 | −0.00007 (BIT-EQUIVALENT) |
+| **#2065 THIS PR** | **3 (joint)** | **both buffers cleared** | **3.27183** | **+0.00119 to +0.00126** |
+
+→ M-axis FULLY INVARIANT at compound within seed noise; joint reset has structurally consistent +0.0012 cost vs single-buffer reset at same partial_factor=0.25.
+
+### 10th structural axis CLOSED — per-kind β1 × embed-reset M-axis
+
+The per-kind β1 × embed-reset compound family now characterized across all 3 MOMENT cells (M-axis fully invariant at compound). Cycle-71 structural axes count 9→10:
+
+| # | Axis | Direction | Status |
+|---|---|---|---|
+| 1 | MLP-SOAP-α | — | LOCKED |
+| 2 | MLP-SOAP-θ | — | LOCKED |
+| 3 | per-kind β1 substrate | — | LOCKED (FORWARD productive) |
+| 4 | β2 | — | LOCKED |
+| 5 | EPS | — | LOCKED |
+| 6 | NS-iters | — | LOCKED |
+| 7 | cardinality | — | LOCKED |
+| 8 | F-axis (substrate-symmetric) | — | LOCKED (bounded above F=0.5) |
+| 9 | Substrate-reset class isolation | — | LOCKED |
+| **10** | **per-kind β1 × embed-reset M-axis** | **invariant** | **LOCKED (THIS PR)** |
+
+### alphonse #2101 new assignment — 3-substrate per-kind β1 (scalars=0.9 HIGHER) × embed-reset MOMENT=2 PRODUCTIVE STACK
+
+Tests novel 3-mechanism compound combining TWO confirmed productive carrier classes:
+1. **3-substrate per-kind β1 with scalars-β1=0.9** (just-discovered fern #2068 productive lever at 3.26910 BELOW floor band)
+2. **Embed-reset MOMENT=2 canonical** (14th-RTM productive lever at 3.27023 isolated)
+
+Predicted by pure additivity: ~3.26959 (productive sub-floor); but synergistic productive interaction could shift further (~3.26800) or to merge baseline (<3.26776). Highest-EV experiment to construct merge candidate from currently-known productive carriers.
+
+### Cycle 71 cumulative state — post-this-close
+
+After alphonse #2065 close + alphonse #2101 assignment: g1r2-{askeladd #2096, alphonse #2101, edward #2085, fern #2100, nezuko #2099, thorfinn #2075, tanjiro #2078, frieren #2089} all WIP. Cumulative **411 refuted / 280 distinct mech classes / 234 family closures / 10 structural axes locked / 41 RTM precedents / 23 pod-stability observations**.
+
+---
+
 ## 2026-06-01 09:20 UTC — Cycle 71 mid-508 — fern #2068 410th refute 279th mech class SCALARS-β1-AXIS-DIRECTION-ASYMMETRIC-PRODUCTIVE-IN-HIGHER-DIRECTION / 40th RTM precedent (extension) / 2nd cycle-71 BELOW-FLOOR-BAND non-merge (n=2 mean **3.26910** Arm A `hinj1jf5` 3.27010 Arm B `8t1e7des` 3.26809 / stat margin 0.01542 ≫ 0.004 ✓ clean NEGATIVE / **Δ vs floor band lower edge = −0.00090 BELOW floor band** / Δ vs 19th-RTM 2-substrate FORWARD #1972 3.27015 = **−0.00106 NEW PRODUCTIVE FLOOR MIN for per-kind β1 dispatch** / NOT merge — gap +0.00134 to baseline 3.26776 / banner verified `enabled=1 embed_beta1=0.8000 lm_head_beta1=0.7000 scalars_beta1=0.9000` ✓ / clean monotonic descent no NaN no spikes / cross-arm Δ stabilizes ~+0.002 through cooldown tail / cherry-pick `c26b6a2` committed pre-launch) + fern #2100 new assignment (**SCALARS-β1=0.95 EXTENSION probe** — single-axis edge probe to define productive boundary of HIGHER direction; tests embed=0.8 / lm_head=0.7 / scalars=0.95 with NO periodic reset NO MLP-SOAP; per-unit sensitivity ~2× stronger HIGHER vs LOWER predicts linear extrapolation to ~3.26857; **note β1=0.95 = MU_COOLDOWN_START interaction touchpoint**; 30% PRODUCTIVE-EXTENDS-NEAR-MERGE 25% PRODUCTIVE-SATURATED 15% PRODUCTIVE-MERGE-CANDIDATE 15% RTM-INVARIANT 10% DESTRUCTIVE 5% POD-BLOCK). **Critical structural insight 1**: Scalars β1 axis at 3-substrate FORWARD base is **direction-asymmetric productive in HIGHER direction** — LOWER (β1=0.6) weakly-destructive +0.00107, HIGHER (β1=0.9) productive −0.00106 BELOW floor band; symmetric-around-0.8 narrow-optimum hypothesis decisively REFUTED. **Critical structural insight 2**: Per-unit β1 sensitivity is **~2× stronger in HIGHER direction** (~−0.0106/Δβ1 HIGHER vs ~−0.0054/Δβ1 LOWER) — extension probe at β1=0.95 warranted for productive band upper-edge characterization. **Critical structural insight 3**: **Below-floor-band attractor at ~3.26910 is a CROSS-AXIS ATTRACTOR** reachable through structurally distinct mech axes — fern #2068 scalars-β1-HIGHER 3.26910 + edward #2031 cardinality-axis-diminishing-returns 3.26914 (Δ=+0.00004 within seed noise) + edward #2059 cardinality-axis-3-kind 3.26943 (Δ=+0.00033). Multiple mech axes converge on the same below-floor-band region — shared structural floor of carrier-extended productive zone; worth tracking as emerging "sub-floor band" structure. Fleet 8/8 active 0 idle. Cumulative **410 refuted / 279 mech classes / 233 family closures / 9 axes / 40 RTM precedents (extension) / 23 pod-stability observations**.
 
 ### fern #2068 bilateral terminal — 279th mech class / SCALARS-β1-AXIS-DIRECTION-ASYMMETRIC-PRODUCTIVE-IN-HIGHER
