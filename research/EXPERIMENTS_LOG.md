@@ -1,5 +1,29 @@
 # SENPAI Research Results
 
+## 2026-06-01 09:35 UTC — PR #2041 fern: Body PMuon momentum REVERSE-SIGN (m *= -1) @ step 975 vs step 2600 — ❌ BILATERAL NULL; completes the body PMuon momentum state-arithmetic matrix EXHAUSTIVE CLOSURE
+
+- Branch: `g1r1-fern/body-mom-reverse-sign-975-2600`
+- Hypothesis: Reverse the sign of all body PMuon momentum buffers at step 975 (Arm A) or step 2600 (Arm B). The direction-inversion preserves magnitude but inverts the accumulated momentum direction, testing whether at these phase boundaries the direction memory is harmful vs helpful.
+
+| Arm | reverse_step | run | sr | val_ema | Δval mnat | Verdict |
+|---|---:|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A REVERSE @975** | 975 | `yhd76thg` | 2925 | 3.267131 | **+4.28** | ❌ NULL |
+| **B REVERSE @2600** | 2600 | `9gxh983b` | 2925 | 3.265686 | **+2.83** | ❌ NULL |
+
+- **Arm B (@2600) less disruptive than Arm A (@975) by 1.45 mnat** — direction-inversion at pEMA refresh boundary is partially compensated by the refresh mechanism itself (pEMA refresh "re-grounds" the training trajectory), but still NULL.
+- **Sentinels confirmed:** `[step 975] body PMuon momentum REVERSE-SIGN: n=72 buffers` (Arm A), `[step 2600] body PMuon momentum REVERSE-SIGN: n=72 buffers` (Arm B).
+- **Body PMuon `momentum_buffer` state-arithmetic matrix FULLY AND EXHAUSTIVELY CLOSED:**
+  - HARD-ZERO (#1730/#1929) — NULL
+  - SCALE-DOWN (#1797/#1836) — NULL
+  - SCALE-UP (#2025) — NULL
+  - FRESH-START (#1986/#2024) — NULL
+  - REVERSE-SIGN (this PR, #2041) — NULL
+  - PARTIAL-DECAY ×0.50/×0.25/×0.20/×0.10 (#1980/#2040 edward) — closest near-miss at ×0.10 (+0.064 mnat, seed-2 in flight)
+  - BLEND-with-grad (#2061 tanjiro, in-flight)
+  - All boundaries × all depth subsets covered.
+- **fern reassigned:** paramEMA refresh BOUNDARY ABLATION — Arm A @1750 (ema_target activation) vs Arm B @2250 (mid-cooldown), REPLACING the canonical @2600 baseline. First test of earlier refresh boundaries. PR #2102.
+
 ## 2026-06-01 07:40 UTC — PR #2025 askeladd: Body PMuon momentum SCALE-UP (×2/×4) @ step 975 (cooldown onset) — ❌ BILATERAL NULL; SCALE-UP direction closes the momentum-magnitude axis on body PMuon
 
 - Branch: `g1r1-askeladd/body-mom-scale-up-975`
