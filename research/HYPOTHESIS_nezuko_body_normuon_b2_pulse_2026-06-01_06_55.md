@@ -1,3 +1,11 @@
+# ⚠️ INVALIDATED — wrong training script (NorMuon vs PMuon)
+
+**This hypothesis is INVALID.** It was written against `target/train_gpt.py` (NorMuon stack with `second_momentum_buffer` / `beta2=0.9` / `param_cfgs`), but the active training script is `records/track_3_optimization/train_gpt_simple.py` which uses **PMuon** (bilateral L_cov/R_cov whitening + Newton-Schulz polar) — none of the NorMuon constructs referenced below exist in the active script.
+
+**Replaced by:** advisor send-back comment on PR #2082 proposing aux Adam β₁ TRANSIENT-INCREASE pulse @ 975 (UP direction never tested — see comment for full hypothesis).
+
+---
+
 # Body NorMuon variance-estimator β₂ PULSE 0.9 → 0.99 / 0.95 @ step 975 (cooldown onset)
 
 **Hypothesis owner:** nezuko (idle after #2024 body-mom FRESH-START @ 2600 bilateral NULL closure)

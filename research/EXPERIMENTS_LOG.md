@@ -1,5 +1,26 @@
 # SENPAI Research Results
 
+## 2026-06-01 07:40 UTC — PR #2025 askeladd: Body PMuon momentum SCALE-UP (×2/×4) @ step 975 (cooldown onset) — ❌ BILATERAL NULL; SCALE-UP direction closes the momentum-magnitude axis on body PMuon
+
+- Branch: `g1r1-askeladd/body-mom-scale-up-975`
+- Hypothesis: Body PMuon momentum SCALE-UP (×2/×4) at step 975 amplifies accumulated direction history at cooldown onset, predicted to "steepen loss descent in the 975-995 window." Symmetric counterpart to SCALE-DOWN (×0.5/×0.25 #1797 NULL) — completes the bilateral magnitude axis.
+
+| Arm | factor | run | sr | val_ema | val_live | Δval mnat | Verdict |
+|---|---:|---|---:|---:|---:|---:|---|
+| Baseline (#1532, n=2) | 1.0 | 9coyk2ke/09qrijtm | 2875 | 3.262854 | — | 0 | WIN |
+| **A SCALE-UP ×2** | 2.0 | `ehwpwtez` | 2925 | 3.265538 | 3.264945 | **+2.68** | ❌ NULL |
+| **B SCALE-UP ×4** | 4.0 | `nb0cqcve` | 2925 | 3.264564 | 3.263962 | **+1.71** | ❌ NULL |
+
+- **Trajectory shape inverted from prediction:** instead of "steepened descent" the perturbation caused a brief val/loss spike around step 975, then ~150 sr-steps of recovery before resuming baseline-similar trajectory. Larger amplification (×4) less harmful than ×2 — surprising but irrelevant since both sr=2925.
+- **Sentinel `[step 975] muon_momentum_scale_up: x{2,4} on 72 buffers` fired correctly** in both runs (72 = 12 blocks × 6 PMuon param groups). Mechanism implemented as designed.
+- **Bilateral SCALE axis CLOSURE — body PMuon momentum-magnitude perturbation @975 now fully exhausted:**
+  - SCALE-DOWN ×0.5/×0.25 (#1797) NULL
+  - SCALE-DOWN HARD-ZERO (#1929 blockwise variants) NULL
+  - SCALE-UP ×2/×4 (this PR) NULL
+- **Cross-PR sr=2925 wall confirmed across SCALE/FRESH-START/REVERSE-SIGN axes:** body PMuon momentum buffer recovers via μ=0.95 re-accumulation (~20-step horizon) regardless of perturbation type/magnitude. The buffer's INSTANTANEOUS value at any phase boundary is dominantly NULL-yielding under structural perturbation.
+- **Body PMuon `momentum_buffer` state-arithmetic matrix EXHAUSTIVELY CLOSED:** HARD-ZERO × DECAY × FRESH-START × SCALE-UP/DOWN × BLEND × REVERSE-SIGN × boundaries (200, 975, 1100, 2600, 2750) × depth subsets (all/deep/shallow/middle). The body momentum axis is the most-studied closed axis in this research programme.
+- **askeladd reassigned:** Structurally distinct mechanism on the aux Adam side — **β₂ pulse PARAM-GROUP DECOMPOSITION** (embed-only vs lm_head-only @975). Tests whether the baseline #1532 β₂ pulse WIN requires the joint pulse across all 3 aux Adam groups, or whether one group drives the mechanism. High mechanistic + paper-narrative value. PR #NEW.
+
 ## 2026-06-01 06:55 UTC — PR #2024 nezuko: Body PMuon momentum FRESH-START (m.copy_(p.grad)) @ step 2600 (pEMA refresh boundary) — ❌ BILATERAL NULL; FRESH-START axis CLOSED across both major boundaries (@975 via #1986, @2600 here)
 
 - Branch: `g1r1-nezuko/body-mom-fresh-start-2600`
@@ -16,7 +37,7 @@
 - **Verdict:** FRESH-START at @2600 is structurally HARMFUL. The pEMA-refresh boundary's body PMuon momentum is healthy — overwriting destroys the EMA-smoothed direction estimate that late-cooldown sharp descent depends on. pEMA refresh does NOT recover this (pEMA captures the post-perturbation param state).
 - **Axis closure:** Body PMuon momentum FRESH-START is now BILATERALLY CLOSED at both major boundaries: @975 cooldown-onset (#1986 alphonse: deep +4.67, shallow +6.12) AND @2600 pEMA-refresh (this PR).
 - **Cross-PR sr=2925 NULL pattern (3+ runs):** SCALE-UP ×4 @975 (#2025 Arm B `nb0cqcve` +1.75), FRESH-START @2600 deep (this PR Arm B +2.56), REVERSE-SIGN @975 (#2041 Arm A `yhd76thg` +4.25) — three structurally different body PMuon momentum operations all yield sr=2925 with val_ema close-but-fail. The body PMuon momentum buffer at any boundary is dominantly NULL-yielding under structural perturbation.
-- **nezuko reassigned:** Pivoting away from body PMuon momentum state. New hypothesis: Body PMuon **NS-iters polar projection SKIP in cooldown window** (steps 975-2750) — a structural mechanism never tested phase-specifically; tests whether polar projection is load-bearing only in warmup/early-train phases. Aligns with directive (c) phase-specific mechanism. PR #NEW.
+- **nezuko reassigned:** Pivoting away from body PMuon momentum state. First reassignment (PR #2082 NorMuon β₂ pulse) bounced — wrong training-script reference (NorMuon code is in `target/train_gpt.py` but active script is `records/track_3_optimization/train_gpt_simple.py` PMuon). Sent back with corrected hypothesis: **aux Adam β₁ TRANSIENT-INCREASE pulse @ step 975 (UP direction)** — direct first-moment mirror of baseline #1532's β₂ pulse mechanism, with β₁ DROP previously closed (#1592, #1639) but β₁ UP never tested as pulse. Stacks on baseline aux β₂ pulse; tests additivity of first-moment + second-moment memory extension at cooldown onset.
 
 ## 2026-06-01 03:30 UTC — PR #1984 tanjiro: Middle-block (4-7) body PMuon momentum HARD-ZERO / ×0.5 DECAY @ step 975 — ❌ BILATERAL NULL; non-monotone depth response identified; BLEND-with-grad family assigned as #2061
 
