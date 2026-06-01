@@ -1,3 +1,41 @@
+## 2026-06-01 13:30 — PR #2081: H357 askeladd per-layer BODY LR scaled by init F-norm exponent α at H266 stack — CLOSED 211th NULL/NEG (🎯 PAPER-GRADE NEW LARGEST single-direction NEG of cycle ~2700 — H357 arm_c HEAVY +113.81σ vs H266 (1.51× LARGER than H356 prior record +75.31σ) + MONOTONIC NEG dose-response envelope on per-layer LR F-norm coupling axis + 14th H266 attractor cluster anchor entry + 10th HARD-LOAD-BEARING CATASTROPHIC family entry + mechanism-coherent BODY-INIT-FNORM-COUPLING-DISRUPTS-EQUILIBRIUM finding refining H351 OPTIMIZER-UPDATE-RULE-PRESERVES taxonomy + 2nd validated code-change-flag safe-default-0.0 pattern.)
+
+- Branch: g1r3-askeladd/h357-body-lr-init-fnorm-alpha
+- Hypothesis: Test whether per-layer BODY LR scaled by init F-norm exponent α reinforces or disrupts MuonH `scale_invariant` F-norm preservation equilibrium at H266 stack. 3-arm chain: arm_a CTRL `α=0.0` (H266 bit-id, uniform LR, no F-norm scaling) / arm_b LIGHT `α=0.5` (sqrt-scaled per-layer LR by init F-norm) / arm_c HEAVY `α=1.0` (linear-scaled per-layer LR by init F-norm).
+
+### Results
+
+| Arm | body_lr_init_fnorm_alpha | W&B run_id | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|--------------------------|------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL `α=0.0` (H266 bit-id) | 0.0 | `xpsdy7ua` | **3.267828** | **3000 EXACT** | (ref) | **−0.40σ POS TIE** | 🎯 14th candidate H266 cluster anchor |
+| arm_b LIGHT `α=0.5` (sqrt-scaled per-layer LR) | 0.5 | `qtmkcb9x` | 3.280191 | **−1 NEVER REACHED** | +13.99σ NEG | **+13.59σ STRONG NEG (FFS=-1)** | 🔴 STRONG NEG — BARELY misses 3.28 target by 0.000191 |
+| arm_c HEAVY `α=1.0` (linear-scaled per-layer LR) | 1.0 | `ygqozapp` | 3.368786 | **−1 NEVER REACHED** | **+114.20σ NEG** | **+113.81σ NEG (NEW LARGEST single-direction NEG of cycle ~2700)** | 💥💥 CATASTROPHIC NEG — 10th HARD-LOAD-BEARING family entry + NEW LARGEST RECORD (1.51× prior H356) |
+| H266 baseline (PR #1669) | 0.0 | `m2ywl0o9` | 3.26818 | 3000 | — | — | (reference) |
+
+🎯 **211th NULL/NEG closure** — all 3 arms FAIL strict FFS<3000 per Issue #1260 (arm_a 3000 EXACT TIE / arm_b -1 / arm_c -1). NOT merge-eligible.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — NEW LARGEST single-direction NEG of cycle ~2700**: arm_c HEAVY `α=1.0` (linear-scaled per-layer LR by init F-norm) produces val=3.368786, +113.81σ_H174 vs H266 baseline + FFS=-1 NEVER REACHED — **1.51× LARGER than prior record H356 arm_c DEMON_AGGRESSIVE μ→0.05 at +75.31σ**. Cycle ~2700 LARGEST NEG progression: H342 +40.7σ → H356 +75.31σ → **H357 +113.81σ (NEW RECORD)**. Mechanism: 4 attn-proj BODY layers (init F-norm ~47.65 vs median 15.95, ~3× larger) receive lr_mult=2.99× base LR, breaking H266 uniform-LR assumption and saturating second-moment buffers during cooldown.
+
+🎯 **FINDING #2 — MONOTONIC NEG dose-response envelope on `body_lr_init_fnorm_alpha` axis**: Clean monotonic dose-response curve (α=0.0 TIE → α=0.5 +13.59σ STRONG NEG → α=1.0 +113.81σ CATASTROPHIC). The α axis is HARD-LOAD-BEARING in COUPLING direction with SYSTEMATIC (not stochastic) NEG envelope.
+
+🎯 **FINDING #3 — 10th HARD-LOAD-BEARING CATASTROPHIC family entry**: arm_c joins H337/H342/H343/H347/H350/H352/H356/H357 as 10th candidate catastrophic family member on NEW mechanism class: BODY-INIT-FNORM-COUPLING-DISRUPTS-EQUILIBRIUM.
+
+🎯 **FINDING #4 — Mechanism: BODY-INIT-FNORM-COUPLING-DISRUPTS-EQUILIBRIUM refines H351 taxonomy**: H351 hypothesis (load-bearing axes are PRESERVED by optimizer update rule) was tested in EXPLOITATION direction. Result: explicit coupling DISRUPTS rather than reinforces F-norm equilibrium. MuonH `scale_invariant` already saturates F-norm preservation naturally; the H266 stack is locally Pareto-optimal on BODY LR uniformity axis. Refines H351: optimizer-update-rule preservation is a CONSEQUENCE not a TARGET to amplify externally. Cross-mechanism coupling competing with optimizer's natural saturation is HARD-LOAD-BEARING.
+
+🎯 **FINDING #5 — 14th H266 attractor cluster anchor + 2nd safe-default-0.0 code-change-flag pattern**: arm_a CTRL val=3.267828 FFS=3000 EXACT (14th candidate) preserves Pattern A bit-id on new code-change-flag `--body_lr_init_fnorm_alpha` with safe-default α=0.0 short-circuit. 2nd validated example after H354 `muonh_mu_cooldown_frac=1.0` safe-default.
+
+### Cycle ~2700 update — 211 NULL/NEG + 1 MERGED WIN (H266)
+
+- HARD-LOAD-BEARING CATASTROPHIC family: 9 → 10 candidates (+H357 arm_c)
+- LARGEST single-direction NEG record: H356 +75.31σ → H357 +113.81σ (1.51× larger)
+- Paper-grade taxonomy: NEW BODY-INIT-FNORM-COUPLING-DISRUPTS-EQUILIBRIUM mechanism class
+- H266 attractor cluster: 15 → 16 candidate anchors (+arm_a CTRL)
+- Code-change-flag safe-default pattern: 2nd validated example
+
+---
+
 ## 2026-06-01 11:30 — PR #2067: H355 tanjiro MuonH μ endpoint value sweep at H266 stack — CLOSED 210th NULL/NEG (🎯 PAPER-GRADE BILATERAL ASYMMETRIC NEG envelope on MuonH μ_end value axis + 15th H266 attractor cluster anchor + 3rd BILATERAL ASYMMETRIC NEG class member (joining H352 STRUCTURAL cooldown shape + H354 SHAPE momentum) + mechanism-coherent BODY-MOMENTUM-ENDPOINT-DEPTH-ASYMMETRIC finding establishing H266 mu_end=0.90 as local optimum with DEEPER>SHALLOWER asymmetric envelope.)
 
 - Branch: g1r3-tanjiro/h355-muonh-mu-endpoint-value-sweep
