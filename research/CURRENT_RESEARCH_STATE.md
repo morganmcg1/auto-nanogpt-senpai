@@ -1,3 +1,44 @@
+- **Date:** 2026-06-01 23:44Z (cycle c790g-32 — **2 TERMINAL CLOSURES + 1 RETRACT + 1 HEADLINE PP-CONFIRM + 2 FRESH ASSIGNMENTS + 3 HB1 ACKs + NS 4-AXIS PORTFOLIO SYNTHESIS COMPLETE**)
+
+**NS 4-AXIS PORTFOLIO SYNTHESIS c790g CYCLE COMPLETE**:
+- AMOUNT (#2125 askeladd CLOSED): catalog-PASSIVE NULL inverted-U sub-σ_seed
+- TIMING (#2143 nezuko CLOSED c790g-32): catalog-PASSIVE NULL ±0.12σ_seed monotone-precond-ratio-ceiling-suppression PROMOTED [[ns-cooldown-start-frac-precond-ratio-rebound-ceiling-suppression]]
+- SHAPE (#2144 frieren CLOSED c790g-32): catalog-PASSIVE sub-gate Arm C −0.71σ FAV-direction LIFT +2.3% CANDIDATE [[shape-precond-ratio-fav-direction-lift]] + [[ns-precision-temporal-distribution-insensitivity-compute-neutral]] PROMOTED
+- **COEFF (fern #2146 PP-CONFIRM)**: PORTFOLIO-OUTLIER HEADLINE — Arm B `constant` Δ_BA=−1.94σ + Arm C `gentle_to_aggressive` Δ_CA=−1.40σ MODAL-FAV-DIRECTION CONFIRMED at HB-FINAL → SENT BACK for n=3 PP-confirm SEED={1,2}; if confirms → CATALOG-MAJOR [[ns5-coef-schedule-pre-warmstart-overshoot-production]] — production `linear_ramp_down` over-spec'd pre-NM; modern NM K=100 R-buffer warmstart → aggressive c=0.7 start over-orthogonalizes body updates during warmstart window
+
+**2 TERMINAL CLOSURES**:
+- #2143 nezuko NS_COOLDOWN_START_FRAC: val Arm A 3.26240 / B +0.00026 NULL / C −0.00019 −0.12σ sub-gate. MERGE-GATE FAILS G1 (all above baseline). PROMOTED [[ns-cooldown-start-frac-precond-ratio-rebound-ceiling-suppression]] monotone inverse with START_FRAC across full {0.5,0.7,0.85} bracket + [[mid-train-fav-evaporation-cooldown-precond-ratio-rise]] 2nd-direct-observation
+- #2144 frieren NS_COOLDOWN_SHAPE: val Arm A 3.26297 / B −0.14σ NULL / C `linear_ramp` −0.71σ sub-gate FAV. MERGE-GATE FAILS G1 (all above baseline). PROMOTED [[ns-precision-temporal-distribution-insensitivity-compute-neutral]] + NEW-CANDIDATE [[shape-precond-ratio-fav-direction-lift]]
+
+**1 RETRACT**: #2197 nezuko NEWTON_MUON_EPS {1e-5, 1e-4, 1e-3} — closed on creation per [[feedback_verify_branch_code]]; #2090 frieren already tested bracket {1e-6, 1e-4, 1e-2} catalog-PASSIVE in c790g-22
+
+**3 HB1 ACKs posted**:
+- tanjiro #2176 (23:13Z): γ=0.005 ctrl SEED=1 `pgudceup` val=3.26251 drift +0.83σ within gate + R-buffer equilibrium higher-compression vs #1702-era anchor under modern stack; Arm B γ=0.025 in flight ETA 01:28Z
+- alphonse #2177 (23:07Z): NS_STOC=2 ctrl `t4xpnrgt` val=3.26102 drift −0.10σ NULL CLEAN + 3rd matched-config anchor +8.1× 2-anchor σ CONFIRMS NS_STOC contributing to CTRL-cohort spread; Arm B NS_STOC=0 ETA 01:11Z
+- edward #2179 (23:23Z): β=0.95 ctrl `ugjqw6o1` val=3.26339 drift +1.37σ within gate + step-125 val=4.62347 Arm B/C step-125 ordering reference; Arm B β=0.90 ETA 01:38Z
+
+**2 FRESH ASSIGNMENTS** (idle students nezuko + frieren):
+- #2199 nezuko GRAD_CLIP_BODY {5, 10 ctrl, 20} — body-Muon L2 clip ceiling re-test under modern stack (PRE-NM #708 tuned 10.0; NM R^{−1/2} modulates gradient input distribution → clip optimum may have shifted). ZERO new code.
+- #2200 frieren ADAMW_LM_HEAD_LR_MULT {0.5, 1 ctrl, 2.0} — lm_head AdamW LR re-test under modern stack (PRE-NM #654 catalog-PASSIVE; modern NM-accelerated body convergence may have shifted lm_head bottleneck). ZERO new code. Companion to embed-side aux tests thorfinn #2149 + askeladd #2181.
+
+**Current PRs in flight (r4)**:
+- #2146 fern NS_COEF_SCHEDULE PP-confirm SEED={1,2} (HEADLINE — ETA 2026-06-02 ~05:30Z)
+- #2176 tanjiro γ-Tikhonov PP-confirm SEED=1 (Arm B γ=0.025 ETA 01:28Z)
+- #2177 alphonse NS_STOC_COOLDOWN ablation (Arm B ETA 01:11Z, Arm C ETA 03:32Z)
+- #2179 edward NM_BETA bracket (Arm B β=0.90 ETA 01:38Z, Arm C β=0.98 ETA 03:56Z)
+- #2181 askeladd EMBED_INIT_ANCHOR_LAMBDA bracket (ETA 2026-06-02 chain)
+- #2149 thorfinn EMBED_COOLDOWN_SHAPE Arm C cosine (ETA ~23:35Z ≈ now)
+- #2199 nezuko GRAD_CLIP_BODY bracket (fresh, pending launch)
+- #2200 frieren ADAMW_LM_HEAD_LR_MULT bracket (fresh, pending launch)
+
+**Potential next research directions**:
+1. If fern #2146 PP-confirms `constant` c=0.5 → MERGE + assign fine-grain COEFF sweep c∈{0.3,0.4,0.5 ctrl,0.6} around c=0.5 optimum
+2. If tanjiro #2176 PP-confirms γ=0.025 FAV-direction at SEED=1 → advance n=3 at SEED=2
+3. GRAD_CLIP_AUX {2.5, 5 ctrl, 10} companion to nezuko #2199 body-clip axis (after #2199 closes)
+4. NS_STOCHASTIC_MID {0 ctrl, 1, 2} — companion to alphonse #2177 (after #2177 closes)
+5. Joint EMBED_COOLDOWN_SHAPE × EMBED_INIT_ANCHOR_LAMBDA composite if both thorfinn+askeladd confirm mechanisms
+6. NS_COEF_SCHEDULE × NS_STOCHASTIC_COOLDOWN cross-axis additivity (after both close)
+
 - **Date:** 2026-06-01 20:35Z (cycle 790g-28 — **2 TERMINAL CLOSURES #2116 tanjiro γ-axis + #2120 alphonse K-axis BOTH catalog-PASSIVE + 2 FRESH ASSIGNMENTS γ=0.025 PP-confirm + NS_STOCHASTIC_COOLDOWN ablation** with 7 CATALOG-NEW PROMOTIONS/CANDIDATES across both closures.
 
 **#2116 tanjiro NM_TIKHONOV_GAMMA-axis CLOSURE catalog-CONFIRMED-PASSIVE-LIFT-BAND-LOCAL-MAX-DUAL-MECHANISM** (3-arm bracket {0.001, 0.005 ctrl, 0.025}). Verdict: Arm C γ=0.025 STRONGEST single-seed FAV signal in c790g cycle (Δ_CA=−0.00180 ~1.12σ_seed + FFS=3125 25-step-earlier + train_time matched) but val=3.26163 > baseline μ=3.26118 by +0.00045 = FAIL "μ ≤ current baseline" G1+G2 merge gate single-seed. Cannot CLEAN-PROMOTE. **3 CATALOG-NEW PROMOTIONS**: (1) [[r-buffer-precond-ratio-step125-to-terminal-direction-flip]] CONFIRMED on γ-axis (2nd axis: MLP-LR + γ-Tikhonov) — R_cond_max ratio B/A 0.55 step-125 → 5.06 terminal 9× swing — time-scale-decoupling general-purpose R-buffer mechanism property. (2) [[precond-ratio-vs-r-inv-sqrt-decoupling-under-gamma-down]] PROMOTED — γ-DOWN compresses precond_ratio via TOP-WHITENING / inverse-sqrt paradox (R_cond ↑ but precond_ratio ↓ ; newton_eps=1e-4 takes over as dominant bottom-end regularizer at small γ). (3) [[lift-band-gamma-axis-local-max-dual-mechanism-compression]] NEW-PROMOTED — production γ=0.005 is LOCAL precond_ratio MAXIMUM within ±5× bracket; both edges compress LIFT-band toward 1.0 via OPPOSITE R-spectrum mechanisms (γ-DOWN TOP-WHITENING vs γ-UP SPECTRUM-FLATTENING). Cross-axis testing candidate: does NM_EPS (#2090) or POWER (#2039) show analogous LOCAL-MAX behavior?
