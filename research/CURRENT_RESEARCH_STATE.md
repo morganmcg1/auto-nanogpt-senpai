@@ -1,3 +1,30 @@
+## 2026-06-01 05:11 UTC — Cycle 71 mid-499 — fern #2043 400th refute 270th mech class 3-SUBSTRATE-SCALARS-LOWER-WEAKLY-DESTRUCTIVE-MIRROR-CONVERGENT / 35th RTM precedent (n=2 mean 3.27122 / TIGHTEST cycle-71 cross-arm spread 0.00008 / Arm A 3.27126 Arm B 3.27118 / stat margin 0.01242 ✓ / +0.00107 above 19th-RTM 2-substrate FORWARD = mild scalars-LOWER drift; STRIKING MIRROR-CONVERGENCE: FORWARD+scalars-LOWER ≡ 2-substrate MIRROR #2013 Δ=−0.00001 within sub-spread tolerance — two structurally distinct dispatch configs converge to shared weakly-destructive attractor band ~3.27122) + fern #2068 new assignment (3-SUBSTRATE FORWARD + scalars-HIGHER probe β1=0.9 on scalars — scalars-axis direction-symmetry discriminator; 35% SCALARS-HIGHER-PRODUCTIVE → opens new productive direction / asymmetric scalars axis 30% RTM-INVARIANT 20% SCALARS-HIGHER-DESTRUCTIVE-SYMMETRIC → narrow optimum at canonical 0.8 10% MERGE 5% POD-BLOCKED). **Critical structural insight**: per-kind β1 dispatch axis 2-substrate FORWARD (lm_head-LOWER at 19th-RTM 3.27015) is the STRUCTURAL MINIMUM of the dispatch space at floor band. 3-substrate scalars-LOWER axis CLOSED as weakly-destructive (+0.00107 drift). The MIRROR-convergence finding suggests off-canonical dispatch configurations may share a common attractor band at ~3.27122 — could be a generic "small-perturbation drift band" for the per-kind β1 axis. Memory `feedback_cherry_pick_must_be_committed` re-affirmed (silent Arm B config regression caught + recovered cleanly). No human issues. Fleet 8/8 active 0 idle. Cumulative **400 refuted / 270 distinct mech classes / 226 family closures / 9 structural axes locked / 35 RTM precedents / 19 pod-stability observations** (RTM-PERSISTENT-AT-N=20/21 = 95.2%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]; per-kind β1 dispatch 2-substrate FORWARD = structural minimum; 3-substrate scalars-LOWER axis CLOSED).
+
+### fern #2043 bilateral terminal — 270th mech class / 3-substrate scalars-LOWER closure
+
+**Bilateral terminal**: Arm A `uczotefu` SEED=1 val=**3.27126** ffs=3025; Arm B `8w9hoqkk` SEED=2 val=**3.27118** ffs=3025. n=2 mean **3.27122** (spread 0.00008 — TIGHTEST cycle-71 spread band). Δ vs baseline 3.26776 = +0.00346 (NOT merge); stat margin 0.01242 ≥ 0.004 ✓; **Δ vs 19th-RTM 2-substrate FORWARD = +0.00107 (mild scalars-LOWER drift)**; **Δ vs 2-substrate MIRROR #2013 = −0.00001 (BIT-EQUIVALENT)**.
+
+**Per-kind β1 dispatch landscape post-#2043**:
+
+| Configuration | Substrate dispatch | n=2 mean | Δ vs 19th-RTM |
+|---|---|---|---|
+| Canonical (#613) | 0.8 / 0.8 / 0.8 | 3.26776 | −0.00239 (carrier) |
+| **2-substrate FORWARD (19th-RTM #1972)** | **0.8 / 0.7 / 0.8** | **3.27015** | **0.00000 (PRODUCTIVE FLOOR MINIMUM)** |
+| 2-substrate MIRROR (#2013) | 0.7 / 0.8 / 0.8 | 3.27123 | +0.00108 |
+| **3-substrate FORWARD + scalars-LOWER (THIS PR #2043)** | **0.8 / 0.7 / 0.6** | **3.27122** | **+0.00107 (BIT-EQUIVALENT to MIRROR)** |
+
+→ Two structurally distinct off-canonical configs (FORWARD with 3-substrate scalars-LOWER, MIRROR with 2-substrate) land at **identical val** (Δ=−0.00001 within seed noise 0.00008). Suggests a **shared weakly-destructive attractor band** at ~3.27122 for off-canonical 1-substrate-asymmetry perturbations.
+
+### fern #2068 new assignment — scalars-HIGHER direction-symmetry probe
+
+Tests `scalars-β1=0.9` (HIGHER than canonical 0.8) with FORWARD base. Discriminates whether scalars-axis is asymmetric (PRODUCTIVE-HIGHER opens new direction) or symmetric-destructive (HIGHER also weakly-destructive → narrow optimum at 0.8). 35% prior PRODUCTIVE-HIGHER. Single n=2 cell.
+
+### Cycle 71 cumulative state — post-this-close
+
+After fern #2043 close + fern #2068 assignment: g1r2-{askeladd #2063, alphonse #2065, edward #2059, fern #2068, nezuko #2064, thorfinn #2051, tanjiro #2056, frieren #2055} all WIP. Cumulative **400 refuted / 270 distinct mech classes / 226 family closures / 9 structural axes locked / 35 RTM precedents / 19 pod-stability observations**.
+
+---
+
 ## 2026-06-01 04:34 UTC — Cycle 71 mid-498 — alphonse #2034 399th refute 269th mech class PER-KIND-β1-×-EMBED-RESET-M-AXIS-INVARIANT-RTM-ADDITIVE-AT-FLOOR-BAND / 34th RTM precedent (n=2 mean 3.27057 / cross-arm spread 0.00254 / Arm A 3.27184 Arm B 3.26930 / stat margin 0.01334 ✓ / Δ vs #2008 MOMENT=2 cell = −0.00007 STATISTICALLY IDENTICAL within seed noise; M-axis at compound level INVARIANT for per-kind β1 × embed-reset — neither variance reset (M=1) nor momentum reset (M=2) unlocks emergence; productive emergence in #1985 confirmed MLP-SOAP-anchored not moment-anchored; carriers + compounds cluster in tight 0.0005 mech-cluster [3.27015-3.27065]) + alphonse #2065 new assignment (PER-KIND-β1 × EMBED-RESET-MOMENT=3 joint reset compound — M-axis closure probe; 60% MOMENT=3-RTM-ADDITIVE-FLOOR → closes 10th structural axis 20% DESTRUCTIVE 10% PRODUCTIVE 5% POD-BLOCKED 5% MERGE). **Critical structural insight**: 3-mechanism compound triangle now characterized at 4 distinct cells, all RTM-additive at floor except the unique MLP-SOAP × embed-reset productive emergence (#1985). Per-kind β1 × embed-reset compound is M-INVARIANT at single-buffer resets; MOMENT=3 (joint) is the final M-axis cell to probe before family-closure. Per-kind β1 emerges as an ORTHOGONAL modulator that does NOT carry emergent synergy with any tested reset mechanism. The productive emergence subspace narrows to MLP-SOAP-anchored interactions specifically. No human issues. Fleet 8/8 active 0 idle. Cumulative **399 refuted / 269 distinct mech classes / 225 family closures / 9 structural axes locked / 34 RTM precedents / 19 pod-stability observations** (RTM-PERSISTENT-AT-N=19/20 = 95.0%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]; M-axis-invariant-at-compound STRUCTURALLY ESTABLISHED for per-kind β1 × embed-reset).
 
 ### alphonse #2034 bilateral terminal — 269th mech class / M-axis invariance at compound
