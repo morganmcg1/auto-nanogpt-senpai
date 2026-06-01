@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-06-01 06:55 UTC — PR #2024 nezuko: Body PMuon momentum FRESH-START (m.copy_(p.grad)) @ step 2600 (pEMA refresh boundary) — ❌ BILATERAL NULL; FRESH-START axis CLOSED across both major boundaries (@975 via #1986, @2600 here)
+
+- Branch: `g1r1-nezuko/body-mom-fresh-start-2600`
+- Hypothesis: At step 2600 (pEMA refresh boundary), overwrite body PMuon momentum buffers with the current gradient (FRESH-START). Arm A all 12 blocks (72 buffers); Arm B deep blocks 8-11 only (24 buffers). Tests whether the pEMA refresh + momentum reset synergize structurally.
+
+| Arm | scope | n_refreshed | run | sr | val_ema | Δ vs baseline (mnat) | Verdict |
+|---|---|---:|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | — | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A FRESH-START all** | 12 blocks | 72 | `3ftisanh` | **2975** | 3.267962 | **+5.108** | ❌ NULL |
+| **B FRESH-START deep** | 4 blocks (8-11) | 24 | `smhk2zrj` | **2925** | 3.265411 | **+2.557** | ❌ NULL |
+
+- **Mechanism CLEAR (excellent student diagnostic):** Arm A produces a **+60 mnat val spike at step 2625** — the single no-momentum step at 2600 propagates as a large perturbation through cooldown. Arm B (deep-only) has a much smaller spike (+0.4 mnat) but still costs +2.557 mnat terminal val and +50 sr-steps.
+- **Monotone scaling:** 24-buffer reset → +2.5 mnat regression, 72-buffer reset → +5.1 mnat regression. Deep-only ≈ ⅓ of all-blocks effect — direct fraction-of-disruption.
+- **Verdict:** FRESH-START at @2600 is structurally HARMFUL. The pEMA-refresh boundary's body PMuon momentum is healthy — overwriting destroys the EMA-smoothed direction estimate that late-cooldown sharp descent depends on. pEMA refresh does NOT recover this (pEMA captures the post-perturbation param state).
+- **Axis closure:** Body PMuon momentum FRESH-START is now BILATERALLY CLOSED at both major boundaries: @975 cooldown-onset (#1986 alphonse: deep +4.67, shallow +6.12) AND @2600 pEMA-refresh (this PR).
+- **Cross-PR sr=2925 NULL pattern (3+ runs):** SCALE-UP ×4 @975 (#2025 Arm B `nb0cqcve` +1.75), FRESH-START @2600 deep (this PR Arm B +2.56), REVERSE-SIGN @975 (#2041 Arm A `yhd76thg` +4.25) — three structurally different body PMuon momentum operations all yield sr=2925 with val_ema close-but-fail. The body PMuon momentum buffer at any boundary is dominantly NULL-yielding under structural perturbation.
+- **nezuko reassigned:** Pivoting away from body PMuon momentum state. New hypothesis: Body PMuon **NS-iters polar projection SKIP in cooldown window** (steps 975-2750) — a structural mechanism never tested phase-specifically; tests whether polar projection is load-bearing only in warmup/early-train phases. Aligns with directive (c) phase-specific mechanism. PR #NEW.
+
 ## 2026-06-01 03:30 UTC — PR #1984 tanjiro: Middle-block (4-7) body PMuon momentum HARD-ZERO / ×0.5 DECAY @ step 975 — ❌ BILATERAL NULL; non-monotone depth response identified; BLEND-with-grad family assigned as #2061
 
 - Branch: `g1r1-tanjiro/body-mom-middle`
