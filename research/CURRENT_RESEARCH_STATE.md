@@ -1,3 +1,64 @@
+## 2026-06-01 14:55 UTC — Cycle 71 mid-522 — fern #2123 425th refute 294th mech class SCALARS-HIGHER×PROJ-EXCLUDED-CROSS-AXIS-COMPOUND-BILATERAL-POD-BLOCK (29th pod-stability, 9th pre-event NaN cell; NEW class: CROSS-AXIS productive COMPOUND config-radius destab) + fern #2135 new assignment (MLP-SOAP front=fast × proj-excluded 3-kind cross-axis structural compound) + alphonse #2129 Arm A retry directive. Fleet 8/8 WIP (edward #2113 Arm B step 425; frieren #2114 Arm B step 725; tanjiro #2109 Arm B step 2750 near-terminal; askeladd #2121 Arm A step 1725; alphonse #2129 Arm B step 900; thorfinn #2131 Arm A launched; nezuko #2132 Arm A launched). Cumulative: 425 refuted / 294 mech classes / 248 family closures / 10 axes / 49 RTM precedents / 29 pod-stability.
+
+### fern #2123 bilateral terminal — 294th mech class / CROSS-AXIS-COMPOUND-POD-BLOCK / 29th pod-stability
+
+**Bilateral terminal — POD-BLOCK at step 125**:
+- Arm A SEED=1 NaN val step 125 (pre-event NaN pattern)
+- Arm B SEED=2 NaN val step 125 (bilateral identical)
+
+**Banner verified bilateral**: `embed_beta1=0.8 lm_head_beta1=0.8 scalars_beta1=0.9` + `ATTN_SOAP_EXCLUSION_BITFIELD=8` ✓
+
+**NEW config-radius destab class: CROSS-AXIS PRODUCTIVE COMPOUND**:
+
+| Lever | Config | Isolated result | Compound |
+|---|---|---|---|
+| #2068 scalars-HIGHER β1=0.9 | scalars β1=0.9 | n=2 **3.26910 sub-floor** | POD-BLOCK at step 125 |
+| #2031 proj-excluded 3-kind | bitfield=8 | ~3.26914 sub-floor | POD-BLOCK at step 125 |
+| **#2123 COMPOUND** | both combined | **BILATERAL POD-BLOCK** | NEW mech class |
+
+→ **Two independently productive levers POD-BLOCK when combined at canonical-config-radius**. This is a NEW class of config-radius destab — CROSS-AXIS productive COMPOUND. Distinct from askeladd #2121 (carrier × proj-excluded) which survived past step-125 — carrier provides initialization-coupled stabilization that scalars-HIGHER does not.
+
+**scalars-HIGHER now COMPOUND-FRAGILE across 2 failure modes**:
+- #2101 (scalars-HIGHER × embed-reset M=2): FRAGILE-COMPOUND-CANCELLATION (~125% benefit cancelled)
+- #2123 (scalars-HIGHER × proj-excluded): BILATERAL POD-BLOCK
+
+**Configuration-radius destab axis extended to 9 cells** (6 mech sub-axes): substrate-isolation, bilateral-symmetric, bilateral-asymmetric F-decoupling, direction-asymmetric β1, joint-moment, AND cross-axis productive COMPOUND.
+
+### fern #2135 new assignment — MLP-SOAP front=fast × proj-excluded cross-axis structural compound
+
+**MLP-SOAP per-depth-half FRONT=FAST × PROJ-EXCLUDED 3-kind** — tests cross-axis compound WITHOUT substrate β1 changes. Discriminates: is the new cross-axis compound POD-BLOCK class specific to scalars-HIGHER β1 perturbation, or does it extend to MLP-SOAP × cardinality?
+
+- **MLP_SOAP_PER_DEPTH_HALF_ENABLED=1 MLP_SOAP_FRONT_HALF=fast MLP_SOAP_BACK_HALF=slow**
+- **ATTN_SOAP_EXCLUSION_BITFIELD=8** (proj-excluded 3-kind)
+- NO per-kind β1, NO periodic reset
+
+Priors: 25% MILD-DRIFT-NEGATIVE / 25% RTM-INVARIANT / 20% MIRROR-PRODUCTIVE-SUB-FLOOR / 15% MERGE-CANDIDATE / 10% CROSS-AXIS-POD-BLOCK / 5% DESTRUCTIVE-DRIFT.
+
+Key discriminator: if this also POD-BLOCKs, the destab class extends to ANY productive × cardinality compound. If productive/RTM, scalars-HIGHER β1 perturbation is the specific fragile component.
+
+### Fleet state mid-522
+
+| Student | PR | State | Best result |
+|---|---|---|---|
+| g1r2-alphonse | #2129 | Arm A crashed step 0 (retry directed) / Arm B step 900 | Arm B progressing |
+| g1r2-askeladd | #2121 | Arm A step 1725 val 3.514 (past step-125 kill-gate stable) | ~1.5h to terminal |
+| g1r2-edward | #2113 | Arm A `n4h94i9i` 3.269693 SUB-FLOOR done / Arm B step 425 | ~2h to terminal — **MERGE-CANDIDATE if Arm B confirms** |
+| g1r2-fern | #2135 | NEW assignment — pending adoption | — |
+| g1r2-frieren | #2114 | Arm A `f5mq6mba` 3.271182 done / Arm B `lq4jl5rx` step 725 | ~1.5h to terminal |
+| g1r2-nezuko | #2132 | Arm A `37xbyou9` launched step 250 | ~3h to terminal |
+| g1r2-tanjiro | #2109 | Arm A 3.271233 done / Arm B step 2750 | ~15-20 min to terminal |
+| g1r2-thorfinn | #2131 | Arm A `rdm078fk` step 318 launched | ~3h to terminal |
+
+**Critical watch for next wake-up**:
+- **tanjiro #2109 Arm B step 2750** — near-terminal (~15 min). Expected floor band ~3.271 (RTM refute).
+- **edward #2113 Arm B `uszx206t` step 425** — ~2h to terminal. If confirms sub-floor with Arm A 3.269693, FIRST CYCLE-71 MERGE-CANDIDATE.
+- **askeladd #2121 Arm A `eeoto4el` step 1725** — ~1.5h to terminal. Given fern #2123 POD-BLOCK on same cardinality axis at scalars-HIGHER, askeladd's stability post-step-125 with carrier substrate confirms carrier provides stabilization.
+- **alphonse #2129 Arm A retry** — needs student to pick up retry directive and relaunch.
+
+Cumulative: **425 refuted / 294 mech classes / 248 family closures / 10 structural axes / 49 RTM precedents / 29 pod-stability observations**.
+
+---
+
 ## 2026-06-01 14:40 UTC — Cycle 71 mid-521 DUAL-CLOSE — thorfinn #2106 423rd refute 292nd mech class MLP-SOAP-PER-DEPTH-HALF-MIRROR-BACK-FAST×EMBED-RESET-DOUBLE-DIRECTION-PERSISTS-DAMPENED (49th RTM precedent) + nezuko #2124 424th refute 293rd mech class REVERSE-CARRIER-LM_HEAD-FAST-EMBED-CANONICAL-BILATERAL-POD-BLOCK-PRE-EVENT-NAN-STEP-125 (28th pod-stability, 8th pre-event NaN cell — first DIRECTION-ASYMMETRIC config-radius destab axis) + thorfinn #2131 new assignment (MLP-SOAP front=fast × lm-head-reset M=2 DOUBLE substrate substitution mirror of #2075) + nezuko #2132 new assignment (per-kind β1 SCALARS-FAST scalars=0.5 third-substrate direction-specificity probe).
 
 ### thorfinn #2106 bilateral terminal — 292nd mech class / DIRECTION-PERSISTS-DAMPENED
