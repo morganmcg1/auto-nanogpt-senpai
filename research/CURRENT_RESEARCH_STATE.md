@@ -1,3 +1,58 @@
+## 2026-06-01 15:40 UTC — Cycle 71 mid-524 — nezuko #2132 427th refute 296th mech class SCALARS-FAST-β1=0.5-THIRD-SUBSTRATE-DIRECTION-SPECIFIC-BILATERAL-POD-BLOCK (30th pod-stability, 10th pre-event NaN cell; DIRECTION-SPECIFIC-EMBED-PRIVILEGED-ABSOLUTE CONFIRMED; 3-substrate FAST matrix complete; Δ <0.3% deterministic) + nezuko #2142 new assignment (carrier rescue × MLP-SOAP front=fast cross-axis stabilization; 30% CARRIER-STABILIZES-PRODUCTIVE 25% CANCELLATION 15% MERGE 15% MILD-DRIFT 10% POD-BLOCK) + [fern #2135 Arm B POD-BLOCK directive pending bilateral] + [askeladd #2121 Arm A step 3075 near-terminal]. Fleet 8/8 WIP. edward #2113 Arm A 3.269693 SUB-FLOOR — Arm B step 1850 ~45 min to terminal (potential first cycle-71 MERGE). Cumulative: 427 refuted / 296 mech classes / 250 family closures / 10 axes / 50 RTM precedents / 30 pod-stability.
+
+### nezuko #2132 bilateral terminal — 296th mech class / 30th pod-stability / DIRECTION-SPECIFIC-EMBED-PRIVILEGED-ABSOLUTE CONFIRMED
+
+**Bilateral terminal — DETERMINISTIC initialization-coupled explosion** (Δ <0.3%):
+- Arm A `37xbyou9` SEED=1: step-1 grad_norm **234,487** → step-25 nonfinite 147,758,208 → step-125 NaN
+- Arm B `gqwzscj0` SEED=2: step-1 grad_norm **233,844** → step-25 nonfinite 147,758,208 → step-125 NaN
+
+**3-substrate FAST direction matrix COMPLETE** (predicted 30% DIRECTION-SPECIFIC-EMBED-PRIVILEGED-ABSOLUTE, ranked #1):
+
+| Cell | embed β1 | lm_head β1 | scalars β1 | Result |
+|---|---|---|---|---|
+| Canonical | 0.8 | 0.8 | 0.8 | ~3.270 floor |
+| #1972 EMBED-FAST | **0.5** | 0.7 | 0.8 | **3.268645 CARRIER SUB-FLOOR (UNIQUE)** |
+| #2124 LM_HEAD-FAST | 0.8 | **0.5** | 0.8 | BILATERAL POD-BLOCK |
+| **#2132 SCALARS-FAST** | 0.8 | 0.8 | **0.5** | **BILATERAL POD-BLOCK** |
+
+→ **Embed-substrate-FAST direction uniquely privileged across all 3 AdamW substrates.** ANY non-embed substrate with FAST decay triggers initialization-coupled gradient explosion. Mechanism reading: EMBED_INIT_STD=0.1 (smaller than lm_head/scalars init magnitude) may be LOAD-BEARING enabler.
+
+### NEW structural finding — fern #2135 MLP-SOAP front=fast × proj-excluded POD-BLOCK
+
+**GENUINE NEW STRUCTURAL × STRUCTURAL POD-BLOCK class** (banner-verified CANONICAL; no per-kind β1):
+- Arm A `ct2zyxfz`: step-1 grad_norm 233,797 → step-25 nonfinite 589,824 → step-125 val NaN
+- Same initialization-coupled gradient explosion signature as #2124/#2132 but WITHOUT substrate β1 perturbation
+- Arm B directed to launch for bilateral confirmation; pending
+
+**Structural implication**: CROSS-AXIS PRODUCTIVE COMPOUND POD-BLOCK class now extends from substrate-β1 perturbations to STRUCTURAL × STRUCTURAL cross-axis. MLP-SOAP × cardinality triggers identical explosion as non-embed FAST decay. Comparison to askeladd #2121 (carrier × proj-excluded past step-125) → carrier rescue provides unique stabilization.
+
+### nezuko #2142 new assignment — carrier × MLP-SOAP front=fast
+
+**Carrier rescue (embed=0.5, lm_head=0.7) × MLP-SOAP front=fast** — tests if carrier substrate-asymmetric β1 dispatch stabilizes depth-orientation axis like it apparently stabilizes cardinality (#2121 carrier × proj-excluded past step-125). Env: `PER_KIND_AUX_BETA1_ENABLED=1 AUX_BETA1_EMBED=0.5 AUX_BETA1_LM_HEAD=0.7 AUX_BETA1_SCALARS=0.8` + `MLP_SOAP_PER_DEPTH_HALF_ENABLED=1 MLP_SOAP_FRONT_HALF=fast MLP_SOAP_BACK_HALF=slow`. Step-1 grad_norm kill-gate >100k (carrier is small-init safeguarded by EMBED_INIT_STD=0.1).
+
+### Fleet state mid-524
+
+| Student | PR | Status | Best result |
+|---|---|---|---|
+| g1r2-alphonse | #2129 | Arm B step 2300 / Arm A retry pending | Arm B ~30 min to terminal |
+| g1r2-askeladd | #2121 | Arm A `eeoto4el` step 3075 **near-terminal (~3 min)** | val ~3.277 (expected RTM refute) |
+| g1r2-edward | #2113 | Arm A 3.269693 SUB-FLOOR done / Arm B step 1850 | **~45 min — first cycle-71 MERGE-CANDIDATE** |
+| g1r2-fern | #2135 | Arm A POD-BLOCK confirmed / Arm B directive sent | Bilateral pending |
+| g1r2-frieren | #2114 | Arm A 3.271182 done / Arm B step 2150 | ~35 min to terminal |
+| g1r2-nezuko | #2142 | NEW assignment | — |
+| g1r2-tanjiro | #2139 | Arm A step 100 warmup launched | ~1.7h to terminal |
+| g1r2-thorfinn | #2131 | Arm A `rdm078fk` step 1650 | ~51 min to terminal |
+
+**Critical watches**:
+- **askeladd #2121 Arm A ~3 min to terminal** (val ~3.277; likely RTM refute; need to assess whether to run Arm B)
+- **edward #2113 Arm B step 1850** — ~45 min to terminal (FIRST CYCLE-71 MERGE if Arm B < ~3.265)
+- **fern #2135 Arm B** — bilateral POD-BLOCK pending; step-1 grad_norm >100k confirms
+- **alphonse #2129 Arm B step 2300** — ~30 min to terminal; Arm A retry unknown
+
+Cumulative: **427 refuted / 296 mech classes / 250 family closures / 10 structural axes / 50 RTM precedents / 30 pod-stability observations**.
+
+---
+
 ## 2026-06-01 15:10 UTC — Cycle 71 mid-523 — tanjiro #2109 426th refute 295th mech class CARRIER-RESCUE×SCALARS-HIGHER-3SUB-PRODUCTIVE-STACK-CANCELLATION-FLOOR-BAND (50th RTM precedent; n=2 mean 3.270124 spread 0.002219; ~80% additive cancellation; scalars-HIGHER COMPOUND-FRAGILE confirmed across 3 failure modes #2101+#2109+#2123) + tanjiro #2139 new assignment (MLP-SOAP front=fast × scalars-HIGHER cross-axis depth-substrate compound; completes scalars-HIGHER cross-axis matrix; 30% CANCELLATION 25% MILD-DRIFT 15% MIRROR-PRODUCTIVE 15% POD-BLOCK 10% MERGE). Fleet 8/8 WIP. edward #2113 Arm A 3.269693 SUB-FLOOR — Arm B step 800 ~2h to terminal (potential first cycle-71 MERGE). Cumulative: 426 refuted / 295 mech classes / 249 family closures / 10 axes / 50 RTM precedents / 29 pod-stability.
 
 ### tanjiro #2109 bilateral terminal — 295th mech class / 50th RTM precedent / PRODUCTIVE-STACK-CANCELLATION
