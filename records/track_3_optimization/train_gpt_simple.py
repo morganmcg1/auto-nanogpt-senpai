@@ -72,6 +72,20 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--wd_scalars", type=float, default=0.0,
+                        help="Weight decay applied to AdamW adam_scalars (RMSNorm gains, ndim<2) "
+                             "and adam_embed (embedding matrix) param groups. Default 0.0 = "
+                             "baseline (no WD on AdamW groups, matches hardcoded weight_decay=0). "
+                             "When >0 combined with --wd_scalars_schedule, sets the schedule "
+                             "endpoint (start for ramp_down, end for ramp_up).")
+    parser.add_argument("--wd_scalars_schedule", type=str, default="constant",
+                        choices=["constant", "ramp_down", "ramp_up"],
+                        help="Schedule shape for AdamW adam_scalars + adam_embed WD. "
+                             "constant=fixed at args.wd_scalars throughout; "
+                             "ramp_down=linear args.wd_scalars->0 across training "
+                             "(mirrors merged Muon ramp_down direction, but uses simple "
+                             "linear interp so wd_scalars is the START value, not average); "
+                             "ramp_up=linear 0->args.wd_scalars across training (falsifier).")
     parser.add_argument(
         "--lr_cooldown_shape",
         type=str,
@@ -788,6 +802,8 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "wd_scalars": args.wd_scalars,
+            "wd_scalars_schedule": args.wd_scalars_schedule,
             "depth_init_mode": args.depth_init_mode,
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
@@ -866,9 +882,12 @@ for trial_idx in range(args.num_trials):
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed",
+                             weight_decay=args.wd_scalars),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
+                        dict(params=[p for p in model.parameters() if p.ndim < 2],
+                             lr=args.lr_scalars, name="adam_scalars",
+                             weight_decay=args.wd_scalars)],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
@@ -907,6 +926,17 @@ for trial_idx in range(args.num_trials):
         else:
             raise ValueError(f"Unknown wd_schedule: {schedule}")
 
+    def _wd_scalars_multiplier(step, total_steps, schedule):
+        if schedule == "constant":
+            return 1.0
+        p = step / total_steps
+        if schedule == "ramp_down":
+            return 1.0 - p
+        elif schedule == "ramp_up":
+            return p
+        else:
+            raise ValueError(f"Unknown wd_scalars_schedule: {schedule}")
+
     # learning rate schedule: stable then decay
     def _cooldown_eta(x, shape):
         if shape == "linear":
@@ -931,11 +961,15 @@ for trial_idx in range(args.num_trials):
             x = (progress - (1 - cooldown_frac)) / cooldown_frac
             eta = _cooldown_eta(x, args.lr_cooldown_shape)
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
+        wd_scalars_mu = _wd_scalars_multiplier(step, train_steps, args.wd_scalars_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-                if "initial_wd" in group and group.get("name", "").startswith("muon_"):
+                gname = group.get("name", "")
+                if "initial_wd" in group and gname.startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+                elif "initial_wd" in group and gname in ("adam_scalars", "adam_embed"):
+                    group["weight_decay"] = group["initial_wd"] * wd_scalars_mu
         if args.mu_cooldown_target is not None:
             if progress < 1 - cooldown_frac:
                 mu_sched = 0.95
@@ -1251,6 +1285,10 @@ for trial_idx in range(args.num_trials):
                     per_group_metrics[f"train/wd/{name}"] = wd
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
+                adam_wds = {g.get("name", f"adam_{i}"): g.get("weight_decay", 0.0)
+                            for i, g in enumerate(optimizer1.param_groups)}
+                per_group_metrics["train/wd_scalars_now"] = adam_wds.get("adam_scalars", 0.0)
+                per_group_metrics["train/wd_embed_now"] = adam_wds.get("adam_embed", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
                 for group in optimizer2.param_groups:
