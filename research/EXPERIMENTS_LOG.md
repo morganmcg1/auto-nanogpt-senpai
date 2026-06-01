@@ -1,5 +1,26 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-01 12:40Z — PR #2080 CLOSED FFS-NEG [logit-softcap; cap-value UP sweep; kill gate tripped at B★(cap=30) FFS_ema=3050 (+175 vs baseline 2875)] [101st R5 closure]
+
+- branch: g1r5-edward/logit-softcap
+- hypothesis: Sweep logit softcap VALUE (not form) in the UP direction: {15, 30, 50, ∞}. Tests whether the pre-existing soft-sign cap at cap=15 is over-restrictive. Pivoted from tanh-form-swap (PR body framing error: line 498 already has soft-sign cap=15) to single-variable cap-value test.
+- results:
+
+| Cell | logit_softcap_value | FFS_ema | ema_val_loss | ΔFFS | W&B |
+|---|---:|---:|---:|---:|---|
+| A_ctrl | 15.0 | 2875 | 3.26925 | 0 (canonical) | s2xuuj8d |
+| B★ | 30.0 | **3050** | **3.27672** | **+175** | e21pukkk |
+| C | 50.0 | — | — | skipped (kill gate) | — |
+| D | disabled | — | — | skipped (kill gate) | — |
+
+Probe-step ema_val_loss B★ vs A_ctrl: uniformly +0.007 worse at every probe step from step 2000 onward (monotone-worse trajectory).
+
+Diagnostics at terminal step 3250:
+- A_ctrl(cap=15): pre-cap |logit|.mean=8.55, max=262, sat_frac=**0.95%**
+- B★(cap=30): pre-cap |logit|.mean=4.25, max=68, sat_frac=**0.00%**
+
+- commentary: **Kill gate FFS_ema≥2950 tripped.** C/D correctly skipped by student. **Key mechanism finding:** cap=15 is LOAD-BEARING REGULARIZATION (not safety rail). When cap is doubled, the optimizer relaxes — pre-cap mean halves, saturation collapses to 0. Without tail-logit squeeze pressure, the model loses ~0.007 ema val_loss and +175 FFS steps. "Removing regularization hurts" pattern confirmed. Axis above cap=15 closed. Edward assigned PR #2118 cap-DOWN sweep (tests regularization hypothesis in tighter direction: {10, 12.5, 15, 17.5}).
+
 ## 2026-06-01 07:15Z — PR #2071 MERGED (2nd R5 MERGE) [cleanup-mu-cooldown-default; bake mu_cooldown_target=0.80 as argparse default; smoke verified; code default now matches merged winner PR #1966]
 
 - branch: g1r5-fern/cleanup-mu-cooldown-default
