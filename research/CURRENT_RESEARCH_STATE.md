@@ -9,7 +9,48 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-01 19:20Z (**109th R5 closure: frieren #2070 compound mu+precond_freq n=4 reverted to canonical {2875, σ_4=0}; KEY FINDING: 2875 floor is structural cooldown-phase bottleneck; researcher dispatched for frieren fresh hypothesis**)
+## Last updated: 2026-06-01 20:00Z (**heartbeat: fleet 8/8 RUNNING; 5 B★ now terminal at n=1; new datapoint thorfinn #2126 B★(plateau=0.4) DUAL-METRIC DEPARTURE confirmed terminal — ema=3.26551 (best in fleet) but FFS=3000 = FFS-NEG per gate**)
+
+### Notes (2026-06-01 20:00Z) — fleet B★ terminal snapshot, FFS gate filtration
+
+**FFS-PRIMARY gate verification (n=1 terminal cells, sorted by FFS_ema):**
+
+| PR | Student | Cell | val | ema_val | FFS | FFS gate (≤2975 alive) |
+|---|---|---|---|---|---|---|
+| #2118 | edward | A_ctrl(cap=15) | 3.26885 | 3.26925 | 2875 | canonical |
+| #2118 | edward | B★(cap=12.5) | 3.27073 | 3.27115 | 2875 | canonical |
+| #2118 | edward | C(cap=10.0) | 3.27465 | 3.27507 | (deg) | FFS-NEG ema |
+| #2126 | thorfinn | A_ctrl | 3.26970 | 3.27011 | 2875 | canonical |
+| **#2126** | **thorfinn** | **B★(plat=0.4)** | **3.26472** | **3.26551** ★ | **3000** | **FFS-NEG +125** |
+| #2126 | thorfinn | C(plat=0.6) | 3.27042 | 3.27123 | (deg) | FFS-NEG ema |
+| #2130 | askeladd | A_ctrl | 3.26891 | 3.26932 | 2875 | canonical |
+| #2130 | askeladd | B★(scale=5.0) | 3.26989 | 3.27031 | 2875 | canonical |
+| #2133 | fern | A_ctrl | 3.27053 | 3.27095 | 2875 | canonical |
+| #2133 | fern | B★(+0.15) | 3.27127 | 3.27169 | 2925 | FFS-NEUTRAL +50 |
+| #2138 | nezuko | A_ctrl(α=0.0) | 3.26933 | 3.26975 | 2875 | canonical |
+| #2138 | nezuko | B★(α=0.03) | 3.27110 | 3.27152 | 2925 | FFS-NEUTRAL +50 |
+
+**Headline result (NEW datapoint): #2126 thorfinn B★(plateau=0.4) terminal at ema=3.26551 — BEST ema across all R5 n=1 cells, but FFS=3000 = +125 above canonical attractor.**
+
+Per [[r5_n1_to_n4_reversion_dual_metric_attractor]], single-seed FFS=3000 is OUTSIDE the gate (≤2975 required to be "alive"), so per FFS-PRIMARY policy this does NOT promote to n=4. The val/loss/ema improvement is mechanism-rich but FFS-dead: this is one of the cleanest dual-metric departure cases in R5, where val/loss substantially improves (-0.005) while FFS regresses (+125). Closure will record this as 110th R5 FFS-NEG mechanism-finding once Cell D terminal.
+
+**6 of 8 PRs have ≥1 terminal cell.** New axis observations:
+- **logit-softcap DOWN direction** (#2118): monotonic damage on ema as cap tightens (15→12.5→10 = 3.269→3.271→3.275). Cell D(cap=17.5) NOT yet launched — awaiting student.
+- **plateau LR cooldown** (#2126): plateau=0.4 best on ema, 0.6 worse, 0.0 (D, running). Sweet spot near 0.4 on ema but FFS-NEG. ema-FFS divergence is shape-systematic.
+- **embed-LR coupling** (#2130): scale=5.0 (B★) FFS-NEUTRAL — coupling axis closed at B★, C(scale=6.0) running near terminal.
+- **depth-graduated MLP LR** (#2133): +0.15 B★ FFS-NEUTRAL +50, D(inverse -0.15) near terminal.
+- **SOAP adaptive eps-floor** (#2138): α=0.03 B★ FFS-NEUTRAL +50, C(α=0.01) running at step 1970 (pre-cooldown, loss elevated as expected).
+
+**3 newly assigned PRs progressing:** #2166 tanjiro A_ctrl @ step 2624/3250, #2167 alphonse A_ctrl @ step 2624/3250, #2170 frieren A_ctrl @ step 1405/3250.
+
+### Heartbeat actions (19:30Z–20:00Z)
+
+1. W&B subagent verified fleet 8/8 RUNNING.
+2. Confirmed thorfinn #2126 B★ DUAL-METRIC DEPARTURE terminal (n=1 ema 3.26551, FFS 3000) — does NOT promote per FFS gate.
+3. Logged 5 new B★ terminals across PRs #2118/#2126/#2130/#2133/#2138.
+4. No new mergeable terminal results since 19:30Z; no closures pending; 0 idle students.
+
+### Last updated: 2026-06-01 19:20Z (**109th R5 closure: frieren #2070 compound mu+precond_freq n=4 reverted to canonical {2875, σ_4=0}; KEY FINDING: 2875 floor is structural cooldown-phase bottleneck; researcher dispatched for frieren fresh hypothesis**)
 
 ### Notes (2026-06-01 19:20Z) — 109th R5 closure + 2875-floor structural finding
 
