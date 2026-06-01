@@ -1,5 +1,34 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-01 06:35Z — PR #2030 CLOSED FFS-NEG [sf-muon-polyak-ruppert + y-interp; Schedule-Free Muon iterate averaging with Defazio 2024 y-interp gradient eval; cooldown-freezing failure mode revealed] [97th R5 closure]
+
+- branch: g1r5-askeladd/sf-muon-polyak-ruppert
+- hypothesis: Schedule-Free Muon (Polyak-Ruppert iterate averaging on the z-iterate, with forward-pass param p tracking the lr-weighted Polyak average x). After cell 1 grad-at-x variant failed (+0.17 val_loss gap, FFS=-1), patched to canonical SF AdamW mechanic per Defazio 2024 Alg. 1: gradients evaluated at interpolated iterate y = (1-sf_y_beta)·z + sf_y_beta·x (sf_y_beta=0.9 default).
+- cells (only cell 1 y-interp run terminal; cells 2/3 not executed per failure mode diagnosis):
+
+| Cell | sf_beta | sf_y_beta | sf_muon_groups | val/loss | FFS_ema | FFS_trainval | wandb |
+|---|---:|---:|---|---:|---:|---:|---|
+| cell 1 grad-at-x (failed variant) | 1.0 | N/A | all | 3.43629 | **−1** | **−1** | qjpbhwax |
+| cell 1 y-interp (Defazio Alg. 1) | 1.0 | 0.9 | all | **3.36632** | **−1** | **−1** | **2hjv966e** |
+
+- trajectory comparison (cell 1 y-interp vs baseline n=4 mean):
+
+| step | y-interp val | baseline mean | Δ | trend |
+|---:|---:|---:|---:|---|
+| 875 | 3.6457 | 3.6769 | **−0.031** | y-interp LEADS |
+| 1000 | 3.6040 | ~3.63 | −0.026 | y-interp leads |
+| 2000 | 3.4221 | ~3.44 | −0.018 | parallel descent |
+| 2500 | 3.3808 | ~3.32 | +0.061 | y-interp lags |
+| 3000 | 3.3672 | ~3.28 | +0.087 | y-interp plateau |
+| 3250 | **3.3663** | **3.27007** | **+0.096** | y-interp frozen |
+
+- analysis: **Cooldown-freezing failure mode (student's diagnosis).** y-interpolation patch fixes gradient staleness (+0.07 over grad-at-x variant), but Polyak-weighted averaging on `x = lr-weighted average of z` causes `x` to plateau during cosine LR cooldown. Mechanism: cumulative weight `C_t = Σ lr_s` is dominated by warm-phase contributions (~975 · lr_peak). During cooldown the weight ratio `c_t/C_t` → 0 (≈7e−8 at step 3250), so new (cooled) z updates have negligible effect on x. Result: val_loss freezes wherever x was at cooldown start (~3.367), while baseline descends another 0.10 val_loss through cosine cooldown to 3.27. The ema_val_loss converges to val_loss (3.36638 vs 3.36632) — smoking gun for cooldown freezing (EMA-eval has nothing to average over once x is frozen).
+- mechanism conclusion: **SF iterate-averaging is fundamentally incompatible with cosine LR cooldown.** Cooldown's purpose is to give an unweighted final state at low LR; lr-weighted Polyak averaging gives a heavily-warm-weighted final state. They compete, not complement. Cells 2 (sf_muon_groups=mlp) and 3 (sf_beta=0.98) NOT worth running — same cooldown-freezing applies regardless of scope or kernel weight.
+- conclusions: **SF Muon family closed FFS-NEG.** Defazio 2024 SF AdamW is a "Self-Tuning" optimizer designed to *replace* LR schedules; testing on the cooldown-bearing R5 stack puts SF outside its native regime. Excellent forensic mechanism analysis by student (crossover plot, weight-ratio math, smoking-gun EMA convergence). Future SF on R5 would need: (a) reset-at-cooldown of cumulative weight C_t, (b) SWA-style alternative with x populated only after cooldown_start, or (c) constant-LR variant of the benchmark (out of scope).
+- save memory: SF iterate-averaging cooldown-freeze failure mode (warm-phase weight dominance + cosine cooldown → x frozen)
+
+---
+
 ## 2026-06-01 05:15Z — PR #2023 CLOSED FFS-NEG [lion-aux-optimizer; Lion β₁=0.9 replaces AdamW on AUX param groups; target uncrossed across lr_scale ∈ {0.1, 0.3}] [96th R5 closure]
 
 - branch: g1r5-fern/lion-aux-optimizer
