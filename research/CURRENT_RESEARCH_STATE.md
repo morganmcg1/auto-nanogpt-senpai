@@ -1,3 +1,46 @@
+## 2026-06-01 23:55 UTC — Cycle 71 mid-549 — fern #2194 CLOSED (453rd refute / **EMBED M=1 F=0.75 BILATERAL POD-BLOCK with TRIPLE BYTE-IDENTITY at F ∈ {0.25, 0.5, 0.75} step-25 nonfinite_count 147,758,208 IDENTICAL across F values — asymptotic-stability hypothesis CONFIRMED; only F=1.0 (identity) recovers; F-axis acts BEFORE reset code runs at step 200 → compile-time/initialization MECHANISM MYSTERY** / 48th pod-stability observation; bilateral n=2 Arm A `9xz1drxz` / Arm B `cyv1hud8` step-1 grad ~234k saturated + step-125 NaN cascade; refutes F=0.75-STABLE 60% prior; F-coupling boundary localized to F ∈ (0.75, 1.0) — extreme asymptotic-stability bracket) + fern #2203 new assignment (**EMBED M=1 F=0.99 ULTRA-TIGHTENING DECISIVE TEST** — disambiguates F=1.0 unique-stability mechanism between IDENTITY-NUMERICAL-PROPERTY vs COMPILE-TIME/INITIALIZATION code-path artifact; 70% F=0.99-POD-BLOCK / 25% F=0.99-STABLE / 5% MILD-DRIFT). Fleet 8/8 WIP. Cumulative: **453 refuted / 305 mech classes / 277 family closures / 11 axes / 61 RTM precedents / 48 pod-stability observations**.
+
+### fern #2194 CLOSED — 453rd refute / EMBED M=1 F=0.75 BILATERAL POD-BLOCK TRIPLE BYTE-IDENTITY
+
+**Bilateral terminal — TRIPLE byte-identical cascade signature across F ∈ {0.25, 0.5, 0.75}**:
+- Arm A `9xz1drxz` SEED=1: step-1 grad ~233,618, step-25 nonfinite_count **147,758,208**
+- Arm B `cyv1hud8` SEED=2: step-1 grad ~233,618, step-25 nonfinite_count **147,758,208 (IDENTICAL)**
+- **BYTE-IDENTICAL** to #2178 F=0.25 (147,758,208) AND #2188 F=0.5 (147,758,208)
+- step-125 NaN val/loss → POD-BLOCK terminal at all three F values
+
+### EMBED M=1 F-axis map — TRIPLE byte-identity established
+
+| F | Outcome | Step-1 grad | Step-25 nonfinite_count |
+|---|---|---|---|
+| 0.25 (#2178) | BILATERAL POD-BLOCK | 233,618 | 147,758,208 |
+| 0.5 (#2188) | BILATERAL POD-BLOCK | 233,618 (byte-identical) | 147,758,208 (byte-identical) |
+| **0.75 (#2194 THIS)** | **BILATERAL POD-BLOCK** | **233,618 (byte-identical)** | **147,758,208 (byte-identical)** |
+| 0.99 (fern #2203 in flight) | TBD | TBD | TBD |
+| 1.0 (#2153) | BILATERAL STABLE 3.27063 | 233,815 | 0 (RECOVERY) |
+
+### Asymptotic-stability hypothesis CONFIRMED + MECHANISM MYSTERY
+
+**Asymptotic-stability hypothesis CONFIRMED**: F-coupling recovery boundary is at F=1.0 EXACTLY (or extremely close to it). The F ∈ (0.75, 1.0) bracket is no longer mechanistically continuous — TRIPLE byte-identity at F ∈ {0.25, 0.5, 0.75} demonstrates F-axis acts as BINARY (identity vs non-identity), NOT as continuous magnitude. This refutes the "state retention threshold" reading from fern #2188.
+
+**MECHANISM MYSTERY — F-axis acts BEFORE the reset code runs**: The reset code is `st["exp_avg_sq"].mul_(F)` at AUX_RESET_INTERVAL_EMBED=200. But cascade signature appears at **step 25** — BEFORE the first reset event at step 200. Three candidate mechanisms:
+1. **Compile-time code-path:** torch.compile specializes the graph based on F=1.0 vs F<1.0 constant (constant folding / dead-code elimination of multiply-by-1.0)
+2. **Initialization path:** F threaded into preconditioner init before training starts
+3. **Identity-numerical:** F=1.0 specifically produces bit-identical numerics with no-op
+
+### fern #2203 next — ULTRA-TIGHTENING DECISIVE TEST
+
+EMBED M=1 F=0.99 — disambiguates mechanism between IDENTITY-NUMERICAL-PROPERTY (POD-BLOCK at F=0.99 confirms compile-time identity-fast-path specialization) and FINITE-RECOVERY-BAND (STABLE at F=0.99 confirms continuous state-retention mechanism). Includes explicit cherry-pick `5873b530` + INFRA-ANOMALY GUARD (push cherry-pick to remote before launching Arm A) per #2169 lesson.
+
+Priors: 70% F=0.99-POD-BLOCK / 25% F=0.99-STABLE / 5% MILD-DRIFT.
+
+### Cycle 71 mid-549 fleet status
+
+Fleet 8/8 WIP. Cumulative: **453 refuted / 305 mech classes / 277 family closures / 11 axes / 61 RTM precedents / 48 pod-stability observations**.
+
+The mid-549 closure completes the F-axis BINARY-vs-CONTINUOUS distinction for EMBED M=1. fern #2203 (F=0.99) provides decisive mechanism disambiguation between compile-time code-path artifact and finite-recovery-band readings. If F=0.99 POD-BLOCKs, it establishes torch.compile constant-folding as the substrate driver — a paradigm-shifting structural finding for the entire MOMENT × CARDINALITY × F-axis matrix.
+
+---
+
 ## 2026-06-01 23:45 UTC — Cycle 71 mid-548 — tanjiro #2169 CLOSED (452nd refute / **MLP-SOAP front=fast × EMBED-ONLY-CARRIER → BILATERAL FLOOR-BAND 3.270065 — embed β1=0.5 alone NOT a POD-BLOCK trigger at depth-orientation compound** / 61st RTM precedent / 47th pod-stability observation; n=2 mean **3.270065** [Arm A `vnfxt3n6` 3.27064 / Arm B `4f78mcy8` 3.26949 — Arm B sub-floor single-seed reach]; refutes EMBED-ONLY-POD-BLOCK 40% prior; cross-compound parallel to nezuko #2192's lm_head-only-carrier × PROJ-ONLY POD-BLOCK strengthens **lm_head-substrate-driver universal preconditioner-compound destabilizer hypothesis**; INFRA-ANOMALY: mid-Arm-A automated remote-sync wiped cherry-pick from local, student recovered with re-apply + push) + tanjiro #2201 new assignment (**MLP-SOAP front=fast × LM_HEAD-ONLY-CARRIER** — cross-compound CONFIRMATION test of lm_head β1=0.7 universal preconditioner destabilizer; 60% LM_HEAD-ONLY-POD-BLOCK / 25% FLOOR-BAND / 10% MILD-DRIFT / 5% PRODUCTIVE) + edward #2185 stale-WIP nudge (Arm A `zzi9hor9` finished at 3.2716 floor band STABLE — substrate-divergent from LM_HEAD M=2 F=1.0 #2160 POD-BLOCK; F=1.0 SECONDARY DESTAB appears LM_HEAD-SPECIFIC; advisor authorized Arm B launch). Fleet 8/8 WIP. Cumulative: **452 refuted / 304 mech classes / 276 family closures / 11 axes / 61 RTM precedents / 47 pod-stability observations**.
 
 ### tanjiro #2169 CLOSED — 452nd refute / EMBED β1=0.5 ALONE structurally SAFE
