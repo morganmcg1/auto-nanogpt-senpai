@@ -1,3 +1,45 @@
+## 2026-06-01 09:20 UTC — Cycle 71 mid-508 — fern #2068 410th refute 279th mech class SCALARS-β1-AXIS-DIRECTION-ASYMMETRIC-PRODUCTIVE-IN-HIGHER-DIRECTION / 40th RTM precedent (extension) / 2nd cycle-71 BELOW-FLOOR-BAND non-merge (n=2 mean **3.26910** Arm A `hinj1jf5` 3.27010 Arm B `8t1e7des` 3.26809 / stat margin 0.01542 ≫ 0.004 ✓ clean NEGATIVE / **Δ vs floor band lower edge = −0.00090 BELOW floor band** / Δ vs 19th-RTM 2-substrate FORWARD #1972 3.27015 = **−0.00106 NEW PRODUCTIVE FLOOR MIN for per-kind β1 dispatch** / NOT merge — gap +0.00134 to baseline 3.26776 / banner verified `enabled=1 embed_beta1=0.8000 lm_head_beta1=0.7000 scalars_beta1=0.9000` ✓ / clean monotonic descent no NaN no spikes / cross-arm Δ stabilizes ~+0.002 through cooldown tail / cherry-pick `c26b6a2` committed pre-launch) + fern #2100 new assignment (**SCALARS-β1=0.95 EXTENSION probe** — single-axis edge probe to define productive boundary of HIGHER direction; tests embed=0.8 / lm_head=0.7 / scalars=0.95 with NO periodic reset NO MLP-SOAP; per-unit sensitivity ~2× stronger HIGHER vs LOWER predicts linear extrapolation to ~3.26857; **note β1=0.95 = MU_COOLDOWN_START interaction touchpoint**; 30% PRODUCTIVE-EXTENDS-NEAR-MERGE 25% PRODUCTIVE-SATURATED 15% PRODUCTIVE-MERGE-CANDIDATE 15% RTM-INVARIANT 10% DESTRUCTIVE 5% POD-BLOCK). **Critical structural insight 1**: Scalars β1 axis at 3-substrate FORWARD base is **direction-asymmetric productive in HIGHER direction** — LOWER (β1=0.6) weakly-destructive +0.00107, HIGHER (β1=0.9) productive −0.00106 BELOW floor band; symmetric-around-0.8 narrow-optimum hypothesis decisively REFUTED. **Critical structural insight 2**: Per-unit β1 sensitivity is **~2× stronger in HIGHER direction** (~−0.0106/Δβ1 HIGHER vs ~−0.0054/Δβ1 LOWER) — extension probe at β1=0.95 warranted for productive band upper-edge characterization. **Critical structural insight 3**: **Below-floor-band attractor at ~3.26910 is a CROSS-AXIS ATTRACTOR** reachable through structurally distinct mech axes — fern #2068 scalars-β1-HIGHER 3.26910 + edward #2031 cardinality-axis-diminishing-returns 3.26914 (Δ=+0.00004 within seed noise) + edward #2059 cardinality-axis-3-kind 3.26943 (Δ=+0.00033). Multiple mech axes converge on the same below-floor-band region — shared structural floor of carrier-extended productive zone; worth tracking as emerging "sub-floor band" structure. Fleet 8/8 active 0 idle. Cumulative **410 refuted / 279 mech classes / 233 family closures / 9 axes / 40 RTM precedents (extension) / 23 pod-stability observations**.
+
+### fern #2068 bilateral terminal — 279th mech class / SCALARS-β1-AXIS-DIRECTION-ASYMMETRIC-PRODUCTIVE-IN-HIGHER
+
+**Bilateral terminal**: Arm A `hinj1jf5` SEED=1 val=**3.27010** ffs=3025 step-1500=3.53118 step-125=4.42285; Arm B `8t1e7des` SEED=2 val=**3.26809** ffs=3000 step-1500=3.53186 step-125=4.42454. n=2 mean **3.26910** (exact 3.269095; spread 0.00201 typical band); stat margin (3.28−3.26910)·√2 = **0.01542** ≫ 0.004 ✓; **Δ vs floor band lower edge = −0.00090 BELOW**; Δ vs baseline = +0.00134 (NOT merge); **Δ vs 19th-RTM #1972 = −0.00106 NEW PRODUCTIVE FLOOR MIN**.
+
+**Scalars β1 axis state at 3-substrate FORWARD base (embed=0.8, lm_head=0.7) — POST-#2068**:
+
+| scalars β1 | Δ from canonical | n=2 mean | Δ vs 19th-RTM #1972 | reading | source |
+|---|---|---|---|---|---|
+| 0.6 | −0.2 | 3.27122 | +0.00107 | weakly-destructive | #2043 |
+| 0.8 | 0.0 (canonical) | 3.27015 | 0.00000 | 19th-RTM PRODUCTIVE FLOOR MIN | #1972 |
+| **0.9** | **+0.1** | **3.26910** | **−0.00106** | **PRODUCTIVE BELOW FLOOR BAND** | **#2068 (40th RTM precedent extension)** |
+| **0.95** | **+0.15** | **???** | **???** | **EXTENSION EDGE PROBE** | **#2100 fern (THIS ASSIGNMENT)** |
+
+→ Per-unit β1 sensitivity in HIGHER direction is ~2× LOWER direction; productive band may extend further (linear extrapolation → ~3.26857 at β1=0.95).
+
+### Cross-axis below-floor-band ATTRACTOR — STRUCTURAL SIGNAL
+
+| Source | mech axis | n=2 mean | Δ vs #2068 |
+|---|---|---|---|
+| #2068 fern (just closed) | scalars-β1-axis HIGHER (direction-asymmetric productive) | **3.26910** | 0.00000 |
+| #2031 edward | cardinality-axis-diminishing-returns (k=3 q-excluded) | 3.26914 | +0.00004 |
+| #2059 edward | cardinality-axis-3-kind (v-excluded) | 3.26943 | +0.00033 |
+
+→ **The ~3.26910 below-floor-band region is a CROSS-AXIS ATTRACTOR reachable through structurally distinct mech axes** (scalars-β1-HIGHER dispatch + cardinality-axis ablation). Shared structural floor of carrier-extended productive zone. Floor band STRUCTURALLY LOCKED at [3.27000, 3.27200] may need extension downward to capture this sub-floor regime.
+
+### fern #2100 new assignment — SCALARS-β1=0.95 EXTENSION probe
+
+Tests `embed=0.8 / lm_head=0.7 / scalars=0.95` — single-axis edge probe to define whether scalars-HIGHER productive direction:
+- **CONTINUES** (productive extends further toward merge — linear extrapolation predicts ~3.26857)
+- **SATURATES** (productive levels off, β1=0.9 was peak)
+- **REVERSES** (productive has sharp boundary just above 0.9 — possible muon-cooldown interaction at MU_COOLDOWN_START=0.95)
+
+Note β1=0.95 = MU_COOLDOWN_START is an interesting structural touchpoint between scalars adam-β1 dispatch and muon cooldown phase — interaction effects may emerge.
+
+### Cycle 71 cumulative state — post-this-close
+
+After fern #2068 close + fern #2100 assignment: g1r2-{askeladd #2096, alphonse #2065, edward #2085, fern #2100, nezuko #2099, thorfinn #2075, tanjiro #2078, frieren #2089} all WIP. Cumulative **410 refuted / 279 distinct mech classes / 233 family closures / 9 structural axes locked / 40 RTM precedents (extension) / 23 pod-stability observations**.
+
+---
+
 ## 2026-06-01 09:15 UTC — Cycle 71 mid-507 — nezuko #2088 409th refute 278th mech class INTERVAL-AXIS-AT-(2,3)-NARROW-AT-LOWER-INTERVAL=100-BILATERAL-POD-BLOCK / 23rd pod-stability observation (bilateral POD-BLOCK at step 125 / Arm A `3wynvo5h` Arm B `wzz4hi8t` / banner verified `EMBED enabled=1 interval=100 moment=2 factor=0.25 || LM_HEAD enabled=1 interval=100 moment=3 factor=0.25` ✓ / pre-event NaN at step 100 BEFORE first reset event fired — student telemetry: `embed exp_avg.norm nan→nan exp_avg_sq.norm 0.0000→0.0000` AND `lm_head exp_avg.norm nan→nan exp_avg_sq.norm nan→nan` BOTH already NaN BEFORE reset / **destabilization in regular AdamW updates BETWEEN steps 0-100** correlates with INTERVAL=100 config despite reset events at step 100+ / INTERVAL-axis at canonical (2,3) BOUNDED BELOW at INTERVAL=100 bilaterally) + nezuko #2099 new assignment (**EMBED-INTERVAL=100 ISOLATED at canonical M=2 F=0.25** — substrate-isolation INTERVAL-axis discriminator parallel to F-axis methodology of #2072/#2076; tests `embed-INTERVAL=100 isolated (lm_head reset OFF)` at canonical M=2 F=0.25, mirror of #1956 setup with INTERVAL halved; 50% EMBED-INTERVAL=100-ISOLATED-POD-BLOCK INTERVAL universally narrow at lower bound 25% EMBED-INTERVAL=100-ISOLATED-RTM-CELL bilateral destab requires both substrates 15% DESTRUCTIVE 5% PRODUCTIVE 5% MERGE). **CRITICAL re-contextualization of mid-505 F-axis read**: step-125 destab signature is NOT F=0.5 specific — it's a CONFIGURATION-RADIUS at canonical (2,3) muon-warmup-phase interaction that fires across MULTIPLE axis perturbations from canonical with IDENTICAL pre-event NaN signature: F=0.5 either substrate (#2072 + #2076), INTERVAL=100 bilateral (THIS PR), and M-axis pod-blocks (#2033, #2046, #2000 embed-isolated). The "F-AXIS-UNIVERSALLY-NARROW-AT-(2,3)" mid-505 frame is SHARPENED to "**CONFIGURATION-RADIUS at canonical (2,3) muon-warmup-phase destabilization**" — the canonical config sits at a narrow stability radius, multiple axis perturbations cross the same destab boundary. INTERVAL=400 (frieren #2089) still running to discriminate INTERVAL-axis upper bound. Cross-axis pre-event NaN at step 125 is now established as the universal destabilization diagnostic. Fleet 8/8 active 0 idle. Cumulative **409 refuted / 278 mech classes / 233 family closures / 9 axes / 39 RTM precedents / 23 pod-stability observations**.
 
 ### nezuko #2088 bilateral terminal — 278th mech class / INTERVAL-AXIS-AT-(2,3)-NARROW-AT-LOWER-INTERVAL=100-BILATERAL-POD-BLOCK
