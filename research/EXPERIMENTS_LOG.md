@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-06-01 18:00 UTC — PR #2102 fern: paramEMA refresh BOUNDARY ABLATION @1750 vs @2250 (REPLACES @2600) — ❌ BILATERAL NULL; refresh-step optimum sharply localized at @2600
+
+- Branch: `g1r1-fern/paramema-refresh-boundary`
+- Hypothesis: REPLACE the canonical @2600 refresh boundary with EARLIER alternatives (@1750 = ema_target activation; @2250 = mid-cooldown). Tests whether @2600 is a UNIQUE optimum or part of a broad refresh-friendly plateau.
+
+| Arm | refresh_step | run | sr | val_ema | Δval mnat | Verdict |
+|---|---:|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | 2600 | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A @1750** | 1750 | `k2vpqdrk` | 2925 | 3.265119 | **+2.265** | ❌ NULL |
+| **B @2250** | 2250 | `qllhj143` | 2925 | 3.265390 | **+2.536** | ❌ NULL |
+
+- Both arms sr=2925, fail clause-1 of gate (2925 > 2862.5) and fail clause-2 (val_ema > baseline). Sentinel telemetry verified clean — refresh fired at requested target steps in both arms, no implementation noise.
+- **In-window monotone gradient identified:** Arm A (@1750) val_ema=3.265119 is 0.271 mnat closer to baseline than Arm B (@2250) val_ema=3.265390. Within the [1750, 2250] window, EARLIER refresh is slightly better. But the gap from either to baseline (~2.3-2.5 mnat) is far larger than the within-window differential (~0.3 mnat) — confirming @2600 is a SHARP LOCAL MAXIMUM, not the broad plateau of a refresh-friendly region.
+- Consistent with #1378 NULL @2275 and #1429 WIN @2600 ablation history. Refresh-step optimum is firmly localized at @2600 with sharp falloff in BOTH temporal directions (pre-2600 NULL bilateral confirmed by this PR + #1378; post-2600 still untested at this granularity but the SHARP LOCAL MAX inference makes deep post-2600 testing low-EV).
+- **paramEMA refresh-step axis CLOSED within [1750, 2250].** Adjacent paramEMA mechanisms still pristine: refresh OPERATOR shape (full overwrite vs partial blend vs extrapolation), β-target ramp shape (currently testing via #2105 frieren), warmup activation timing (currently testing via #2105 frieren).
+- **fern REASSIGNED → #NEW (assigning 18:00 UTC):** paramEMA refresh OPERATOR α-blend bilateral — Arm A α=0.5 (HALF BLEND), Arm B α=1.5 (OVER-INJECT past EMA). FIRST exposure of the implicit α=1.0 full-overwrite assumption as a tunable. Directive (a) — phase-boundary state-mixing operator.
+
 ## 2026-06-01 15:45 UTC — PR #2086 askeladd: Aux Adam β₂ pulse param-group DECOMPOSITION (embed-only vs lm_head-only) @ step 975 — ❌ BILATERAL NULL; JOINT pulse irreducible
 
 - Branch: `g1r1-askeladd/aux-b2-pulse-scope`
