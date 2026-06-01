@@ -101,6 +101,12 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--precond_freq_base", type=int, default=16,
+                        help="SOAP eigenbasis QR refresh stride OUTSIDE the early-cooldown window. "
+                             "16 = baseline. Smaller = more refreshes.")
+    parser.add_argument("--precond_freq_cooldown", type=int, default=16,
+                        help="SOAP eigenbasis QR refresh stride INSIDE the early-cooldown window "
+                             "(first half of cooldown). 16 = baseline (no-op).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -633,6 +639,10 @@ class Muon(torch.optim.Optimizer):
         self.cos_sims_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        # current_precond_freq is set by the outer training loop each step.
+        # Fallback to module-level PRECOND_FREQ keeps backward compat for callers
+        # that never set the attribute (e.g. older external tests).
+        current_precond_freq = getattr(self, "current_precond_freq", PRECOND_FREQ)
         for group in self.param_groups:
             params = group["params"]
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
@@ -665,7 +675,7 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(p.grad, state, precondition_frequency=current_precond_freq)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
@@ -773,6 +783,8 @@ if dist.get_rank() == 0:
             ),
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
+            "precond_freq_base": args.precond_freq_base,
+            "precond_freq_cooldown": args.precond_freq_cooldown,
             "ns_iter": NS_ITER,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
@@ -929,6 +941,15 @@ for trial_idx in range(args.num_trials):
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
         return eta
+
+    def get_precond_freq(step, cooldown_frac=0.7):
+        # Returns precond_freq_cooldown during the FIRST HALF of cooldown
+        # (steps cooldown_start <= step < cooldown_mid), else precond_freq_base.
+        cooldown_start = int((1.0 - cooldown_frac) * train_steps)
+        cooldown_mid = cooldown_start + (train_steps - cooldown_start) // 2
+        if cooldown_start <= step < cooldown_mid:
+            return args.precond_freq_cooldown
+        return args.precond_freq_base
 
 
     ########################################
@@ -1180,6 +1201,8 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        current_precond_freq = get_precond_freq(step)
+        optimizer2.current_precond_freq = current_precond_freq
         for opt in optimizers:
             opt.step()
 
@@ -1235,6 +1258,7 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
+                per_group_metrics["train/soap/precond_freq"] = current_precond_freq
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
