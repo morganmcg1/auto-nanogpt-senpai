@@ -114,6 +114,12 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    parser.add_argument("--z_loss_coef", type=float,
+                        default=float(os.environ.get("Z_LOSS_COEF", "0.0")),
+                        help="Z-loss (partition function regularization) coefficient on lm_head logits. "
+                             "z_loss = coef * sum(logsumexp(logits)^2) over tokens, matching reduction='sum' "
+                             "scaling of main loss. Default 0.0 = H266 bit-id short-circuit. "
+                             "PaLM uses 1e-4; ST-MoE uses 1e-3.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -535,6 +541,7 @@ class GPT(nn.Module):
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        self.z_loss_coef = 0.0  # H348: overridden after instantiation; 0.0 = bit-id short-circuit
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
@@ -542,6 +549,12 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
+        if self.z_loss_coef > 0.0:
+            flat_logits = logits.view(targets.numel(), -1)
+            main_loss = F.cross_entropy(flat_logits, targets.view(-1), reduction="sum")
+            z = torch.logsumexp(flat_logits, dim=-1)
+            z_loss = (z ** 2).sum() * self.z_loss_coef
+            return main_loss + z_loss
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
 
 
@@ -796,6 +809,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.z_loss_coef > 0:
+    print0(f"H348 Z-loss ENABLED: z_loss_coef={args.z_loss_coef} (partition function regularization on lm_head logits)", console=True)
+else:
+    print0("H348 Z-loss DISABLED (z_loss_coef=0, H266 bit-id short-circuit)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -804,6 +821,7 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+model.z_loss_coef = args.z_loss_coef
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -856,6 +874,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "z_loss_coef": args.z_loss_coef,
         },
     )
 
