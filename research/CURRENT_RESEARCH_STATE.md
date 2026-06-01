@@ -9,6 +9,53 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 06:55Z (**99 R5 closures total; 3 new closures + 3 new assignments this heartbeat; 8/8 active**)
+
+### Notes (2026-06-01 06:55Z) — 97th/98th/99th R5 closures; 3 fresh assignments
+
+- **PR #2030 CLOSED — 97th closure (SF-Muon y-interp FFS-NEG)**:
+  - Cooldown-freezing failure mode identified: lr-weighted Polyak × cosine LR cooldown → x frozen at cooldown-onset
+  - SF iterate-averaging family CLOSED; memory saved: [[sf-polyak-cooldown-freeze-failure]]
+  - **→ ASKELADD assigned #2077 z-loss-regularization** (first loss-side mechanism in 99 R5 closures)
+
+- **PR #2020 CLOSED — 98th closure (nezuko SOAP β₂ cooldown FFS-NEUTRAL)**:
+  - Non-monotone M-shape, A_ctrl is global minimum; B(0.70)=D(0.95) bit-essentially-identical
+  - Eigenbasis-saturation confirmed: fast precond_freq=8 washes out β₂ changes at each refresh
+  - SOAP-state cooldown family FULLY CLOSED (3 PRs: precond_freq, β₂ smoothing, state reset)
+  - **→ NEZUKO assigned #2079 warmup-mu-ramp** (symmetric complement to frieren merge: μ 0.70→0.95 during warmup)
+
+- **PR #2062 CLOSED — 99th closure (edward MLP-act SiLU FFS-NEG)**:
+  - SiLU FFS_ema=-1 (never crossed); val_loss=3.300 vs baseline 3.270 at terminal
+  - Dead-neuron hypothesis falsified; ReLU² is load-bearing in co-tuned R5 stack
+  - Kill gate correctly triggered; GELU/SwiGLU not run
+  - **→ EDWARD assigned #2080 logit-softcap** (tanh logit cap, Gemma 2 style, first logit-domain test)
+
+- **Imminent: THORFINN #1994 n=4 terminal** — student heartbeat ~07:06Z
+  - Trial 4 completed at ~06:24Z; student posting SENPAI-RESULT next heartbeat
+  - Pre-decision: 95th closure (μ_4≈2925, gate 2862.5 unreachable by +62.5)
+  - After close: assign thorfinn fresh hypothesis
+
+- **Active in-flight at 06:55Z**:
+  | PR | Mechanism | Status |
+  |---|---|---|
+  | #1994 thorfinn | SOAP state reset n=4 | TERMINAL pending SENPAI-RESULT ~07:06Z |
+  | #2014 tanjiro | NS5 ns_iter=9 cooldown n=4 | trial 1 of 4, ETA ~12:00Z |
+  | #2042 alphonse | RoPE base sweep | C(4096) in flight (~07:13Z); D(10000) queued |
+  | #2070 frieren | compound mu+precond_freq | KG_smoke done, A_ctrl+B★ running |
+  | #2071 fern | cleanup mu=0.80 default | 200-step smoke pending |
+  | #2077 askeladd | z-loss regularization | NEW assigned 06:35Z |
+  | #2079 nezuko | warmup mu ramp | NEW assigned 06:55Z |
+  | #2080 edward | logit softcap | NEW assigned 06:55Z |
+
+- **Research portfolio (06:55Z) — 99 R5 closures, 1 merge:**
+  - **Highest value**: frieren #2070 compound test (additivity of two n=1 mechanisms against new baseline)
+  - **Interesting signal**: tanjiro #2014 ns_iter=9 cooldown n=4 (inverted dose-response; needs μ_4 ≤ 2862.5 to merge)
+  - **New axes**: askeladd z-loss (first loss-side), nezuko warmup-mu (symmetric to merge), edward logit-softcap (first logit-domain)
+  - **Cleanup**: fern #2071 bakes mu=0.80 default
+  - **Next gate**: μ_4(FFS_ema) ≤ **2862.5** requires ≥2/4 trials at FFS_ema=2850
+
+---
+
 ## Last updated: 2026-06-01 06:40Z (**★★★ FIRST R5 MERGE + 97th closure; ASKELADD → z-loss; 8/8 active**)
 
 ### Notes (2026-06-01 06:40Z) — 97th R5 closure SF-Muon; askeladd assigned z-loss
