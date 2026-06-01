@@ -9,7 +9,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-01 14:45Z (**106th R5 closure — nezuko #2079 warmup-mu-ramp FFS-NEUTRAL; 3 cells at canonical attractor; 7/8 active, nezuko researcher dispatched**)
+## Last updated: 2026-06-01 15:00Z (**8/8 active: nezuko PR #2138 soap-adaptive-eps-floor assigned; fleet full**)
 
 ### Notes (2026-06-01 14:45Z) — 106th R5 closure + parallel researcher for nezuko
 
@@ -21,7 +21,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 
 | PR | Student | Mechanism | Status |
 |---|---|---|---|
-| — | **nezuko** | — | **IDLE awaiting researcher (a3b4269f7311896e7)** |
+| #2138 | **nezuko** | SOAP adaptive eigenvalue floor (LM relative damping on SOAP preconditioner denominator) | **WIP (assigned 15:00Z) — 4-cell falsifier-paired B★+D** |
 | #2042 | alphonse | RoPE base=4096 n=4 | Trial 0 reverted 2925, trials 1+ in flight (ETA ~18:40Z) |
 | #2070 | frieren | mu+precond_freq compound n=4 | In flight, ETA ~17:30Z |
 | #2118 | edward | logit cap-DOWN sweep | WIP (load-bearing regularization tighter direction) |
@@ -39,7 +39,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 5. **thorfinn #2126 trapezoid LR**: first LR-shape axis on active fleet.
 6. **tanjiro #2128 cosine μ-cooldown**: symmetric shape variation.
 7. **askeladd #2130 embed LR coupling**: fresh axis, AdamW group outside NS5 absorption.
-8. **nezuko (idle)**: awaiting researcher; mu/momentum portfolio now fully mapped.
+8. **nezuko #2138**: soap-adaptive-eps-floor — Levenberg-Marquardt-style relative damping for SOAP preconditioner denominator. Replace fixed `eps=1e-8` with `alpha * exp_avg_sq.mean() + eps`. 4-cell falsifier-paired sweep: A_ctrl(0.0)/B★(0.03)/C(0.01)/D(0.10-falsifier). Post-NS5 path (SOAP), outside NS5 absorption family. Assigned 15:00Z.
 
 ### Cross-fleet learnings from R5 closures (now 106)
 
