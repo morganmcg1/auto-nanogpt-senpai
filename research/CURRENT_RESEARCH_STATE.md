@@ -1,3 +1,61 @@
+## 2026-06-01 21:30 UTC — Cycle 71 mid-540 — edward #2153 CLOSED (443rd refute / **EMBED-SUBSTRATE M=1 SAFE — M=1 DESTAB IS LM_HEAD-SPECIFIC** — major structural finding overturning substrate-universality hypothesis / 57th RTM precedent / 39th pod-stability observation; bilateral terminal n=2 mean **3.27063** [Arm A `pb21t6ve` 3.27144 / Arm B `anxhxm3p` 3.26982 — 6th cycle-71 sub-floor single-seed reach]; clean floor band emergence with NORMAL step-1 grad — NO 234k saturation; mechanism: lm_head output-path through softmax+logit_softcap creates large grad that exp_avg_sq reset amplifies to 234k step-1 saturation, embed substrate gradients flow through full backward path smoothed by intermediate layers) + nezuko #2174 CLOSED (444th refute / **PROJ-UNIQUELY-SAFE CARDINALITY AXIS FULLY CLOSED** — Q-EXCLUDED × CARRIER BILATERAL PRE-EVENT NaN POD-BLOCK / 16th pre-event NaN cell / 40th pod-stability; Arm A `ynyfd9n9` + Arm B `uei6wsjq` step-125 nonfinite_count IDENTICAL **147,984,768** mechanism-deterministic; 4/4 CARDINALITY × CARRIER MATRIX RESOLVED — proj-excluded UNIQUELY SAFE, K/V/Q-excluded all POD-BLOCK with IDENTICAL ~147M nonfinite_count signatures) + edward #2185 new assignment (EMBED-RESET M=2 F=1.0 ISOLATED — substrate-generalization F=1.0 mirror on M=2 momentum-refresh path; 50% STABLE-UNIVERSAL-PROTECTION / 30% POD-BLOCK / 12% MILD-DRIFT / 8% PRODUCTIVE) + nezuko #2186 new assignment (CARRIER × PROJ-ONLY bitfield=7 proj-substrate decomposition probe — student-suggested follow-up; 60% PROJ-ONLY-POD-BLOCK confirming proj-uniquely-destabilizing / 25% MILD-DRIFT / 10% CANCELLATION / 5% MERGE). Fleet 8/8 WIP. Cumulative: **444 refuted / 300 mech classes / 268 family closures / 10 axes / 57 RTM precedents / 40 pod-stability observations / configuration-radius destab axis 18 cells / 14 sub-axes**.
+
+### edward #2153 CLOSED — 443rd refute / EMBED-SUBSTRATE M=1 SAFE — major structural finding
+
+**Bilateral terminal — floor band emergence (clean RTM-NEGATIVE)**:
+- Arm A `pb21t6ve` SEED=1: val_loss **3.27144** (floor band mid)
+- Arm B `anxhxm3p` SEED=2: val_loss **3.26982** (floor band lower-edge — 6th cycle-71 sub-floor single-seed reach)
+- **n=2 mean 3.27063** floor band lower-mid; stat margin 0.01325 ≫ 0.004
+- Δ vs MERGE bar 3.26776: +0.00287 (NOT MERGE)
+- Step-1 grad NORMAL (no 234k saturation)
+
+**Structural finding — M=1 destabilizer is LM_HEAD-SUBSTRATE-SPECIFIC** (overturns substrate-universality):
+
+| Substrate | M=1 F=1.0 result | Step-1 grad |
+|---|---|---|
+| **lm_head** | #2145 BILATERAL POD-BLOCK | 234,270 (canonical saturation) |
+| **embed** | **#2153 (THIS) BILATERAL STABLE floor band** | **NORMAL (no saturation)** |
+
+→ The 234k step-1 grad-saturation POD-BLOCK class is **OUTPUT-PATH-SPECIFIC**. lm_head: gradient through softmax+logit_softcap → potentially very large gradients → exp_avg_sq reset → sqrt(0+eps) division → 234k spike. EMBED: gradient backward-propagated through full transformer body → smoothed by intermediate layers → reset doesn't reach saturation.
+
+### nezuko #2174 CLOSED — 444th refute / PROJ-UNIQUELY-SAFE CARDINALITY AXIS FULLY CLOSED
+
+**Bilateral terminal — BILATERAL PRE-EVENT NaN POD-BLOCK identical to #2164/#2168**:
+- Arm A `ynyfd9n9` SEED=1: crashed step ~125, train_loss=NaN, step-125 nonfinite_count **147,984,768**
+- Arm B `uei6wsjq` SEED=2: crashed step ~125, train_loss=NaN, step-125 nonfinite_count **147,984,768** — IDENTICAL
+- Step-1 grad NORMAL; mechanism-COMPLETELY-deterministic fixed point
+
+**CARDINALITY × CARRIER MATRIX — 4/4 cells resolved**:
+
+| Cardinality cell | Bitfield | Active kinds | × CARRIER result |
+|---|---|---|---|
+| **proj-excluded** | 8 | q+k+v | #2121 3.272415 — **CANCELLATION (UNIQUELY SAFE)** |
+| K-excluded | 2 | q+v+proj | #2164 BILATERAL PRE-EVENT NaN |
+| V-excluded | 4 | q+k+proj | #2168 BILATERAL PRE-EVENT NaN |
+| **Q-excluded** | **1** | **k+v+proj** | **#2174 (THIS) BILATERAL PRE-EVENT NaN** |
+
+→ **PROJ-EXCLUDED is UNIQUELY SAFE.** ALL 3 cells retaining proj POD-BLOCK with IDENTICAL pre-event NaN signature. Proj substrate is the carrier-compound destabilizer; q/k/v co-active are spectators. **PROJ-UNIQUELY-SAFE CARDINALITY AXIS FULLY CLOSED at cycle 71 mid-540.**
+
+### edward #2185 next — EMBED-RESET M=2 F=1.0 (substrate-generalization F=1.0 mirror on M=2)
+
+Tests whether F=1.0 SECONDARY DESTAB pattern (established on LM_HEAD M=2 in fern #2160) generalizes to EMBED substrate, OR whether EMBED's substrate-protection (#2153 STABLE) extends to M=2 F=1.0. Substrate × MOMENT × F matrix completion — discriminates "EMBED universally protected" vs "F=1.0 destab substrate-agnostic on M=2".
+
+Priors: 50% STABLE-UNIVERSAL-PROTECTION / 30% POD-BLOCK / 12% MILD-DRIFT / 8% PRODUCTIVE.
+
+### nezuko #2186 next — CARRIER × PROJ-ONLY (bitfield=7) proj-substrate decomposition
+
+Student-suggested follow-up from #2174 close. Tests whether proj-SOAP ALONE (without co-active q/k/v in attn_soap) STILL POD-BLOCKs against carrier — fully isolates proj substrate as the unique destabilizer mechanism vs. q/k/v co-active as required component.
+
+Priors: 60% PROJ-ONLY-POD-BLOCK / 25% MILD-DRIFT / 10% CANCELLATION / 5% MERGE.
+
+### Cycle 71 mid-540 fleet status
+
+Fleet 8/8 WIP. Cumulative: **444 refuted / 300 mech classes / 268 family closures / 10 axes / 57 RTM precedents / 40 pod-stability observations / configuration-radius destab axis 18 cells / 14 sub-axes**.
+
+Cycle 71 substrate × M × F matrix is now substantially closed: LM_HEAD 4/4 cells resolved (#2152/#2145/#2063/#2160), EMBED 2/4 cells resolved (#2153 STABLE / #2154 + #2178 + #2185 in flight), SCALARS 0/4 cells (untested). M=1 destab confirmed LM_HEAD-specific; F=1.0 secondary destab pattern on M=2 awaits EMBED generalization test (#2185).
+
+---
+
 ## 2026-06-01 20:40 UTC — Cycle 71 mid-539 — fern #2160 CLOSED (442nd refute / **STEP-1 GRAD-SATURATION POD-BLOCK — F=1.0 SECONDARY DESTAB CONFIRMED ON MOMENTUM-ONLY PATH** / 6th step-1-saturation pod-stability cell / 38th pod-stability observation; bilateral mean step-1 grad/global_norm **234,624.33** [Arm A `7c69h59l` 233,616 / Arm B `m5zj231d` 235,632 / spread 0.43% — tight deterministic mechanism-coupled signature]; IDENTICAL step-25 nonfinite_count=123,701,376 across arms; HYPOTHESIS B (F=1.0-SECONDARY-DESTAB) realized at 15% prior; **2×2 LM_HEAD-RESET MATRIX FULLY RESOLVED** — F=1.0 universally destab across M=1 and M=2, F=0.25 stable on M=2 only) + fern #2178 new assignment (EMBED-RESET M=1 F=0.25 ISOLATED — substrate-generalization mirror of #2152 lm_head M=1; 60% EMBED-M=1-F=0.25-POD-BLOCK-CANONICAL confirming M=1 destab substrate-universal / 15% MILD-DRIFT / 10% PRODUCTIVE / 10% FLOOR-BAND / 5% PRE-EVENT-NaN). Fleet 8/8 WIP. Cumulative: **442 refuted / 300 mech classes / 266 family closures / 10 axes / 56 RTM precedents / 38 pod-stability observations**.
 
 ### fern #2160 CLOSED — 442nd refute / F=1.0 SECONDARY DESTAB CONFIRMED ON MOMENTUM-ONLY
