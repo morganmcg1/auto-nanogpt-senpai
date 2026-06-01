@@ -1,3 +1,35 @@
+## 2026-06-01 13:30 UTC — Cycle 71 mid-519 — MONITOR WAKE-UP (no closures) + HUMAN DIRECTIVE: AURORA (#2122) Queued
+
+**Human researcher directive (#2122)** — Morgan asked us to consider Aurora optimizer (arXiv:2602.22962 / arXiv:2605.18106). Full research pass posted as comment 4593034563. Conclusions:
+
+- Aurora applies alternating **row-normalization + polar step** to momentum buffer for SwiGLU `up`/`gate` projection matrices (motivated by SwiGLU's shared-shift symmetry + permutation symmetry).
+- Achieves scaling exponent β≈0.51 vs Muon β≈0.46 (data-constrained regimes; advantage weakens at Chinchilla-optimal).
+- **Critical mismatch with this codebase**: train.py uses **ReLU² activations** (`FusedLinearReLUSquareFunction`), not SwiGLU. Aurora's row-norm/polar alternation is symmetry-derived from SwiGLU; symmetry does NOT hold for ReLU² MLP up/down projections. Wholesale port not scientifically justified.
+- **Falsifiable probe (queued)**: apply Aurora-inspired alternating row-norm-before-polar mechanism to `mlp_bank` matrices (`c_fc` / `c_proj` only) as a probe of pre-polar row-normalization for ReLU² MLPs. Frame: "does row-norm-before-polar improve over plain NormUon on ReLU² MLP matrices?" Optimizer-state mechanism axis (consistent with Morgan #1259 directive). One falsifiable cell; mlp_bank-only.
+
+**Action queued**: assign Aurora-inspired probe to next idle student once any of the 8 active WIP PRs terminate.
+
+### Fleet snapshot — 8 WIP at 13:30 UTC
+
+| PR | Student | Status | Arm A | Arm B | Watch |
+|---|---|---|---|---|---|
+| #2101 | alphonse | stale_wip flag (no comments since 09:41Z); pod healthy | finished `9jqybjz5` **3.272654** s=3175 (floor band upper-mid) | running `69cdjl79` s=2925 val 3.287429 trailing | ~10-15 min to Arm B terminal |
+| #2106 | thorfinn | running | finished `lxkuih6z` **3.2724** s=3175 (floor band mid) | running `86exa2bc` s=2275 val 3.3885 | ~25-30 min to Arm B terminal |
+| #2109 | tanjiro | running — **sub-floor candidate** | finished `99g6dsk8` **3.2712** s=3175 (SUB-FLOOR band lower edge!) | running `2q4zfdvt` s=850 val 3.7214 (mid-train) | ~45-60 min to Arm B terminal |
+| #2113 | edward | running | running `n4h94i9i` s=2375 val 3.3661 | not launched | ~25 min to Arm A terminal |
+| #2114 | frieren | running | running `f5mq6mba` s=2075 val 3.4302 | not launched | ~35 min to Arm A terminal |
+| #2121 | askeladd | newly assigned (no runs yet) | not launched | not launched | student picking up |
+| #2123 | fern | newly assigned (no runs yet) | not launched | not launched | student picking up |
+| #2124 | nezuko | freshly launched | running `f6pff7pe` s=50 (warmup) | not launched | ~75 min to Arm A terminal |
+
+**Special watches**:
+- **tanjiro #2109 Arm A 3.2712 is BELOW floor band lower edge [3.27000, 3.27055]** — 3-substrate productive stack (carrier rescue × scalars-HIGHER) showing strong sub-floor signal at n=1. If Arm B confirms, this could be **first cycle-71 MERGE-CANDIDATE** (μ < 3.26776 with stat margin).
+- alphonse #2101 Arm A 4 crashed runs before `9jqybjz5` finished — investigate retry pattern after Arm B terminal.
+
+**Cumulative**: 421 refuted / 290 mech classes / 244 family closures / 10 axes / 47 RTM precedents / 27 pod-stability. Fleet 8/8 active 0 idle.
+
+---
+
 ## 2026-06-01 13:20 UTC — Cycle 71 mid-518 — DUAL-CLOSE EVENT: nezuko #2119 420th refute 289th mech class F-AXIS-SUBSTRATE-ASYMMETRIC-BILATERAL-POD-BLOCK-PRE-EVENT-NAN-STEP-125 (27th pod-stability, 7th pre-event NaN cell — first BILATERAL-ACTIVE-SUBSTRATE config-radius destab, extends destab AXIS beyond substrate-isolation) + fern #2100 421st refute 290th mech class SCALARS-β1=0.95-EXTENSION-FLOOR-BAND-LOWER-EDGE-PRODUCTIVE-BOUNDARY-BOUNDED-AT-β1=0.9 (47th RTM precedent — scalars β1=0.9 #2068 productive minimum NOT extended to 0.95). + nezuko #2124 new assignment (**Reverse-carrier probe — embed β1=0.8 + lm_head β1=0.5** — tests direction-specificity of substrate-asymmetric β1 decoupling; 35% DIRECTION-SPECIFIC-EMBED-PRIVILEGED 25% DIRECTION-AGNOSTIC-REVERSE-CARRIER-PRODUCTIVE 20% DESTRUCTIVE-DRIFT-WRONG-DIRECTION 10% RTM-CARRIER-EQUIVALENT 5% POD-BLOCK 5% MERGE) + fern #2123 new assignment (**Scalars-HIGHER β1=0.9 × proj-excluded (3-kind) cross-axis compound** — combines fern's own #2068 scalars productive minimum with attn_soap cardinality minimum #2031 at distinct mech axes; 30% COMPOUND-ADDITIVE-SUB-FLOOR 25% MERGE-CANDIDATE 20% RTM-EQUIVALENT 15% MILD-DRIFT 5% CANCELLATION 5% POD-BLOCK; complementary to askeladd #2121 carrier × proj-excluded). **Critical structural insight 1**: configuration-radius destab axis now BROADER than substrate-isolation — substrate-asymmetric F-decoupling [embed=0.25, lm_head=0.10] POD-BLOCKs at canonical (M=2,3) INTERVAL=200 bilateral-active config. F-axis is FRAGILE to per-substrate decoupling unlike β1-axis which is ROBUST (carrier #1972 substrate-asymmetric β1-decoupling is RTM-clean). **Critical structural insight 2**: scalars β1=0.9 productive minimum is BOUNDED upward — extension to 0.95 destroys ~85% sub-floor benefit; sensitive boundary suggests local minimum at scalars β1 ≈ 0.92-0.93. **Critical structural insight 3**: fleet now has 3 simultaneous cross-axis compound INTER-axis probes in flight: tanjiro #2109 (carrier × scalars-HIGHER 3-substrate INTRA-axis), askeladd #2121 (carrier × proj-excluded INTER-axis), fern #2123 (scalars × proj-excluded INTER-axis). **Critical structural insight 4**: reverse-carrier #2124 closes the direction-specificity question — discriminates embed-FAST privileged vs direction-agnostic substrate-asymmetric decoupling. Fleet 8/8 active 0 idle. Cumulative **421 refuted / 290 mech classes / 244 family closures / 10 structural axes / 47 RTM precedents / 27 pod-stability observations**.
 
 ### nezuko #2119 bilateral terminal — 289th mech class / F-AXIS-SUBSTRATE-ASYMMETRIC-BILATERAL-POD-BLOCK
