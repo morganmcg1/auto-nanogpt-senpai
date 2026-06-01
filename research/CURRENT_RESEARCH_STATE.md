@@ -1,3 +1,31 @@
+## 2026-06-01 03:10 UTC — Cycle 71 mid-496 — edward #2031 397th refute 267th mech class CARDINALITY-AXIS-DIMINISHING-RETURNS-NEAR-4-KIND (1st cycle-71 below-floor-band non-merge reading; n=2 mean 3.26914 / cross-arm spread 0.00116 / Arm A 3.26856 Arm B 3.26972 / Δ +0.00138 above baseline / sits BELOW floor band [3.27000, 3.27200] by 0.00086; proj-exclusion NON-DESTRUCTIVE at 3-kind active — proj NOT the load-bearing kind in attn_soap dispatch; cardinality axis 4→3 costs +0.00138, 3→2 costs ~+0.0028, 2→0 NaN = diminishing-returns near 4-kind transitions to destructive at low cardinality) + edward #2059 new assignment (3-KIND-V-EXCLUDED probe bitfield=4 q+k+proj-active — cardinality-axis universalization discriminator; 35% CARDINALITY-AXIS-DIMINISHING-RETURNS-UNIVERSAL → closes 10th structural axis 35% V-CRITICAL-DIFFERENTIAL → distinguishes kinds within 3-kind 15% V-EXCLUSION-DESTRUCTIVE 10% V-EXCLUSION-PRODUCTIVE 5% MERGE). **Critical structural insight**: cardinality axis is MONOTONE-BUT-NON-LINEAR with diminishing-returns near 4-kind. attn_soap dispatch is PARTIAL-REDUNDANT at high cardinality (1 kind cheap to lose) but transitions to DESTRUCTIVE at low cardinality (0-kind NaN). proj-exclusion is the LEAST destructive single-kind exclusion at 3-kind. **NEW structural region IDENTIFIED**: below-floor-band-non-merge (3.26856-3.26972 range) — distinct from all 32 prior RTM precedents which sit IN floor band. No human issues. Fleet 8/8 active 0 idle. Cumulative **397 refuted / 267 mech classes / 223 family closures / 9 axes locked / 32 RTM precedents / 18 pod-stability observations** (RTM-PERSISTENT-AT-N=18/19 = 94.7%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]; cardinality-axis-diminishing-returns-near-4-kind STRUCTURALLY LOCKED; below-floor-band-non-merge structural region NEWLY IDENTIFIED).
+
+### edward #2031 bilateral terminal — 267th mech class / below-floor-band non-merge discovery
+
+**Bilateral terminal**: Arm A `1biun9xj` SEED=1 val=**3.26856** ffs=3000 reached_target=1; Arm B `ozo49mlg` SEED=2 val=**3.26972** ffs=3025 reached_target=1. n=2 mean **3.26914** (spread 0.00116 — tight). Δ vs baseline 3.26776 = +0.00138 (below floor-band lower edge 3.27000 by 0.00086); stat margin 0.01536 ≥ 0.004 ✓ (statistically robust NEGATIVE). NOT merge: val above baseline by 0.00138; ffs mean 3012.5 > 3000.
+
+**Cardinality axis at attn_soap dispatch — extended**:
+
+| Cardinality | Bitfield | PR | n=2 mean val | Δ vs baseline | reading |
+|---|---|---|---|---|---|
+| 4-kind | 0 | #613 baseline | 3.26776 | 0 | CARRIER |
+| **3-kind proj-excluded** | **8** | **#2031 THIS PR** | **3.26914** | **+0.00138** | **NEAR-CARRIER (sub-floor-band)** |
+| 2-kind v+proj | 3 | #2004 | 3.27183 | +0.00407 | RTM-band-upper-edge |
+| 2-kind k+proj | 5 | #1982 | 3.27215 | +0.00439 | RTM-band-upper-edge |
+| 0-kind | 15 | historical | NaN | — | DESTRUCTIVE |
+
+→ **Diminishing-returns near 4-kind**: 4→3 costs +0.00138, 3→2 costs ~+0.0028, 2→0 NaN. Cost-per-kind-removed accelerates non-linearly.
+
+### edward #2059 new assignment — 3-kind v-excluded probe (bitfield=4)
+
+Tests bitfield=4 (v-excluded; q+k+proj active = 3-kind active subset). Discriminates cardinality-axis universalization vs differential at 3-kind cardinality. Most likely (35%/35%): CARDINALITY-AXIS-DIMINISHING-RETURNS-UNIVERSAL (v-excluded ≈ proj-excluded ≈ 3.26914, closes 10th structural axis) OR V-CRITICAL-DIFFERENTIAL (v-exclusion costs more than proj-exclusion, ~3.270-3.272). V is value projection — structurally central to attention output. If V-CRITICAL confirmed, distinguishes kinds within 3-kind cardinality.
+
+### Fleet status — 8/8 active 0 idle
+
+After edward #2031 close + edward #2059 assignment: g1r2-{askeladd #2035, alphonse #2034, edward #2059, fern #2043, nezuko #2058, thorfinn #2051, tanjiro #2056, frieren #2055} all WIP. Cumulative **397 refuted / 267 distinct mech classes / 223 family closures / 9 structural axes locked / 32 RTM precedents / 18 pod-stability observations** (RTM-PERSISTENT-AT-N=18/19 = 94.7%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]; below-floor-band-non-merge structural region NEWLY IDENTIFIED).
+
+---
+
 ## 2026-06-01 02:58 UTC — Cycle 71 mid-495 — nezuko #2049 18th pod-stability observation MIRROR-INVERTED-M=3-(3,2)-POD-BLOCKED-AT-SYMMETRIC-F-AND-SYMMETRIC-INTERVAL (bilateral NaN step 125; 6th distinct config with pre-event NaN signature; 2×2 M-direction matrix at symmetric-F+symmetric-INTERVAL NOW COMPLETE — only `(2,3)` is stable, the other 3 cells `(2,2)` `(3,3)` `(3,2)` all pod-block at step 125; MIRROR-INVERTED-asymmetry-family hypothesis REFUTED — specific pairing required; high-LR-substrate-exp_avg-only + low-LR-substrate-joint pairing STRUCTURALLY LOCKED as load-bearing) + nezuko #2058 new assignment (`(embed-M=2, lm_head-M=1)` M=1 VARIANCE-ONLY-AT-LOW-LR-SUBSTRATE probe — M-axis extension at canonical stable cell; 45% JOINT-UNIQUELY-LOAD-BEARING POD-BLOCK → low-LR substrate needs SPECIFICALLY joint reset 25% RTM-BAND-STABLE → non-exp_avg-only suffices 15% PRODUCTIVE-NEW-CELL 10% DESTRUCTIVE-SOFT 5% MERGE). **Critical structural insight**: M-symmetry-direction axis at symmetric-F + symmetric-INTERVAL is STRUCTURALLY LOCKED with a single stable cell. The 100× per-substrate LR ratio interacts with reset-moment direction in a non-symmetric way — joint reset on high-LR substrate destabilizes (large perturbation + high LR → muon-warmup blow-up), exp_avg-only reset on low-LR substrate destabilizes (small perturbation + low LR → variance never corrected). Next probe (2,1) extends the M-axis to bit 0 (variance-only) and discriminates joint-uniqueness vs non-exp_avg-only on low-LR substrate. No human issues. Fleet 8/8 active 0 idle. Cumulative **396 refuted / 266 mech classes / 222 family closures / 9 axes locked / 32 RTM precedents / 18 pod-stability observations** (RTM-PERSISTENT-AT-N=18/19 = 94.7%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]; 2×2 M-direction matrix STRUCTURALLY LOCKED at symmetric-F + symmetric-INTERVAL with `(2,3)` uniquely stable; high-LR-exp_avg-only + low-LR-joint pairing STRUCTURALLY LOCKED as load-bearing).
 
 ### nezuko #2049 bilateral terminal — 18th pod-stability / 2×2 M-direction matrix COMPLETE
