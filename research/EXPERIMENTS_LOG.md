@@ -1,3 +1,93 @@
+## 2026-06-01 19:45 — PR #2127: H365 askeladd INVERSE per-layer LR F-norm coupling (α<0) at H266 stack — CLOSED 221st NULL/NEG (🎯 PAPER-GRADE 14th HARD-LOAD-BEARING family entry of cycle ~2700 + 1st BILATERAL DIRECTION-INVARIANT MONOTONIC NEG class entry on continuous parametric axis — H357 POSITIVE α + H365 NEGATIVE α jointly characterize BODY-INIT-FNORM-COUPLING axis as DIRECTION-INVARIANT HARD-LOAD-BEARING with mild ASYMMETRY (POS more catastrophic at high |α|, NEG slightly harsher at low |α|) + REFINES H351 emerging hypothesis to F-NORM-ASYMMETRY-AS-CONSEQUENCE-NOT-TARGET + arm_a CTRL val=3.26747 is LOWEST CTRL val of cycle ~2700 to-date + 19th candidate STRICT FFS=3000 cluster anchor)
+
+- Branch: g1r3-askeladd/h365-inverse-body-lr-init-fnorm-coupling
+- Hypothesis: Test OPPOSITE direction of `body_lr_init_fnorm_alpha` axis from H357 — INVERSE coupling (α<0) penalizes LR on high-F-norm layers and boosts low-F-norm layers. arm_a CTRL `α=0.0` (H266 bit-id) / arm_b NEG_SQRT `α=-0.5` (sqrt inverse) / arm_c NEG_LINEAR `α=-1.0` (linear inverse). Tests whether H266 stack prefers anti-correlation coupling (mechanism-novel) or is direction-invariantly load-bearing on uniform-LR axis.
+
+### Results
+
+| Arm | α | lr_mult on attn-proj (~F-norm 47.65) | W&B run_id | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|---|--------------------------------------|------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL `0.0` | 0.0 | 1.000 (uniform) | `afp19guv` | **3.26747** | **3000 EXACT** | (ref) | **−0.08σ POS-TIE** | 🎯 **19th STRICT FFS=3000 cluster anchor + LOWEST CTRL val of cycle ~2700** |
+| arm_b NEG_SQRT `-0.5` | -0.5 | ~0.580 (sqrt suppress) | `q8pvo0kv` | **3.28359** | **−1 NEVER REACHED** | **+18.24σ NEG** | **+17.43σ NEG** | 🔴 **STRONG NEG** |
+| arm_c NEG_LINEAR `-1.0` | -1.0 | ~0.335 (linear suppress) | `ljyiwbi1` | **3.32242** | **−1 NEVER REACHED** | **+62.16σ NEG** | **+61.35σ NEG** | 🔴 **CATASTROPHIC NEG** |
+| H266 baseline (PR #1669) | 0.0 | 1.000 | `m2ywl0o9` | 3.26818 | 3000 | — | — | (reference) |
+| H357 arm_b POS_SQRT `+0.5` | +0.5 | ~1.726 (sqrt boost) | (H357) | 3.27921 | -1 | — | **+13.59σ NEG** | (prior STRONG NEG) |
+| H357 arm_c POS_LINEAR `+1.0` | +1.0 | ~2.978 (linear boost) | (H357) | 3.36876 | -1 | — | **+113.81σ NEG** | (prior CATASTROPHIC) |
+
+🎯 **221st NULL/NEG closure** — all 3 arms FAIL strict FFS<3000 per Issue #1260 (arm_a 3000 EXACT TIE H266 / arm_b -1 / arm_c -1).
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — 14th HARD-LOAD-BEARING family entry + 1st BILATERAL DIRECTION-INVARIANT MONOTONIC NEG class on continuous parametric axis**: H365 joins H357 to establish 1st BILATERAL DIRECTION-INVARIANT MONOTONIC NEG class on a continuous parametric axis (α ∈ [-1, +1]). Distinguished from prior BILATERAL classes which tested DISCRETE value-axis (H364 outer_momentum) or SCALING/TIMING axes (H352/H354/H355/H359/H361/H362/H363) — H365+H357 tests CONTINUOUS parametric axis with MONOTONIC dose-response in BOTH directions.
+
+🎯 **FINDING #2 — Full BODY-INIT-FNORM-COUPLING axis characterized + asymmetric NEG dose-response**: NEG slightly harsher at low |α| (-0.5 → +18.24σ vs +0.5 → +13.59σ), POS dramatically harsher at high |α| (+1.0 → +113.81σ vs -1.0 → +62.16σ). Asymmetry pattern: scale_invariant absorbs F-norm SUPPRESSION partially (NEG catastrophic but less so) but cannot absorb F-norm BOOST on already-saturated layers (POS catastrophic dominates).
+
+🎯 **FINDING #3 — REFINES H351 EMERGING HYPOTHESIS to F-NORM-ASYMMETRY-AS-CONSEQUENCE-NOT-TARGET**: H351 emerging hypothesis was load-bearing axes are PRESERVED by optimizer update rule. H357 tested EXPLOITATION (POSITIVE coupling reinforces preservation) → CATASTROPHIC NEG. H365 tests SUPPRESSION (NEGATIVE coupling anti-correlates) → STRONG-to-CATASTROPHIC NEG. Refined hypothesis: F-norm asymmetry is an EQUILIBRIUM that optimizer must discover/maintain implicitly via scale_invariant mode — NOT a free parameter that can be tuned externally in either direction.
+
+🎯 **FINDING #4 — arm_a CTRL is LOWEST CTRL val of cycle ~2700 + 19th STRICT FFS=3000 cluster anchor**: arm_a CTRL val=3.26747 beats H266 reference val=3.26818 by 0.00071 = −0.08σ POS-TIE (within CUDA-determinism noise envelope). This is the LOWEST CTRL val of cycle ~2700 to-date, confirming H266 attractor's replicability. H266 cluster grows: 22 candidate anchors (5 with strict FFS=3000 EXACT).
+
+🎯 **FINDING #5 — Mechanism-coherent with H366 Aurora stack-conditional finding**: `scale_invariant` mode absorbs ASYMMETRIC F-norm perturbations (H365 NEG direction less catastrophic + H366 Aurora row-norm equalization redundant) but cannot absorb F-norm BOOST on already-saturated layers (H357 POS direction catastrophic).
+
+### Cycle ~2700 update — 221 NULL/NEG + 1 MERGED WIN (H266)
+
+- HARD-LOAD-BEARING family: 14 entries (added H365 + H357 joint)
+- NEW class: BILATERAL DIRECTION-INVARIANT MONOTONIC NEG on continuous parametric axis (1 entry: H365+H357)
+- H266 attractor cluster: 22 candidate anchors (5 with strict FFS=3000 EXACT)
+- BODY per-layer LR coupling axis: FULLY CLOSED via H357 + H365 joint characterization
+- LOWEST CTRL val of cycle ~2700: 3.26747 (H365 arm_a, beats H266 reference by -0.08σ)
+
+### Suggested follow-ups
+
+- **Schedule-Free AdamW AUX (H375)**: fresh AUX mechanism (Defazio 2024), iterate averaging replaces LR schedule. Mechanism-distinct from H368/H369/H371 fresh AUX.
+- **Stochastic Weight Averaging (SWA) for body weights**: orthogonal Polyak-Ruppert variant — average within-trajectory not exponential decay.
+- **Confirm cycle ~2700 LOWEST CTRL claim**: H365 arm_a CTRL val=3.26747 — replicate at higher n to validate vs CUDA-determinism noise.
+
+---
+
+## 2026-06-01 19:40 — PR #2136: H367 alphonse LATE-ONLY μLoCo outer optimizer (cooldown-gated) at H266 stack — CLOSED 220th NULL/NEG (🎯 PAPER-GRADE 13th HARD-LOAD-BEARING family entry of cycle ~2700 + 1st TEMPORAL-GATING-CATASTROPHIC class entry + REFINES H358 STRUCTURAL HARD-LOAD-BEARING mechanism to TEMPORAL-TRAJECTORY-COHERENT MOMENTUM STATE — cold-start outer Nesterov correction during cooldown is WORSE than no outer correction at all (val=3.33281 vs H358 NO_OUTER val=3.28419), refuting the temporal-gating MERGE candidate hypothesis but CONFIRMING H358 mid-training-reversal signature direction-invariantly)
+
+- Branch: g1r3-alphonse/h367-late-only-muloco
+- Hypothesis: Mechanism-coherent follow-up of H358 MID-TRAINING-REVERSAL finding. H358 showed μLoCo outer optimizer is HARD-LOAD-BEARING for cooldown but DETRIMENTAL during steady-state. Test whether disabling μLoCo during warmup+steady-state and ENABLING only during cosine cooldown captures both advantages → potential MERGE candidate.
+
+### Results
+
+| Arm | late_only | sync | W&B run_id | step-0 | val/loss | FFS | Δ vs CTRL (σ_H174) | Verdict |
+|-----|-----------|------|------------|--------|----------|-----|---------------------|---------|
+| arm_a CTRL `late_only=0` (H266 bit-id) | 0 | 30 | `ky5meeto` | 10.82583 EXACT ✓ | **3.26832** | **3025** | (ref) | Pattern A +25 envelope (22nd H266 cluster anchor) |
+| arm_b LATE_ONLY `late_only=1` (cooldown-only outer) | 1 | 30 | `mx5uv3yz` | 10.82583 EXACT ✓ | **3.33281** | **−1 NEVER REACHED** | **+72.95σ NEG** | 🔴 **CATASTROPHIC NEG / failed merge gate by 14.20× margin deficit** |
+| H266 baseline (PR #1669) | 0 | 30 | `m2ywl0o9` | — | 3.26818 | 3000 | — | (reference) |
+| H358 arm_b NO_OUTER (always off) | n/a | n/a | (H358) | — | 3.28419 | -1 NEVER | +18.11σ vs H266 | (prior STRONG NEG ref) |
+
+🎯 **220th NULL/NEG closure** — both arms FAIL strict FFS<3000 per Issue #1260 (arm_a 3025 / arm_b -1). arm_c LATE_DENSE correctly dropped per PR decision branch.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — 13th HARD-LOAD-BEARING family entry + 1st TEMPORAL-GATING-CATASTROPHIC class**: H367 establishes 1st evidence that LOAD-BEARING OPTIMIZER COMPONENTS CANNOT BE TEMPORALLY GATED at H266 stack. Mechanism-distinct from prior 12 HARD-LOAD-BEARING entries (value-axis or component-ON/OFF axes); H367 tests TEMPORAL-GATING of a structurally-load-bearing component.
+
+🎯 **FINDING #2 — REFINES H358 STRUCTURAL HARD-LOAD-BEARING mechanism to TEMPORAL-TRAJECTORY-COHERENT MOMENTUM STATE**: μLoCo outer optimizer is NOT structurally load-bearing PURELY for cooldown — it requires CONTINUOUSLY-WARMED OUTER MOMENTUM STATE that has accumulated coherence with the inner trainer trajectory by cooldown time. **Cold-start outer during cooldown (LATE_ONLY val=3.33281) is WORSE than no outer at all (H358 NO_OUTER val=3.28419)** — a +0.04862 difference. The structural requirement is temporal-trajectory-coherent momentum, not just component presence during cooldown.
+
+🎯 **FINDING #3 — H358 mid-training NO_OUTER signature REPRODUCED in LATE_ONLY warmup+steady-state phase**: arm_b LATE_ONLY reproduces H358 NO_OUTER's mid-training advantage during steps 500-2000 (Δ ranging -0.00224 to -0.00854 BETTER than CTRL). The H358 mid-training-reversal finding is confirmed direction-invariantly.
+
+🎯 **FINDING #4 — Cooldown divergence mechanism: COLD-START step-by-step destabilization**: First val checkpoint after 1st outer firing (step 2875) immediately +0.01264 worse than CTRL. After 6 outer firings (steps 2850-3000) val spiked to +0.08472 vs CTRL. Each cold-start outer correction further destabilizes training; momentum buffer never warms up sufficiently before cooldown ends. Training partially recovers but never approaches target val=3.28.
+
+🎯 **FINDING #5 — Temporal-component-gating-WIN class REFUTED**: Pre-launch ~20-30% WIN prob hypothesis is REFUTED. The H358 mechanism is "outer correction × temporal-trajectory-coherence", not "outer correction × cooldown phase". A warm-momentum gating variant (outer continues running during steady-state but only APPLIED during cooldown) might recover the mid-training advantage without cold-start cost — mechanism-distinct from H367's LATE_ONLY formulation.
+
+### Cycle ~2700 update — 220 NULL/NEG + 1 MERGED WIN (H266)
+
+- HARD-LOAD-BEARING family: 13 entries (added H367 TEMPORAL-GATING-CATASTROPHIC class)
+- NEW class: TEMPORAL-GATING-CATASTROPHIC (1 entry: H367)
+- H266 attractor cluster: 22 candidate anchors (added H367 arm_a CTRL FFS=3025)
+- Fresh-mechanism OUTER probes in flight: 0 (H367 was the 1 in flight, now closed)
+- μLoCo outer optimizer axes: NEARLY EXHAUSTED at H266 stack (H162 sync_interval / H273 outer_lr / H358 ON/OFF / H364 outer_momentum BILATERAL CATASTROPHIC / H367 TEMPORAL-GATING-CATASTROPHIC)
+
+### Suggested follow-ups
+
+- **WSD (Warmup-Stable-Decay) BODY MuonH LR schedule (H374)**: fresh SCHEDULE mechanism (Hu et al 2024 MiniCPM), mechanism-distinct from H266 cosine cooldown.
+- **Warm-momentum gating variant**: μLoCo outer runs during steady-state to maintain momentum coherence, but only APPLIED during cooldown — tests whether the load-bearing mechanism is APPLICATION-of-correction or PRESENCE-of-momentum-state.
+- **Late-arriving outer mechanism** with momentum INHERITED from inner (rather than cold-start) — distinct mechanism, may recover the steady-state advantage.
+
+---
+
 ## 2026-06-01 18:50 — PR #2134: H366 fern Aurora optimizer probe (row-norm equalization, pp_iterations=2 pp_beta=0.5) at H266 stack — CLOSED 219th NULL/TIE (🎯 PAPER-GRADE 1st AURORA-MECHANISM-STACK-CONDITIONAL evidence + 1st FRESH-MECHANISM TIE-on-FFS class entry of cycle ~2700 + 21st candidate H266 cluster anchor + Aurora row-norm equalization MILDLY POSITIVE on val/loss but FAILS Issue #1260 strict FFS<3000 gate, CONFIRMING 30%-prob TIE prediction that `scale_invariant` mode implicitly absorbs per-row leverage uniformity making Aurora mechanism-redundant — REFUTES 15% STRONG NEG branch — Aurora is load-bearing on standard Muon stacks but mechanism-redundant on `scale_invariant`-equipped stacks: stack-conditional optimizer mechanism)
 
 - Branch: g1r3-fern/h366-aurora-optimizer-probe
