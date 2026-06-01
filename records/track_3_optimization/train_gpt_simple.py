@@ -114,6 +114,19 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H366: Aurora alternating-projection polar (Tilde Research, 2026-05-05). pp_iterations=1
+    # short-circuits to standard zeropower_via_newtonschulz5 (BIT-IDENTICAL to baseline).
+    # pp_iterations>=2 enables Aurora row-norm equalization on tall/wide matrices (square
+    # matrices stay on the standard polar path since Aurora is identical to Muon on squares).
+    parser.add_argument("--pp_iterations", type=int,
+                        default=int(os.environ.get("PP_ITERATIONS", "1")),
+                        help="Aurora alternating-projection iterations. 1 = standard Muon polar "
+                             "(safe-default, bit-identical to baseline). >=2 enables Aurora "
+                             "row-norm equalization on tall/wide matrices.")
+    parser.add_argument("--pp_beta", type=float,
+                        default=float(os.environ.get("PP_BETA", "0.5")),
+                        help="Aurora damping coefficient for the fixed-point D update in [0,1]. "
+                             "Only read when pp_iterations > 1.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -370,6 +383,58 @@ def log_body_sv_stats(
     wandb.log(metrics, step=wandb_step)
 
 
+def log_body_row_norm_stats(
+    model: nn.Module,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    # H366: Aurora row-norm uniformity diagnostic. For tall/wide MLP body weights
+    # (mlp.fc.weight is (3072,768) tall; mlp.proj.weight is (768,3072) wide),
+    # report std/mean (CV) and max/min ratio of row norms (or col norms for wide).
+    # Aurora's row-equalization should drive these toward 0 / 1 over training,
+    # vs standard polar which leaves the row distribution free. The diagnostic
+    # is on parameter row-norms (not the polar update directly) — the trajectory
+    # of accumulated updates makes Aurora vs CTRL distinguishable here.
+    metrics = {"trial": trial_idx, "train/step": step}
+    cv_all: list[float] = []
+    ratio_all: list[float] = []
+    for name, p in model.named_parameters():
+        if p.ndim != 2 or not name.endswith("weight"):
+            continue
+        if ".mlp." not in name:
+            continue
+        w = p.data.detach().float()
+        m, n = w.size(-2), w.size(-1)
+        if m > n:
+            row_norms = w.norm(dim=-1)
+            target = (float(n) / float(m)) ** 0.5
+        elif n > m:
+            row_norms = w.norm(dim=0)
+            target = (float(m) / float(n)) ** 0.5
+        else:
+            continue
+        rn_mean = float(row_norms.mean().item())
+        rn_std = float(row_norms.std().item())
+        rn_max = float(row_norms.max().item())
+        rn_min = float(row_norms.min().item())
+        cv = rn_std / rn_mean if rn_mean > 0 else 0.0
+        max_min = rn_max / rn_min if rn_min > 0 else 0.0
+        clean = clean_metric_name(name)
+        metrics[f"train/aurora/row_norm_mean_param/{clean}"] = rn_mean
+        metrics[f"train/aurora/row_norm_cv_param/{clean}"] = cv
+        metrics[f"train/aurora/row_norm_max_min_ratio_param/{clean}"] = max_min
+        metrics[f"train/aurora/row_norm_target_dev_param/{clean}"] = rn_mean / target if target > 0 else 0.0
+        cv_all.append(cv)
+        ratio_all.append(max_min)
+    if cv_all:
+        metrics["train/aurora/row_norm_cv_mean"] = sum(cv_all) / len(cv_all)
+        metrics["train/aurora/row_norm_cv_max"] = max(cv_all)
+        metrics["train/aurora/row_norm_max_min_mean"] = sum(ratio_all) / len(ratio_all)
+        metrics["train/aurora/row_norm_max_min_max"] = max(ratio_all)
+    wandb.log(metrics, step=wandb_step)
+
+
 def log_histograms(
     model: nn.Module,
     trial_idx: int,
@@ -569,10 +634,40 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, pp_iterations=1, pp_beta=0.5):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    if pp_iterations <= 1:
+        # Safe-default path: standard Muon polar. BIT-IDENTICAL to baseline.
+        update = zeropower_via_newtonschulz5(update)
+    else:
+        # H366 Aurora: alternating projection on tall/wide matrices (square reduces to standard).
+        m, n = update.size(-2), update.size(-1)
+        if m > n:
+            # tall: equalize row norms toward sqrt(n/m)
+            G32 = update.float()
+            target_row_sq = float(n) / float(m)
+            D = 1.0 / G32.norm(dim=-1, keepdim=True).clamp_(min=1e-7)
+            for k in range(pp_iterations):
+                U = zeropower_via_newtonschulz5((D * G32).bfloat16()).float()
+                if k < pp_iterations - 1:
+                    row_sq = U.pow(2).sum(dim=-1, keepdim=True).clamp_(min=1e-14)
+                    D = D * (target_row_sq / row_sq).pow(pp_beta)
+            update = U.bfloat16()
+        elif n > m:
+            # wide: equalize column norms toward sqrt(m/n) (transpose, do row equalization, transpose back)
+            G32 = update.mT.float()
+            target_row_sq = float(m) / float(n)
+            D = 1.0 / G32.norm(dim=-1, keepdim=True).clamp_(min=1e-7)
+            for k in range(pp_iterations):
+                U = zeropower_via_newtonschulz5((D * G32).bfloat16()).float()
+                if k < pp_iterations - 1:
+                    row_sq = U.pow(2).sum(dim=-1, keepdim=True).clamp_(min=1e-14)
+                    D = D * (target_row_sq / row_sq).pow(pp_beta)
+            update = U.bfloat16().mT
+        else:
+            # square: Aurora is identical to standard polar
+            update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
@@ -674,12 +769,14 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 pp_iterations=1, pp_beta=0.5):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        pp_iterations=pp_iterations, pp_beta=pp_beta)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -707,7 +804,9 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         pp_iterations=group["pp_iterations"],
+                                         pp_beta=group["pp_beta"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -856,6 +955,8 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "pp_iterations": args.pp_iterations,
+            "pp_beta": args.pp_beta,
         },
     )
 
@@ -939,7 +1040,8 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       pp_iterations=args.pp_iterations, pp_beta=args.pp_beta)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1287,6 +1389,22 @@ for trial_idx in range(args.num_trials):
         )
         if sv_due:
             log_body_sv_stats(
+                model=model,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+            )
+        # H366: Aurora row-norm uniformity telemetry on MLP body weights.
+        # Probe steps cover early trajectory (1, 125) and bulk training (1000, 3000,
+        # terminal) so the differential signal between arm_a CTRL (standard polar,
+        # non-uniform rows) and arm_b AURORA (alternating projection, uniform rows)
+        # is captured at multiple training horizons.
+        row_norm_due = (
+            dist.get_rank() == 0
+            and train_step in (1, 125, 1000, 3000, train_steps)
+        )
+        if row_norm_due:
+            log_body_row_norm_stats(
                 model=model,
                 trial_idx=trial_idx,
                 step=train_step,
