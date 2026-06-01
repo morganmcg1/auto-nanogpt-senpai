@@ -1,3 +1,57 @@
+## 2026-06-01 17:20 UTC — Cycle 71 mid-531 — askeladd #2121 CLOSED (433rd refute / 11th carrier-rescue-cancellation cell / cross-axis non-additivity confirmed — CARRIER × PROJ-EXCLUDED 3.272415 floor-band-upper) + askeladd #2154 new assignment (EMBED-RESET M=2 F=0.25 substrate-generalization mirror of #2063; 45% SUBSTRATE-GENERAL-FLOOR / 25% EMBED-SUB-FLOOR) + fern #2152 Arm A `fy7xnz0b` step 350 HEALTHY (preliminary PARTIAL_FACTOR-LOAD-BEARING evidence — F=0.25 prevents the #2145 step-1 destab) + tanjiro Arm A `gyz3n7qj` 3.272 terminal floor-band (Arm B pending). Fleet 8/8 WIP. Cumulative: 433 refuted / 300 mech classes / 256 family closures / 10 axes / 52 RTM precedents / 33 pod-stability.
+
+### askeladd #2121 CLOSED — 433rd refute / 11th carrier-rescue-cancellation cell / cross-axis non-additivity
+
+**Bilateral terminal**:
+- Arm A `eeoto4el` SEED=1: val_loss **3.27240**
+- Arm B `orb419ai` SEED=2: val_loss **3.27243**
+- n=2 mean **3.272415** floor-band-upper (+0.000415 above 3.27200)
+- Δ vs carrier alone (3.268645): **+0.003770 WORSE** — non-additivity confirmed
+
+**CARRIER × productive-lever × proj-excluded matrix**:
+
+| Cross-axis | Result |
+|---|---|
+| scalars-HIGHER × proj-excluded (#2123) | BILATERAL POD-BLOCK |
+| MLP-SOAP front=fast × proj-excluded (#2135) | BILATERAL POD-BLOCK |
+| **CARRIER × proj-excluded (this PR)** | **FLOOR-BAND-UPPER 3.272415** |
+
+→ **CARRIER IS THE UNIQUE PRODUCTIVE LEVER THAT SURVIVES CROSS-AXIS WITH PROJ-EXCLUDED**. But survival ≠ additivity — both mechanisms' sub-floor benefit cancels. Hypothesis: both pull toward the same sub-floor attractor; composition redirects landscape navigation to worse local minimum.
+
+Bilateral step-125 elevated trajectory (val 4.46/4.44) is a FEATURE of this compound, not seed-dependent — both arms tracked closely throughout.
+
+### askeladd #2154 new assignment — EMBED-RESET M=2 F=0.25 SUBSTRATE GENERALIZATION
+
+**Substrate-substitution mirror of #2063** (lm_head → embed; identical M=2 momentum F=0.25 partial INTERVAL=200). Completes the substrate × MOMENT × PARTIAL_FACTOR matrix at the SAFE corner:
+
+| Substrate \ Config | M=2 F=0.25 | M=1 F=0.25 | M=1 F=1.0 |
+|---|---|---|---|
+| lm_head | #2063 3.270855 floor | #2152 fern in flight | #2145 POD-BLOCK |
+| embed | **#2154 THIS** | TBD | edward #2153 in flight |
+
+Priors: **45% SUBSTRATE-GENERAL-FLOOR-BAND-LOWER** / 25% EMBED-SUB-FLOOR / 20% EMBED-LESS-PRODUCTIVE / 8% MILD-DRIFT / 2% MERGE.
+
+### fern #2152 Arm A — preliminary PARTIAL_FACTOR-LOAD-BEARING evidence
+
+Arm A `fy7xnz0b` at step 350 HEALTHY (no step-1 grad explosion, training trajectory normal). This is preliminary support for the 45% PARTIAL_FACTOR-LOAD-BEARING prior: F=0.25 buffer PREVENTED the EARLY-destab that #2145 hit at F=1.0. Awaiting terminal step 3175 for closure verdict.
+
+### Fleet state mid-531
+
+| Student | PR | Status |
+|---|---|---|
+| g1r2-alphonse | #2129 | Arm B `x2gva0t9` step 2175 val 3.405 (mid-training) |
+| g1r2-askeladd | #2154 | NEW EMBED-RESET M=2 F=0.25 awaiting adoption |
+| g1r2-edward | #2153 | EMBED-RESET M=1 F=1.0 awaiting adoption |
+| g1r2-fern | #2152 | Arm A `fy7xnz0b` step 350 HEALTHY (preliminary PARTIAL_FACTOR evidence) |
+| g1r2-frieren | #2147 | Arm A `0syxs32k` step 1375 val 3.567 (mid-training, elevated trajectory) |
+| g1r2-nezuko | #2150 | MLP-SOAP back=fast awaiting adoption |
+| g1r2-tanjiro | #2139 | Arm A `gyz3n7qj` 3.272 TERMINAL / Arm B pending |
+| g1r2-thorfinn | #2131 | Arm A 3.27196 / Arm B `pvshmmqu` step 1500 val 3.536 |
+
+Cumulative: **433 refuted / 300 mech classes / 256 family closures / 10 structural axes / 52 RTM precedents / 33 pod-stability observations**.
+
+---
+
 ## 2026-06-01 17:15 UTC — Cycle 71 mid-530 — edward #2113 CLOSED (432nd refute / cardinality-axis K-excluded floor-band closure / 52nd RTM precedent) + edward #2153 new assignment (EMBED-RESET M=1 F=1.0 isolated — substrate-generalization mirror of #2145 BILATERAL POD-BLOCK; 50% SUBSTRATE-GENERAL / 30% LM_HEAD-SUBSTRATE-SPECIFIC) + issue #2122 Aurora research nudge response posted (DEFERRED, consistent with r1/r3/r5/c790g-18 multi-branch consensus). Fleet 8/8 WIP. Cumulative: 432 refuted / 300 mech classes / 255 family closures / 10 axes / 52 RTM precedents / 33 pod-stability.
 
 ### edward #2113 CLOSED — 432nd refute / cardinality K-excluded floor-band / 52nd RTM precedent
