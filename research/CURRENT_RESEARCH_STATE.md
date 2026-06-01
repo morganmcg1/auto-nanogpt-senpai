@@ -9,6 +9,69 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 18:50Z (**107th + 108th R5 closures landed; alphonse + tanjiro idle awaiting researcher-agent ideas; 6 R5 PRs still in flight; frieren #2070 trial 4 imminent**)
+
+### Notes (2026-06-01 18:50Z) — 107th + 108th closures done; 2 idle students awaiting researcher dispatch
+
+- **PR #2128 tanjiro CLOSED as 107th R5 FFS-NEUTRAL** [cosine-mu-cooldown-shape; B★ at canonical {2875, 2925}, Δ ema_val=+0.0005 vs A_ctrl]. mu-cooldown SHAPE axis FULLY MAPPED: linear (merged) ≡ cosine ≡ asymmetric ≡ shape-invariant. **Cross-fleet intel**: future mu work must move to non-shape mechanism (μ stratification by block/head/tensor or non-mu axis entirely).
+- **PR #2042 alphonse CLOSED as 108th R5 FFS-NEUTRAL** [rope-base-freq-probe n=4 at 4096; μ_4(FFS_ema)=2887.5 vs gate 2862.5 (miss +25.0)]. Trial 3 unique R5 dual-low departure on FFS_trainval (2875 instead of canonical 2925) — encouraging direction but n=4 absorbed by mu_cooldown stack. **Cross-fleet intel**: RoPE-base axis MAPPED; future RoPE work needs per-head θ stratification or position-aware schedule.
+
+### Researcher dispatches in flight (2 idle students)
+
+- `a3d2e077085c7e8b3` → alphonse fresh hypothesis (excludes RoPE/Mu; biased to attention sinks, SOAP variants, per-head/per-role NS5, spectral preconditioning, crossing-window mechanisms). Writes to `/workspace/senpai/target/research/RESEARCH_IDEAS_ALPHONSE_2026-06-01_18-50.md`.
+- `a543233c6c014be1d` → tanjiro fresh hypothesis (excludes cosine-mu / ns_iter / qkv-ortho; biased to SOAP eigenbasis refresh schedule, per-head decomposition, ALiBi, skip-connection alpha-scaling, LN gradient flow, embed tied vs untied, bf16 alternatives). Writes to `/workspace/senpai/target/research/RESEARCH_IDEAS_TANJIRO_2026-06-01_18-50.md`.
+
+### Fleet status snapshot (18:50Z) — 6/8 RUNNING; 2 IDLE awaiting researcher-agent return
+
+| PR | Student | Run | State | Notes |
+|---|---|---|---|---|
+| — | alphonse | (idle) | — | Researcher-agent in flight; awaiting fresh hypothesis (non-RoPE, non-Mu) |
+| #2070 | **frieren** | `xdevn24r` | running | **n=4 mu+freq compound trial 4 ~91%; ETA ~18:56Z; 3/4 canonical → expect 109th R5 FFS-NEUTRAL closure** |
+| #2118 | edward | `1c1m5iev` (C) | running | logit cap=10.0; A_ctrl + B★ canonical |
+| #2126 | thorfinn | (C pending) | B★ done | trapezoid plateau_frac=0.4 = DUAL-METRIC DEPARTURE; C(0.6) launch queued |
+| — | tanjiro | (idle) | — | Researcher-agent in flight; awaiting fresh hypothesis (non-cosine-mu, non-NS-iter, non-qkv-ortho) |
+| #2130 | askeladd | `4px2l6l7` (B★) | running | embed_lr_scale=5.0; near terminal at 18:35Z |
+| #2133 | fern | `7uhpuigt` (B★) | running | depth-graduated MLP; ETA ~25 min from 18:35Z |
+| #2138 | nezuko | `q1xl3tst` (B★) | running | soap_eps_floor=0.03; ETA ~50 min from 18:35Z |
+
+### Heartbeat actions (18:35Z–18:50Z)
+
+1. Closed #2128 tanjiro (107th R5 FFS-NEUTRAL) — mu-cooldown SHAPE axis closed.
+2. Closed #2042 alphonse (108th R5 FFS-NEUTRAL) — RoPE-base axis closed; trial 3 dual-low FFS departure unique in R5.
+3. Dispatched 2 researcher-agents in parallel (alphonse + tanjiro fresh hypotheses) with axis-exclusion guidance.
+4. Prepended 107th + 108th closures to EXPERIMENTS_LOG.md.
+5. No new needs:advisor issues for R5 (issue #2122 Aurora already addressed; #1262 FFS-PRIMARY incorporated).
+
+### Expected near-term closures
+
+- **frieren #2070** at ~18:56Z (109th R5 closure FFS-NEUTRAL, n=4 mu+precond_freq compound attractor reversion)
+- **askeladd #2130** soon after (110th R5 closure; embed_lr_coupling B★ verdict)
+- **thorfinn #2126** after C/D terminal (111th R5 closure with dual-metric departure mechanism finding)
+- **fern #2133** ~19:00Z (112th R5 closure; depth-graduated MLP LR)
+- **nezuko #2138** ~19:25Z (113th R5 closure; SOAP adaptive eps floor / Levenberg-Marquardt damping)
+
+### Mu-cooldown sweep COMPLETE (formal closure declaration)
+
+| PR | Mechanism | Result |
+|---|---|---|
+| #1966 (merged) | linear scalar ramp 0.95→0.80 | ★★★ WIN |
+| #2084 (closed) | asymmetric (attn vs MLP differential ±0.05) | FFS-NEUTRAL |
+| #2079 (closed) | warmup mu ramp (symmetric inverse) | FFS-NEUTRAL |
+| #2128 (closed) | cosine ease-in shape | FFS-NEUTRAL |
+| #2070 (pending) | compound mu + precond_freq | n=4 reversion (NEUTRAL) |
+
+**μ axis is now CHARACTERIZED**: SCALAR-OPTIMUM at 0.80 (#1966), SHAPE-INVARIANT in cooldown window, ABSORBS into NS5 family with simple compounds. Future μ experiments need WARMUP-side BURST perturbations, μ stratification by parameter substructure (per-block, per-head, per-tensor-type), or coupling to a NON-LR mechanism to escape absorption.
+
+### RoPE-base axis MAPPED
+
+| PR | Mechanism | Result |
+|---|---|---|
+| #2042 (closed) | rope_base sweep {64, 1024, 4096, 10000} n=4 at 4096 | FFS-NEUTRAL (μ_4=2887.5 vs gate 2862.5) |
+
+**RoPE-base axis CLOSED at simple-scalar level**. Future RoPE work would need a sharper transformation: per-head θ_0 stratification, RoPE-NTK extension (scaled/dynamic NTK), or position-aware θ schedule.
+
+---
+
 ## Last updated: 2026-06-01 18:35Z (**thorfinn #2126 B★ dual-metric departure (ema better, FFS regresses); tanjiro #2128 B★ canonical; edward B★ canonical → C running**)
 
 ### Notes (2026-06-01 18:35Z) — 3 B★ terminals: 1 dual-metric departure + 2 canonical

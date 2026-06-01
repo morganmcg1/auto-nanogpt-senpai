@@ -1,5 +1,41 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-01 18:35Z — PR #2042 CLOSED FFS-NEUTRAL [rope-base-freq-probe n=4 confirm at rope_base=4096; μ_4(FFS_ema)=2887.5 vs gate 2862.5 (miss +25.0); RoPE base axis ABSORBED by mu_cooldown_target=0.80 R5 stack] [108th R5 closure]
+
+- branch: g1r5-alphonse/rope-base-freq-probe
+- hypothesis: Raise RoPE base frequency θ_0 from 1024 → 4096 (4×) at the R5 stack. Higher θ_0 spreads positional frequencies further apart in the rotation spectrum, potentially improving long-range vs short-range attention contrast during cooldown when LR contraction sharpens attention patterns.
+- n=4 confirm results (W&B group `g1r5-alphonse-rope-base-4096-n4`):
+
+| Trial | FFS_ema | FFS_trainval | ema_best_val | val_loss |
+|---:|---:|---:|---:|---:|
+| 0 | 2875 (canonical) | 2925 (canonical) | 3.27053 | 3.27089 |
+| 1 | 2900 (off-attractor slip) | 2950 | 3.27053 | 3.27073 |
+| 2 | 2900 (off-attractor slip) | 2950 | 3.27000 | 3.26974 |
+| 3 | **2875 (canonical)** | **2875 (DEPARTED low)** | 3.26960 | 3.26941 |
+| **μ_4** | **2887.5** | **2925.0** | **3.27017** | **3.27019** |
+| σ_4 (pop) | 12.5 | 30.6 | — | — |
+
+Gate: μ_4(FFS_ema) ≤ 2862.5. Actual: 2887.5. **Miss by +25.0.** Δval_4 vs baseline μ_4(val)=3.27007: **+0.00012 (neutral)**.
+
+- commentary: **108th R5 closure on RoPE-axis.** Trial 3 escaped to canonical-attractor on BOTH FFS_ema AND FFS_trainval simultaneously ({2875, 2875}) — the only known R5 trial to depart LOW on FFS_trainval. n=4 distributes back to a tight cluster (σ=12.5) close to canonical but +25 above the merge gate. **Mechanism analysis:** rope_base scaling (1024→4096) should affect positional discrimination in attention, but the cooldown stack (mu_cooldown_target=0.80 + cosine LR + NS5) appears to absorb the RoPE-spectrum change just as it absorbed prior gradient-channel perturbations. Direction is encouraging (trial 3 dual-departure unique in R5 history) but n=4 average +25 above gate within σ_4=12.5 envelope. **Cross-fleet intel:** RoPE-base axis is MAPPED — not a winning compound mechanism alone. Future RoPE-axis work would need a sharper transformation (per-head θ_0 stratification, position-aware θ schedule, or RoPE-NTK extension) to find a real mechanism. Alphonse moved to fresh hypothesis dispatch.
+
+## 2026-06-01 17:30Z — PR #2128 CLOSED FFS-NEUTRAL [cosine-mu-cooldown-shape; cosine S-curve mu cooldown (vs merged linear from #1966) at scalar-target=0.80; B★ FFS_ema=2875 + FFS_trainval=2925 (canonical attractor lock) at Δ ema_val=+0.0005 vs A_ctrl; mu-cooldown SHAPE axis FLAT] [107th R5 closure]
+
+- branch: g1r5-tanjiro/cosine-mu-cooldown-shape
+- hypothesis: Test whether cosine S-curve mu cooldown trajectory (vs the merged linear ramp from #1966 frieren) improves the crossing window. Cosine back-loads early cooldown (flatter at start), accelerates mid-cooldown, then plateaus at target — different LR-decay-momentum-decay coupling than linear.
+- n=1 dual-arm screen:
+
+| Cell | mu_cooldown_shape | FFS_ema | FFS_trainval | ema_best_val | W&B |
+|---|---|---:|---:|---:|---|
+| A_ctrl | linear (merged) | 2875 | 2925 | 3.27052 | k6q6szky |
+| B★ | cosine | **2875** | **2925** | 3.27057 | 1hod394d |
+
+Δ(B★ − A_ctrl) ema_val = **+0.0005** (within seed noise).
+
+Mu-trajectory recomputation (student-provided): cosine S-curve confirmed correct — back-loads first 30% of cooldown (mu held near 0.95), accelerates 30-70%, plateaus at 0.80 for last 30%. Probe metrics colinear with A_ctrl to within ~0.001 at every step from 1000 → 3250.
+
+- commentary: **107th R5 closure — mu-cooldown SHAPE axis fully mapped.** With linear (merged) + cosine (#2128) + earlier asymmetric (#2084) + scalar-magnitude (frieren #2070 n=4 in flight) sweeps, the mu_cooldown axis is now CHARACTERIZED as: SCALAR-OPTIMUM at 0.80, INVARIANT to shape variation (linear↔cosine), INVARIANT to symmetric ±0.05 differential, and converges across compound tests. **Mechanism:** the LR cooldown (cosine) and mu cooldown (any shape with same start/end targets) both converge to the same crossing-window trajectory once the optimizer reaches the EMA-window-contraction regime. The trajectory shape is dominated by LR-rate-of-contraction, not mu-curve-shape. **Cross-fleet intel:** future mu-cooldown work should either (a) move to different SCALAR targets <0.80 with NS5 absorption check, or (b) couple mu schedule to a DIFFERENT mechanism (per-block, per-head, or per-tensor-type μ stratification). Plain shape sweeps closed. Tanjiro moved to fresh hypothesis dispatch (non-mu axis).
+
 ## 2026-06-01 14:45Z — PR #2079 CLOSED FFS-NEUTRAL [warmup-mu-ramp; Muon Nesterov mu warmup 0.70/0.80→0.95 over first 10% steps; ALL 3 cells canonical attractor {2875, 2925}; warmup-side mu absorbed by NS5-orthogonalization-dominated regime] [106th R5 closure]
 
 - branch: g1r5-nezuko/warmup-mu-ramp
