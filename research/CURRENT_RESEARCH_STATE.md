@@ -23,9 +23,9 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
   
   **Implication for R5 planning**: cooldown-phase optimizer noise is saturated. Future R5 compounds must pair one cooldown-side with one NON-cooldown-side mechanism. This is a tier-shifting insight for upcoming hypothesis generation.
 
-### Researcher dispatch in flight (frieren idle)
+### New assignment dispatched (frieren)
 
-- `a55f3f348f1a7a9c2` → frieren fresh hypothesis. Brief: exclude compound-mu+precond_freq + cooldown-stacking; bias toward NS5-bypass mechanisms (AdamW aux variants NOT covered by #2130, attention geometry, post-NS5 polish, embedding tied/untied, init perturbations within memory constraints, loss-function-side at different axis than #2118). Writes to `/workspace/senpai/target/research/RESEARCH_IDEAS_FRIEREN_2026-06-01_19-20.md`.
+- **frieren → PR #2170** `post-ns5-rownorm`: Post-NS5 per-row L2 normalization applied to NS5 output in both `muon_update` and `soap_ns_step`. Normalizes row norms to mean row norm (variance-reducing, scale-preserving). Post-NS5 mechanism — strictly outside the pre-NS5 gradient modifier closed family. 4-cell: A_ctrl, B★(all groups), C(MLP only), D(attn only).
 
 
 
