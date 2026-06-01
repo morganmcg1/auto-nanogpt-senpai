@@ -9,7 +9,39 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-01 20:30Z (**110th R5 closure: askeladd #2130 embed-lr-coupling FFS-NEUTRAL at ±10%; askeladd → PR #2184 ns5-kj-coefficients assigned — first R5 probe on NS5 polynomial coefficients after 110+ closures**)
+## Last updated: 2026-06-01 22:30Z (**111th R5 closure: edward #2118 logit-softcap-down-sweep FFS-NEG; cap=15.0 confirmed basin minimum of full sweep; edward → PR #2193 soap-gram-tikhonov assigned — trace-proportional Tikhonov damping on SOAP Gram matrices; frieren #2170 B★ launched at 22:11Z**)
+
+### Notes (2026-06-01 22:30Z) — 111th closure + edward soap-gram-tikhonov assignment
+
+- **PR #2118 edward CLOSED as 111th R5 FFS-NEG** [logit-softcap-down-sweep]. Full logit_softcap sweep (combined #2080 + #2118) now complete:
+
+  | cap | FFS_ema | FFS_trainval | ema_val | notes |
+  |-----|---------|--------------|---------|-------|
+  | 10 | 2975 | 3025 | 3.27507 | FFS-NEG +100 |
+  | 12.5 | 2875 | 2925 | 3.27115 | canonical attractor |
+  | **15** | **2875** | **2925** | **3.26925** | **basin minimum (best ema)** |
+  | 17.5 | 2925 | 2975 | — | FFS-NEUTRAL +50 |
+  | 30 | 3050 | 3100 | — | FFS-NEG +175 |
+  | ∞ (baseline) | 3050 | — | 3.27007 | baseline |
+
+  cap=15.0 is the ema-optimal value (best val across all caps) AND canonical FFS. B★(cap=12.5) had wrong-direction dual-metric departure (FFS_trainval=2925 unchanged, ema_val worse +0.00172, monotone-worse at every probe step) — correctly did NOT escalate to n=4. **Axis fully closed: logit-softcap explored down direction exhausted; up direction (>15) all FFS-NEG; future soft-capping work needs a different mechanism (per-head cap, dynamic cap schedule, or coupled cap+LR).**
+
+- **PR #2193 edward ASSIGNED** [soap-gram-tikhonov]: Add trace-proportional Tikhonov damping `delta = gram_alpha * trace(G)/n + 1e-30` to SOAP's `row_gg` and `col_gg` Gram matrices before every eigenbasis extraction (in `soap_eigenbasis`) and QR refresh (in `soap_basis_qr`). Current code uses `1e-30 * eye` — purely numerical, no spectral regularization at R5 gradient scales. Draws from "Purifying Shampoo" (Eschenhagen et al., NeurIPS 2025 spotlight, arXiv 2506.03595), which shows regularizing the Gram before eigenbasis extraction reduces curvature approximation error in the tail spectrum. 5-cell sweep: A=0.0 (ctrl), B=0.01, C★=0.05, D=0.1, E=0.2. Distinct from nezuko #2138 (post-projection eps floor) and tanjiro #2166 (cooldown eigenbasis freeze).
+
+- **frieren #2170 B★ launched at 22:11Z** — W&B run `kxohsn30` started (~31 min after 21:40Z nudge). B★ tests post-NS5 row-norm on ALL groups. At step ~309/3250 (10%) when last observed.
+
+### Fleet status snapshot (22:30Z) — 8/8 RUNNING
+
+| PR | Student | Assignment | Notes |
+|---|---|---|---|
+| **#2193** | edward | soap-gram-tikhonov | A_ctrl + C★ launching |
+| **#2184** | askeladd | ns5-kj-coefficients | A_ctrl launched; first NS5 polynomial axis |
+| #2170 | frieren | post-ns5-rownorm | B★ run `kxohsn30` at step ~309 |
+| #2167 | alphonse | ns5-per-group-iters | A_ctrl running |
+| #2166 | tanjiro | soap-basis-cooldown-freeze | A_ctrl running |
+| #2138 | nezuko | soap-adaptive-eps-floor | Cell D(α=0.10) at step 951 (29%) |
+| #2133 | fern | depth-graduated-mlp-lr | Cell D(inverse -0.15) near terminal |
+| #2126 | thorfinn | trapezoid-lr-cooldown | Cell D(plat=0.0) running |
 
 ### Notes (2026-06-01 20:30Z) — 110th closure + askeladd new assignment
 
