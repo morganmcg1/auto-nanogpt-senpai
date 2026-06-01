@@ -101,6 +101,11 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--mu_cooldown_target", type=float, default=None,
+                        help="If set, linearly ramp Muon Nesterov momentum from 0.95 to "
+                             "this target value across the cooldown phase (last cooldown_frac "
+                             "of training). None = constant mu=0.95 (default). "
+                             "Affects all muon_* param groups.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -786,6 +791,8 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "mu_cooldown_target": args.mu_cooldown_target,
+            "mu_cooldown_enabled": args.mu_cooldown_target is not None,
         },
     )
 
@@ -928,6 +935,16 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+        if args.mu_cooldown_target is not None:
+            if progress < 1 - cooldown_frac:
+                mu_sched = 0.95
+            else:
+                x_mu = (progress - (1 - cooldown_frac)) / cooldown_frac
+                mu_sched = 0.95 + (args.mu_cooldown_target - 0.95) * x_mu
+            for opt in optimizers:
+                for group in opt.param_groups:
+                    if group.get("name", "").startswith("muon_"):
+                        group["mu"] = mu_sched
         return eta
 
 
@@ -1235,6 +1252,9 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 per_group_metrics["cooldown_shape/eta_at_step"] = eta_actual
+                for group in optimizer2.param_groups:
+                    gname = group.get("name", "muon")
+                    per_group_metrics[f"train/mu/{gname}"] = float(group["mu"])
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
