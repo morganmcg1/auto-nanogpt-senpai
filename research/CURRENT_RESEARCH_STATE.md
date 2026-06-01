@@ -9,6 +9,42 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 01:15Z (**93 R5 closures**; ★★★ **FRIEREN #1966 n=4 CONFIRM TRIALS 0+1 BOTH AT FFS=2875** — Muon mu cooldown 0.95→0.80 gradual ramp emerging as merge-candidate; 2/4 trials terminal off-attractor, trials 2+3 in flight; if pattern holds μ_4 = 2875 → decisive gate clear @2887.5 with +12.5 step headroom; ETA terminal ~04:10-04:20Z; 8/8 active)
+
+### Notes (2026-06-01 01:15Z) — frieren signal strengthening; first potential merge in 93 closures
+
+- **★★★ FRIEREN #1966 n=4 CONFIRM AT 2/4** — both trials hit FFS=2875 (run `fjyckuu1`):
+  - Trial 0: FFS=2875 (off-attractor, terminal)
+  - Trial 1: FFS=2875 (off-attractor, terminal)
+  - Trial 2: in flight (~18%, step 558/3250)
+  - Trial 3: pending
+  
+  **μ_4 gate scenarios:**
+  - If trials 2+3 = 2875: μ_4 = **2875** (decisive merge, +12.5 step headroom)
+  - If trial 2=2925, trial 3=2875: μ_4 = 2887.5 (gate just clears)
+  - If both trials 2+3 = 2925: μ_4 = 2900 (gate fails by 12.5)
+
+  This is the MOST PROMISING merge candidate in 93 R5 closures. The n=1 cells {B(mu=0.85), C(mu=0.80)} both hit FFS=2875 — now reproducing in 2 of 4 confirmation trials. **The Muon momentum cooldown axis (gradual ramp, not discrete reset) appears to be a robust positive mechanism.**
+
+- **3 parallel n=4 confirms — current standing:**
+  - **frieren #1966 mu=0.80** ★★★ 2/4 BOTH at FFS=2875 — looking like merge-winner
+  - edward #1948 freq=4: trial 3/4 ETA ~02:41Z. Trials 0+1 = {2875, 2925} → μ_2=2900 (borderline)
+  - thorfinn #1994 SOAP reset: trial 0 = 2925 (canonical attractor, NOT reproducing n=1 B★ result yet) → trial 1/4 in flight
+
+- **All 8 students active:**
+  - alphonse #2042 NEW: rope-base-freq-probe (just assigned 00:45Z; representational-capacity tier)
+  - askeladd #2030: sf-muon-polyak-ruppert WIP (~2h, no terminal yet)
+  - edward #1948: n=4 confirm trial 3/4
+  - fern #2023: lion-aux-optimizer Cell B at ~20% (lr_scale=0.1, β₁=0.9) — A_ctrl=2925 byte-clean
+  - frieren #1966: n=4 confirm trial 2/4 ★★★
+  - nezuko #2020: soap-beta2-cooldown post A_ctrl terminal
+  - tanjiro #2014: ns-iter-cooldown-ramp post A_ctrl terminal (2925)
+  - thorfinn #1994: n=4 confirm trial 1/4
+
+- **Pending merge gate:** If frieren #1966 trials 2+3 deliver FFS ≤ 2875 each, invoke senpai:merge-winner immediately. This would be the FIRST merge in 93 R5 experiments.
+
+---
+
 ## Last updated: 2026-06-01 00:45Z (**93 R5 closures**; **93rd: alphonse #1979 lr-warm-restart-probe FFS-NEG-ablation** — warm-restart magnitude×timing axis fully closed; ★★★ **TIER-SHIFTING FINDING: FFS bottleneck is NOT local-minimum-escape — likely representational-capacity-bound**; **alphonse → PR #2042 rope-base-freq-probe (RoPE angular freq base {64, 1024, 4096, 10000}; first positional-encoding ablation in 93 R5 experiments)**; 8/8 active; 3 parallel n=4 confirms in flight)
 
 ### Notes (2026-06-01 00:30Z) — 93rd closure; ★★★ tier-shift to representational-capacity hypothesis space
