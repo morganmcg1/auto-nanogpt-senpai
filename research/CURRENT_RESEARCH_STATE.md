@@ -1,3 +1,47 @@
+## 2026-06-01 22:30 UTC — Cycle 71 mid-545 — nezuko #2186 CLOSED (449th refute / **PROJ-ONLY × CARRIER BILATERAL POD-BLOCK — 5/5 CARDINALITY × CARRIER MATRIX FULLY CLOSED — PROJ-SUBSTRATE FULLY ISOLATED as the unique carrier-compound destabilizer** / 18th configuration-radius cell / 15th sub-axis closed / 45th pod-stability observation; bilateral n=2 IDENTICAL nonfinite_count **147,984,768** [Arm A `3j04etde` / Arm B `sebznbcw`] — deterministic fixed point matching #2174 Q-EXCLUDED signature; HYPOTHESIS 1 60% prior REALIZED; mechanism reading: proj substrate's asymmetric SOAP preconditioning interacts directly with carrier's lm_head β1=0.7 long-memory state via proj→lm_head linear coupling; q/k/v spectators) + nezuko #2192 new assignment (**LM_HEAD-ONLY-CARRIER × PROJ-ONLY** — carrier-decomposition probe testing PROJ→LM_HEAD LINEAR COUPLING HYPOTHESIS; 50% LM_HEAD-ONLY-CARRIER-POD-BLOCK / 30% CANCELLATION / 15% MILD-DRIFT / 5% PRODUCTIVE) + frieren #2175 stale-flag triage acknowledged (Arm A `jwg7t4v4` healthy at step 3025/3175 val 3.2792 ~6min to terminal; dual `arm-a-seed1` runs flagged for student verification). Fleet 8/8 WIP. Cumulative: **449 refuted / 301 mech classes / 273 family closures / 10 axes / 60 RTM precedents / 45 pod-stability observations**.
+
+### nezuko #2186 CLOSED — 449th refute / PROJ-SUBSTRATE FULLY ISOLATED
+
+**Bilateral terminal — PRE-EVENT NaN POD-BLOCK (deterministic fixed point)**:
+- Arm A `3j04etde` SEED=1: step-125 NaN, nonfinite_count **147,984,768**, weight nonfinite_count 161,945,472, SIGTERM step 553
+- Arm B `sebznbcw` SEED=2: step-125 NaN, nonfinite_count **147,984,768** (IDENTICAL — deterministic fixed point)
+- step-0 banner verified: `attn_soap_included_n=12` (= 1 proj × 12 layers) confirms PROJ-only active
+- step-1 grad-explosion NOT triggered → pre-event NaN class
+
+### CARDINALITY × CARRIER MATRIX FULLY CLOSED (5/5)
+
+| Cardinality cell | Bitfield | Active kinds | Outcome | nonfinite_count |
+|---|---|---|---|---|
+| proj-excluded (#2121) | 8 | q+k+v | CANCELLATION 3.272415 (UNIQUELY SAFE) | n/a |
+| K-excluded (#2164) | 2 | q+v+proj | POD-BLOCK | 147,097,728 |
+| V-excluded (#2168) | 4 | q+k+proj | POD-BLOCK | 147,097,728 |
+| Q-excluded (#2174) | 1 | k+v+proj | POD-BLOCK | 147,984,768 |
+| **PROJ-ONLY (#2186)** | **7** | **proj** | **POD-BLOCK** | **147,984,768** |
+
+→ **PROJ-SUBSTRATE FULLY ISOLATED as unique carrier-compound destabilizer.** All 4 destab cells retain proj-active; only proj-excluded cell is safe. q/k/v spectators. Nonfinite_count Q-presence subgrouping: Q-present → 147,097,728; Q-absent → 147,984,768 (+0.6% delta).
+
+### Mechanism interpretation — proj→lm_head linear coupling
+
+Proj-substrate's asymmetric SOAP preconditioning interacts directly with carrier's lm_head β1=0.7 long-memory state. **proj feeds DIRECTLY into the lm_head linear in the GPT architecture** → proj-coupled long-memory state collision triggers pre-event NaN at step ~100-125 regardless of co-active kinds.
+
+### nezuko #2192 next — LM_HEAD-ONLY-CARRIER × PROJ-ONLY
+
+Tests PROJ→LM_HEAD LINEAR COUPLING HYPOTHESIS by isolating lm_head β1=0.7 alone (embed=0.8 DEFAULT, scalars=0.8 DEFAULT) against PROJ-ONLY cardinality. If POD-BLOCK, confirms lm_head β1=0.7 alone is the destabilizer (embed β1=0.5 is spectator). If CANCELLATION, the destab requires FULL carrier asymmetry (embed-low + lm_head-low joint disequilibrium).
+
+Priors: 50% LM_HEAD-ONLY-CARRIER-POD-BLOCK / 30% CANCELLATION / 15% MILD-DRIFT / 5% PRODUCTIVE.
+
+### frieren #2175 stale-flag triage
+
+Stale-flag from system reminder reflected no PR activity since 20:27 UTC, but training IS active: `jwg7t4v4` (Arm A SEED=1) at step 3025/3175 val/loss 3.2792 (~6min to terminal) — healthy floor-band trajectory. Dual `arm-a-seed1` named runs flagged (`jwg7t4v4` original + `6nesmnvs` spawned at 22:12 UTC at step 200) — student asked to verify single-PID sequential launch protocol before Arm B SEED=2 launches. No advisor label edit needed (the `[stale_wip]` was a triage tag, not a GitHub label).
+
+### Cycle 71 mid-545 fleet status
+
+Fleet 8/8 WIP. Cumulative: **449 refuted / 301 mech classes / 273 family closures / 10 axes / 60 RTM precedents / 45 pod-stability observations**. **CARRIER × CARDINALITY axis CLOSED — CARDINALITY-RADIUS-PROJ-COUPLED-DESTABILIZER formally established as 18th cell / 15th sub-axis.**
+
+The mid-545 closure completes the cardinality × carrier matrix and identifies proj-substrate as the unique compound destabilizer. nezuko #2192 is the highest-leverage follow-up — decomposes carrier to test proj→lm_head linear coupling hypothesis.
+
+---
+
 ## 2026-06-01 22:20 UTC — Cycle 71 mid-544 — thorfinn #2161 CLOSED (448th refute / **MLP-SOAP FRONT=FAST COMPOUND-BUFFERS-M1-DESTAB CONFIRMED — structural buffering finding** / 60th RTM precedent / 44th pod-stability observation; bilateral n=2 mean **3.27161** [Arm A `7ulemsf5` 3.27238 / Arm B `r856sw4j` 3.27084] floor band mid; **NORMAL step-1 grad despite M=3 JOINT containing M=1 axis** — vs ISOLATED M=1 #2152/#2145 BILATERAL POD-BLOCK 234k saturation; Δ vs #2131 M=2-only floor (3.27069): **+0.00092** — mild M=1-axis cost without destabilization; HYPOTHESIS COMPOUND-BUFFERS realized; mechanism reading: front-half attention-SOAP fast preconditioning alters gradient distribution feeding INTO lm_head such that step-0 reset side-effects are dampened) + thorfinn #2191 new assignment (**MLP-SOAP front=fast × LM_HEAD-RESET M=2 F=1.0 — buffering generalization test** against F=1.0 SECONDARY DESTAB class #2160 POD-BLOCK; resolves whether MLP-SOAP buffering is UNIVERSAL or M=1-SPECIFIC; 40% COMPOUND-BUFFERS-GENERALIZES / 35% F=1.0-DESTAB-DOMINATES / 15% MILD-DRIFT / 10% POD-BLOCK-PARTIAL). Fleet 8/8 WIP. Cumulative: **448 refuted / 300 mech classes / 272 family closures / 10 axes / 60 RTM precedents / 44 pod-stability observations**.
 
 ### thorfinn #2161 CLOSED — 448th refute / MLP-SOAP FRONT=FAST COMPOUND-BUFFERS-M1-DESTAB
