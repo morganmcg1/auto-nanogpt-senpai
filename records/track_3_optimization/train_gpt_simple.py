@@ -106,6 +106,12 @@ def parse_args():
                              "this target value across the cooldown phase (last cooldown_frac "
                              "of training). None = constant mu=0.95 (default). "
                              "Affects all muon_* param groups.")
+    parser.add_argument("--precond_freq_cooldown", type=int, default=None,
+                        help="If set, linearly ramp SOAP eigenbasis refresh stride from "
+                             "PRECOND_FREQ=16 down to this target value across the cooldown "
+                             "phase (last cooldown_frac of training). None = constant "
+                             "precond_freq=16 (default, no ramp). Same cooldown window as "
+                             "LR/mu schedules.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -670,7 +676,10 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(
+                            p.grad, state,
+                            precondition_frequency=getattr(self, "current_precond_freq", PRECOND_FREQ),
+                        )
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
@@ -793,6 +802,8 @@ if dist.get_rank() == 0:
             "ema_eval_enabled": args.ema_eval_decay is not None,
             "mu_cooldown_target": args.mu_cooldown_target,
             "mu_cooldown_enabled": args.mu_cooldown_target is not None,
+            "precond_freq_cooldown_target": args.precond_freq_cooldown,
+            "precond_freq_cooldown_enabled": args.precond_freq_cooldown is not None,
         },
     )
 
@@ -921,6 +932,15 @@ for trial_idx in range(args.num_trials):
         else:
             raise ValueError(f"Unknown lr_cooldown_shape: {shape}")
 
+    def _precond_freq_sched(step, cooldown_frac, target_freq, base_freq=PRECOND_FREQ):
+        # Linear ramp from base_freq at cooldown_start to target_freq at final step.
+        # max(target_freq, ...) clamps to the floor; round() keeps it an integer stride.
+        cooldown_start = int(train_steps * (1 - cooldown_frac))
+        if target_freq is None or step < cooldown_start:
+            return base_freq
+        progress = (step - cooldown_start) / max(1, train_steps - cooldown_start)
+        return max(target_freq, round(base_freq + (target_freq - base_freq) * progress))
+
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -945,6 +965,9 @@ for trial_idx in range(args.num_trials):
                 for group in opt.param_groups:
                     if group.get("name", "").startswith("muon_"):
                         group["mu"] = mu_sched
+        optimizer2.current_precond_freq = _precond_freq_sched(
+            step, cooldown_frac, args.precond_freq_cooldown
+        )
         return eta
 
 
@@ -1255,6 +1278,9 @@ for trial_idx in range(args.num_trials):
                 for group in optimizer2.param_groups:
                     gname = group.get("name", "muon")
                     per_group_metrics[f"train/mu/{gname}"] = float(group["mu"])
+                per_group_metrics["train/precond_freq_current"] = int(
+                    getattr(optimizer2, "current_precond_freq", PRECOND_FREQ)
+                )
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
