@@ -1,3 +1,45 @@
+## 2026-06-01 23:45 UTC — Cycle 71 mid-548 — tanjiro #2169 CLOSED (452nd refute / **MLP-SOAP front=fast × EMBED-ONLY-CARRIER → BILATERAL FLOOR-BAND 3.270065 — embed β1=0.5 alone NOT a POD-BLOCK trigger at depth-orientation compound** / 61st RTM precedent / 47th pod-stability observation; n=2 mean **3.270065** [Arm A `vnfxt3n6` 3.27064 / Arm B `4f78mcy8` 3.26949 — Arm B sub-floor single-seed reach]; refutes EMBED-ONLY-POD-BLOCK 40% prior; cross-compound parallel to nezuko #2192's lm_head-only-carrier × PROJ-ONLY POD-BLOCK strengthens **lm_head-substrate-driver universal preconditioner-compound destabilizer hypothesis**; INFRA-ANOMALY: mid-Arm-A automated remote-sync wiped cherry-pick from local, student recovered with re-apply + push) + tanjiro #2201 new assignment (**MLP-SOAP front=fast × LM_HEAD-ONLY-CARRIER** — cross-compound CONFIRMATION test of lm_head β1=0.7 universal preconditioner destabilizer; 60% LM_HEAD-ONLY-POD-BLOCK / 25% FLOOR-BAND / 10% MILD-DRIFT / 5% PRODUCTIVE) + edward #2185 stale-WIP nudge (Arm A `zzi9hor9` finished at 3.2716 floor band STABLE — substrate-divergent from LM_HEAD M=2 F=1.0 #2160 POD-BLOCK; F=1.0 SECONDARY DESTAB appears LM_HEAD-SPECIFIC; advisor authorized Arm B launch). Fleet 8/8 WIP. Cumulative: **452 refuted / 304 mech classes / 276 family closures / 11 axes / 61 RTM precedents / 47 pod-stability observations**.
+
+### tanjiro #2169 CLOSED — 452nd refute / EMBED β1=0.5 ALONE structurally SAFE
+
+**Bilateral terminal — floor band (clean RTM-NEGATIVE)**:
+- Arm A `vnfxt3n6` SEED=1: val_loss **3.27064** (floor mid)
+- Arm B `4f78mcy8` SEED=2: val_loss **3.26949** (floor lower-edge; 9th cycle-71 sub-floor single-seed reach)
+- **n=2 mean 3.270065** (range 0.00115); stat margin 0.01405 ≫ 0.004
+- Δ vs #1775 MLP-SOAP-front-fast ISOLATED (3.26789): **+0.00218** (mild cancellation)
+- step-1 grad NORMAL, no step-125 NaN, completed 3175 steps cleanly
+
+### Cross-compound CROSS-CONFIRMATION pattern emerging
+
+| Compound \ CARRIER decomposition | FULL-CARRIER | EMBED-ONLY | LM_HEAD-ONLY |
+|---|---|---|---|
+| × PROJ-ONLY cardinality | POD-BLOCK 147,984,768 (#2186) | TBD (#2198 in flight) | POD-BLOCK 147,984,768 BYTE-IDENTICAL (#2192) |
+| × MLP-SOAP front=fast | POD-BLOCK (#2142) | **FLOOR-BAND 3.270065 (#2169 THIS)** | **TBD (#2201 in flight)** |
+
+→ **Cross-compound prediction strengthens**: nezuko #2192 showed lm_head β1=0.7 alone → POD-BLOCK across PROJ-ONLY. This PR shows embed β1=0.5 alone → STABLE across MLP-SOAP-front-fast. If tanjiro #2201 (LM_HEAD-ONLY × MLP-SOAP-front-fast) POD-BLOCKs, it establishes **lm_head β1=0.7 as UNIVERSAL preconditioner-compound destabilizer** across depth-orientation AND cardinality compounds.
+
+### tanjiro #2201 next — cross-compound CONFIRMATION test
+
+LM_HEAD-ONLY-CARRIER × MLP-SOAP front=fast — final cell of 4-cell substrate decomposition matrix. Mirror of nezuko #2192's PROJ-ONLY cell. Includes explicit cherry-pick instruction + INFRA-ANOMALY GUARD (push cherry-pick to remote before launching Arm A) per #2169 finding.
+
+Priors: 60% LM_HEAD-ONLY-POD-BLOCK / 25% FLOOR-BAND / 10% MILD-DRIFT / 5% PRODUCTIVE.
+
+### edward #2185 stale-WIP triage
+
+Arm A `zzi9hor9` finished at **3.2716 STABLE floor band** (~10 min ago at 23:34Z). Significant cross-substrate F=1.0 finding: EMBED M=2 F=1.0 → STABLE vs LM_HEAD M=2 F=1.0 (#2160) → BILATERAL POD-BLOCK 234,624. **F=1.0 SECONDARY DESTAB is LM_HEAD-SPECIFIC** — mirrors EMBED's F-COUPLED-recovery vs LM_HEAD's F-DECOUPLED-destab pattern established by fern #2188/#2153. Advisor authorized Arm B SEED=2 launch with explicit reproduce command in PR comment.
+
+### INFRA-ANOMALY note
+
+tanjiro #2169 flagged a mid-Arm-A branch reset from cherry-pick `88b51c21` back to assign commit `46a00d60` at 19:51Z. Student detected this when launching Arm B without dispatch infra (no PER_KIND_AUX_BETA1 / MLP_SOAP keys in wandb config), killed bad Arm B (`bxapv6md`), re-applied cherry-pick (`b4fe3bb5`), pushed to remote, relaunched (`4f78mcy8`). This validates the existing `feedback-pr2121-infra-cherry-pick` memory; tanjiro #2201 assignment includes the **push-cherry-pick-to-remote-before-Arm-A** guard.
+
+### Cycle 71 mid-548 fleet status
+
+Fleet 8/8 WIP. Cumulative: **452 refuted / 304 mech classes / 276 family closures / 11 axes / 61 RTM precedents / 47 pod-stability observations**.
+
+The mid-548 closure brings the substrate decomposition × MLP-SOAP-front-fast matrix to 3/4 cells resolved. tanjiro #2201 (LM_HEAD-ONLY cell) closes the matrix and tests cross-compound parity with nezuko #2192. Joint resolution of #2169 + #2192 + tanjiro #2201 + nezuko #2198 will fully characterize the lm_head β1=0.7 universal-destabilizer hypothesis across both compound classes.
+
+---
+
 ## 2026-06-01 23:05 UTC — Cycle 71 mid-547 — nezuko #2192 CLOSED (451st refute / **PROJ→LM_HEAD LINEAR COUPLING HYPOTHESIS CONFIRMED — lm_head β1=0.7 ALONE sufficient to destabilize PROJ-ONLY; embed β1=0.5 is SPECTATOR** / 11th structural mechanism axis / 47th pod-stability observation; bilateral n=2 step-1 grad **233,797.60 / 233,438.76** + step-125 nonfinite_count **147,984,768 BYTE-IDENTICAL** to #2186 FULL-CARRIER signature; HYPOTHESIS 1 50% prior REALIZED; mechanism reading: proj feeds DIRECTLY into the lm_head linear → proj-substrate's asymmetric SOAP preconditioning interacts with carrier's lm_head β1=0.7 long-memory state via proj→lm_head linear pathway) + nezuko #2198 new assignment (**EMBED-ONLY-CARRIER × PROJ-ONLY — final carrier-decomposition cell**; embed=0.5 + lm_head=0.8 default; 65% STABLE confirms sole lm_head pathway / 20% MILD-DRIFT secondary embed channel / 10% POD-BLOCK parallel destab / 5% PRODUCTIVE; explicit PR2121 cherry-pick instruction added per infra-spec finding). Fleet 8/8 WIP. Cumulative: **451 refuted / 303 mech classes / 275 family closures / 11 axes / 60 RTM precedents / 47 pod-stability observations**.
 
 ### nezuko #2192 CLOSED — 451st refute / PROJ→LM_HEAD LINEAR COUPLING ISOLATED
