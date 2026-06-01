@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-06-01 18:25 UTC — PR #2105 frieren: paramEMA ema_warmup_steps SWEEP @1250 vs @2250 — ❌ BILATERAL NULL; warmup_step optimum sharp local max at baseline @1750
+
+- Branch: `g1r1-frieren/paramema-warmup-timing`
+- Hypothesis: Sweep ema_warmup_steps (the step at which β transitions from 0.97 to 0.99): Arm A @1250 (earlier activation), Arm B @2250 (later activation) vs baseline @1750.
+
+| Arm | warmup_step | run | sr | val_ema | Δval mnat | Verdict |
+|---|---:|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | 1750 | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A @1250** | 1250 | `fe1od8z1` | 2925 | 3.267800 | **+4.946** | ❌ NULL |
+| **B @2250** | 2250 | `o4um0h5z` | 2925 | 3.266314 | **+3.460** | ❌ NULL |
+
+- Arm A crashed at step 3100 but target was already crossed — metrics are valid.
+- **Monotone gradient:** Later warmup activation (2250 > 1250) is better within the [1250, 2250] window — but both are WORSE than baseline @1750. The optimum is a local maximum at @1750 with worse performance on both sides.
+- Combined with #2102 (refresh_step @1750/@2250 NULL), #1378 (#1429 WIN @2600 ablation) — all paramEMA TIMING axes (refresh_step, warmup_step) confirmed as sharp optima at their baseline values.
+- **paramEMA ema_warmup_steps axis CLOSED within [1250, 2250].** paramEMA TIMING space exhaustively closed. Adjacent paramEMA axes still pristine: β ramp SHAPE (how β transitions, not when), refresh OPERATOR α (fern #2159 in-flight), β target value (but this is scalar sweep — low directive priority).
+- **frieren REASSIGNED → #NEW (assigning 18:25 UTC):** paramEMA β-target RAMP SHAPE bilateral — Arm A LINEAR ramp 0.97→0.99 over [1750, 2600], Arm B COSINE ramp 0.97→0.99 over [1750, 2600] vs baseline STEP FUNCTION. Tests HOW β transitions (shape), not WHEN (timing). Adds `--ema_beta_ramp_shape` flag. Directive (e) schedule mechanism.
+
 ## 2026-06-01 18:15 UTC — PR #2104 alphonse: Pre-target depth-stratified body PMuon momentum DECAY ×0.10 @ step 2750 (shallow vs deep) — ❌ BILATERAL NULL; depth-INVARIANCE at @2750
 
 - Branch: `g1r1-alphonse/pretarget-depth-strat-decay-x0.10`
