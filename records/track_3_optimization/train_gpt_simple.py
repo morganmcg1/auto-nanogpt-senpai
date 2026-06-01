@@ -101,6 +101,26 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
+    parser.add_argument("--sf_muon", action="store_true", default=False,
+                        help="Enable Schedule-Free Polyak-Ruppert iterate averaging for "
+                             "the Muon body optimizer. Maintains parallel z (base iterate) "
+                             "and x (lr-weighted Polyak average); p holds x during training.")
+    parser.add_argument("--sf_beta", type=float, default=1.0,
+                        help="SF weight multiplier; per-step weight c_t = lr_t * sf_beta. "
+                             "Default 1.0 = pure lr-weighted Polyak-Ruppert.")
+    parser.add_argument("--sf_muon_groups", type=str, default="all",
+                        choices=["all", "mlp", "attn"],
+                        help="Which Muon param groups to apply SF averaging to.")
+    parser.add_argument("--sf_y_beta", type=float, default=0.9,
+                        help="SF gradient-evaluation interpolation: forward+backward use "
+                             "y = (1 - sf_y_beta) * z + sf_y_beta * x. Canonical SF AdamW "
+                             "uses 0.9 (Defazio 2024 Alg.1). 1.0 falls back to grad-at-x.")
+    parser.add_argument("--sf_kill_gate_step", type=int, default=875,
+                        help="If val_loss at this step exceeds --sf_kill_gate_threshold, "
+                             "abort the trial early. Default 875 matches the cell-1 "
+                             "post-mortem reading. Set <0 to disable.")
+    parser.add_argument("--sf_kill_gate_threshold", type=float, default=3.40,
+                        help="val_loss kill-gate threshold for the configured step.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -621,12 +641,19 @@ class Muon(torch.optim.Optimizer):
                 "lr": g.get("lr", lr),
                 "weight_decay": g.get("weight_decay", weight_decay),
                 "mu": g.get("mu", mu),
+                "schedule_free": bool(g.get("schedule_free", False)),
+                "sf_beta": float(g.get("sf_beta", 1.0)),
             }
             if "name" in g:
                 g_dict["name"] = g["name"]
             param_groups.append(g_dict)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
+                        schedule_free=False, sf_beta=1.0)
         super().__init__(param_groups, defaults)
+        # Per-param snapshots of x for the SF y-interpolation swap. Kept outside
+        # optimizer `state` to avoid colliding with the `len(state) == 0` init check
+        # in `step()`. Allocated lazily on first `sf_swap_to_y()` call.
+        self._sf_x_bufs: dict[int, Tensor] = {}
 
     @torch.no_grad()
     def step(self):
@@ -642,8 +669,12 @@ class Muon(torch.optim.Optimizer):
                     p = params[base_i + rank]
                     state = self.state[p]
                     use_soap = p in self.soap_params
+                    use_sf = bool(group.get("schedule_free", False))
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
+                        if use_sf:
+                            state["z"] = p.data.clone()
+                            state["sf_c_sum"] = 0.0
                         if use_soap:
                             state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
                             state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
@@ -669,11 +700,74 @@ class Muon(torch.optim.Optimizer):
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
-                    p.mul_(1 - group["lr"] * group["weight_decay"])
-                    p.add_(update, alpha=-group["lr"])
+                    if use_sf:
+                        lr = group["lr"]
+                        wd = group["weight_decay"]
+                        sf_beta = float(group.get("sf_beta", 1.0))
+                        z = state["z"]
+                        # z (base iterate) gets the gradient step + decoupled WD.
+                        z.mul_(1 - lr * wd)
+                        z.add_(update, alpha=-lr)
+                        # Polyak-Ruppert: x (held in p) is the lr-weighted running mean of z.
+                        c_t = lr * sf_beta
+                        new_c_sum = state["sf_c_sum"] + c_t
+                        if new_c_sum > 0.0:
+                            p.data.mul_(state["sf_c_sum"] / new_c_sum)
+                            p.data.add_(z, alpha=c_t / new_c_sum)
+                        state["sf_c_sum"] = new_c_sum
+                    else:
+                        p.mul_(1 - group["lr"] * group["weight_decay"])
+                        p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+
+    @torch.no_grad()
+    def sf_swap_to_y(self, sf_y_beta: float):
+        # Replace SF-enabled params with the interpolated iterate
+        #   y = (1 - sf_y_beta) * z + sf_y_beta * x
+        # so the forward+backward pass evaluates gradients at y (canonical Schedule-Free
+        # AdamW, Defazio 2024 Alg.1). x is snapshotted into self._sf_x_bufs so
+        # `sf_restore_to_x()` can put it back before the optimizer step. No-op on
+        # any param whose `z` has not been initialized yet (first call before any
+        # `step()`).
+        if abs(sf_y_beta - 1.0) < 1e-12:
+            return  # y == x, nothing to do
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
+        for group in self.param_groups:
+            if not group.get("schedule_free", False):
+                continue
+            params = group["params"]
+            for p in params:
+                buf = self._sf_x_bufs.get(id(p))
+                if buf is None:
+                    buf = torch.empty_like(p.data)
+                    self._sf_x_bufs[id(p)] = buf
+                buf.copy_(p.data)
+            params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            for base_i in range(0, len(params), world_size):
+                if base_i + rank < len(params):
+                    p = params[base_i + rank]
+                    state = self.state[p]
+                    if "z" in state:
+                        z = state["z"]
+                        x_buf = self._sf_x_bufs[id(p)]
+                        p.data.copy_(z).mul_(1.0 - sf_y_beta).add_(x_buf, alpha=sf_y_beta)
+                dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+    @torch.no_grad()
+    def sf_restore_to_x(self):
+        # Restore SF-enabled params from the snapshot taken in sf_swap_to_y().
+        # Buffers are identical across ranks (snapshot of synced p.data) so no
+        # all_gather is needed.
+        for group in self.param_groups:
+            if not group.get("schedule_free", False):
+                continue
+            for p in group["params"]:
+                buf = self._sf_x_bufs.get(id(p))
+                if buf is not None:
+                    p.data.copy_(buf)
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -786,6 +880,12 @@ if dist.get_rank() == 0:
             "lr_cooldown_shape": args.lr_cooldown_shape,
             "ema_eval_decay": args.ema_eval_decay,
             "ema_eval_enabled": args.ema_eval_decay is not None,
+            "sf_muon_enabled": bool(args.sf_muon),
+            "sf_beta": float(args.sf_beta),
+            "sf_muon_groups": args.sf_muon_groups,
+            "sf_y_beta": float(args.sf_y_beta),
+            "sf_kill_gate_step": int(args.sf_kill_gate_step),
+            "sf_kill_gate_threshold": float(args.sf_kill_gate_threshold),
         },
     )
 
@@ -868,10 +968,20 @@ for trial_idx in range(args.num_trials):
     attn_named = [(n, p) for n, p in named_blocks
                   if not (n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"))]
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
+    def _apply_sf(group_short_name: str) -> bool:
+        if not args.sf_muon:
+            return False
+        if args.sf_muon_groups == "all":
+            return True
+        return args.sf_muon_groups == group_short_name
+    _sf_mlp = _apply_sf("mlp")
+    _sf_attn = _apply_sf("attn")
     optimizer2 = Muon(
         [
-            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
-            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
+            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp",
+                 schedule_free=_sf_mlp, sf_beta=(args.sf_beta if _sf_mlp else 1.0)),
+            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn",
+                 schedule_free=_sf_attn, sf_beta=(args.sf_beta if _sf_attn else 1.0)),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
@@ -1130,6 +1240,31 @@ for trial_idx in range(args.num_trials):
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f}{ema_log_str}"
                    + f" train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            # Schedule-Free Muon kill-gate. Cell-1 (#2030) ran 6695 s on a
+            # trajectory that was already +0.35 val_loss above baseline at the
+            # gate step; aborting there saves ~5 h of GPU time per failed cell.
+            # Single-GPU run: dist.broadcast is a no-op. For multi-rank runs,
+            # rank 0's decision is broadcast so all ranks break together.
+            if (args.sf_muon and args.sf_kill_gate_step >= 0
+                    and step == args.sf_kill_gate_step):
+                abort_flag = torch.zeros((), device=device, dtype=torch.int64)
+                if dist.get_rank() == 0 and val_loss_float > args.sf_kill_gate_threshold:
+                    abort_flag.fill_(1)
+                if dist.get_world_size() > 1:
+                    dist.broadcast(abort_flag, src=0)
+                if int(abort_flag.item()) == 1:
+                    print0(f"SF kill-gate: val_loss={val_loss_float:.5f} > "
+                           f"{args.sf_kill_gate_threshold} at step {step}; "
+                           f"aborting trial {trial_idx}.", console=True)
+                    if dist.get_rank() == 0:
+                        wandb.log({"trial": trial_idx,
+                                   "val/step": step,
+                                   "sf/kill_gate_tripped": 1,
+                                   "sf/kill_gate_val_loss": val_loss_float},
+                                  step=trial_idx * (train_steps + 1) + step)
+                    model.train()
+                    dist.barrier()
+                    break
             model.train()
             # start the clock again
             dist.barrier()
@@ -1143,10 +1278,21 @@ for trial_idx in range(args.num_trials):
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
+        # Schedule-Free Muon: swap Muon SF params to y = (1-β)·z + β·x for
+        # forward+backward so gradients are evaluated at the canonical SF iterate
+        # (Defazio 2024 Alg.1). Skipped on the first step before z is initialized.
+        sf_swapped = False
+        if args.sf_muon and args.sf_y_beta < 1.0:
+            optimizer2.sf_swap_to_y(args.sf_y_beta)
+            sf_swapped = True
         for i in range(len(inputs) // mbs):
             loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
             step_loss += loss.detach()
             loss.backward()
+        if sf_swapped:
+            # Restore p = x before the optimizer's SF update mutates p into the
+            # new Polyak average. Gradients (computed at y) are kept on p.grad.
+            optimizer2.sf_restore_to_x()
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
