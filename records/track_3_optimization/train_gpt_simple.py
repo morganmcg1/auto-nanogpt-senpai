@@ -609,6 +609,12 @@ NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_T
 # diagonal prior accumulated over K steps of "naked Muon" training (NM bypassed pre-K).
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART", "0"))
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K", "100"))
+# #2045: R-buffer bottom-eigval truncation. Keep only the top KFRAC fraction of
+# eigenvectors (by eigenvalue) when constructing R^{-1/2}. Bottom eigvals get
+# the highest R^{-1/2} amplification but live in least-activated noise-dominated
+# input directions; zeroing them is a strict subspace projection into the
+# dominant-signal subspace. 1.0 = no truncation = bit-identical to baseline.
+NANOGPT_NEWTON_MUON_R_TRUNC_KFRAC = float(os.environ.get("NANOGPT_NEWTON_MUON_R_TRUNC_KFRAC", "1.0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -888,6 +894,13 @@ class Muon(torch.optim.Optimizer):
                 vals, vecs = torch.linalg.eigh(R_for_decomp)
                 vals_clamped = vals.clamp(min=0.0) + self.newton_eps
                 inv_sqrt_vals = vals_clamped.rsqrt()
+                # #2045: bottom-eigval truncation. eigh returns eigenvalues in
+                # ASCENDING order, so [..., :-k] selects the bottom (d_in - k)
+                # eigvecs. Zeroing those entries is strict subspace projection
+                # into the top-k eigenspace (signal-dominant directions only).
+                if NANOGPT_NEWTON_MUON_R_TRUNC_KFRAC < 1.0:
+                    k = max(1, int(inv_sqrt_vals.shape[-1] * NANOGPT_NEWTON_MUON_R_TRUNC_KFRAC))
+                    inv_sqrt_vals[..., :-k] = 0.0
                 # R_inv_sqrt = V * diag(inv_sqrt_vals) * V^T (symmetric).
                 state["R_inv_sqrt"] = (vecs * inv_sqrt_vals.unsqueeze(0)) @ vecs.T
                 # Stash eigvals on-device for lazy telemetry — no sync here.
@@ -1037,7 +1050,9 @@ print0(
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
     f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
     f"r_warmstart={'True' if NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART else 'False'} "
-    f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K}",
+    f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K} "
+    f"r_trunc_kfrac={NANOGPT_NEWTON_MUON_R_TRUNC_KFRAC} "
+    f"({'ACTIVE' if NANOGPT_NEWTON_MUON_R_TRUNC_KFRAC < 1.0 else 'DISABLED'})",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1161,6 +1176,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
             "nanogpt_newton_muon_r_adamw_warmstart": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART,
             "nanogpt_newton_muon_r_adamw_warmstart_k": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
+            "nanogpt_newton_muon_r_trunc_kfrac": NANOGPT_NEWTON_MUON_R_TRUNC_KFRAC,
         },
     )
 
