@@ -87,11 +87,12 @@ def parse_args():
     # 'linear' ramps µ across all train_steps. 'cooldown_ramp' stays at mu_start until
     # cooldown starts (using h_cooldown_frac), then ramps linearly across the cooldown.
     parser.add_argument("--muonh_mu_schedule", type=str, default=os.environ.get("MUONH_MU_SCHEDULE", "off"),
-                        choices=["off", "linear", "cooldown_ramp"],
+                        choices=["off", "linear", "cooldown_ramp", "demon"],
                         help="Schedule for inner MuonH momentum coefficient µ. "
                              "'off' (default) = static muonh_mu=0.95, bit-identical to baseline. "
                              "'linear' = linear ramp from muonh_mu_start to muonh_mu_end across all train_steps. "
-                             "'cooldown_ramp' = static muonh_mu_start until cooldown begins, then linear ramp to muonh_mu_end over cooldown.")
+                             "'cooldown_ramp' = static muonh_mu_start until cooldown begins, then linear ramp to muonh_mu_end over cooldown. "
+                             "'demon' = DEMON decay-to-floor: mu(t) = max(muonh_mu_end, muonh_mu_start * (1 - t/T)).")
     parser.add_argument("--muonh_mu_start", type=float, default=float(os.environ.get("MUONH_MU_START", "0.95")),
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
@@ -1027,6 +1028,9 @@ for trial_idx in range(args.num_trials):
                 else:
                     cooldown_prog = (progress - cooldown_start_frac) / h_cooldown_frac
                     mu_t = args.muonh_mu_start + cooldown_prog * (args.muonh_mu_end - args.muonh_mu_start)
+            elif args.muonh_mu_schedule == "demon":
+                prog = step / max(1, train_steps - 1)
+                mu_t = max(args.muonh_mu_end, args.muonh_mu_start * (1.0 - prog))
             else:
                 raise ValueError(f"unknown muonh_mu_schedule: {args.muonh_mu_schedule}")
             for g in optimizer2.param_groups:
