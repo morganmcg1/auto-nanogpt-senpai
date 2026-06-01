@@ -16332,3 +16332,34 @@ Wave 1 launched at ~12:35 UTC. By ~15:35 UTC the following observations:
 
 **Next for edward**: PR #539 assigned — H7 per-group AdamW weight decay under eps=1e-6 stack. Hypothesis: under prior eps=1e-10 regime, low-grad groups (lm_head/scalars) had near-zero updates so WD>0 would have dominated; under eps=1e-6 those groups have meaningful update magnitude, so WD can act as proper regularization. Three arms: ctrl (all wd=0) / carriers (lm_head+scalars wd=0.01) / all-aux (wd=0.01).
 
+
+## 2026-06-02 00:30 UTC — PR #2155 CLOSED: H370 nezuko QHM (Quasi-Hyperbolic Momentum) BODY inner pre-NS5 — 17th HARD-LOAD-BEARING + 2nd MONOTONE DOSE-RESPONSE NEG class entry
+
+- Branch: `g1r3-nezuko/h370-qhm-body-inner-pre-ns5`
+- Hypothesis: QHM blending of instantaneous gradient with momentum (`grad.lerp_(momentum, ν)` with ν∈[mu, 1.0] per QHM paper) at BODY MuonH inner step BEFORE NS5 polar step. Tests whether continuous interpolation between Nesterov (ν=mu) and Polyak (ν=1.0) — and into the ν<mu region — could find a cleaner cooldown sharpening trajectory at H266 stack.
+- Cycle ~2700 cumulative: **224 NULL/NEG + 1 MERGED WIN**.
+
+| Arm | `--body_qhm_nu` | W&B run | val/loss | FFS | Δ vs CTRL (σ_H174) | Class |
+|-----|-----------------|---------|----------|-----|---------------------|-------|
+| arm_a CTRL | -1.0 (sentinel) | `4thrdn4z` | 3.27120 | **3050** | (ref, Pattern A +50) | 29th candidate H266 attractor cluster anchor |
+| arm_b QHM_PAPER | 0.7 | `ub0ldq80` | **3.30453** | **-1 NEVER** | **+37.7σ_H174** | **17th HARD-LOAD-BEARING family entry of cycle ~2700** |
+| arm_c QHM_MID | 0.85 | `77yq11mn` | 3.27819 | 3225 | +7.9σ_H174 | STRONG NEG mid-magnitude dose-response anchor |
+
+**Mechanism-class taxonomy additions:**
+1. **2nd MONOTONE DOSE-RESPONSE NEG class on continuous parametric axis** — joining H368 AdEMAMix α-axis (+13.06σ at α=8 / +6.78σ at α=4). H370 ν-axis: ν=0.85 → +7.9σ / ν=0.7 → +37.7σ (~+30σ per 0.15-unit ν decrease).
+2. **BODY blending coefficient axis HARD-LOAD-BEARING confirmation** — closes axis jointly with H229 binary form probes. Canalized point sits AT ν=mu=0.95 Nesterov form; any ν<mu deviation lifts convergence floor monotonically.
+3. **3rd STRUCTURAL-COMPONENT axis entry** — joining H358 μLoCo + H369 Lion AUX. BODY MuonH inner update form is structurally load-bearing — cannot decouple ν from mu without floor lift.
+
+**U-shaped destabilization profile (mechanism dissection):**
+1. Early-trajectory destabilization peaks at step 250 (+0.107 ν=0.7, +0.043 ν=0.85)
+2. Mid-training cross-over BELOW CTRL at step 1000 (max -0.0085 ν=0.85, transient "head start")
+3. Cooldown rediverge widens floor lift back to ~+0.033 / +0.007
+
+Cooldown sharpening SLOPES are similar across all 3 arms (~-0.011 from step 3000→3325). **QHM does not break cooldown dynamics, it lifts the convergence floor** — the canalized Nesterov form provides the optimal pre-cooldown trajectory that the cooldown then sharpens.
+
+**Pattern A bit-id verification:** Step-0 val=10.82583 EXACT on all 3 arms ✓ (body_qhm_nu does not affect step-0 prediction — only modifies inner update blend after first momentum buffer update). Sentinel logic bit-id with current production code path.
+
+**Axis closure:** H229 binary (ν∈{mu, 1.0}) + H370 continuous (ν<mu region {0.7, 0.85}) closed NEG → BODY blending coefficient axis is largely closed except for ν>mu interior (0.95→1.0) and cooldown-gated variants. Per student's suggested follow-up #5 — deprioritize further BODY ν<mu probes.
+
+**Next for nezuko:** Fresh mechanism-distinct axis assignment H378.
+
