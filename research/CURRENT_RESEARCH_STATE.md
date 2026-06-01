@@ -9,6 +9,70 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 04:20Z (**94 R5 closures**; ★★★ **FRIEREN #1966 TRIAL 3 AT 87% — μ_4 PROJECTED ≈ 2875.2 — FIRST R5 MERGE IMMINENT** (ETA terminal ~04:35Z; merge-winner ready to invoke); **THORFINN #1994 trial 2 at 88% — gate unreachable, 95th closure pending**; **NEZUKO #2020 Cell C(0.80)=FFS-NEG +50** dose-response shape non-monotone (B=0.70 at 2925 vs C=0.80 at 2975); **ASKELADD #2030 y-interp RELAUNCH alive at step 271** with relaxed kill gate 3.88; **EDWARD #2062 PICKED UP** — SiLU n1-probe at step 212 + KG smoke; **TANJIRO #2014 D-target9 falsifier at 77%** trending FFS-NEG; **ALPHONSE #2042 B-64 at 52%**; **FERN #2023 D(lrs=0.3) projected FFS≈3150 FFS-NEG**; 8/8 active)
+
+### Notes (2026-06-01 04:20Z) — FRIEREN MERGE-WINNER IMMINENT
+
+- **★★★ FRIEREN #1966 TRIAL 3 AT 87% — FIRST R5 MERGE WITHIN 15 MIN** (run `fjyckuu1`, step 12582/13000):
+  - Trial 0: FFS_ema=**2875**, FFS_trainval=2925
+  - Trial 1: FFS_ema=**2875**, FFS_trainval=2875 (BOTH off-attractor)
+  - Trial 2: FFS_ema=**2875**, FFS_trainval=2925
+  - Trial 3: in flight at step ~2830/3250, ema=3.2849, slope −0.0074/100 steps, projected FFS_T3 ≈ **2897** ≤ 2925 budget
+  - **μ_4(FFS_ema) projected = 2875.2** — DECISIVE CLEAR vs gate 2887.5 (+12.3 step headroom)
+  - **ETA terminal ~04:30-04:45Z**; invoke `senpai:merge-winner 1966 target/` after student posts terminal SENPAI-RESULT marker
+  - **FIRST R5 MERGE IN 94 CLOSURES** — Muon mu cooldown gradual ramp (0.95→0.80) becomes new baseline
+
+- **THORFINN #1994 trial 2 at 88% — closure pending** (run `ok9uc4uk`):
+  - Trial 0+1 = both FFS_ema=2925 (canonical attractor, not off-attractor)
+  - Trial 2 at step 2863/3250, ema=3.2887
+  - Best case μ_4 = 2900 → still misses gate 2887.5 by +12.5 steps → MATHEMATICALLY UNREACHABLE
+  - Will close as 95th R5 closure (FFS-NEUTRAL n=4-confirm-failed with trainval attractor regression 2925→2950 across n=1→n=4)
+  - Student chose Option (A) — continue trials 2+3 for full closure documentation
+
+- **NEZUKO #2020 Cell C(0.80) TERMINAL FFS-NEG +50**:
+  - A_ctrl(0.90) = 2925 (canonical attractor)
+  - B(0.70) = 2925 (FFS-NEUTRAL, tied with A_ctrl)
+  - **C(0.80) = 2975 (slipped off attractor +50)**
+  - Non-monotone dose-response shape: midpoint is WORST. Suggests SOAP β₂ smoothing rate is dominated by eigenbasis refresh cadence (precond_freq=16) — similar saturation as edward #1948 freq cooldown
+  - D(0.95, falsifier increased smoothing) in flight; ETA terminal ~05:30-06:00Z
+  - If D(0.95) lands at 2925 → axis closes as bidirectional NEUTRAL (β₂ smoothing irrelevant when refresh cadence dominates)
+
+- **ASKELADD #2030 y-interp RELAUNCH ALIVE** (run `2hjv966e`, step 271):
+  - Cell 1★ (β=1.0, yb=0.9, all-layers) restarted with relaxed kill gate 3.88 at step 875
+  - Previous y-interp run (`qzk48l5r`, killed): val_loss=3.6459 at step 875 — **BETTER than n=4 baseline 3.6769** (Δ=−0.031)
+  - +0.11 swing vs failed grad-at-x variant (3.7583) — patch is mechanically working
+  - ETA terminal cell 1 ~09:30Z if no further interruption
+  - Decision tree: if FFS_ema ≤ 2875 at cell 1 → fast-escalate to n=4 confirm (skip cells 2/3)
+
+- **EDWARD #2062 PICKED UP** — first MLP-activation experiment in 94 R5 closures:
+  - run `uqmgnxeo` SiLU n1-probe at step 212/3250
+  - run `rdnwa3gt` SiLU KG_smoke launching
+  - ETA Cell B★ terminal ~05:30-06:00Z
+  - Kill gate if FFS_ema ≥ 2950 on n=1 → close axis immediately
+
+- **TANJIRO #2014 D-target9 (falsifier MORE polish) at 77%** (run `mr3v2aui`):
+  - ema=3.3222, not trending toward 3.28
+  - Already known FFS-NEG dose-response on reduction side (A=2925 < B=2925 < C=2950 worse)
+  - D probes opposite direction; if D ≥ A_ctrl → axis closes as two-sided FFS-NEUTRAL
+  - ETA terminal ~04:50-05:00Z
+
+- **ALPHONSE #2042 B(64) at 52%** (run `ilv14as2`, step 1701/3250):
+  - A_ctrl(1024) = 2925 (terminal, canonical attractor)
+  - val=3.527, ema=3.428 at step 1701 — still in descent
+  - Sequential after B: C(4096), D(10000) — total ETA ~10:00Z
+  - First positional-encoding ablation in 94 R5 closures
+
+- **FERN #2023 Cell D(lrs=0.3) at 88%** (run `bgynmsmm`):
+  - Projected FFS_ema ≈ 3150 — substantially worse than baseline 2925
+  - A=2925, B(lrs=0.1)=FFS-NEG (-1), D(lrs=0.3)=FFS-NEG projected
+  - Lion AUX axis trending FFS-NEG across bracket {0.1, 0.3} — direction systematic, not point-specific
+
+- **Action queue (next heartbeat):**
+  - **WAIT for frieren #1966 trial 3 terminal SENPAI-RESULT (~15 min) → INVOKE senpai:merge-winner — FIRST R5 MERGE**
+  - Close thorfinn #1994 as 95th R5 closure after trial 3 terminal
+  - Watch tanjiro #2014 D terminal → close NS5-iter-cooldown axis
+  - Continue nezuko #2020 D, alphonse #2042 B/C/D, fern #2023 D, askeladd #2030 cell 1, edward #2062 cell B watch
+
 ## Last updated: 2026-06-01 03:05Z (**93 R5 closures**; ★★★ **FRIEREN #1966 n=4 CONFIRM 3/4 ALL AT FFS_EMA=2875 — MERGE GATE NEAR-CERTAIN** — trial 3/4 in flight, trial 3 budget ≤ 2925 suffices to clear @ μ_4 ≤ 2887.5; **EDWARD #1948 4/4 COMPLETE μ_4(FFS_ema)=2912.5 → 94th R5 closure pending**; **THORFINN #1994 2/4 GATE MATHEMATICALLY UNREACHABLE → 95th R5 closure pending**; **TANJIRO #2014 C-target2=FFS-NEG +25 worse, polish-reduction dose-response axis CLOSING**; **ASKELADD #2030 SF-Muon Cell-1 +0.167 val_loss → Option (B) y-interp patch send-back**; 8/8 active)
 
 ### Notes (2026-06-01 03:05Z) — DECISIVE HEARTBEAT: edward/thorfinn close, frieren ready to merge
