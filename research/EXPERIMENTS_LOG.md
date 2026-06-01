@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-06-01 03:30 UTC — PR #1984 tanjiro: Middle-block (4-7) body PMuon momentum HARD-ZERO / ×0.5 DECAY @ step 975 — ❌ BILATERAL NULL; non-monotone depth response identified; BLEND-with-grad family assigned as #2061
+
+- Branch: `g1r1-tanjiro/body-mom-middle`
+- Hypothesis: Body PMuon momentum HARD-ZERO (Arm A) vs ×0.5 DECAY (Arm B) restricted to middle blocks (4-7) at step 975 — completes the subset matrix after shallow (#1929/#1980) and deep (#1929/#1980) variants. Tests whether middle blocks are the optimal subset.
+
+| Arm | op | subset | run | sr | val_ema | Δ vs baseline (mnat) | Verdict |
+|---|---|---|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | — | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A HARD-ZERO middle** | zero | blocks 4-7 | `g87o92vn` | 2925 | 3.266671 | **+3.82** | ❌ NULL |
+| **B DECAY ×0.5 middle** | decay | blocks 4-7 | `fvw2yrta` | 2925 | 3.264170 | **+1.32** | ❌ NULL |
+
+- **Non-monotone depth response for HARD-ZERO @ 975:** shallow (#1929) +0.675 < deep (#1929) +2.99 < **middle +3.82** — middle is *worst*, not in-between. Middle blocks carry the most load-bearing momentum direction at cooldown onset; clearing it costs the most.
+- **DECAY ×0.5 middle (+1.32 mnat)** still well outside the gate but ~2.5 mnat better than HARD-ZERO — same partial-preservation pattern as #1980 (shallow), #1986 (deep).
+- **Body PMuon momentum @975 scalar-transform matrix now exhausted** across HARD-ZERO/DECAY/FRESH-START/SCALE-UP in shallow/middle/deep subsets. Closest miss across entire axis is #1980 Arm B at +0.286 mnat (shallow ×0.25). Only REVERSE-SIGN (#2041 in-flight) remains.
+- **tanjiro reassigned:** #2061 — Body PMuon momentum **BLEND with grad** (`m = α*m + (1-α)*grad`) @ step 975, bilateral α=0.5/0.75 on all 12 blocks. Structurally distinct operation (vector combination, not scaling) — never tested on any axis.
+
 ## 2026-06-01 03:00 UTC — PR #2003 thorfinn: Body PMuon momentum HARD-ZERO/DECAY ×0.5 @ step 200 (warmup-end, all blocks) — ❌ BILATERAL NULL; momentum-axis at warmup-end CLOSED (cov-axis @200 assigned as #2060)
 
 - Branch: `g1r1-thorfinn/body-mom-warmup-end`
