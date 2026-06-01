@@ -70,6 +70,11 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--muon_block_lr_power", type=float, default=1.0,
+                        help="Power exponent for per-block Muon LR ramp shape. "
+                             "1.0=linear (baseline). 0.5=convex/front-loaded. 2.0=concave/back-loaded. "
+                             "Active only when --muon_block_lr_pattern != 'none'. "
+                             "Default 1.0 matches the merged late-higher baseline bit-exactly.")
     parser.add_argument("--paramema_refresh_step", type=int, default=-1,
                         help="If >0, refresh paramEMA buffer to live params at this step "
                              "(resets accumulated EMA history). -1=disabled. Requires "
@@ -761,6 +766,7 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "muon_block_lr_power": args.muon_block_lr_power,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
@@ -818,7 +824,8 @@ for trial_idx in range(args.num_trials):
             lo, hi = 0.90, 1.10
         elif args.muon_block_lr_pattern == "late-lower":
             lo, hi = 1.10, 0.90
-        block_mults = [lo + (hi - lo) * (i / (NUM_LAYERS - 1)) for i in range(NUM_LAYERS)]
+        p_exp = args.muon_block_lr_power
+        block_mults = [lo + (hi - lo) * (i / (NUM_LAYERS - 1))**p_exp for i in range(NUM_LAYERS)]
         param_lr_mults = {}
         for name, p in model.named_parameters():
             if p.ndim >= 2 and name.startswith("blocks."):
@@ -827,12 +834,18 @@ for trial_idx in range(args.num_trials):
         b0_lr_mult = block_mults[0]
         b11_lr_mult = block_mults[NUM_LAYERS - 1]
         if dist.get_rank() == 0:
-            print0(f"per-block Muon LR pattern: {args.muon_block_lr_pattern}", console=True)
+            print0(f"per-block Muon LR pattern: {args.muon_block_lr_pattern} power: {p_exp}", console=True)
             for i, m in enumerate(block_mults):
                 print0(f"  block {i}: lr_mult={m:.4f} -> effective_lr={args.muon_lr * m:.5f}",
                        console=True)
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
+            wandb.log({
+                "optim/muon_block_lr_power": args.muon_block_lr_power,
+                "optim/muon_block_0_lr_mult": block_mults[0],
+                "optim/muon_block_5_lr_mult": block_mults[5],
+                "optim/muon_block_11_lr_mult": block_mults[NUM_LAYERS - 1],
+            }, step=0)
     optimizer2._param_lr_mults = param_lr_mults
 
     optimizers = [optimizer1, optimizer2]
