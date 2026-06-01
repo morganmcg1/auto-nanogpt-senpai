@@ -546,8 +546,15 @@ if PER_KIND_AUX_PERIODIC_RESET_GATE and AUX_RESET_KIND_FILTER:
 # selects FAST (β2=0.85) or SLOW (β2=0.95). Canonical front_FAST: FRONT_HALF=1
 # BACK_HALF=0 → front=0.85 back=0.95.
 MLP_SOAP_PER_DEPTH_HALF_ENABLED = int(os.environ.get("MLP_SOAP_PER_DEPTH_HALF_ENABLED", "0"))
-MLP_SOAP_FRONT_HALF = int(os.environ.get("MLP_SOAP_FRONT_HALF", "1"))
-MLP_SOAP_BACK_HALF = int(os.environ.get("MLP_SOAP_BACK_HALF", "0"))
+def _parse_fast_slow(v: str, default: int) -> int:
+    """Accept either 1/0 or 'fast'/'slow' (advisor naming convention)."""
+    s = (v or "").strip().lower()
+    if s in {"fast", "1", "true", "yes"}: return 1
+    if s in {"slow", "0", "false", "no"}: return 0
+    if s == "": return default
+    return int(s)
+MLP_SOAP_FRONT_HALF = _parse_fast_slow(os.environ.get("MLP_SOAP_FRONT_HALF", ""), 1)
+MLP_SOAP_BACK_HALF = _parse_fast_slow(os.environ.get("MLP_SOAP_BACK_HALF", ""), 0)
 MLP_SOAP_DEPTH_SPLIT = int(os.environ.get("MLP_SOAP_DEPTH_SPLIT", "6"))
 MLP_SOAP_BETA2_FAST = float(os.environ.get("MLP_SOAP_BETA2_FAST", "0.85"))
 MLP_SOAP_BETA2_SLOW = float(os.environ.get("MLP_SOAP_BETA2_SLOW", "0.95"))
