@@ -84,6 +84,13 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--body_muon_cov_zero_step", type=int, default=0,
+                        help="Step at which to scale body PMuon side covariance buffers L and R "
+                             "(0 disables).")
+    parser.add_argument("--body_muon_cov_zero_factor", type=float, default=0.0,
+                        help="Multiplicative factor applied to both L and R cov buffers at "
+                             "--body_muon_cov_zero_step. 0.0=HARD-ZERO (default), 0.5=half, "
+                             "0.25=quarter. 1.0 would be no-op.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +772,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "body_muon_cov_zero_step": args.body_muon_cov_zero_step,
+            "body_muon_cov_zero_factor": args.body_muon_cov_zero_factor,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1080,52 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.body_muon_cov_zero_step > 0
+                and step == args.body_muon_cov_zero_step):
+            factor = float(args.body_muon_cov_zero_factor)
+            n_L, n_R = 0, 0
+            L_before_sum, L_after_sum = 0.0, 0.0
+            R_before_sum, R_after_sum = 0.0, 0.0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, None)
+                    if state is None:
+                        continue
+                    L_buf = state.get("L", None)
+                    R_buf = state.get("R", None)
+                    if L_buf is not None:
+                        L_before_sum += float(L_buf.mean())
+                        L_buf.mul_(factor)
+                        L_after_sum += float(L_buf.mean())
+                        n_L += 1
+                    if R_buf is not None:
+                        R_before_sum += float(R_buf.mean())
+                        R_buf.mul_(factor)
+                        R_after_sum += float(R_buf.mean())
+                        n_R += 1
+            if dist.get_rank() == 0:
+                L_before_mean = L_before_sum / n_L if n_L > 0 else 0.0
+                L_after_mean = L_after_sum / n_L if n_L > 0 else 0.0
+                R_before_mean = R_before_sum / n_R if n_R > 0 else 0.0
+                R_after_mean = R_after_sum / n_R if n_R > 0 else 0.0
+                print0(
+                    f"[step {step}] body PMuon cov DECAY "
+                    f"(n_L={n_L}, n_R={n_R}, factor={factor:.4f}) "
+                    f"L mean {L_before_mean:.6e}->{L_after_mean:.6e}; "
+                    f"R mean {R_before_mean:.6e}->{R_after_mean:.6e}",
+                    console=True,
+                )
+                if wandb.run is not None:
+                    wandb.log({
+                        "body_muon_cov_zero/step": step,
+                        "body_muon_cov_zero/factor": factor,
+                        "body_muon_cov_zero/n_L": n_L,
+                        "body_muon_cov_zero/n_R": n_R,
+                        "body_muon_cov_zero/L_mean_before": L_before_mean,
+                        "body_muon_cov_zero/L_mean_after": L_after_mean,
+                        "body_muon_cov_zero/R_mean_before": R_before_mean,
+                        "body_muon_cov_zero/R_mean_after": R_after_mean,
+                    }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
