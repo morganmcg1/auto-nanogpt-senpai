@@ -84,6 +84,24 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument(
+        "--body_muon_momentum_blend_step", type=int, default=-1,
+        help="Step at which to BLEND body PMuon momentum buffer with the current "
+             "gradient (m = factor*m + (1-factor)*grad) for a subset of blocks. "
+             "-1 disables.",
+    )
+    parser.add_argument(
+        "--body_muon_momentum_blend_subset", type=str, default="all",
+        choices=["all", "shallow", "middle", "deep"],
+        help="Which block subset to BLEND: 'all'=blocks 0-11, "
+             "'shallow'=blocks 0-3, 'middle'=blocks 4-7, 'deep'=blocks 8-11.",
+    )
+    parser.add_argument(
+        "--body_muon_momentum_blend_factor", type=float, default=1.0,
+        help="α weight on PRESERVED momentum in the blend "
+             "(m = α*m + (1-α)*grad). 1.0 is a no-op, 0.0 reproduces FRESH-START, "
+             "0.5/0.75 are interior blends. Defaults to 1.0 (no-op).",
+    )
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +783,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "body_muon_momentum_blend_step": args.body_muon_momentum_blend_step,
+            "body_muon_momentum_blend_subset": args.body_muon_momentum_blend_subset,
+            "body_muon_momentum_blend_factor": args.body_muon_momentum_blend_factor,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1092,50 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.body_muon_momentum_blend_step >= 0
+                and step == args.body_muon_momentum_blend_step):
+            id_to_block = {}
+            for _name, _p in model.named_parameters():
+                if _p.ndim >= 2 and _name.startswith("blocks."):
+                    id_to_block[id(_p)] = int(_name.split(".")[1])
+            block_indices = sorted(set(id_to_block.values()))
+            n_blocks = len(block_indices)
+            subset = args.body_muon_momentum_blend_subset
+            target_blocks_map = {
+                "all":     block_indices,
+                "shallow": block_indices[:4],
+                "middle":  [b for b in block_indices if 4 <= b <= 7],
+                "deep":    block_indices[-4:],
+            }
+            target_blocks = set(target_blocks_map.get(subset, []))
+            factor = float(args.body_muon_momentum_blend_factor)
+            n_blended = 0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    if id_to_block.get(id(p)) not in target_blocks:
+                        continue
+                    state = optimizer2.state.get(p, None)
+                    if state is None:
+                        continue
+                    buf = state.get("momentum", None)
+                    if buf is not None and p.grad is not None:
+                        buf.mul_(factor).add_(p.grad, alpha=1.0 - factor)
+                        n_blended += 1
+            if dist.get_rank() == 0:
+                print0(
+                    f"[step {step}] body PMuon momentum BLEND "
+                    f"(subset={subset}, target_blocks={sorted(target_blocks)}, "
+                    f"factor={factor}, n_blended={n_blended}) "
+                    f"out of n_blocks={n_blocks}",
+                    console=True,
+                )
+                if wandb.run is not None:
+                    wandb.log({
+                        "body_muon_momentum_blend/step": step,
+                        "body_muon_momentum_blend/n_blended": n_blended,
+                        "body_muon_momentum_blend/n_target_blocks": len(target_blocks),
+                        "body_muon_momentum_blend/factor": factor,
+                    }, step=step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
