@@ -86,6 +86,12 @@ def parse_args():
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
+    parser.add_argument("--muon_momentum_scale_up_step", type=int, default=-1,
+                        help="Step at which to scale-up all body PMuon momentum buffers. "
+                             "-1 disables. Applied once after telemetry, before opt.step().")
+    parser.add_argument("--muon_momentum_scale_up_factor", type=float, default=1.0,
+                        help="Multiplicative scale factor applied to all body PMuon momentum "
+                             "buffers at --muon_momentum_scale_up_step. Default 1.0 (no-op).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -765,6 +771,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "muon_momentum_scale_up_step": args.muon_momentum_scale_up_step,
+            "muon_momentum_scale_up_factor": args.muon_momentum_scale_up_factor,
             "seed": args.seed,
         },
     )
@@ -1071,6 +1079,18 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        muon_mom_scale_up_fired_now = False
+        if (args.muon_momentum_scale_up_step > 0
+                and step == args.muon_momentum_scale_up_step):
+            n_scaled = 0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    if p in optimizer2.state and "momentum" in optimizer2.state[p]:
+                        optimizer2.state[p]["momentum"].mul_(args.muon_momentum_scale_up_factor)
+                        n_scaled += 1
+            muon_mom_scale_up_fired_now = True
+            print0(f"[step {step}] muon_momentum_scale_up: x{args.muon_momentum_scale_up_factor} "
+                   f"on {n_scaled} buffers", console=True)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1189,6 +1209,11 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "muon_mom_scale_up/step": args.muon_momentum_scale_up_step,
+                "muon_mom_scale_up/factor": args.muon_momentum_scale_up_factor,
+                "muon_mom_scale_up/fired": int(args.muon_momentum_scale_up_step > 0
+                                               and step >= args.muon_momentum_scale_up_step),
+                "muon_mom_scale_up/fired_now": int(muon_mom_scale_up_fired_now),
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
