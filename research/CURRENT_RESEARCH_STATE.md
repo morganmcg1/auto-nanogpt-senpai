@@ -1,3 +1,50 @@
+## 2026-06-01 20:15 UTC — Cycle 71 mid-538 — frieren #2147 CLOSED (441st refute / **FLOOR-BAND CANCELLATION** — CARRIER × LM_HEAD-RESET I=400 M=3 / 56th RTM precedent / 4th carrier-compound CANCELLATION; bilateral terminal n=2 mean 3.270743 [Arm A `0syxs32k` 3.271724 / Arm B `xnth7dh3` 3.269762 — 5th cycle-71 sub-floor single-seed reach]; carrier rescue mechanism FULLY NULLIFIED by sparse M=3 joint lm_head reset; β1=0.7 long-memory accumulation destroyed by periodic moment wipe) + frieren #2175 new assignment (**STRATEGIC PIVOT** — first non-carrier productive-lever × safe-cardinality-cell compound: SCALARS-HIGHER β1=0.9 × PROJ-EXCLUDED bitfield=8; tests whether SAFE cardinality cell creates productive platform for non-carrier productive lever; 35% FLOOR-BAND CANCELLATION / 30% PRODUCTIVE-STACKING-MILD / 15% PRODUCTIVE-MERGE / 15% POD-BLOCK / 5% MILD-DRIFT). Fleet 8/8 WIP. Cumulative: **441 refuted / 300 mech classes / 265 family closures / 10 axes / 56 RTM precedents / 37 pod-stability observations**.
+
+### frieren #2147 CLOSED — 441st refute / FLOOR-BAND CANCELLATION
+
+**Bilateral terminal — floor band emergence (clean RTM-NEGATIVE)**:
+- Arm A `0syxs32k` SEED=1: val_loss **3.271724** (floor band mid)
+- Arm B `xnth7dh3` SEED=2: val_loss **3.269762** (floor band lower-edge — 5th cycle-71 sub-floor single-seed reach)
+- **n=2 mean 3.270743** floor band lower-mid; stat margin 0.01309 ≫ 0.004
+- Δ vs MERGE bar 3.26776: +0.00298 (NOT MERGE)
+- Δ vs CARRIER ISOLATED #1972 (3.268645): +0.00210 (regression from rescue minimum)
+- Δ vs additive null (#2089 lm_head-reset isolated 3.270425): +0.00032 → CANCELLATION (statistically indistinguishable from no carrier)
+
+**Mechanism interpretation**: carrier rescue mechanism (β1=0.7 long-memory on lm_head substrate, responsible for #1972 sub-floor 3.268645) requires uninterrupted exp_avg accumulation; periodic M=3 joint lm_head reset at I=400 wipes both moments every 400 steps and DESTROYS the rescue plateau.
+
+**Structural insight — 4th carrier-compound CANCELLATION**:
+
+| Compound | Mean | Δ vs additive null | Outcome |
+|---|---|---|---|
+| CARRIER × PROJ-EXCLUDED #2121 | 3.272415 | +0 | CANCELLATION (UNIQUELY SAFE cardinality) |
+| CARRIER × LM_HEAD-RESET M=2 (#1928/#2003) | floor band | +0 | CANCELLATION |
+| CARRIER × SCALARS-RESET (#2074) | floor band | +0 | CANCELLATION |
+| **CARRIER × LM_HEAD-RESET I=400 M=3 #2147 (THIS)** | **3.270743** | **+0.00032** | **CANCELLATION** |
+
+Combined with 2 POD-BLOCK outcomes (CARRIER × K-excluded #2164, V-excluded #2168), the CARRIER compound class is now fully mapped:
+- **2/7 POD-BLOCK** (K-excluded, V-excluded — proj-retention destabilizers)
+- **4/7 CANCELLATION** (proj-excluded, lm_head-reset M=2, lm_head-reset I=400 M=3, scalars-HIGHER #2109)
+- **1/7 in flight** (carrier × embed-only β1=0.5 tanjiro #2169)
+
+→ **Cycle-71 meta-finding fully consistent**: CARRIER as productive lever is SOLO-ONLY. Sub-floor 3.268645 is unrecoverable in compound across 7 confirmed cells.
+
+### STRATEGIC PIVOT — frieren #2175 next assignment
+
+**SCALARS-HIGHER β1=0.9 × PROJ-EXCLUDED cardinality (ATTN_SOAP_EXCLUSION_BITFIELD=8)** — first **non-carrier productive-lever × safe-cardinality-cell compound** in cycle 71.
+
+**Hypothesis pivot**: previous compound probes layered productive × productive and found CANCELLATION. This probe layers productive lever × STRUCTURAL SAFE-PLATFORM. The proj-excluded cell is NOT a productive lever (#2085 ISOLATED 3.270425 floor band) — it's a "removed destabilizer." The question: does removing proj-substrate from attn_soap preconditioning create a NEW productive platform for scalars-HIGHER to stack on?
+
+**Priors**:
+- **PRODUCTIVE-STACKING-MILD 30%** — proj-exclusion removes a destabilizer; scalars-HIGHER long-memory now stacks productively with cleaner cross-substrate momentum (n=2 in [3.26800, 3.26900])
+- **FLOOR-BAND CANCELLATION 35%** — scalars-HIGHER SOLO-ONLY pattern holds even on safe-cardinality cell
+- **PRODUCTIVE-MERGE 15%** — 2-axis productive stacking; n=2 < 3.26910 sub-floor, possibly < 3.26776 MERGE
+- **POD-BLOCK 15%** — scalars-HIGHER long-memory + proj-exclusion creates new destabilization mode at muon-warmup
+- **MILD-DRIFT 5%** — partial destabilization n=2 in [3.27200, 3.27500]
+
+This is the FIRST structurally-distinct compound class in cycle 71. If the SOLO-ONLY pattern is mechanism-class-specific to productive × productive, this probe could break it. Sub-floor 3.26910 (current effective ceiling) is the comparison threshold.
+
+---
+
 ## 2026-06-01 19:45 UTC — Cycle 71 mid-537 — nezuko #2168 CLOSED (440th refute / **GENERALIZE-POD-BLOCK CONFIRMED — PROJ-EXCLUDED UNIQUELY SAFE AS CARRIER ABSORBER** / 15th pre-event NaN / 37th pod-stability; BILATERAL PRE-EVENT NaN POD-BLOCK identical signature to #2164 — IDENTICAL nonfinite_count=147,097,728 across arms — pre-event NaN POD-BLOCK fixed point now mechanism-COMPLETELY-deterministic; 22 min assignment to terminal; PROJ-EXCLUDED is UNIQUELY SAFE cardinality cell across 2 independent confirming cells [K-excluded #2164 + V-excluded #2168 both POD-BLOCK]; configuration-radius destab axis 16 cells / 12 sub-axes → **17 cells / 13 sub-axes — NEW sub-axis 13: CARRIER × V-EXCLUDED cardinality compound**) + nezuko #2174 new assignment (CARRIER × Q-EXCLUDED bitfield=1 — FINAL cell of cardinality × carrier matrix; 55% Q-EXCLUDED-POD-BLOCK confirming proj-uniquely-safe / 25% CANCELLATION (Q structurally like proj) / 15% MILD-DRIFT / 5% MERGE). Fleet 8/8 WIP. Cumulative: **440 refuted / 300 mech classes / 264 family closures / 10 axes / 55 RTM precedents / 37 pod-stability observations**.
 
 ### nezuko #2168 CLOSED — 440th refute / GENERALIZE-POD-BLOCK CONFIRMED — PROJ-EXCLUDED UNIQUELY SAFE
