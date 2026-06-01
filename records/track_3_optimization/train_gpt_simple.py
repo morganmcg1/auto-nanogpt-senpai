@@ -464,6 +464,13 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Per-projection exclusion bitfield: bit 0=q, bit 1=k, bit 2=v, bit 3=proj.
+# Excluded projections skip attn-SOAP preconditioning entirely (plain Muon path).
+ATTN_SOAP_EXCLUSION_BITFIELD = int(os.environ.get("ATTN_SOAP_EXCLUSION_BITFIELD", "0"))
+ATTN_SOAP_EXCLUDED_KINDS = {
+    kind for bit, kind in enumerate(("q", "k", "v", "proj"))
+    if (ATTN_SOAP_EXCLUSION_BITFIELD >> bit) & 1
+}
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -635,23 +642,35 @@ class Muon(torch.optim.Optimizer):
             if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
         }
         # Attention weights (qkv + proj) receive trust-gated SOAP (public record #16 extension).
+        # ATTN_SOAP_EXCLUSION_BITFIELD removes selected projection kinds from the SOAP set;
+        # excluded kinds run plain Muon (no SOAP preconditioning, no trust gate).
+        def _attn_kind(name: str) -> str | None:
+            if name.endswith(".attn.q.weight"):
+                return "q"
+            if name.endswith(".attn.k.weight"):
+                return "k"
+            if name.endswith(".attn.v.weight"):
+                return "v"
+            if name.endswith(".attn.proj.weight"):
+                return "proj"
+            return None
+
         self.attn_soap_params = {
             p for n, p in named_params
-            if (n.endswith(".attn.q.weight") or n.endswith(".attn.k.weight")
-                or n.endswith(".attn.v.weight") or n.endswith(".attn.proj.weight"))
+            if (k := _attn_kind(n)) is not None and k not in ATTN_SOAP_EXCLUDED_KINDS
         }
         # Track which sub-type each attention-SOAP param is (q/k/v/proj) for per-type telemetry.
         self.attn_soap_kind: dict[int, str] = {}
+        # Also track excluded attention params so we can report on_fraction=0 for them.
+        self.attn_excluded_kind: dict[int, str] = {}
         for n, p in named_params:
+            kind = _attn_kind(n)
+            if kind is None:
+                continue
             if p in self.attn_soap_params:
-                if n.endswith(".attn.q.weight"):
-                    self.attn_soap_kind[id(p)] = "q"
-                elif n.endswith(".attn.k.weight"):
-                    self.attn_soap_kind[id(p)] = "k"
-                elif n.endswith(".attn.v.weight"):
-                    self.attn_soap_kind[id(p)] = "v"
-                elif n.endswith(".attn.proj.weight"):
-                    self.attn_soap_kind[id(p)] = "proj"
+                self.attn_soap_kind[id(p)] = kind
+            else:
+                self.attn_excluded_kind[id(p)] = kind
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -754,8 +773,18 @@ class Muon(torch.optim.Optimizer):
                 if on:
                     by_kind[kind]["on"] += 1
         counts = len(cos_rows)
+        # Count excluded params per kind so we can surface them with on_fraction=0.
+        excluded_counts: dict[str, int] = {}
+        for kind in self.attn_excluded_kind.values():
+            excluded_counts[kind] = excluded_counts.get(kind, 0) + 1
         if counts == 0:
-            return {}
+            out_empty: dict[str, float] = {}
+            for kind, ex_n in excluded_counts.items():
+                if ex_n > 0:
+                    out_empty[f"{kind}/count"] = ex_n
+                    out_empty[f"{kind}/on_fraction"] = 0.0
+                    out_empty[f"{kind}/excluded"] = 1
+            return out_empty
         out: dict[str, float] = {
             "count": counts,
             "on_fraction": on_count / counts,
@@ -769,11 +798,18 @@ class Muon(torch.optim.Optimizer):
             ccs = agg["cos_col"]
             kn = len(crs)
             if kn == 0:
+                # Kind is fully excluded by ATTN_SOAP_EXCLUSION_BITFIELD.
+                ex_n = excluded_counts.get(kind, 0)
+                if ex_n > 0:
+                    out[f"{kind}/count"] = ex_n
+                    out[f"{kind}/on_fraction"] = 0.0
+                    out[f"{kind}/excluded"] = 1
                 continue
             out[f"{kind}/count"] = kn
             out[f"{kind}/on_fraction"] = agg["on"] / kn
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+            out[f"{kind}/excluded"] = 0
         return out
 
 
@@ -807,6 +843,16 @@ print0(code)
 print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
+print0(
+    "attn_soap_dispatch:"
+    f" exclusion_bitfield={ATTN_SOAP_EXCLUSION_BITFIELD}"
+    f" excluded_kinds={','.join(sorted(ATTN_SOAP_EXCLUDED_KINDS)) or 'none'}"
+    f" excluded_q={int('q' in ATTN_SOAP_EXCLUDED_KINDS)}"
+    f" excluded_k={int('k' in ATTN_SOAP_EXCLUDED_KINDS)}"
+    f" excluded_v={int('v' in ATTN_SOAP_EXCLUDED_KINDS)}"
+    f" excluded_proj={int('proj' in ATTN_SOAP_EXCLUDED_KINDS)}",
+    console=True,
+)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -864,6 +910,12 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/attn_soap_exclusion_bitfield": ATTN_SOAP_EXCLUSION_BITFIELD,
+            "optimizer/attn_soap_excluded_kinds": ",".join(sorted(ATTN_SOAP_EXCLUDED_KINDS)) or "none",
+            "optimizer/attn_soap_excluded_q": int("q" in ATTN_SOAP_EXCLUDED_KINDS),
+            "optimizer/attn_soap_excluded_k": int("k" in ATTN_SOAP_EXCLUDED_KINDS),
+            "optimizer/attn_soap_excluded_v": int("v" in ATTN_SOAP_EXCLUDED_KINDS),
+            "optimizer/attn_soap_excluded_proj": int("proj" in ATTN_SOAP_EXCLUDED_KINDS),
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
