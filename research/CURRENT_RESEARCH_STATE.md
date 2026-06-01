@@ -9,6 +9,41 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 16:25Z (**askeladd #2130 stale_wip = false alarm; thorfinn #2126 A_ctrl terminal at canonical attractor; B★ launch nudged**)
+
+### Notes (2026-06-01 16:25Z) — Fleet check confirms steady progress + thorfinn A_ctrl complete
+
+- **PR #2130 askeladd stale_wip = false alarm.** W&B fleet check (16:15Z) shows `m2qgbnzs` (A_ctrl, embed_lr_scale=None) running step 2704/3250, val/loss=3.305. **Plus** a parallel KGsmoke `84y1fexd` (embed_lr_scale=5, embed_lr_resolved=0.275) at step 73/200 — student is using smart parallel-validation pattern (smoke probe while A_ctrl finishes). Both concurrent on 1 GPU; smoke is 200-step lightweight. Posted ack ([#2130 comment-4594481949](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/2130#issuecomment-4594481949)).
+- **PR #2126 thorfinn A_ctrl COMPLETE.** `oteszbcp` finished at step 3250: val/loss=3.2697, ema_val=3.2701, FFS_ema=2875, FFS_trainval=2925. **Canonical attractor exactly** — A_ctrl reproduces baseline; signal must come from B★ (plateau_frac=0.4). GPU idle ~10 min post A_ctrl. Posted nudge to launch B★ ([#2126 comment-4594483235](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/2126#issuecomment-4594483235)).
+
+### Fleet status snapshot (16:25Z) — 7/8 active, thorfinn between A_ctrl and B★
+
+| PR | Student | W&B Run | State | Step | Notes |
+|---|---|---|---|---|---|
+| #2042 | alphonse | `rblece7h` | running | 9488 | n=4 confirm rope_base=4096; trial 3 nearing end |
+| #2070 | **frieren** | `xdevn24r` | running | 8581 | **n=4 confirm mu+freq compound; trial 3 mid (2081/3250); ETA ~17:30Z** |
+| #2118 | edward | `iqpkbtis` | running | 1399 | logit cap-DOWN; A_ctrl mid |
+| #2126 | thorfinn | (between arms) | A_ctrl done | 3250 | **A_ctrl=canonical {2875,2925}; B★ pending launch** |
+| #2128 | tanjiro | `k6q6szky` | running | 3057 | cosine-μ-cooldown; A_ctrl near terminal (3250 close) |
+| #2130 | askeladd | `m2qgbnzs` + `84y1fexd` | running ×2 | 2704 + 73 | A_ctrl + parallel KGsmoke probe |
+| #2133 | fern | `0dzw5596` | running | 2383 | depth-graduated MLP LR; A_ctrl mid |
+| #2138 | nezuko | `b91wo9l4` | running | 1538 | SOAP adaptive eigenvalue floor; A_ctrl early |
+
+### A_ctrl terminal metric — first data point of this round (thorfinn #2126)
+
+| Run | Cell | val/loss | ema_val | FFS_ema | FFS_trainval | Verdict |
+|---|---|---|---|---|---|---|
+| `oteszbcp` | A_ctrl (cosine baseline) | 3.2697 | 3.2701 | 2875 | 2925 | Canonical attractor (expected) |
+
+### Heartbeat actions (16:14Z–16:25Z)
+
+1. Verified askeladd #2130 stale_wip = false alarm via W&B fleet check.
+2. Identified thorfinn #2126 A_ctrl terminal (canonical attractor); GPU idle 10+ min; posted B★ launch nudge.
+3. Posted ack on askeladd #2130 to clear stale_wip flag.
+4. Human issues (#2122, #1262): no new comments, no action needed.
+
+---
+
 ## Last updated: 2026-06-01 15:45Z (**8/8 RUNNING (W&B verified); tanjiro #2128 + thorfinn #2126 stale_wip = false alarms; fleet healthy**)
 
 ### Notes (2026-06-01 15:45Z) — W&B fleet sanity check confirms all 8 RUNNING
