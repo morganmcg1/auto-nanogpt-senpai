@@ -56,6 +56,23 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H367 LATE-ONLY μLoCo: temporally gate the outer Nesterov correction to the
+    # final --late_only_cooldown_frac of training, leaving warmup+steady-state
+    # without outer correction. Mechanism-coherent follow-up of H358 MID-TRAINING-
+    # REVERSAL finding (NO_OUTER better in steady-state, CTRL better in cooldown).
+    # Safe-default 0 preserves H266 bit-identity.
+    parser.add_argument("--late_only_outer_optimizer", type=int,
+                        default=int(os.environ.get("LATE_ONLY_OUTER_OPTIMIZER", "0")),
+                        help="When set to 1, μLoCo outer optimizer is disabled during warmup+steady-state "
+                             "and ENABLED only during the late cooldown window "
+                             "(steps >= train_steps * (1 - late_only_cooldown_frac)). "
+                             "Mechanism-coherent follow-up of H358 MID-TRAINING-REVERSAL finding. "
+                             "Safe-default 0 preserves H266 bit-id.")
+    parser.add_argument("--late_only_cooldown_frac", type=float,
+                        default=float(os.environ.get("LATE_ONLY_COOLDOWN_FRAC", "0.15")),
+                        help="Fraction of training (from the end) during which the outer optimizer is "
+                             "allowed to fire when --late_only_outer_optimizer=1. Default 0.15 = last "
+                             "15%% of training. For 3325-step training, cooldown_start_step≈2826.")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -783,8 +800,15 @@ print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 if args.use_outer_optimizer:
-    print0(f"MuLoCo outer optimizer ENABLED: outer_lr={args.outer_lr} "
-           f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
+    if args.late_only_outer_optimizer:
+        _late_only_start = int(args.train_steps * (1.0 - args.late_only_cooldown_frac))
+        print0(f"MuLoCo outer optimizer ENABLED (LATE-ONLY frac={args.late_only_cooldown_frac:.3f}, "
+               f"gate fires for steps>={_late_only_start} of {args.train_steps}): "
+               f"outer_lr={args.outer_lr} outer_momentum={args.outer_momentum} "
+               f"sync_interval={args.sync_interval}", console=True)
+    else:
+        print0(f"MuLoCo outer optimizer ENABLED: outer_lr={args.outer_lr} "
+               f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
@@ -844,6 +868,8 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "late_only_outer_optimizer": bool(args.late_only_outer_optimizer),
+            "late_only_cooldown_frac": args.late_only_cooldown_frac,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -1324,7 +1350,14 @@ for trial_idx in range(args.num_trials):
         # initial-Frobenius sphere; the next MuonH-SI inner step reads
         # ``param.norm()`` at that step and preserves the new norm. Acceptable
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
-        if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
+        # H367 LATE-ONLY gate: when args.late_only_outer_optimizer=1, suppress the
+        # outer step until train_step crosses the late cooldown threshold. Short-
+        # circuit eval keeps the safe-default 0 path bit-identical to H266.
+        late_only_skip = (
+            args.late_only_outer_optimizer
+            and train_step < int(train_steps * (1.0 - args.late_only_cooldown_frac))
+        )
+        if use_outer and not late_only_skip and train_step % args.sync_interval == 0 and train_step < train_steps:
             log_outer = (dist.get_rank() == 0)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
@@ -1360,7 +1393,8 @@ for trial_idx in range(args.num_trials):
     if dist.get_rank() == 0:
         print0(
             f"trial:{trial_idx} best_val_loss:{best_val_loss:.5f} best_val_step:{best_val_step}"
-            + f" first_step_to_target:{first_step_to_target}",
+            + f" first_step_to_target:{first_step_to_target}"
+            + f" outer_applied_steps:{outer_applied_steps}",
             console=True,
         )
         wandb.log({
@@ -1369,6 +1403,7 @@ for trial_idx in range(args.num_trials):
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
+            "speedrun/final_outer_applied_steps": outer_applied_steps,
         }, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
