@@ -1,3 +1,40 @@
+## 2026-06-01 13:55 UTC — Cycle 71 mid-520 — alphonse #2101 422nd refute 291st mech class 3-SUBSTRATE-PER-KIND-β1-SCALARS-0.9×EMBED-RESET-MOMENT-2-FRAGILE-COMPOUND-CANCELLATION-FLOOR-BAND-LOWER-MID (48th RTM precedent) + alphonse #2129 new assignment (reset substrate substitution mirror: 3-sub PKB1 scalars=0.9 × lm-head-reset M=2)
+
+### alphonse #2101 bilateral terminal — 291st mech class / FRAGILE-COMPOUND-CANCELLATION
+
+**Bilateral terminal** (+4 crashed Arm A retries before success + stray post-terminal run):
+- Arm A `9jqybjz5` SEED=1 val=**3.272654** ffs=3175 (4 prior crashes: 7tgbphfc/8l7xj2ik/wjodfhbu/whuzh3om; 2 crashed at step 200 = first-reset-event explosion)
+- Arm B `69cdjl79` SEED=2 val=**3.268871** ffs=3175 (BELOW floor band by 0.001129)
+- Stray retry `t3o2csjj` running post-terminal (val=10.83 at step 50 = anomalous divergent; ignored)
+
+n=2 mean **3.270763** (spread 0.003783 ELEVATED). Stat margin (3.28 − 3.270763)·√2 = **0.013065 ≫ 0.004 → RTM-NEGATIVE**. Δ vs baseline = +0.003003. NOT MERGE.
+
+**Compound cancellation table**:
+
+| Cell | μ | Δ vs baseline | reading |
+|---|---|---|---|
+| #2068 3-sub PKB1 scalars=0.9 ISOLATED | 3.26910 | +0.00134 | sub-floor productive |
+| #2008 2-sub PKB1 (scalars=0.8) × embed-reset M=2 | 3.27064 | +0.00288 | RTM-additive at floor |
+| **#2101 (just closed)** 3-sub PKB1 scalars=0.9 × embed-reset M=2 | **3.270763** | **+0.003003** | **fragile compound-cancellation at floor** |
+
+→ embed-reset MOMENT=2 mechanism CANCELLED ~125% of scalars-HIGHER productive benefit. Compound BIT-EQUIVALENT to #2008 (RTM-additive scalars=0.8 cell). **scalars-HIGHER lever adds NOTHING when stacked with embed-reset MOMENT=2.**
+
+**Structural insight 1 — scalars-HIGHER productive minimum is mechanism-isolated**: works ALONE at sub-floor; periodic embed momentum perturbation annuls its productive lift.
+
+**Structural insight 2 — first-reset-event fragility**: 4 Arm A crashes (2 at val≈4.4/step 200) + elevated spread 0.003783 signal FRAGILE compound at first reset event. scalars=0.9 + embed-reset M=2 combination is numerically unstable at muon-warmup boundary.
+
+### alphonse #2129 new assignment — reset substrate substitution mirror
+
+**3-sub PKB1 scalars=0.9 × lm-head-reset MOMENT=2** — direct mirror of #2101 with reset substrate embed → lm_head. Discriminator: is compound-cancellation driven by reset MECHANISM (any substrate) or by embed-substrate-specific destructive interaction with scalars-HIGHER?
+
+Priors: 30% MIRROR-CANCELLATION-AT-FLOOR / 25% MIRROR-PRODUCTIVE-SUB-FLOOR / 20% MILD-DRIFT-NEGATIVE / 10% MERGE-CANDIDATE / 10% MILD-DRIFT-POSITIVE / 5% POD-BLOCK.
+
+### Fleet state post-close
+
+g1r2-{alphonse #2129, askeladd #2121, edward #2113, fern #2123, frieren #2114, nezuko #2124, tanjiro #2109, thorfinn #2106} all WIP. Fleet 8/8 active 0 idle. Cumulative **422 refuted / 291 mech classes / 245 family closures / 10 structural axes / 48 RTM precedents / 27 pod-stability**.
+
+---
+
 ## 2026-06-01 13:30 UTC — Cycle 71 mid-519 — MONITOR WAKE-UP (no closures) + HUMAN DIRECTIVE: AURORA (#2122) Queued
 
 **Human researcher directive (#2122)** — Morgan asked us to consider Aurora optimizer (arXiv:2602.22962 / arXiv:2605.18106). Full research pass posted as comment 4593034563. Conclusions:
