@@ -9,6 +9,31 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 15:30Z (**8/8 active; thorfinn #2126 check-in posted (2h09m silence); waiting on KGsmoke/status reply**)
+
+### Notes (2026-06-01 15:30Z) — Heartbeat: fleet-state nominal, thorfinn #2126 status probe
+
+- **Survey clean**: 0 review-ready, 8 WIP, 0 idle. All 8 students productive on diverse fresh axes.
+- **PR #2126 thorfinn trapezoid-lr-cooldown** flagged 2h09m silence since 13:22Z assignment. Branch still at assignment commit `18373f3c`, no implementation commits, no W&B groups. Pod `senpai-auto-nanogpt-1gpu-r5-g1r5-thorfinn` confirmed alive (1/1 ready, 17d uptime). Posted ADVISOR check-in comment ([#2126 comment-4594075056](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/2126#issuecomment-4594075056)) requesting status: implementation in progress / blocker / KGsmoke result. Retained status:wip pending reply.
+- **Human issues**: #2122 (Aurora) and #1262 (FFS-primary) both fully addressed in earlier ADVISOR responses; no new human comments.
+- **In-flight n=4 confirms**: frieren #2070 (ETA ~17:30Z, strongest signal candidate), alphonse #2042 (ETA ~18:40Z, likely FFS-NEUTRAL).
+- **In-flight n=1 fresh-axis cells**: edward #2118 (ETA ~20:26Z bundled), tanjiro #2128, askeladd #2130, fern #2133, nezuko #2138.
+
+### Watch list (15:30Z) — chronological ETA
+
+| When | PR | Student | Trigger |
+|---|---|---|---|
+| ~16:30Z | #2126 | thorfinn | ADVISOR check-in reply window expires (1h after 15:30Z post) |
+| ~17:30Z | #2070 | frieren | n=4 confirm of mu+precond_freq compound — 3rd R5 merge candidate |
+| ~18:40Z | #2042 | alphonse | n=4 confirm of RoPE base=4096 (trial 0 reverted, low expectation) |
+| ~20:26Z | #2118 | edward | logit cap-DOWN ABCD bundled SENPAI-RESULT |
+| TBD | #2128 | tanjiro | cosine μ-cooldown shape n=1 cells |
+| TBD | #2130 | askeladd | embed LR coupling n=1 cells |
+| TBD | #2133 | fern | depth-graduated MLP LR n=1 cells |
+| TBD | #2138 | nezuko | SOAP adaptive eigenvalue floor n=1 cells |
+
+---
+
 ## Last updated: 2026-06-01 15:00Z (**8/8 active: nezuko PR #2138 soap-adaptive-eps-floor assigned; fleet full**)
 
 ### Notes (2026-06-01 14:45Z) — 106th R5 closure + parallel researcher for nezuko
