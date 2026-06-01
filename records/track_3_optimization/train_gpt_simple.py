@@ -83,6 +83,21 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    # AdEMAMix aux optimizer (H368): replaces AdamW on embed/lm_head/scalars with
+    # AdEMAMix (Pagliardini et al. 2024, arxiv 2409.03137). Adds a slow EMA (β₃)
+    # mixed via coefficient α into the numerator of the Adam update.
+    # 'adamw' = default baseline behavior (bit-identical).
+    parser.add_argument("--aux_optimizer", type=str, default=os.environ.get("AUX_OPTIMIZER", "adamw"),
+                        choices=["adamw", "ademamix"],
+                        help="Aux optimizer for embed/lm_head/scalars. "
+                             "'adamw' = baseline AdamW (default). "
+                             "'ademamix' = AdEMAMix with slow EMA β₃ and mixing coefficient α.")
+    parser.add_argument("--ademamix_beta3", type=float, default=float(os.environ.get("ADEMAMIX_BETA3", "0.9999")),
+                        help="Slow EMA coefficient β₃ for AdEMAMix aux optimizer. "
+                             "Only used when --aux_optimizer=ademamix. Default 0.9999.")
+    parser.add_argument("--ademamix_alpha", type=float, default=float(os.environ.get("ADEMAMIX_ALPHA", "8.0")),
+                        help="Slow EMA mixing coefficient α for AdEMAMix aux optimizer. "
+                             "Only used when --aux_optimizer=ademamix. Default 8.0.")
     # Inner MuonH µ schedule (H109). Static µ=0.95 baseline preserved when schedule=off.
     # 'linear' ramps µ across all train_steps. 'cooldown_ramp' stays at mu_start until
     # cooldown starts (using h_cooldown_frac), then ramps linearly across the cooldown.
@@ -752,6 +767,74 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class AdEMAMix(torch.optim.Optimizer):
+    """AdEMAMix optimizer (Pagliardini et al. 2024, arxiv 2409.03137).
+
+    Extends Adam with a slow EMA (β₃) of gradients mixed into the numerator
+    via coefficient α. This allows gradients from many thousands of past steps
+    to continue influencing the current update without increasing memory cost.
+
+    Algorithm 1 (canonical):
+        m_fast(t) = β₁·m_fast(t-1) + (1-β₁)·g(t)    [bias-corrected]
+        m_slow(t) = β₃·m_slow(t-1) + (1-β₃)·g(t)     [NOT bias-corrected]
+        v(t)      = β₂·v(t-1)      + (1-β₂)·g(t)²     [bias-corrected]
+        θ(t) = θ(t-1) - η·(m̂_fast + α·m_slow)/(√v̂+ε) - λ·θ(t-1)
+
+    Note: m_slow uses no bias correction (intentional per Algorithm 1).
+    Weight decay is decoupled (AdamW-style).
+    """
+
+    def __init__(self, params, lr=3e-4, betas=(0.9, 0.999), beta3=0.9999, alpha=8.0,
+                 eps=1e-8, weight_decay=0.0):
+        defaults = dict(lr=lr, beta1=betas[0], beta2=betas[1], beta3=beta3, alpha=alpha,
+                        eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m_fast"] = torch.zeros_like(p)
+                    state["m_slow"] = torch.zeros_like(p)
+                    state["v"] = torch.zeros_like(p)
+                state["step"] += 1
+                m_fast, m_slow, v = state["m_fast"], state["m_slow"], state["v"]
+                beta1 = group["beta1"]
+                beta2 = group["beta2"]
+                beta3 = group["beta3"]
+                alpha = group["alpha"]
+                lr = group["lr"]
+                eps = group["eps"]
+                wd = group["weight_decay"]
+                g = p.grad
+                # fast EMA (bias-corrected in denominator)
+                m_fast.mul_(beta1).add_(g, alpha=1 - beta1)
+                # slow EMA (no bias correction — matches Algorithm 1)
+                m_slow.mul_(beta3).add_(g, alpha=1 - beta3)
+                # second moment (bias-corrected)
+                v.mul_(beta2).addcmul_(g, g, value=1 - beta2)
+                bc1 = 1 - beta1 ** state["step"]
+                bc2 = 1 - beta2 ** state["step"]
+                m_fast_hat = m_fast / bc1
+                v_hat = v / bc2
+                # combined numerator: fast EMA + α * slow EMA (no bias correction on slow)
+                update = (m_fast_hat + alpha * m_slow) / (v_hat.sqrt() + eps)
+                # decoupled weight decay (AdamW-style)
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                p.add_(update, alpha=-lr)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -856,6 +939,9 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "aux_optimizer": args.aux_optimizer,
+            "ademamix_beta3": args.ademamix_beta3,
+            "ademamix_alpha": args.ademamix_alpha,
         },
     )
 
@@ -931,11 +1017,25 @@ for trial_idx in range(args.num_trials):
     # fused AdamW reads betas from param_groups on every .step(), but to avoid any
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
-    _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    # AdEMAMix (H368): conditional aux optimizer swap. AdEMAMix does not support
+    # fused=True, so fused is always False when aux_optimizer=ademamix.
+    _aux_fused = (args.aux_beta2_schedule == "constant") and (args.aux_optimizer == "adamw")
+    _aux_param_groups = [
+        dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars"),
+    ]
+    if args.aux_optimizer == "ademamix":
+        optimizer1 = AdEMAMix(_aux_param_groups,
+                              betas=(0.8, args.aux_beta2_start),
+                              beta3=args.ademamix_beta3,
+                              alpha=args.ademamix_alpha,
+                              eps=args.aux_adamw_eps,
+                              weight_decay=0)
+    else:
+        optimizer1 = AdamW(_aux_param_groups,
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps,
+                           weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1009,7 +1109,10 @@ for trial_idx in range(args.num_trials):
         else:
             b2 = args.aux_beta2_start
         for g in optimizer1.param_groups:
-            g["betas"] = (g["betas"][0], b2)
+            if args.aux_optimizer == "ademamix":
+                g["beta2"] = b2
+            else:
+                g["betas"] = (g["betas"][0], b2)
         # MuonH µ schedule (H109): 'off' is a no-op — mu stays at the MuonH
         # default 0.95 and we skip the param_group write so arm_a is bit-identical
         # to baseline. 'linear' ramps mu_start → mu_end across all train_steps.
@@ -1258,6 +1361,22 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            # H368: AdEMAMix slow EMA norm telemetry — logs average L2 norm of
+            # m_slow state across all AUX optimizer param groups. Mechanism
+            # observable: verifies slow EMA is accumulating gradient history
+            # monotonically (expected to grow from 0 at step 0 toward a
+            # stable value). Only logged when aux_optimizer=ademamix.
+            if telemetry_due and args.aux_optimizer == "ademamix":
+                m_slow_sq_sum = 0.0
+                m_slow_count = 0
+                for group in optimizer1.param_groups:
+                    for p in group["params"]:
+                        state = optimizer1.state.get(p)
+                        if state is not None and "m_slow" in state:
+                            m_slow_sq_sum += state["m_slow"].float().square().sum().item()
+                            m_slow_count += state["m_slow"].numel()
+                if m_slow_count > 0:
+                    muonh_metrics["aux/ademamix/m_slow_rms"] = (m_slow_sq_sum / m_slow_count) ** 0.5
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
