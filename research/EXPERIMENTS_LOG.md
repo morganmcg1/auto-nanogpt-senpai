@@ -1,5 +1,35 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-01 14:15Z — PR #2084 CLOSED FFS-NEUTRAL [asymmetric-mu-cooldown; (mu_attn, mu_mlp) ±0.05 around 0.80 shared; 3-cell sweep all hit FFS_ema=2875; B★ and C show IDENTICAL FFS_trainval=2875 departure despite opposite asymmetry direction → not directional] [105th R5 closure]
+
+- branch: g1r5-fern/asymmetric-mu-cooldown
+- hypothesis: Test whether attention and MLP param groups want DIFFERENT mu_cooldown_target values (attn-conservative + MLP-aggressive vs the symmetric merged 0.80/0.80). Attn projections may benefit from MORE conservative momentum reduction (longer effective EMA window → stable long-range patterns), MLP from MORE aggressive (shorter window → faster local feature convergence).
+- 3-cell n=1 evidence:
+
+| Cell | (mu_attn, mu_mlp) | FFS_ema | FFS_trainval | ema_val | Δ ema vs baseline | W&B |
+|---|---|---:|---:|---:|---:|---|
+| A_ctrl | (0.80, 0.80) | 2875 | 2925 | 3.27126 | +0.00119 | vv1havmb |
+| B★ | (0.85, 0.75) | **2875** | **2875** | 3.26886 | **−0.00121** | v11fridj |
+| C | (0.75, 0.85) | **2875** | **2875** | 3.26912 | **−0.00095** | 3s7fiqpe |
+
+Probe trajectory (val_loss / ema_val_loss): A_ctrl, B, C are colinear to within ~0.001 at every probe step from 1000→3250. mu probes confirm correct implementation (mu_mlp→0.75, mu_attn→0.85 for B; opposite for C; both at 0.95 before step 975 — divergence-after-warmup confirmed).
+
+- commentary: **NULL across the 3-cell asymmetry sweep.** Both opposite-direction asymmetric cells (B and C) show the IDENTICAL FFS_trainval departure (−50 OFF canonical 2925, both at 2875). If asymmetry were a real directional mechanism, B and C should differ — they don't. The simpler explanation: A_ctrl drew +0.00119 ABOVE baseline μ_4 noise; B/C drew slightly BELOW. Symmetric n=1 noise around the FFS_ema=2875 plateau, NOT directional signal. **Cross-fleet intel:** the merged 0.80/0.80 symmetric mu_cooldown_target is on a FLAT plateau within ±0.05 differential. The mu_cooldown axis appears to be SCALAR-optimum, not multi-dimensional. Future μ-cooldown experiments should focus on SHAPE (tanjiro #2128 cosine) or shared MAGNITUDE (frieren #2070 compound), NOT differential. Recommends NOT pursuing larger asymmetries (±0.10/±0.15) given the flat plateau evidence. Asymmetric μ axis closed at this magnitude. Fern moved to fresh hypothesis dispatch.
+
+## 2026-06-01 14:00Z — PR #2077 CLOSED FFS-NEUTRAL [z-loss-aux-regularizer; aux loss λ·(logsumexp(logits))² at λ∈{1e-4, 1e-3}; B★(λ=1e-4) 8-step monotone-better ema Δ−0.002 but FAILED val_loss monotone gate at step 1000 (+0.00244 worse); C(λ=1e-3) FFS=−1 over-regularization confirmed] [104th R5 closure]
+
+- branch: g1r5-askeladd/z-loss
+- hypothesis: Add aux z-loss regularizer (Mistral-style) λ·(logsumexp(logits))² to penalize logit magnitude growth. Test whether logit-norm regularization improves cooldown crossing at the R5 stack.
+- cell results (n=1 screen):
+
+| Cell | λ_z | FFS_ema | ema_val | Δ vs A_ctrl | W&B | Status |
+|---|---:|---:|---:|---:|---|---|
+| A_ctrl | 0 | 2875 | 3.27045 | — | (baseline) | canonical |
+| B★ | 1e-4 | **2875** (8-step monotone-better ema) | 3.27001 | **−0.00044** ema, **+0.00244** val | (ref) | NEUTRAL — failed val monotone gate at step 1000 |
+| C | 1e-3 | **−1** (no cross) | DNF | — | (ref) | NEG — over-regularization |
+
+- commentary: First **loss-side mechanism** tested in R5. **Mechanism analysis (student-provided, 3 reasons):** (1) bf16 logits are already well-behaved at R5 (logit norms stay bounded under the cooldown stack); (2) cooldown stack absorbs logit damping (the mu_cooldown ramp + cosine LR shape already control late-training dynamics); (3) loss-side regularization collides with the optimizer-state-tuned stack (Muon + SOAP + AdamW with depth-musoft init already produce calibrated outputs). B★'s ema improvement was non-monotone (val_loss worsened at step 1000 by +0.00244 while ema improved by −0.00044 at terminal) → fails monotone-better gate. C's full divergence (FFS=−1) confirms the λ axis has a sharp ceiling between 1e-4 and 1e-3. **Cross-fleet intel:** loss-side mechanisms are LOW PRIORITY at R5 — cooldown stack absorbs logit damping. Future askeladd assignments should move to Muon-NS5 axis, init variants, or pre-NS5 gradient transformations (NS5-bypass mechanisms). Askeladd queued for fresh hypothesis dispatch.
+
 ## 2026-06-01 13:35Z — PR #2014 CLOSED FFS-NEUTRAL [ns-iter-cooldown-ramp; NS5 polish 6→9 cooldown ramp; n=4 μ_4=2918.75 vs gate 2862.5; n=1→n=4 textbook reversion; polish-increase axis real but too small to survive seed variance] [103rd R5 closure]
 
 - branch: g1r5-tanjiro/ns-iter-cooldown-ramp

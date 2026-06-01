@@ -9,6 +9,50 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 14:15Z (**TWO closures: 104th askeladd z-loss FFS-NEUTRAL + 105th fern asymmetric-mu-cooldown FFS-NEUTRAL; 6/8 active, 2 idle (askeladd + fern); BOTH researchers dispatched in parallel**)
+
+### Notes (2026-06-01 14:15Z) — Double closure, parallel hypothesis dispatch
+
+- **PR #2077 askeladd CLOSED FFS-NEUTRAL [104th R5 closure]**: z-loss aux regularizer λ·(logsumexp(logits))². B★(λ=1e-4) showed 8-step monotone ema Δ −0.002 but FAILED val_loss monotone gate at step 1000 (+0.00244 worse). Cell C(λ=1e-3) FFS=−1 confirms over-regularization ceiling between 1e-4 and 1e-3. **First loss-side mechanism tested at R5; informative cross-fleet intel**: cooldown stack absorbs logit damping. (1) bf16 logits well-behaved; (2) cooldown stack already controls late-training dynamics; (3) loss-side collides with optimizer-state-tuned stack. Loss-side family now LOW PRIORITY at R5. Future askeladd → Muon NS5 / init / pre-NS5 transformations.
+- **PR #2084 fern CLOSED FFS-NEUTRAL [105th R5 closure]**: asymmetric mu_cooldown_target (attn vs MLP differential). 3-cell sweep (A_ctrl=(0.80, 0.80), B★=(0.85, 0.75), C=(0.75, 0.85)) **ALL THREE hit FFS_ema=2875**. B and C show IDENTICAL FFS_trainval=2875 departure despite OPPOSITE asymmetry directions → not a directional mechanism. **Key cross-fleet intel**: merged 0.80/0.80 mu_cooldown_target is on a FLAT PLATEAU within ±0.05 differential. Mu axis is SCALAR-optimum, not multi-dimensional. Future μ-cooldown experiments should focus on SHAPE (tanjiro #2128 cosine) or shared MAGNITUDE (frieren #2070 compound), NOT differential.
+- **Two researcher-agents dispatched in PARALLEL**:
+  1. **askeladd brief (a694dcfb67924b5bf, still running)**: bias toward Muon NS5 outer polynomial form, per-layer/per-head ns_iter, init variants, cross-optimizer LR coupling, pre-NS5 gradient transformations. AVOID loss-side / mu-cooldown.
+  2. **fern brief (a802449db6447b5b5, just launched 14:15Z)**: bias toward attention sink tokens, embedding/unembedding mechanisms, cross-optimizer LR coupling, pre-NS5 spectral transformations, schedule shape beyond cosine. AVOID mu-cooldown (just closed), loss-side, WD.
+
+### Fleet status snapshot (14:15Z) — 6/8 active, 2 idle awaiting hypothesis
+
+| PR | Student | Mechanism | Status |
+|---|---|---|---|
+| — | **askeladd** | — | **IDLE awaiting researcher** |
+| — | **fern** | — | **IDLE awaiting researcher** |
+| #2042 | alphonse | RoPE base=4096 n=4 | Trial 0 reverted 2925, trials 1+ in flight (ETA ~18:40Z) |
+| #2070 | frieren | mu+precond_freq compound n=4 | In flight, ETA ~17:30Z |
+| #2079 | nezuko | warmup mu ramp | B★ attractor lock; Cell C in flight |
+| #2118 | edward | logit cap-DOWN sweep | WIP (load-bearing regularization tighter direction) |
+| #2126 | thorfinn | trapezoid LR shape | WIP (KGsmoke + A_ctrl in progress) |
+| #2128 | tanjiro | cosine μ-cooldown shape | WIP (assigned 13:35Z) |
+
+### Signal candidate quality ranking (14:15Z) — n=4 confirms loom
+
+1. **frieren #2070 mu+precond_freq compound n=4** (ETA 17:30Z): dual-metric n=1 signal (FFS_trainval −50 OFF canonical + monotone Δema −0.0018). Best chance at 3rd R5 merge.
+2. **alphonse #2042 RoPE base=4096 n=4** (ETA 18:40Z): trial 0 reverted to 2925 (canonical), unlikely to recover gate even at 3-of-3 best case.
+3. **edward #2118 logit cap-DOWN**: cap-value DOWN sweep ({10, 12.5, 15, 17.5}) tests load-bearing regularization in tighter direction.
+4. **thorfinn #2126 trapezoid LR shape**: first LR-shape axis on active fleet (η=1.0 plateau then cosine-drop).
+5. **tanjiro #2128 cosine μ-cooldown shape**: symmetric to thorfinn on μ side.
+6. **nezuko #2079**: B★ attractor lock; Cell C exploring direction.
+7. **askeladd (idle)**: awaiting researcher output for fresh axis assignment.
+8. **fern (idle)**: awaiting researcher output for fresh axis assignment.
+
+### Cross-fleet learnings from R5 closures (now 105)
+
+- Mu cooldown axis: SCALAR-optimum at 0.80 (asymmetric ±0.05 hits flat plateau; #2084)
+- Loss-side mechanisms: LOW PRIORITY — cooldown stack absorbs logit damping (#2077, #2080, #1870)
+- AdamW WD ramp: parameter-group-specific (Muon WD mechanism does NOT transfer to scalars/embed; #2083)
+- NS5 absorption: 2D init perturbations, per-block depth-LR, pre-NS5 gradient modifiers all absorbed at gradient scale
+- 2875 floor: appears to be genuine geometric bottleneck across multiple mechanism classes; need orthogonal compound to break
+
+---
+
 ## Last updated: 2026-06-01 13:35Z (**103rd R5 closure — tanjiro NS5 cooldown FFS-NEUTRAL n=4; Aurora nudge issue #2122 addressed; 8/8 active; tanjiro assigned #2128 cosine-mu-cooldown-shape**)
 
 ### Notes (2026-06-01 13:35Z) — tanjiro n=4 closed, Aurora addressed, fresh assignments
