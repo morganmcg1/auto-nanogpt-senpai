@@ -9,6 +9,41 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 10:15Z (**100 R5 closures + 2 R5 merges; alphonse #2042 SIGNAL-CANDIDATE escalated to n=4; 8/8 active**)
+
+### Notes (2026-06-01 10:15Z) — alphonse #2042 RoPE base 4096 SIGNAL — escalated to n=4 confirm
+
+- **PR #2042 alphonse SIGNAL-CANDIDATE (rope-base-freq-probe)** — sent back for rebase + n=4 confirm:
+  - Cell results: A(1024)=2925, B(64)=3000, C(**4096**)=**2875**, D(10000)=2925
+  - C(4096): **FFS_ema=2875 (canonical attractor), FFS_trainval=2925, val_loss=3.26820** (−0.00187 vs μ_4=3.27007)
+  - **Monotone-better val_loss vs A_ctrl at all 5 probe steps** (Δ −0.0012 to −0.0027)
+  - **Clean inverted-U dose-response**: B(64) +0.004 worse than A, D(10000) +0.001 worse than A → axis matters
+  - Per [[r5_n1_to_n4_reversion_dual_metric_attractor]]: ALWAYS escalate to n=4 on canonical {2875, 2925} attractor — do NOT close OR promote on 1 seed
+  - Discriminator: clean dose-response + monotone trajectory justifies GPU time despite attractor coincidence
+  - Action: rebase against advisor branch (post 2 merges); launch n=4 confirm at rope_base=4096
+  - **Gate at n=4**: μ_4(FFS_ema) ≤ 2862.5 → 3rd R5 MERGE candidate; μ_4=2875 → FFS-NEUTRAL mechanism finding
+
+- **Active in-flight at 10:15Z**:
+  | PR | Mechanism | Status |
+  |---|---|---|
+  | #2014 tanjiro | NS5 ns_iter=9 cooldown n=4 | trial 2+ active (FFS=2950 partial signal — possible n=4 reversion) |
+  | #2042 alphonse | RoPE base=4096 n=4 confirm | SIGNAL-CANDIDATE — sent back for rebase + n=4 |
+  | #2070 frieren | compound mu+precond_freq | A_ctrl=2875 (baseline match); B★ at step 2463 ETA ~10:45Z |
+  | #2077 askeladd | z-loss-regularization | A_ctrl=2925; B(λ=1e-4) at step 533 |
+  | #2079 nezuko | warmup mu ramp | A_ctrl=2875; B★(mu=0.70) just launched |
+  | #2080 edward | logit softcap value sweep | A_ctrl(cap=15)=2875 near-terminal; B(cap=30) queued |
+  | #2083 thorfinn | adamw-wd-schedule | A_ctrl phase (KGsmoke + initial cells) |
+  | #2084 fern | asymmetric-mu-cooldown | A_ctrl=2875 near-terminal |
+
+- **Research portfolio (10:15Z):** 100 R5 closures, 2 merges, 1 signal candidate (alphonse rope_base=4096)
+  - **★ Strongest current signal**: alphonse #2042 escalating to n=4 (RoPE architectural variant, val_loss improvement clear)
+  - **2nd strongest signal**: frieren #2070 compound test (B★ pending; will reveal if stacking 2 mechanisms beats baseline)
+  - **Tanjiro #2014 n=4** at risk of reversion (FFS=2950 partial; n=1 was 2875)
+  - **5 baseline cells** confirm FFS_ema=2875 stability across the fleet
+  - **Next gate**: μ_4(FFS_ema) ≤ 2862.5 = 2875 − 12.5
+
+---
+
 ## Last updated: 2026-06-01 07:20Z (**101 R5 closures total; 2nd R5 MERGE; 2 new closures + 2 new assignments this heartbeat; 8/8 active**)
 
 ### Notes (2026-06-01 07:20Z) — 100th R5 closure; fern cleanup merge (#2 R5 merge); 2 fresh assignments; edward pivoted
