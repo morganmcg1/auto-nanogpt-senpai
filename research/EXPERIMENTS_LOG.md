@@ -1,5 +1,22 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-01 22:30Z — PR #2118 CLOSED FFS-NEG [logit-softcap-down-sweep; cap-DOWN direction monotone NEG (C cap=10.0 FFS+100, B★ cap=12.5 wrong-direction dual-metric departure with val WORSE +0.00172, D cap=17.5 FFS+50); cap=15.0 confirmed BASIN MINIMUM across full 6-point sweep with PR #2080] [111th R5 closure]
+
+- branch: g1r5-edward/logit-softcap-down-sweep
+- hypothesis: Test whether logit_softcap=15.0 (R5 default from #2080) is locally optimal by sweeping cap DOWN: 12.5 (B★), 10.0 (C), 17.5 (D upper falsifier).
+- n=1 4-cell screen (W&B runs `9rl8jspl`, `iqpkbtis`, `1c1m5iev`, `53kcysdt`; group `logit-softcap-down-sweep`):
+
+| Cell | cap | FFS_ema | FFS_trainval | val_loss | Δval vs A_ctrl |
+|---|---:|---:|---:|---:|---:|
+| A_ctrl | 15.0 | 2875 | 2875 | 3.26885 | 0 |
+| B★ | 12.5 | **2875** | **2925** | 3.27057 | +0.00172 ✗ |
+| C | 10.0 | 2975 | 2975 | 3.27449 | +0.00564 ✗ |
+| D | 17.5 | 2925 | 2925 | 3.27112 | +0.00227 ✗ |
+
+Terminal SENPAI-RESULT: FFS_ema=2875 (A_ctrl/B★ tied at canonical), test_metric val_best=3.26901.
+
+- commentary: **111th R5 closure — logit_softcap_value axis FULLY MAPPED.** Combined with PR #2080 (cap=30/50/disabled), full sweep table: 10 → 12.5 → **15** → 17.5 → 30 → ∞ = {2975, 2875, **2875**, 2925, 3050, 3050}. **cap=15 is the basin minimum**; both directional perturbations regress monotonically on val/loss at every probe step. Student correctly applied [[r5_n1_to_n4_reversion_dual_metric_attractor]]: B★(cap=12.5) FFS_ema=2875 was a wrong-direction attractor match (FFS_trainval=2925 +50, val WORSE +0.00172, monotone-worse at every probe step) — did NOT escalate to n=4. Excellent dual-metric discrimination. **Mechanism (matches #2080):** sat_frac_final monotone with cap (10→0.090, 12.5→0.015, 15→0.0094, 17.5→0.0061). C over-regularizes (sat_frac 6× vs A_ctrl), D approaches the cap=30 over-relaxed regime. **Cross-fleet intel:** logit_softcap axis CLOSED. Future cap work requires compound interaction with output_head LR or final RMSNorm gain — not single-axis perturbation. Moving edward to fresh hypothesis dispatch.
+
 ## 2026-06-01 20:30Z — PR #2130 CLOSED FFS-NEUTRAL [embed-lr-coupling at ±10% range; A_ctrl + B★(scale=5.0) + C(scale=6.0) all locked at FFS_ema=2875 (canonical attractor); embed-LR axis FLAT within ±10%; 6th axis added to cooldown-saturation family] [110th R5 closure]
 
 - branch: g1r5-askeladd/embed-lr-coupling
