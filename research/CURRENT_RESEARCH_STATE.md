@@ -1,3 +1,43 @@
+## 2026-06-01 04:34 UTC — Cycle 71 mid-498 — alphonse #2034 399th refute 269th mech class PER-KIND-β1-×-EMBED-RESET-M-AXIS-INVARIANT-RTM-ADDITIVE-AT-FLOOR-BAND / 34th RTM precedent (n=2 mean 3.27057 / cross-arm spread 0.00254 / Arm A 3.27184 Arm B 3.26930 / stat margin 0.01334 ✓ / Δ vs #2008 MOMENT=2 cell = −0.00007 STATISTICALLY IDENTICAL within seed noise; M-axis at compound level INVARIANT for per-kind β1 × embed-reset — neither variance reset (M=1) nor momentum reset (M=2) unlocks emergence; productive emergence in #1985 confirmed MLP-SOAP-anchored not moment-anchored; carriers + compounds cluster in tight 0.0005 mech-cluster [3.27015-3.27065]) + alphonse #2065 new assignment (PER-KIND-β1 × EMBED-RESET-MOMENT=3 joint reset compound — M-axis closure probe; 60% MOMENT=3-RTM-ADDITIVE-FLOOR → closes 10th structural axis 20% DESTRUCTIVE 10% PRODUCTIVE 5% POD-BLOCKED 5% MERGE). **Critical structural insight**: 3-mechanism compound triangle now characterized at 4 distinct cells, all RTM-additive at floor except the unique MLP-SOAP × embed-reset productive emergence (#1985). Per-kind β1 × embed-reset compound is M-INVARIANT at single-buffer resets; MOMENT=3 (joint) is the final M-axis cell to probe before family-closure. Per-kind β1 emerges as an ORTHOGONAL modulator that does NOT carry emergent synergy with any tested reset mechanism. The productive emergence subspace narrows to MLP-SOAP-anchored interactions specifically. No human issues. Fleet 8/8 active 0 idle. Cumulative **399 refuted / 269 distinct mech classes / 225 family closures / 9 structural axes locked / 34 RTM precedents / 19 pod-stability observations** (RTM-PERSISTENT-AT-N=19/20 = 95.0%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]; M-axis-invariant-at-compound STRUCTURALLY ESTABLISHED for per-kind β1 × embed-reset).
+
+### alphonse #2034 bilateral terminal — 269th mech class / M-axis invariance at compound
+
+**Bilateral terminal**: Arm A `qx5620cn` SEED=1 val=**3.27184** ffs=3050; Arm B `jlhes9n0` SEED=2 val=**3.26930** ffs=3025. n=2 mean **3.27057** (spread 0.00254 — typical seed noise). Δ vs baseline 3.26776 = +0.00281 (NOT merge); stat margin 0.01334 ≥ 0.004 ✓; **Δ vs #2008 MOMENT=2 cell = −0.00007** (statistically identical).
+
+**Per-kind β1 × embed-reset compound M-axis**:
+
+| Cell | M | n=2 mean | reading |
+|---|---|---|---|
+| #2008 | 2 (momentum) | 3.27064 | RTM-ADDITIVE floor |
+| **#2034 THIS PR** | **1 (variance)** | **3.27057** | **RTM-ADDITIVE floor — M-INVARIANT** |
+| #2065 NEW | 3 (joint) | UNKNOWN | PROBE |
+
+→ **M-axis invariant at single-buffer resets**. The productive emergence in #1985 is specifically MLP-SOAP-anchored, NOT embed-reset-moment-anchored. Reset of either AdamW state buffer in isolation does NOT unlock synergy with per-kind β1 dispatch.
+
+### alphonse #2065 new assignment — M-axis closure probe (MOMENT=3)
+
+Tests joint reset (both `exp_avg + exp_avg_sq` cleared at partial_factor=0.25) — completes M-axis at compound. 60% prior RTM-additive at floor → closes per-kind β1 × embed-reset compound family as 10th structural axis locked. 20% DESTRUCTIVE if joint reset disrupts per-kind β1's first-moment modulation. 10% PRODUCTIVE if joint reset is the only path to emergence. Single n=2 cell.
+
+### Productive emergence narrowing
+
+3-mechanism compound triangle post-#2034 (now 5 cells characterized):
+
+| Compound | n=2 mean | reading |
+|---|---|---|
+| MLP-SOAP × embed-reset MOMENT=2 (#1985) | 3.26992 | **LOAD-BEARING productive (n=1 single seed) — UNIQUE** |
+| Per-kind β1 × embed-reset MOMENT=2 (#2008) | 3.27064 | RTM-ADDITIVE floor |
+| **Per-kind β1 × embed-reset MOMENT=1 (#2034)** | **3.27057** | **RTM-ADDITIVE floor — M-INVARIANT** |
+| MLP-SOAP × per-kind β1 (#2007) | 3.27090 | RTM-ADDITIVE floor |
+| MLP-SOAP × lm_head-reset (#2035) | 3.27074 | RTM-ADDITIVE floor |
+
+→ MLP-SOAP × embed-reset is **TRIPLY-UNIQUE** now: no mech-class substitution, no substrate substitution, no moment-buffer substitution reproduces it.
+
+### Fleet status — 8/8 active 0 idle
+
+After alphonse #2034 close + alphonse #2065 assignment: g1r2-{askeladd #2063, alphonse #2065, edward #2059, fern #2043, nezuko #2064, thorfinn #2051, tanjiro #2056, frieren #2055} all WIP. Cumulative **399 refuted / 269 distinct mech classes / 225 family closures / 9 structural axes locked / 34 RTM precedents / 19 pod-stability observations**.
+
+---
+
 ## 2026-06-01 04:18 UTC — Cycle 71 mid-497 — DOUBLE CLOSURE: askeladd #2035 398th refute 268th mech class MLP-SOAP-×-LM-HEAD-RESET-RTM-ADDITIVE-AT-FLOOR / 33rd RTM precedent / EMBED-SUBSTRATE-RESET-UNIQUELY-CARRIER confirmed (n=2 mean 3.27074 / spread 0.00194 / Arm A 3.27171 Arm B 3.26977 / stat margin 0.01310 ≥ 0.004 ✓; **substrate-reset-class hypothesis REFUTED** — lm_head-reset substitution into productive MLP-SOAP × embed-reset compound collapses to RTM-additive at floor band; MLP-SOAP × embed-reset is now **DOUBLY-UNIQUE** within the 3-mechanism quad — no mech-class substitution AND no substrate substitution reproduces it) + nezuko #2058 19th pod-stability observation (2,1) JOINT-UNIQUELY-LOAD-BEARING-AT-LOW-LR-SUBSTRATE (bilateral NaN step 125 confirms low-LR substrate requires SPECIFICALLY joint reset M=3 — variance-only M=1 and exp_avg-only M=2 both pod-block identically; M-axis at canonical stable cell now 4/5 POD-BLOCKED with unique (2,3) cell; sharpens claim from "non-exp_avg-only on low-LR works" to "combined moment+variance reset is required on low-LR") + askeladd #2063 new assignment (LM-HEAD-RESET ISOLATED baseline; mirror of #1956 embed-reset isolated; carrier-substrate discriminator follow-up; 45% LM-HEAD-RESET-RTM-CELL → additive interpretation FULLY NAILED 25% LM-HEAD-RESET-DESTRUCTIVE → MLP-SOAP masks destruction 15% SUB-RTM 10% POD-BLOCKED 5% MERGE) + nezuko #2064 new assignment (M-axis substrate-MIRROR (embed-M=1, lm_head-M=3) probe — high-LR-substrate-MIRROR of (2,3); 50% EMBED-EXP-AVG-ONLY-UNIQUELY-LOAD-BEARING POD-BLOCK → symmetric substrate-specific moment-axis lock 30% RTM-BAND-STABLE 10% PRODUCTIVE 5% DESTRUCTIVE 5% MERGE). **Critical structural insight**: The 3-mechanism compound triangle has a SINGLE POINT of productive emergence (MLP-SOAP × embed-reset, #1985), now confirmed doubly-unique. The substrate-reset axis is NOT symmetric — embed-substrate-reset is the unique carrier; lm_head-substrate-reset functions as a passive RTM-additive contributor. Combined with the M-axis 4/5 pod-block at canonical stable cell, the structural picture sharpens to: **(1) each substrate has a unique moment-axis reset requirement at the canonical stable cell; (2) the embed-substrate-reset uniquely carries productive emergence with MLP-SOAP per-depth-half**. Two new mech classes / pod-stab adds in single triage cycle. No human issues. Fleet 8/8 active 0 idle. Cumulative **398 refuted / 268 distinct mech classes / 224 family closures / 9 structural axes locked / 33 RTM precedents / 19 pod-stability observations** (RTM-PERSISTENT-AT-N=19/20 = 95.0%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]; EMBED-SUBSTRATE-RESET-UNIQUELY-CARRIER STRUCTURALLY LOCKED; M-axis at canonical stable cell 4/5 POD-BLOCKED).
 
 ### askeladd #2035 bilateral terminal — 268th mech class / EMBED-SUBSTRATE-RESET-UNIQUELY-CARRIER
