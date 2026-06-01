@@ -1,5 +1,55 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-01 05:15Z — PR #2023 CLOSED FFS-NEG [lion-aux-optimizer; Lion β₁=0.9 replaces AdamW on AUX param groups; target uncrossed across lr_scale ∈ {0.1, 0.3}] [96th R5 closure]
+
+- branch: g1r5-fern/lion-aux-optimizer
+- hypothesis: Replace AdamW with Lion optimizer on AUX param groups (embed, lm_head, scalars). Lion uses sign-only gradient updates (EMA of sign, not magnitude-normalized gradient) which might better track the sharp geometry of these small-param-count groups during cooldown. Adam's second-moment normalization may be overregularizing the scalar/embedding groups.
+- cells:
+
+| Cell | β₁ | β₂ | lr_scale | best_val_loss | FFS_ema | wandb | verdict |
+|---|---:|---:|---:|---:|---:|---|---|
+| A_ctrl (AdamW baseline) | — | — | — | 3.2704 | 2925 | gjf4utp9 | canonical attractor |
+| B (Lion, lrs=0.1) | 0.9 | 0.99 | 0.1 | 3.2960 | **−1** | 3u47r6tp | FFS-NEG (target uncrossed) |
+| C (Lion, β₁=0.99) | 0.99 | 0.99 | 0.1 | killed@25 | — | d556l1ma | divergence |
+| D (Lion, lrs=0.3) | 0.9 | 0.99 | 0.3 | **3.2850** | **−1** | bgynmsmm | FFS-NEG (target uncrossed) |
+
+- analysis: Lion's sign-only update loses per-step magnitude information for AUX groups. Dose-response is monotone-better in lr_scale (D=3.2850 > B=3.2960 best_val_loss), but neither crosses the 3.28 target even at lr_scale=0.3 (3× B). AdamW second-moment normalization is load-bearing for these small-norm AUX gradient groups. The axis is systematic FFS-NEG (not noise), confirming AUX optimizer algorithm is not a productive axis at R5. Note: this PR ran against the OLD baseline μ_4=2912.5; A_ctrl=2925 would beat old gate but loses to new baseline 2875.0 (after frieren #1966 merge).
+- conclusion: Lion AUX optimizer axis CLOSED FFS-NEG. AdamW remains optimal for AUX param groups at R5 scale. Next AUX candidate would require matching AdamW's convergence speed (lr_scale ≥ 1.0+, untested/likely unstable) or a different algorithm family.
+
+---
+
+## 2026-06-01 05:15Z — PR #1966 **★★★ MERGED — FIRST R5 MERGE IN 94 CLOSURES** [muon-momentum-schedule; Muon mu cooldown gradual ramp 0.95→0.80; μ_4(FFS_ema)=2875.0, σ_4=0.0; new baseline −37.5 steps]
+
+- branch: g1r5-frieren/muon-momentum-schedule  
+- hypothesis: Linearly ramp Muon momentum β₁ from 0.95→0.80 during the cooldown phase (steps 975→3250). Shorter EMA memory window during cooldown → gradient direction adapts faster to sharp post-cooldown geometry. Orthogonal to LR cooldown (which already sets cosine shape) and SOAP cooldown mechanisms.
+- n=1 dose-response at mu_target ∈ {0.70, 0.80} (D=0.60 aborted per stability floor):
+
+| Cell | mu_target | FFS_ema | FFS_trainval | best_val_loss | ema_corr | wandb |
+|---|---:|---:|---:|---:|---:|---|
+| A_ctrl | 0.95 (const) | 2925 | 2925 | 3.2692 | 3.26975 | o5eb2eoh |
+| B★ | →0.70 | 2875 | **2875** | 3.2697 | 3.27008 | mmhfmq5a |
+| C★ | →0.80 | 2875 | **2875** | **3.2676** | **3.26798** | yvgj4e8p |
+
+- n=4 confirm at mu=0.80 (run fjyckuu1):
+
+| Trial | FFS_ema | FFS_trainval | best_val_loss | ema_corr |
+|---:|---:|---:|---:|---:|
+| 0 | **2875** | 2925 | 3.27103 | 3.27144 |
+| 1 | **2875** | **2875** | 3.26906 | 3.26949 |
+| 2 | **2875** | 2925 | 3.27059 | 3.27099 |
+| 3 | **2875** | 2925 | 3.26959 | 3.27000 |
+| **μ_4** | **2875.0** | 2912.5 | **3.27007** | **~3.27048** |
+| **σ_4** | **0.0** | 25.0 | — | — |
+
+- analysis: **σ_4=0.0 on FFS_ema is the cleanest n=4 confirm in the entire R5 track** — 4/4 trials at the same off-attractor FFS_ema=2875 bin. Both n=1 treatment cells landed at {2875, 2875} (both FFS metrics off-attractor vs canonical {2875, 2925}), confirming structural signal rather than seed noise. Flat dose-response in mu_target {0.70, 0.80} on FFS, with C(0.80) dominating B(0.70) on val_loss at every probe step. C(0.80) selected for n=4 due to better val_loss, higher stability (B had crash at step 120 on first attempt), closer to baseline. ΔFFS = −37.5 steps (−1.5σ_old) vs old baseline 2912.5.
+- mechanism: Muon momentum compression at cooldown onset reduces the "inertia" of the optimizer's direction estimate, allowing the gradient direction to track the sharpening loss landscape more responsively during the LR descent phase. The mechanism is complementary to cosine LR cooldown shape (which front-loads descent timing) — one modifies LR shape, the other modifies optimizer momentum inertia.
+- new baseline: μ_4(FFS_ema) = **2875.0**, σ_4 = **0.0**, val_loss_mu4 = 3.27007
+- new merge gate: μ_4(FFS_ema) ≤ **2862.5** (= 2875.0 − 12.5; requires ≥2/4 trials at FFS_ema=2850)
+- new mandatory stack: `--mu_cooldown_target 0.80` added to existing R5 stack
+- suggested follow-ups: (1) Compounding test: mu=0.80 + precond_freq_cooldown=4 (edward's closed mechanism, now re-testable against new baseline); (2) Cosine vs linear ramp shape for mu; (3) mu ramp start decoupled from LR cooldown_frac
+
+---
+
 ## 2026-06-01 03:15Z — PR #1948 CLOSED FFS-NEUTRAL n=4-confirm-failed [precond-freq-cooldown-schedule; SOAP eigenbasis refresh stride cooldown axis closed; μ_4(FFS_ema)=2912.5 exactly = baseline] [94th R5 closure]
 
 - branch: g1r5-edward/precond-freq-cooldown-schedule

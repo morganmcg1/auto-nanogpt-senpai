@@ -2,6 +2,50 @@
 
 Ordered chronologically. Compare new results against the **most recent entry**.
 
+## 2026-06-01 05:15Z — PR #1966: Muon mu cooldown ramp 0.95→0.80 (frieren) — n=4 confirm — **FIRST R5 MERGE IN 94 CLOSURES**
+
+- **Primary metric (FFS-primary):** μ_4(FFS_ema) = **2875.0** (σ_4 = **0.0**; ALL 4/4 trials at FFS_ema=2875 — perfect seed consistency)
+- **val/loss_mu4:** **3.27007** (μ_4 best_val_loss across all 4 trials)
+- **Δ vs PR #1533 baseline (μ_4=2912.5, σ_4=25):** **ΔFFS = −37.5 steps** (−1.5σ_4); σ_4 collapses 25→0 (PERFECT consistency)
+- **n:** 4 seeds (W&B run `fjyckuu1`, group `g1r5-frieren/muon-mu-sched-n4`)
+- **Trial breakdown (all 4, no cherry-picking):**
+
+  | Trial | FFS_ema | FFS_trainval | best_val_loss | ema_corr_val_loss |
+  |---:|---:|---:|---:|---:|
+  | 0 | **2875** | 2925 | 3.27103 | 3.27144 |
+  | 1 | **2875** | **2875** | 3.26906 | 3.26949 |
+  | 2 | **2875** | 2925 | 3.27059 | 3.27099 |
+  | 3 | **2875** | 2925 | 3.26959 | 3.27000 |
+  | **μ_4** | **2875.0** | 2912.5 | **3.27007** | **~3.27048** |
+
+- **What changed:** Added `--mu_cooldown_target 0.80` flag. Muon momentum (β₁) linearly ramped 0.95→0.80 during the cooldown phase (steps 975→3250, same window as LR cooldown, applying to both `muon_mlp` and `muon_attn` parameter groups). Mechanism: compressing EMA memory window during cooldown lets the gradient direction adapt faster to the sharper loss landscape. Two n=1 cells confirmed at same off-attractor {2875, 2875} coordinates. C(0.80) dominates B(0.70) on val_loss across all probe steps. σ_4=0 on FFS_ema is the cleanest n=4 confirm in the entire R5 track.
+- **New baseline:** μ_4(FFS_ema) = **2875.0**, σ_4 = **0.0**
+- **New merge gate:** μ_4(FFS_ema) ≤ **2862.5** (= 2875.0 − 12.5; requires ≥2/4 trials at FFS_ema=2850, since FFS is quantized at 25-step bins)
+- **New mandatory stack (add to all future runs):**
+  ```
+  --ns_iter 6 --soap_attn --lr_mlp 0.055 --wd_schedule ramp_down \
+  --lr_scalars 0.03 --depth_init_mode musoft \
+  --lr_cooldown_shape cosine --ema_eval_decay 0.99 \
+  --mu_cooldown_target 0.80
+  ```
+- **W&B run:** `fjyckuu1`
+- **Student:** g1r5-frieren
+- **Reproduce:**
+
+```bash
+SENPAI_TRAIN_STEPS=3250 torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --num_trials 4 \
+  --ns_iter 6 --soap_attn --lr_mlp 0.055 --wd_schedule ramp_down \
+  --lr_scalars 0.03 --depth_init_mode musoft \
+  --lr_cooldown_shape cosine --ema_eval_decay 0.99 \
+  --mu_cooldown_target 0.80 \
+  --wandb_name "g1r5-frieren/muon-mu-sched-E-n4-mu080" \
+  --wandb_group "g1r5-frieren/muon-mu-sched-n4"
+```
+
+---
+
 ## 2026-05-29 — PR #1533: EMA-eval (SWA-style) with bias correction, d=0.99 (alphonse) — n=4 confirm — **FFS-PRIMARY MERGE**
 
 - **Primary metric (FFS-primary per directive #1262):** `speedrun/final_first_step_to_target` (EMA-corrected) μ_4 = **2912.5** (σ_4 = 25.0; min/max = 2875/2925)

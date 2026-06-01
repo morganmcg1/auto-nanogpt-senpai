@@ -9,7 +9,63 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 05:20Z (**★★★ FIRST R5 MERGE COMPLETE — 95 R5 total events**; **FRIEREN #1966 MERGED** μ_4=2875.0 σ_4=0.0 new baseline −37.5 steps; **FERN #2023 CLOSED 96th FFS-NEG** Lion AUX axis; **FRIEREN assigned #2070** compound-mu-precond-freq; **FERN assigned #2071** cleanup-mu-cooldown-default; **THORFINN #1994 gate unreachable → 95th closure pending** (trial 3 in flight); **TANJIRO #2014 D-target9 ★ FFS=2875 SURPRISE** (MORE polish during cooldown); **NEZUKO #2020 D(0.95) in flight**; **ASKELADD #2030 relaunch alive**; **ALPHONSE #2042 B(64) in flight**; **EDWARD #2062 SiLU probe in flight**; 8/8 active)
+
 ## Last updated: 2026-06-01 04:20Z (**94 R5 closures**; ★★★ **FRIEREN #1966 TRIAL 3 AT 87% — μ_4 PROJECTED ≈ 2875.2 — FIRST R5 MERGE IMMINENT** (ETA terminal ~04:35Z; merge-winner ready to invoke); **THORFINN #1994 trial 2 at 88% — gate unreachable, 95th closure pending**; **NEZUKO #2020 Cell C(0.80)=FFS-NEG +50** dose-response shape non-monotone (B=0.70 at 2925 vs C=0.80 at 2975); **ASKELADD #2030 y-interp RELAUNCH alive at step 271** with relaxed kill gate 3.88; **EDWARD #2062 PICKED UP** — SiLU n1-probe at step 212 + KG smoke; **TANJIRO #2014 D-target9 falsifier at 77%** trending FFS-NEG; **ALPHONSE #2042 B-64 at 52%**; **FERN #2023 D(lrs=0.3) projected FFS≈3150 FFS-NEG**; 8/8 active)
+
+### Notes (2026-06-01 05:20Z) — ★★★ FIRST R5 MERGE COMPLETE; NEW BASELINE; COMPOUNDING ASSIGNED
+
+- **★★★ PR #1966 MERGED — FIRST R5 MERGE IN 94+ CLOSURES (Muon mu cooldown ramp 0.95→0.80):**
+  - μ_4(FFS_ema) = **2875.0**, σ_4 = **0.0** — ALL 4/4 trials at FFS_ema=2875 (perfect consistency)
+  - Δ vs old baseline = **−37.5 steps** (−1.5σ_old)
+  - **New baseline**: μ_4=2875.0, σ_4=0.0, val_loss=3.27007
+  - **New merge gate**: μ_4(FFS_ema) ≤ **2862.5** (requires ≥2/4 trials at FFS_ema=2850)
+  - **New mandatory stack**: `--mu_cooldown_target 0.80` added
+  - Run: `fjyckuu1` (group `g1r5-frieren/muon-mu-sched-n4`)
+
+- **PR #2023 CLOSED — 96th R5 closure (Lion AUX FFS-NEG)**:
+  - B(Lion lrs=0.1)=FFS-NEG (-1), D(Lion lrs=0.3)=FFS-NEG (-1) — target uncrossed
+  - Conclusion: AdamW second-moment normalization is load-bearing for AUX groups at R5
+
+- **NEW ASSIGNMENT #2070 (frieren) — compound-mu-precond-freq**:
+  - Hypothesis: Stack mu_cooldown_target=0.80 (baseline) + precond_freq_cooldown=4 (edward's mechanism)
+  - Tests if SOAP eigenbasis refresh cadence and Muon momentum ramp are additive
+  - A_ctrl=new baseline (expect FFS_ema=2875), B★=stacked compound (expect FFS_ema≤2862.5 if additive)
+  - Kill gate: B★ ≥ 2925 → close (no marginal gain); Signal: B★ ≤ 2862.5 → n=4 confirm
+  - **Requires re-implementing `--precond_freq_cooldown` flag** (reference edward #1948)
+
+- **NEW ASSIGNMENT #2071 (fern) — cleanup-mu-cooldown-default**:
+  - Change `--mu_cooldown_target` default from None to 0.80 in train_gpt_simple.py (~2 LOC)
+  - Verify with 200-step smoke test: `train/mu/muon_mlp ≈ 0.80` at step 200 without explicit flag
+  - Fast turnaround (~30 min total), no experiments
+
+- **TANJIRO #2014 D-target9 (MORE polish, ns_iter=9) at ~97% — SURPRISING FFS=2875**:
+  - A=2925, B=2925, C=2950 (polish REDUCTION harmful), D=**2875** (MORE polish HELPS!)
+  - INVERTED mechanism: MORE NS5 iterations during cooldown is FFS-positive
+  - Need terminal SENPAI-RESULT; if confirmed, opens NEW axis: ns_iter INCREASE cooldown
+
+- **THORFINN #1994 trials 0+1+2 ALL at FFS_ema=2925 — 95th closure imminent**:
+  - Trial 3 in flight; gate unreachable (best μ_4 = 2912.5 = old baseline, misses new gate 2862.5)
+  - Will close as FFS-NEUTRAL n=4-confirm-failed (SOAP state reset was n=1 positive but n=4 NEUTRAL)
+  - After closure: assign thorfinn a fresh hypothesis
+
+- **Key active runs** (~05:20Z):
+  | PR | Status | ETA |
+  |---|---|---|
+  | #1994 thorfinn n=4 trial 3 | ~step 10047/13000 | ~07:30Z |
+  | #2014 tanjiro D-target9 | NEAR TERMINAL (~97%) | ~05:25Z |
+  | #2020 nezuko D(0.95) | mid-flight | ~07:00Z |
+  | #2030 askeladd y-interp cell 1 | step ~500/3250 | ~09:00Z |
+  | #2042 alphonse B(64) | mid-flight | ~07:00Z |
+  | #2062 edward SiLU n1-probe | mid-flight | ~07:00Z |
+  | #2070 frieren compound | NEW — awaiting pickup | — |
+  | #2071 fern cleanup | NEW — awaiting pickup | — |
+
+- **Research portfolio (05:20Z):**
+  - **Next threshold: μ_4(FFS_ema) ≤ 2862.5** — requires breakthrough below 2875 attractor
+  - **Compounding priority**: frieren #2070 is the highest-value pending experiment (tests additivity of two confirmed n=1 mechanisms)
+  - **Surprise to investigate**: tanjiro D (MORE NS5 polish during cooldown → FFS=2875) — if terminal confirms, opens ns_iter INCREASE axis that is ORTHOGONAL to the mu/SOAP cooldown mechanisms
+  - **After thorfinn #1994 closure**: assign fresh hypothesis in new territory
 
 ### Notes (2026-06-01 04:20Z) — FRIEREN MERGE-WINNER IMMINENT
 
