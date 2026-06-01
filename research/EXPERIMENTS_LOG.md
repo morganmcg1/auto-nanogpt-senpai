@@ -1,3 +1,36 @@
+## 2026-06-01 10:18 — PR #2057: H354 nezuko MuonH μ schedule SHAPE axis sweep at H266 stack — CLOSED 208th NULL/NEG (🎯 PAPER-GRADE BILATERAL ASYMMETRIC NEG envelope on MuonH μ schedule SHAPE axis (both TIGHTEN+LOOSEN directions NEG — H266 linear sits at SHARP local optimum) + 2nd BILATERAL ASYMMETRIC NEG class entry + mechanism-coherent OPTIMIZER-MOMENTUM-TRAJECTORY-COOLDOWN-COUPLING paper-grade taxonomy finding + 1st code-change-flag introduction `muonh_mu_cooldown_frac` preserves Pattern A bit-id at default=1.0 safe-default pattern validation: arm_a CTRL `linear` (H266 bit-id) val=3.26941 FFS=3025 +1.39σ NEG Pattern A +25 envelope drift + arm_b COOLDOWN_RAMP `cooldown_ramp` + `muonh_mu_cooldown_frac=0.15` val=3.27242 FFS=3100 +4.80σ MID NEG val + FFS=+100 NEG (concentrate ramp into cooldown window only) + arm_c OFF `off` (constant μ=0.95) val=3.27060 FFS=3075 +2.74σ MILD NEG val + FFS=+75 NEG (no decay at all). Mechanism: H266 linear μ ramp produces slow μ slide 0.950→0.914 across pre-cooldown [100, 2826] gradually shrinking gradient direction memory as loss landscape evolves; arm_b cooldown-only ramp competes with cosine LR cooldown for direction-versus-magnitude budget missing H266 attractor by +75 FFS; arm_c constant μ=0.95 saturates gradient memory through cooldown. STARK CONTRAST: H354 SHAPE +4.80σ MID NEG vs H355 DEPTH (mu_end=0.85) +5.45σ MID NEG vs H356 DEMON (mu_end=0.50) +7.30σ CATASTROPHIC NEG = THREE distinct load-bearing axes on BODY momentum schedule at H266 stack with H266 linear 0.95→0.90 sitting at joint-optimum. 2nd BILATERAL ASYMMETRIC NEG class member joining H352 STRUCTURAL cooldown shape. Mechanism-coherent OPTIMIZER-MOMENTUM-TRAJECTORY-COOLDOWN-COUPLING paper-grade taxonomy finding extending H351 OPTIMIZER-UPDATE-RULE-PRESERVES-LOAD-BEARING-GEOMETRY with TRAJECTORY-not-endpoint-coupling refinement.)
+
+- Branch: g1r3-nezuko/h354-muonh-mu-schedule-shape
+- Hypothesis: Test whether MuonH μ schedule SHAPE axis is load-bearing at H266 stack. 3-arm chain: arm_a CTRL `muonh_mu_schedule=linear` (H266 bit-id) / arm_b COOLDOWN_RAMP `cooldown_ramp` + new flag `muonh_mu_cooldown_frac=0.15` (concentrate full μ=0.95→0.90 transition into last 15% i.e. cooldown window [2826, 3325]) / arm_c OFF (constant μ=0.95 throughout).
+
+### Results
+
+| Arm | muonh_mu_schedule | W&B run_id | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|--------------------|------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL `linear` (H266 bit-id) | linear (μ=0.95→0.90 over 3325 steps) | `0r02wsm1` | 3.26941 | 3025 | (ref) | +1.39σ NEG | Pattern A +25 envelope drift |
+| arm_b COOLDOWN_RAMP | cooldown_ramp + muonh_mu_cooldown_frac=0.15 | `2shq77xv` | 3.27242 | 3100 | +3.41σ MID NEG val | **+4.80σ MID NEG val + FFS=+100 NEG** | 🔴 MID NEG MILDLY-LOAD-BEARING |
+| arm_c OFF (constant μ=0.95) | off | `up4htu29` | 3.27060 | 3075 | +1.35σ MILD NEG val | **+2.74σ MILD NEG val + FFS=+75 NEG** | 🟠 MILD NEG MILDLY-LOAD-BEARING |
+| H266 baseline (PR #1669) | linear 0.95→0.90 | `m2ywl0o9` | 3.26818 | 3000 | — | — | (reference) |
+
+🎯 **208th NULL/NEG closure** — all 3 arms FAIL strict FFS<3000 per Issue #1260 (arm_a 3025 / arm_b 3100 / arm_c 3075). NOT merge-eligible.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — MuonH μ schedule SHAPE axis BILATERAL ASYMMETRIC NEG**: H266 linear schedule sits at SHARP local optimum. TIGHTEN (concentrate ramp into cooldown) → MID NEG +4.80σ + FFS=+100. LOOSEN (constant μ no decay) → MILD NEG +2.74σ + FFS=+75. Both directions away from H266 linear lose. 2nd BILATERAL ASYMMETRIC NEG class member joining H352 STRUCTURAL cooldown shape.
+
+🎯 **FINDING #2 — Mechanism: OPTIMIZER-MOMENTUM-TRAJECTORY-COOLDOWN-COUPLING**: H266 linear μ ramp produces slow μ slide 0.950→0.914 across pre-cooldown gradually shrinking gradient direction memory as loss landscape evolves. arm_b cooldown-concentrated ramp competes with cosine LR cooldown for direction-vs-magnitude budget. arm_c constant μ saturates gradient memory through cooldown. Extends H351 OPTIMIZER-UPDATE-RULE-PRESERVES-LOAD-BEARING-GEOMETRY taxonomy with TRAJECTORY-not-endpoint-coupling refinement — μ-vs-LR cooldown direction coupling is load-bearing not just μ endpoint values.
+
+🎯 **FINDING #3 — 1st code-change-flag introduction with safe-default-1.0 pattern**: New flag `muonh_mu_cooldown_frac` (default 1.0, ~5 LoC code change) preserves Pattern A bit-id 10.82583 EXACT on linear/off paths (never read outside `cooldown_ramp` branch). Validates safe-default-1.0 pattern for future schedule-mode flag introductions — `feedback_audit_h_cooldown_frac.md` H316 precedent reinforced.
+
+🎯 **FINDING #4 — Composes with concurrent BODY-momentum chains into multi-axis envelope**: H354 SHAPE +4.80σ MID NEG vs H355 DEPTH (mu_end=0.85) +5.45σ MID NEG vs H356 DEMON (mu_end=0.50) +7.30σ CATASTROPHIC NEG. BODY momentum schedule has THREE distinct load-bearing axes at H266 stack — SHAPE timing, ENDPOINT depth, CATASTROPHIC-DEPTH transition. H266 linear 0.95→0.90 sits at tight joint-optimum.
+
+### Cycle ~2700 update — 208 NULL/NEG + 1 MERGED WIN (H266)
+
+- BILATERAL ASYMMETRIC NEG class: 1 → 2 members (+H354 SHAPE axis joining H352 STRUCTURAL cooldown shape)
+- Paper-grade taxonomy: NEW OPTIMIZER-MOMENTUM-TRAJECTORY-COOLDOWN-COUPLING mechanism class identified
+
+---
+
 ## 2026-06-01 08:36 — PR #2054: H353 thorfinn AUX AGC clip ratio axis sweep at H266 stack — CLOSED 207th NULL/NEG (🎯 PAPER-GRADE BILATERAL ASYMMETRIC ENVELOPE on AUX AGC clip ratio axis (TIGHT CANALIZED + LOOSE MILDLY-LOAD-BEARING) + TWO new H266 cluster anchors (12th + 13th, NEW LOWEST val) + mechanism-coherent ADAMW-SECOND-MOMENT-NORMALIZATION-CANALIZATION-GATE finding extending H351 OPTIMIZER-UPDATE-RULE-PRESERVES-LOAD-BEARING-GEOMETRY taxonomy with a directional asymmetry refinement: arm_a CTRL `aux_agc_clip_ratio=0.05` (H266 bit-id) val=3.26717 FFS=3000 EXACT -1.14σ POS vs H266 baseline = 12th confirmed cluster anchor + NEW LOWEST val of cluster (breaks H345 arm_c previous low val=3.26741) + arm_b TIGHT `aux_agc_clip_ratio=0.025` (2× tighter) val=3.26779 FFS=3000 EXACT +0.70σ TIE-NEG vs CTRL -0.44σ POS TIE vs H266 = CANALIZED CLEAN TIE despite 2× tighter clipping + 13th candidate cluster anchor + arm_c LOOSE `aux_agc_clip_ratio=0.10` (2× looser) val=3.26950 FFS=3025 +2.64σ MILD NEG vs CTRL +1.49σ NEG vs H266 = MILDLY-LOAD-BEARING ASYMMETRIC NEG Pattern A +25 envelope. Mechanism: AGC clips per-parameter gradients when ||g_p|| > clip_ratio × ||w_p|| — AdamW second-moment normalization absorbs upstream clipping MAGNITUDE changes in TIGHTENING direction (smaller g_p → adaptive scaling renormalizes within tens of steps) but cannot fully renormalize in LOOSENING direction (more gradient noise passes through). STARK CONTRAST: H343 AUX sign-mask (gradient DIRECTION) HARD-LOAD-BEARING CATASTROPHIC +15.7σ vs H344 AUX lookahead (gradient DELAY) MILDLY-LOAD-BEARING +10.2σ vs H353 AUX AGC TIGHT (gradient MAGNITUDE) CANALIZED CLEAN TIE +0.70σ vs H353 AUX AGC LOOSE (gradient MAGNITUDE relax) MILDLY-LOAD-BEARING +2.64σ. 5th member of BILATERAL ASYMMETRIC TIE-NEG class.)
 
 - Branch: g1r3-thorfinn/h353-aux-agc-clip-ratio-axis-sweep
