@@ -469,6 +469,47 @@ WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head m
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
+# --- Per-kind AdamW β1 dispatch (PR #2008 carrier 1 of 2, 19th RTM precedent #1972) ---
+# When enabled, the three AdamW aux groups (embed / lm_head / scalars) use independent β1.
+# β2 stays at AdamW's group default (0.95). Defaults are the baseline β1=0.8 across groups.
+PER_KIND_AUX_BETA1_ENABLED = int(os.environ.get("PER_KIND_AUX_BETA1_ENABLED", "0"))
+# Canonical env-var names for the per-kind β1 dispatch (per saved memory
+# `per-kind-aux-beta1-env-var-names`). Fall back to the legacy `PER_KIND_AUX_BETA1_<KIND>` names
+# so older orchestration commands still work; the new `AUX_BETA1_<KIND>` names take precedence.
+PER_KIND_AUX_BETA1_EMBED = float(os.environ.get("AUX_BETA1_EMBED",
+                                                os.environ.get("PER_KIND_AUX_BETA1_EMBED", "0.8")))
+PER_KIND_AUX_BETA1_LM_HEAD = float(os.environ.get("AUX_BETA1_LM_HEAD",
+                                                  os.environ.get("PER_KIND_AUX_BETA1_LM_HEAD", "0.8")))
+PER_KIND_AUX_BETA1_SCALARS = float(os.environ.get("AUX_BETA1_SCALARS",
+                                                  os.environ.get("PER_KIND_AUX_BETA1_SCALARS", "0.8")))
+
+# --- Per-substrate AdamW periodic reset (PR #2008 carrier 2 of 2, 14th RTM precedent #1956) ---
+# Every INTERVAL steps, partially scale down the chosen Adam moment(s) on the embed (or lm_head)
+# parameter to the configured PARTIAL_FACTOR. moment bitfield: bit0(=1)=exp_avg_sq, bit1(=2)=exp_avg.
+# So MOMENT=2 means "exp_avg only", MOMENT=1 means "exp_avg_sq only", MOMENT=3 means "both".
+# PARTIAL_FACTOR is the multiplier applied to the chosen state(s); 0.25 = keep 25% of momentum.
+# Canonical gate name is PER_KIND_AUX_PERIODIC_RESET_<SUB>_ENABLED. Fall back to the legacy
+# AUX_RESET_<SUB>_ENABLED to stay compatible with older orchestration commands.
+AUX_RESET_EMBED_ENABLED = int(os.environ.get("PER_KIND_AUX_PERIODIC_RESET_EMBED_ENABLED",
+                                             os.environ.get("AUX_RESET_EMBED_ENABLED", "0")))
+AUX_RESET_INTERVAL_EMBED = int(os.environ.get("AUX_RESET_INTERVAL_EMBED", "200"))
+AUX_RESET_MOMENT_EMBED = int(os.environ.get("AUX_RESET_MOMENT_EMBED", "2"))
+AUX_RESET_PARTIAL_FACTOR_EMBED = float(os.environ.get("AUX_RESET_PARTIAL_FACTOR_EMBED", "0.25"))
+AUX_RESET_LM_HEAD_ENABLED = int(os.environ.get("PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED",
+                                               os.environ.get("AUX_RESET_LM_HEAD_ENABLED", "0")))
+AUX_RESET_INTERVAL_LM_HEAD = int(os.environ.get("AUX_RESET_INTERVAL_LM_HEAD", "200"))
+AUX_RESET_MOMENT_LM_HEAD = int(os.environ.get("AUX_RESET_MOMENT_LM_HEAD", "2"))
+AUX_RESET_PARTIAL_FACTOR_LM_HEAD = float(os.environ.get("AUX_RESET_PARTIAL_FACTOR_LM_HEAD", "0.25"))
+
+# Optional MLP-SOAP per-depth-half scaffold gate. The body of the feature is not implemented on
+# this branch; declaring the gate lets PR #2008 explicitly disable the toggle and emit the banner.
+MLP_SOAP_PER_DEPTH_HALF_ENABLED = int(os.environ.get("MLP_SOAP_PER_DEPTH_HALF_ENABLED", "0"))
+
+# Optional run-level seed (PR #2008 uses SEED=1/2 to differentiate Arm A / Arm B). When unset
+# (None), PyTorch retains its default non-deterministic init, matching prior PR behavior.
+_SEED_ENV = os.environ.get("SEED")
+SEED = int(_SEED_ENV) if _SEED_ENV is not None and _SEED_ENV != "" else None
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -786,6 +827,10 @@ device = torch.device("cuda", int(os.environ["LOCAL_RANK"]))
 torch.cuda.set_device(device)
 dist.init_process_group(backend="nccl", device_id=device)
 dist.barrier()
+# Optional run-level seeding (offset by rank so each GPU gets a distinct stream).
+if SEED is not None:
+    torch.manual_seed(SEED + dist.get_rank())
+    torch.cuda.manual_seed_all(SEED + dist.get_rank())
 # this code can be run equivalently with 1, 2, 4, or 8 gpus.
 assert 8 % dist.get_world_size() == 0
 
@@ -866,6 +911,20 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/per_kind_aux_beta1_enabled": int(PER_KIND_AUX_BETA1_ENABLED),
+            "optimizer/aux_beta1_embed": PER_KIND_AUX_BETA1_EMBED,
+            "optimizer/aux_beta1_lm_head": PER_KIND_AUX_BETA1_LM_HEAD,
+            "optimizer/aux_beta1_scalars": PER_KIND_AUX_BETA1_SCALARS,
+            "optimizer/per_kind_aux_periodic_reset_embed_enabled": int(AUX_RESET_EMBED_ENABLED),
+            "optimizer/aux_reset_interval_embed": AUX_RESET_INTERVAL_EMBED,
+            "optimizer/aux_reset_moment_embed": AUX_RESET_MOMENT_EMBED,
+            "optimizer/aux_reset_partial_factor_embed": AUX_RESET_PARTIAL_FACTOR_EMBED,
+            "optimizer/per_kind_aux_periodic_reset_lm_head_enabled": int(AUX_RESET_LM_HEAD_ENABLED),
+            "optimizer/aux_reset_interval_lm_head": AUX_RESET_INTERVAL_LM_HEAD,
+            "optimizer/aux_reset_moment_lm_head": AUX_RESET_MOMENT_LM_HEAD,
+            "optimizer/aux_reset_partial_factor_lm_head": AUX_RESET_PARTIAL_FACTOR_LM_HEAD,
+            "optimizer/mlp_soap_per_depth_half_enabled": int(MLP_SOAP_PER_DEPTH_HALF_ENABLED),
+            "optimizer/seed": -1 if SEED is None else SEED,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -897,10 +956,17 @@ for trial_idx in range(args.num_trials):
         else:
             raise Exception(f"Uninitialized parameter: {name}")
 
-    # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+    # create the optimizer(s) — per-kind β1 dispatch threads independent β1 into each aux group
+    # (embed / lm_head / scalars) when PER_KIND_AUX_BETA1_ENABLED. β2 stays at 0.95 across groups.
+    _embed_b1 = PER_KIND_AUX_BETA1_EMBED if PER_KIND_AUX_BETA1_ENABLED else 0.8
+    _lm_head_b1 = PER_KIND_AUX_BETA1_LM_HEAD if PER_KIND_AUX_BETA1_ENABLED else 0.8
+    _scalars_b1 = PER_KIND_AUX_BETA1_SCALARS if PER_KIND_AUX_BETA1_ENABLED else 0.8
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed",
+                             weight_decay=WD_AUX, betas=(_embed_b1, 0.95)),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head",
+                             weight_decay=WD_AUX, betas=(_lm_head_b1, 0.95)),
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01,
+                             name="adam_scalars", betas=(_scalars_b1, 0.95))],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
@@ -911,6 +977,44 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    # Step-0 banner — print BOTH compound carrier configs so step-0 W&B logs and stdout can be
+    # spot-checked against the PR #2008 banner contract.
+    if dist.get_rank() == 0:
+        print0(f"[per_kind_aux_beta1] enabled={PER_KIND_AUX_BETA1_ENABLED} "
+               f"embed_beta1={PER_KIND_AUX_BETA1_EMBED if PER_KIND_AUX_BETA1_ENABLED else 0.8} "
+               f"lm_head_beta1={PER_KIND_AUX_BETA1_LM_HEAD if PER_KIND_AUX_BETA1_ENABLED else 0.8} "
+               f"scalars_beta1={PER_KIND_AUX_BETA1_SCALARS if PER_KIND_AUX_BETA1_ENABLED else 0.8}",
+               console=True)
+        if AUX_RESET_EMBED_ENABLED:
+            print0(f"[aux_reset_embed] enabled=1 interval={AUX_RESET_INTERVAL_EMBED} "
+                   f"moment={AUX_RESET_MOMENT_EMBED} partial_factor={AUX_RESET_PARTIAL_FACTOR_EMBED}",
+                   console=True)
+        else:
+            print0("[aux_reset_embed] disabled", console=True)
+        if AUX_RESET_LM_HEAD_ENABLED:
+            print0(f"[aux_reset_lm_head] enabled=1 interval={AUX_RESET_INTERVAL_LM_HEAD} "
+                   f"moment={AUX_RESET_MOMENT_LM_HEAD} partial_factor={AUX_RESET_PARTIAL_FACTOR_LM_HEAD}",
+                   console=True)
+        else:
+            print0("[aux_reset_lm_head] disabled", console=True)
+        print0(f"[mlp_soap_per_depth_half] enabled={MLP_SOAP_PER_DEPTH_HALF_ENABLED} "
+               f"(scaffold gate; body unimplemented on this branch)", console=True)
+        print0(f"[seed] SEED={SEED}", console=True)
+
+    # Cache parameter handles for the periodic-reset hook so we can scale the chosen
+    # AdamW moments after the optimizer step without re-resolving param identities each tick.
+    _aux_reset_targets = []
+    if AUX_RESET_EMBED_ENABLED:
+        _aux_reset_targets.append(("embed", model.embed.weight,
+                                   AUX_RESET_INTERVAL_EMBED,
+                                   AUX_RESET_MOMENT_EMBED,
+                                   AUX_RESET_PARTIAL_FACTOR_EMBED))
+    if AUX_RESET_LM_HEAD_ENABLED:
+        _aux_reset_targets.append(("lm_head", model.proj.weight,
+                                   AUX_RESET_INTERVAL_LM_HEAD,
+                                   AUX_RESET_MOMENT_LM_HEAD,
+                                   AUX_RESET_PARTIAL_FACTOR_LM_HEAD))
 
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
@@ -1053,6 +1157,33 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Periodic AdamW moment scrub for embed / lm_head substrates (PR #2008 carrier 2).
+        # Triggered at the END of any optimizer step where train_step is a positive multiple of
+        # the configured interval. The chosen state slot(s) are multiplied by partial_factor;
+        # partial_factor=0 fully resets, 1 is a no-op, 0.25 keeps 25% of the running moment.
+        if _aux_reset_targets and train_step > 0:
+            reset_events = {}
+            for sub_name, sub_p, sub_interval, sub_moment, sub_factor in _aux_reset_targets:
+                if sub_interval <= 0 or train_step % sub_interval != 0:
+                    continue
+                state = optimizer1.state.get(sub_p)
+                if not state:
+                    continue
+                applied = []
+                if (sub_moment & 2) and "exp_avg" in state:
+                    state["exp_avg"].mul_(sub_factor)
+                    applied.append("exp_avg")
+                if (sub_moment & 1) and "exp_avg_sq" in state:
+                    state["exp_avg_sq"].mul_(sub_factor)
+                    applied.append("exp_avg_sq")
+                if applied and dist.get_rank() == 0:
+                    reset_events[f"optimizer/aux_reset/{sub_name}/fired"] = 1
+                    reset_events[f"optimizer/aux_reset/{sub_name}/applied_to"] = ",".join(applied)
+                    reset_events[f"optimizer/aux_reset/{sub_name}/step"] = train_step
+                    print0(f"[aux_reset:{sub_name}] step={train_step} moment={sub_moment} "
+                           f"factor={sub_factor} applied={applied}", console=True, log=True)
+            if reset_events and dist.get_rank() == 0:
+                wandb.log(reset_events, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
