@@ -84,6 +84,11 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--aux_b2_pulse_scope', type=str, default='all',
+                        choices=['all', 'adam_embed', 'adam_lm_head', 'adam_scalars'],
+                        help='Restrict aux Adam β2 pulse to a single named param group '
+                             '(default: all). Used for mechanistic decomposition of the '
+                             'canonical baseline pulse.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +770,7 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_b2_pulse_scope": args.aux_b2_pulse_scope,
             "seed": args.seed,
         },
     )
@@ -1065,11 +1071,18 @@ for trial_idx in range(args.num_trials):
         if (args.aux_b2_pulse_step > 0
                 and args.aux_b2_pulse_target > 0.0
                 and step == args.aux_b2_pulse_step):
-            old_b2 = optimizer1.param_groups[0]["betas"][1]
-            new_betas = (optimizer1.param_groups[0]["betas"][0], args.aux_b2_pulse_target)
+            pulse_count = 0
             for group in optimizer1.param_groups:
-                group["betas"] = new_betas
-            print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
+                group_name = group.get("name", "?")
+                if args.aux_b2_pulse_scope != "all" and group_name != args.aux_b2_pulse_scope:
+                    continue
+                old_b2 = group["betas"][1]
+                group["betas"] = (group["betas"][0], args.aux_b2_pulse_target)
+                pulse_count += 1
+                print0(f"[step {step}] aux_b2_pulse({args.aux_b2_pulse_scope}): "
+                       f"group={group_name} β2 {old_b2} → {args.aux_b2_pulse_target}",
+                       console=True)
+            print0(f"[step {step}] aux_b2_pulse total: {pulse_count} group(s) pulsed",
                    console=True)
         for opt in optimizers:
             opt.step()
@@ -1174,7 +1187,7 @@ for trial_idx in range(args.num_trials):
             # latches to 1 at and after --paramema_refresh_step; lcov_refresh/fired
             # is always 0 in this branch (L_cov refresh not implemented). The
             # --paramema_refresh_only flag is recorded for run filtering.
-            wandb.log({
+            aux_b2_log = {
                 "trial": trial_idx,
                 "train/step": train_step,
                 "ema_refresh/fired": ema_refresh_fired_total,
@@ -1189,7 +1202,11 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
-            }, step=wandb_step)
+            }
+            for group in optimizer1.param_groups:
+                gname = group.get("name", "?")
+                aux_b2_log[f"aux_b2/current/{gname}"] = group["betas"][1]
+            wandb.log(aux_b2_log, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
