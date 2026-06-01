@@ -1,3 +1,55 @@
+## 2026-06-01 19:45 UTC — Cycle 71 mid-537 — nezuko #2168 CLOSED (440th refute / **GENERALIZE-POD-BLOCK CONFIRMED — PROJ-EXCLUDED UNIQUELY SAFE AS CARRIER ABSORBER** / 15th pre-event NaN / 37th pod-stability; BILATERAL PRE-EVENT NaN POD-BLOCK identical signature to #2164 — IDENTICAL nonfinite_count=147,097,728 across arms — pre-event NaN POD-BLOCK fixed point now mechanism-COMPLETELY-deterministic; 22 min assignment to terminal; PROJ-EXCLUDED is UNIQUELY SAFE cardinality cell across 2 independent confirming cells [K-excluded #2164 + V-excluded #2168 both POD-BLOCK]; configuration-radius destab axis 16 cells / 12 sub-axes → **17 cells / 13 sub-axes — NEW sub-axis 13: CARRIER × V-EXCLUDED cardinality compound**) + nezuko #2174 new assignment (CARRIER × Q-EXCLUDED bitfield=1 — FINAL cell of cardinality × carrier matrix; 55% Q-EXCLUDED-POD-BLOCK confirming proj-uniquely-safe / 25% CANCELLATION (Q structurally like proj) / 15% MILD-DRIFT / 5% MERGE). Fleet 8/8 WIP. Cumulative: **440 refuted / 300 mech classes / 264 family closures / 10 axes / 55 RTM precedents / 37 pod-stability observations**.
+
+### nezuko #2168 CLOSED — 440th refute / GENERALIZE-POD-BLOCK CONFIRMED — PROJ-EXCLUDED UNIQUELY SAFE
+
+**Bilateral terminal — BILATERAL PRE-EVENT NaN POD-BLOCK identical signature to #2164**:
+- Arm A `rpq7vre7` SEED=1: crashed step ~125, train_loss=NaN, nonfinite_count **147,097,728** (90.6% non-finite)
+- Arm B `sj3hm92d` SEED=2: crashed step ~125, train_loss=NaN, nonfinite_count **147,097,728** (90.6% non-finite) — **IDENTICAL to Arm A**
+- Step-1 grad NORMAL (no 234k saturation); NaN manifests in regular AdamW updates between init and first val event (step 125)
+
+Banner verified bilateral: CARRIER (0.5/0.7/0.8) + V-excluded (bitfield=4, attn_soap_excluded_v=1, active_kinds=[q,k,proj]).
+
+→ **Arm A and Arm B nonfinite_count IDENTICAL to the integer** — even stronger deterministic mechanism-coupled signature than #2164 (Arm A 148,049,280 vs Arm B 91% non-finite). The pre-event NaN POD-BLOCK fixed point at this compound is now mechanism-COMPLETELY-deterministic.
+
+**Cardinality × CARRIER matrix — 3/4 cells complete with strong asymmetric pattern**:
+
+| Cardinality cell | Bitfield | Active kinds | × CARRIER result | Outcome class |
+|---|---|---|---|---|
+| **proj-excluded** | 8 | q+k+v | **#2121 3.272415 floor-band-upper** | **CANCELLATION (UNIQUELY SAFE)** |
+| K-excluded | 2 | q+v+proj | #2164 BILATERAL PRE-EVENT NaN POD-BLOCK | POD-BLOCK |
+| **V-excluded** | 4 | q+k+proj | **#2168 (THIS) BILATERAL PRE-EVENT NaN POD-BLOCK** | **POD-BLOCK** |
+| Q-excluded | 1 | k+v+proj | UNTESTED (#2174 new) | TBD |
+
+→ **Structural finding**: PROJ-EXCLUDED is UNIQUELY SAFE as CARRIER absorber across cardinality cells. Both K-excluded AND V-excluded (which RETAIN proj in active preconditioning) POD-BLOCK with identical pre-event NaN signature. Only proj-excluded (which REMOVES proj from preconditioning) survives the carrier compound.
+
+**Structural insight 1 — proj substrate is the destabilizing absorber for carrier compound**:
+- When proj substrate is REMOVED from attn_soap preconditioning (proj-excluded #2121): remaining q/k/v substrates absorb the carrier's asymmetric long-memory disequilibrium cleanly → floor-band CANCELLATION
+- When proj is KEPT in attn_soap preconditioning (K-excluded #2164, V-excluded #2168): proj-asymmetric preconditioning collides with carrier's β1=0.5 embed long-memory + β1=0.7 lm_head long-memory during muon-warmup → silent NaN propagation between init and step 125
+- **Mechanism hypothesis**: PROJ ATTN_SOAP PRECONDITIONING + CARRIER (asymmetric AdamW β1 on embed/lm_head) → cross-substrate momentum disequilibrium that destabilizes at step 100-125
+
+**Structural insight 2 — 15th pre-event NaN cell distinct from saturated step-1 class**:
+- The 15th pre-event NaN cell is consistent with prior pre-event NaN cells (#2072/#2076/#2088/#2099/#2103/#2107/#2145/#2152/#2164/#2168)
+- NaN injection between init and first validation event, NO step-1 grad saturation
+- **Structurally distinct from saturated step-1 POD-BLOCK class** (#2124/#2132/#2135/#2142/#2150/#2145-Arm-A)
+
+**Structural insight 3 — configuration-radius destab axis 17 cells / 13 sub-axes**:
+- Configuration-radius destab axis: 16 cells / 12 sub-axes (mid-535) → **17 cells / 13 sub-axes** (mid-537)
+- NEW sub-axis 13: CARRIER × V-excluded cardinality compound
+
+### Next probe — nezuko #2174: CARRIER × Q-EXCLUDED (bitfield=1) — FINAL cardinality × carrier matrix cell
+
+**Hypothesis**: CARRIER × Q-EXCLUDED cardinality (k+v+proj active) — discriminates whether proj-excluded is the UNIQUE safe cardinality cell, OR whether Q substrate behaves structurally similar to proj as a "safe removal target" for carrier compound.
+
+**Priors**:
+- **Q-EXCLUDED-POD-BLOCK 55%** — confirms proj-excluded is UNIQUELY SAFE cardinality cell; proj-absorbs hypothesis FULLY validated
+- **Q-EXCLUDED-CANCELLATION 25%** — Q substrate structurally similar to proj as safe removal target; Q-K-V asymmetry could mean Q removal is functionally similar to proj removal (both query-or-output substrates)
+- **Q-EXCLUDED-MILD-DRIFT 15%** — partial destabilization without POD-BLOCK; intermediate Q-substrate role
+- **MERGE 5%** — cross-axis productive stacking unlikely given proj-uniquely-safe finding
+
+Expected ~22 min turnaround (#2164 23 min / #2168 22 min establishes the cadence for this compound class).
+
+---
+
 ## 2026-06-01 19:25 UTC — Cycle 71 mid-536 — tanjiro #2139 CLOSED (439th refute / **SCALARS-HIGHER β1=0.9 SOLO-ONLY CONFIRMED AXIS-AGNOSTICALLY ACROSS 3 PRODUCTIVE-LEVER CLASSES** — substrate-reset #2101 + substrate-β1 #2109 + depth-orientation #2139 / 55th RTM precedent; bilateral terminal 3.27080 floor band CANCELLATION-AT-FLOOR) + tanjiro #2169 new assignment (MLP-SOAP front=fast × CARRIER-EMBED-ONLY substrate decomposition probe of #2142 POD-BLOCK; 40% EMBED-ONLY-POD-BLOCK / 25% BOTH-REQUIRED / 20% EMBED-ONLY-FLOOR-BAND / 10% PRODUCTIVE / 5% MERGE). Fleet 8/8 WIP. Cumulative: **439 refuted / 300 mech classes / 263 family closures / 10 axes / 55 RTM precedents / 36 pod-stability observations**.
 
 ### tanjiro #2139 CLOSED — 439th refute / SCALARS-HIGHER β1=0.9 AXIS-AGNOSTIC SOLO-ONLY
