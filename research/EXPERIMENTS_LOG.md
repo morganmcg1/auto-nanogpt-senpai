@@ -1,3 +1,37 @@
+## 2026-06-01 08:20 — PR #2052: H352 edward MuonH cooldown LR shape axis sweep at H266 stack — CLOSED 205th NULL/NEG (🎯 PAPER-GRADE asymmetric envelope characterization on STRUCTURAL cooldown LR shape axis + 7th HARD-LOAD-BEARING CATASTROPHIC family entry + val/FFS DECOUPLE class member: arm_a CTRL cosine (H266 bit-id) val=3.26949 FFS=3025 +1.48σ NEG Pattern A +25 IN FAMILY + arm_b LINEAR val=3.26531 FFS=3125 -3.25σ_H174 POS WIN val (LOWEST val of cycle ~2700 BODY/optimizer family) BUT FFS +125 NEG = val/FFS DECOUPLE class member (joins H162 round-1) + arm_c SQRT val=3.29215 FFS=-1 NEVER REACHED +27.1σ CATASTROPHIC NEG = 7th HARD-LOAD-BEARING CATASTROPHIC family entry on STRUCTURAL LR decay curvature axis. Asymmetric envelope: linear (uniform slope) → val POS WIN + FFS NEG, cosine (concave) → locally Pareto-optimal on FFS, sqrt (convex) → CATASTROPHIC NEG. Mechanism: cosine's steep early LR drop yields small terminal Δw → crosses 3.28 target at step 3025; linear's uniform Δw steps yield larger terminal Δw → crosses at 3125 BUT continues descending post-threshold to tighter terminal equilibrium; sqrt's slow early LR drop carries high LR too long → steep final approach can't compensate, runs out of budget. Cooldown shape axis is STRUCTURALLY load-bearing on convex direction.)
+
+- Branch: g1r3-edward/h352-cooldown-shape-axis-sweep
+- Hypothesis: Test whether cooldown LR shape axis (cosine vs linear vs sqrt) is load-bearing at H266 stack. 3-arm chain: arm_a CTRL muonh_cooldown_shape=cosine (H266 bit-id) / arm_b LINEAR muonh_cooldown_shape=linear / arm_c SQRT muonh_cooldown_shape=sqrt.
+
+### Results
+
+| Arm | shape | W&B run_id | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|-------|------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL cosine | cosine (H266 bit-id) | `e0xmfyph` | 3.26949 | 3025 | (ref) | +1.48σ NEG | Pattern A +25 IN FAMILY |
+| arm_b LINEAR | linear | `wwskmknz` | **3.26531** | 3125 | **−4.73σ POS WIN val** | **−3.25σ POS WIN val (LOWEST val of cycle ~2700 BODY/optimizer family)** | 🎯 val/FFS DECOUPLE: val POS WIN, FFS +125 NEG |
+| arm_c SQRT | sqrt | `efyprb6o` | 3.29215 | **−1 NEVER REACHED** ⚡ | +25.6σ CATASTROPHIC NEG | **+27.1σ CATASTROPHIC NEG** ⚡ | 💥 7th HARD-LOAD-BEARING CATASTROPHIC entry |
+| H266 baseline (PR #1669) | cosine | `m2ywl0o9` | 3.26818 | 3000 | — | — | (reference) |
+
+🎯 **205th NULL/NEG closure** — paper-grade asymmetric envelope characterization. arm_b LINEAR val/FFS DECOUPLE (val POS WIN, FFS=3125 NEG) NOT merge-eligible per `feedback_ffs_is_primary_metric.md`. arm_c SQRT CATASTROPHIC. None strict-clears FFS<3000 per Issue #1260.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — arm_b LINEAR val/FFS DECOUPLE: LOWEST val of cycle ~2700 BODY/optimizer family**: val=3.26531 -3.25σ_H174 POS WIN vs H266 baseline = LOWEST val observed in cycle ~2700 cooldown-stack family yet FFS=3125 (+125 NEG vs baseline). Mechanism: cosine has steep early LR drop yielding small terminal Δw → crosses 3.28 at step 3025 (FFS=3025); linear has uniform Δw step sizes throughout cooldown → larger terminal Δw → crosses at step 3125 BUT continues descending post-threshold to val=3.26531 final. Clean val/FFS decoupling — joins H162 round-1 decouple class.
+
+🎯 **FINDING #2 — arm_c SQRT 7th HARD-LOAD-BEARING CATASTROPHIC family entry**: convex cooldown shape (slow early decay → steep final approach) failed to reach val=3.28 target anywhere in 3325-step budget. Mechanism: sqrt slow early LR drop carries high LR too long — last-100-step Δval=−0.01182 is 8× cosine's 0.00145 confirming biggest drops at end, but late start can't compensate for steep final approach in last 5%. The H266 attractor cluster requires both early-enough threshold-cross AND stable EMA-integrated terminal; sqrt fails early threshold-cross.
+
+🎯 **FINDING #3 — Asymmetric envelope mechanism: cosine is locally Pareto-optimal on FFS axis**: linear (uniform slope) → val POS WIN + FFS NEG. cosine (concave) → reference Pareto-optimal on FFS. sqrt (convex) → CATASTROPHIC NEG. Shape axis structurally load-bearing on convex direction.
+
+🎯 **FINDING #4 — 7 HARD-LOAD-BEARING CATASTROPHIC axes after H352**: spanning OPTIMIZER MOMENTUM × BODY init × AUX optimizer-mask × BODY orthogonalizer KERNEL × AUX-loss × BODY init depth-asymmetry × **STRUCTURAL LR decay curvature**. H266 stack constrained on 7 mechanism-distinct structural axes — none can be safely perturbed without catastrophic FFS damage.
+
+### Cycle ~2700 update — 205 NULL/NEG + 1 MERGED WIN (H266)
+
+- HARD-LOAD-BEARING CATASTROPHIC family: 6 → 7 axes (H352 SQRT adds STRUCTURAL LR decay curvature)
+- val-POS-FFS-NEG decouple class: H352 arm_b LINEAR joins H162 round-1 (now 2 members)
+- arm_b LINEAR sets NEW cycle ~2700 LOWEST val of BODY/optimizer family (val=3.26531 < H266 attractor cluster typical val range 3.267-3.272)
+
+---
+
 ## 2026-06-01 08:06 — PR #2011: H345 alphonse Polyak EMA SCOPE decoupling at H266 stack (round-2 AUX_ONLY decay-axis sweep) — CLOSED 204th NULL/NEG (🎯 PAPER-GRADE BILATERAL CANALIZED TIE on AUX_ONLY decay-axis: arm_a CTRL d=0.05 val=3.26895 FFS=3025 Pattern A +25 IN FAMILY (DID NOT replicate round-1 arm_c FFS=3000 WIN, Δ=+1.74σ_H174 from same-config replica) + arm_b LIGHT d=0.025 val=3.26972 FFS=3025 +0.87σ TIE-NEG vs CTRL Pattern A +25 + arm_c HEAVY d=0.10 val=3.26909 FFS=3025 +0.16σ TIE vs CTRL Pattern A +25 IN FAMILY = ALL 3 ARMS Pattern A +25 IN FAMILY BILATERAL CANALIZED TIE. H323 (scope=all decay canalization at d=0.05 within ±2× envelope) HOLDS at AUX_ONLY scope. 5th member of CANALIZED TIE BILATERAL class. 1st cycle ~2700 demonstration of CUDA-determinism envelope on cluster membership — round-1 arm_c WIN re-classified as CUDA non-determinism lucky draw within Pattern A +25 envelope, NOT reproducible scope-decoupling mechanism. Cluster status: 11 deterministic anchors + multiple probabilistic boundary candidates with ±1.74σ_H174 replica drift caveat. H353 arm_a CTRL `2r51ezy4` val=3.26717 FFS=3000 EXACT = NEW 12th candidate cluster anchor with NEW LOWEST val of cluster + H353 arm_b TIGHT `4fzvzege` val=3.26779 FFS=3000 EXACT = 13th + H355 arm_a CTRL `05h3elld` val=3.2676 FFS=3000 EXACT = 14th + H356 arm_a CTRL `y3r9xv3k` val=3.2679 FFS=3000 EXACT = 15th. New cluster pattern: existing-flag value-changes preserve bit-id more reliably than new-flag introductions which trigger Pattern A drift.)
 
 - Branch: g1r3-alphonse/h345-polyak-ema-scope-decoupling
