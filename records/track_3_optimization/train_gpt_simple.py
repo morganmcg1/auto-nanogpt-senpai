@@ -101,10 +101,11 @@ def parse_args():
                         help="EMA decay for SWA-style EMA-eval; None=disabled (control). "
                              "Recommend 0.99-0.9999. When set, val/ema_loss is logged "
                              "and speedrun/first_step_to_target uses the EMA-val crossing.")
-    parser.add_argument("--mu_cooldown_target", type=float, default=None,
-                        help="If set, linearly ramp Muon Nesterov momentum from 0.95 to "
+    parser.add_argument("--mu_cooldown_target", type=float, default=0.80,
+                        help="Linearly ramp Muon Nesterov momentum from 0.95 to "
                              "this target value across the cooldown phase (last cooldown_frac "
-                             "of training). None = constant mu=0.95 (default). "
+                             "of training). Default=0.80 (winning value, PR #1966). "
+                             "Set to None or 0.95 to disable the ramp. "
                              "Affects all muon_* param groups.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
