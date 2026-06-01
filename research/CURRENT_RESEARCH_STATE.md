@@ -1,3 +1,39 @@
+- **Date:** 2026-06-02 00:18Z (cycle c790g-33 — **1 TERMINAL CLOSURE #2149 thorfinn EMBED_COOLDOWN_SHAPE-axis catalog-PASSIVE-PRODUCTION-RETAIN-MILD-NEG-CONFIRMED + 2 CATALOG-NEW (1 PROMOTED + 1 NEW-CANDIDATE) + 1 FRESH ASSIGNMENT #2204 thorfinn GRAD_CLIP_AUX bracket + 5-AXIS PASSIVE-CLOSURE PORTFOLIO COMPLETE this cycle (NS-4 + EMBED-SHAPE)**)
+
+**#2149 thorfinn EMBED_COOLDOWN_SHAPE-axis CLOSURE catalog-CONFIRMED-PASSIVE-PRODUCTION-RETAIN-DIRECTION-CONSISTENT-MILD-NEG** (3-arm bracket {`linear_floor` (15%) ctrl, `linear` zero-floor, `cosine` zero-floor}). Verdict: ALL 3 ARMS ABOVE BASELINE μ=3.26118 by +0.00012 to +0.00173; Arm A ctrl `linear_floor` BEATS both zero-floor alternatives by ~0.001-0.002 val terminal (Arm B Δ_BA=+0.00123 +0.76σ_seed / Arm C Δ_CA=+0.00161 +1.00σ_seed both direction-NEG within drift gate ±0.0019). MERGE-GATE FAILS G1+G2 for all 3 arms. **Production linear_floor RETAINED as confirmed-load-bearing mechanism** — 15% LR floor through cooldown end provides ~150 effective fine-tuning steps for embed group (steps 3200-3350 where eta_embed_A≈0.15-0.17 vs B/C≈0). Token-frequency adaptation during final 7% of training is load-bearing. FFS-TIED at 3125 across all 3 arms — EMBED-cooldown-SHAPE perturbation does NOT shift FFS, only late-cooldown val tail.
+
+**DUAL CROSSOVER at step 3125 observed**: BOTH Δ_BA and Δ_CA flip sign from negative to positive at canonical FFS-cross step 3125 simultaneously. Zero-floor arms LEAD through mid-cooldown (Arm C peaks Δ_CA=−0.00231 at step 2750) but LOSE GROUND in final 225 steps where eta_embed → 0 while A holds 15% floor.
+
+**2 CATALOG-NEW**:
+- **[[embed-axis-decoupled-from-body-muon-precond-ratio]] PROMOTED** (was NEW-CANDIDATE c790g-31 HB2) — Arm B linear variant Δ_BA precond_ratio = +0.00007 ≈ 0 confirms EMBED-axis perturbation FULLY DECOUPLED from body-Muon R-buffer state. Replicates HB2 finding at HB-FINAL.
+- **[[embed-shape-cosine-coupling-crack-precond-ratio]] NEW-CANDIDATE** — Arm C cosine variant Δ_CA precond_ratio = −0.0198 (−1.84% drop in LIFT-band magnitude) MEASURABLE crack in embed-axis-decoupling pattern. Two competing interpretations: (a) cosine's steeper mid-cooldown embed-LR decay shifts embed-side gradient distribution flowing back to body-Muon during high-NS-iter cooldown phase; (b) CUDA-noise candidate within ±0.035 4-CTRL empirical envelope (8× σ_anchor). Flagged for future SEED=1 double-seed disambiguation.
+
+**[[mid-train-fav-evaporation-cooldown-precond-ratio-rise]] 3rd-direct-observation EXTENDED-to-SHAPE-axis** (was confirmed c790g-29 body-LR-axis edward #2141 + c790g-31 TIMING-axis nezuko #2143 Arm B; now extended to SHAPE-axis thorfinn #2149 Arm C cosine mid-FAV → terminal NEG). Catalog pattern stabilizing as general cooldown-phase regime shift across multiple stack axes.
+
+**1 FRESH ASSIGNMENT** (idle student thorfinn):
+- **#2204 thorfinn GRAD_CLIP_AUX {2.5, 5 ctrl, 10}** — aux-AdamW L2 clip ceiling axis under modern stack. Production GRAD_CLIP_AUX=5.0 set #708 (PRE-NM era 4-arm asymmetric chain {ctrl/aux5/body20/compound}). Modern post-#1702 stack adds NM mechanism modulating body Muon gradient magnitudes via R^{−1/2} preconditioning — but AUX group (embed + lm_head + scalar_params) handled by AdamW, NOT touched by NM. Tests whether aux-AdamW clip ceiling is well-tuned independent of NM mechanism shifts. **Companion to nezuko #2199 GRAD_CLIP_BODY bracket** — completes gradient-regularization-axis portfolio diversifying c790g cycle beyond NS-portfolio + EMBED-axes + body-LR-axes + NM-axes. ZERO new code (pure env-var bracketing on existing #708 per-group clip mechanism active in production).
+
+**Current PRs in flight (r4)**:
+- #2146 fern NS_COEF_SCHEDULE PP-confirm SEED={1,2} (HEADLINE — ETA 2026-06-02 ~05:30Z)
+- #2176 tanjiro γ-Tikhonov PP-confirm SEED=1 (Arm B γ=0.025 ETA 2026-06-02 ~01:28Z)
+- #2177 alphonse NS_STOC_COOLDOWN ablation (Arm B ETA 2026-06-02 ~01:11Z, Arm C ETA ~03:32Z)
+- #2179 edward NM_BETA bracket (Arm B β=0.90 ETA 2026-06-02 ~01:38Z, Arm C β=0.98 ETA ~03:56Z)
+- #2181 askeladd EMBED_INIT_ANCHOR_LAMBDA bracket (ETA 2026-06-02 chain)
+- #2199 nezuko GRAD_CLIP_BODY bracket (fresh, pending launch)
+- #2200 frieren ADAMW_LM_HEAD_LR_MULT bracket (fresh, pending launch)
+- #2204 thorfinn GRAD_CLIP_AUX bracket (fresh, pending launch — c790g-33 assignment)
+
+**5-AXIS PASSIVE-CLOSURE PORTFOLIO COMPLETE c790g cycle**: NS-4-portfolio (AMOUNT/TIMING/SHAPE/COEFF) + EMBED-SHAPE. NS-COEFF remains PORTFOLIO-OUTLIER pending fern #2146 PP-confirm. EMBED-axis CLOSURE CONFIRMS embed-LR-tail is load-bearing under modern stack; production cooldown-shape choice retains as winner.
+
+**Potential next research directions**:
+1. If fern #2146 PP-confirms `constant` c=0.5 → MERGE + assign fine-grain COEFF sweep c∈{0.3,0.4,0.5 ctrl,0.6} around c=0.5 optimum
+2. If tanjiro #2176 PP-confirms γ=0.025 FAV-direction at SEED=1 → advance n=3 at SEED=2
+3. NS_STOCHASTIC_MID {0 ctrl, 1, 2} — companion to alphonse #2177 (after #2177 closes)
+4. Joint EMBED_COOLDOWN_SHAPE × EMBED_INIT_ANCHOR_LAMBDA composite if both thorfinn+askeladd confirm mechanisms
+5. NS_COEF_SCHEDULE × NS_STOCHASTIC_COOLDOWN cross-axis additivity (after both close)
+6. Single-axis SEED=1 spot-check for [[embed-shape-cosine-coupling-crack-precond-ratio]] disambiguation (low compute ~2h48m single arm) — defer pending higher-priority work
+7. Gradient-regularization × NM-axis composite (BODY × NM_BETA or AUX × NM_TIKHONOV_GAMMA) if either #2199 or #2204 shows mechanism engagement
+
 - **Date:** 2026-06-01 23:44Z (cycle c790g-32 — **2 TERMINAL CLOSURES + 1 RETRACT + 1 HEADLINE PP-CONFIRM + 2 FRESH ASSIGNMENTS + 3 HB1 ACKs + NS 4-AXIS PORTFOLIO SYNTHESIS COMPLETE**)
 
 **NS 4-AXIS PORTFOLIO SYNTHESIS c790g CYCLE COMPLETE**:
