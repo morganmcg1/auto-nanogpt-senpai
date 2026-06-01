@@ -9,6 +9,48 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 14:45Z (**106th R5 closure — nezuko #2079 warmup-mu-ramp FFS-NEUTRAL; 3 cells at canonical attractor; 7/8 active, nezuko researcher dispatched**)
+
+### Notes (2026-06-01 14:45Z) — 106th R5 closure + parallel researcher for nezuko
+
+- **PR #2079 nezuko CLOSED FFS-NEUTRAL [106th R5 closure]**: warmup-mu-ramp (mu_warmup_start ∈ {0.70, 0.80, 0.95}). All 3 cells collapse to canonical attractor {FFS_ema=2875, FFS_trainval=2925}. Probe trajectory NOT monotone-better. ema_val range [3.27099, 3.27159] = Δ ≤ 0.0006 = pure seed noise. **Mechanism preserved**: NS5 absorbs warmup-side momentum perturbations (orthogonalization-dominated regime) but releases during cooldown (LR-contracting regime). This sharpens the [[ns5_absorbs_2d_weight_init_perturbations_at_r5]] absorption rule.
+- **Nezuko researcher dispatched (a3b4269f7311896e7)**: brief AVOIDS all mu/momentum/NS5/loss-side axes (nezuko's portfolio is fully mapped). Biased toward attention sink tokens, SOAP/Shampoo internals, token-level mechanisms, numerical/kernel-level, schedule shape, NS5 outer per-head/per-role, spectral preconditioning. ETA ~10-15 min.
+- **8 R5 cells at {2875, 2925} attractor this round** confirms strong local fixed-point requiring rare-event multi-axis escape. The signal candidate fleet must break this attractor.
+
+### Fleet status snapshot (14:45Z) — 7/8 active, nezuko awaiting researcher
+
+| PR | Student | Mechanism | Status |
+|---|---|---|---|
+| — | **nezuko** | — | **IDLE awaiting researcher (a3b4269f7311896e7)** |
+| #2042 | alphonse | RoPE base=4096 n=4 | Trial 0 reverted 2925, trials 1+ in flight (ETA ~18:40Z) |
+| #2070 | frieren | mu+precond_freq compound n=4 | In flight, ETA ~17:30Z |
+| #2118 | edward | logit cap-DOWN sweep | WIP (load-bearing regularization tighter direction) |
+| #2126 | thorfinn | trapezoid LR shape | WIP |
+| #2128 | tanjiro | cosine μ-cooldown shape | WIP |
+| #2130 | askeladd | embed LR coupling | WIP (assigned 14:00Z) |
+| #2133 | fern | depth-graduated MLP LR | WIP (assigned 14:30Z) |
+
+### Signal candidate quality ranking (14:45Z)
+
+1. **frieren #2070 mu+precond_freq compound n=4** (ETA 17:30Z): dual-metric n=1 signal. Best chance at 3rd R5 merge.
+2. **alphonse #2042 RoPE base=4096 n=4** (ETA 18:40Z): trial 0 reverted 2925, unlikely to recover gate.
+3. **fern #2133 depth-graduated-mlp-lr**: B★/D falsifier-paired; either signal or NS5-absorption-extended memory entry.
+4. **edward #2118 logit cap-DOWN**: regularization tighter-direction sweep.
+5. **thorfinn #2126 trapezoid LR**: first LR-shape axis on active fleet.
+6. **tanjiro #2128 cosine μ-cooldown**: symmetric shape variation.
+7. **askeladd #2130 embed LR coupling**: fresh axis, AdamW group outside NS5 absorption.
+8. **nezuko (idle)**: awaiting researcher; mu/momentum portfolio now fully mapped.
+
+### Cross-fleet learnings from R5 closures (now 106)
+
+- Mu cooldown axis: SCALAR-optimum at 0.80 (#2084); SCALAR-MAGNITUDE-only (asymmetry & warmup-side both flat: #2084, #2079)
+- Loss-side mechanisms: LOW PRIORITY — cooldown stack absorbs logit damping (#2077, #2080, #1870)
+- AdamW WD ramp: parameter-group-specific (Muon WD mechanism does NOT transfer; #2083)
+- NS5 absorption: structural 2D init perturbations, per-block depth-LR post-NS5, pre-NS5 gradient modifiers, WARMUP-SIDE MU all absorbed; only cooldown-side gradient-channel perturbations escape
+- 2875 floor: appears to be genuine geometric bottleneck across many mechanism classes; need orthogonal compound to break
+
+---
+
 ## Last updated: 2026-06-01 14:30Z (**8/8 active: askeladd PR #2130 embed-lr-coupling + fern PR #2133 depth-graduated-mlp-lr both assigned; fleet full**)
 
 ### Notes (2026-06-01 14:15Z) — Double closure, parallel hypothesis dispatch

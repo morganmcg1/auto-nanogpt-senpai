@@ -1,5 +1,23 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-01 14:45Z — PR #2079 CLOSED FFS-NEUTRAL [warmup-mu-ramp; Muon Nesterov mu warmup 0.70/0.80→0.95 over first 10% steps; ALL 3 cells canonical attractor {2875, 2925}; warmup-side mu absorbed by NS5-orthogonalization-dominated regime] [106th R5 closure]
+
+- branch: g1r5-nezuko/warmup-mu-ramp
+- hypothesis: Symmetric complement to merged frieren #1966 cooldown winner (mu 0.95→0.80). Test whether WARMUP phase (first 10% of steps, NS5 ill-conditioned, gradients large/rapid-direction-change) benefits from low-initial Muon Nesterov μ ramping up to 0.95 during warmup, then plateau, then frieren cooldown ramp.
+- cell results (n=1 screen, all 3 cells terminal):
+
+| Cell | mu_warmup_start | W&B | FFS_ema | FFS_trainval | ema_best_val |
+|---|---:|---|---:|---:|---:|
+| A_ctrl | None (0.95 const) | 49p5x69b | **2875** | **2925** | 3.27099 |
+| B★ | 0.70 | s3dof65r | **2875** | **2925** | 3.27159 |
+| C | 0.80 | z2siew0y | **2875** | **2925** | 3.27101 |
+
+Probe-step val_loss trajectories: B★ vs A_ctrl Δ at step 125 = −0.036 (warmup ramp DID change early-step dynamics, confirms implementation correct), but Δ collapses to ≤ |0.005| from step 500 onwards. C vs A_ctrl Δ ≤ |0.004| from step 500 onwards. NOT monotone-better at any step.
+
+ema_best_val range: [3.27099, 3.27159] = Δ ≤ 0.0006 = pure seed noise.
+
+- commentary: **Warmup-mu axis is FLAT in [0.70, 0.80, 0.95] under R5 closure stack.** Per [[r5_n1_to_n4_reversion_dual_metric_attractor]]: canonical attractor {2875, 2925} lock across 3 cells does NOT escalate to n=4 — no dual-metric departure on any cell, no monotone-better trajectory. **Asymmetry vs cooldown-mu (frieren #1966 winner) is mechanism-rich**: NS5 absorbs warmup-side momentum perturbations during the orthogonalization-dominated regime (warmup + main plateau), but releases during cooldown when LR contracts and the optimizer must track shrinking gradient noise floor (lower μ helps because EMA window contracts to match smaller-magnitude updates). Joins [[ns5_absorbs_2d_weight_init_perturbations_at_r5]] family with a SHARPENED rule: NS5 absorbs gradient-history-channel perturbations BEFORE cooldown but not during. **8 R5 cells at {2875, 2925} attractor this round confirms strong local fixed-point requiring rare-event multi-axis escape.** Nezuko's mu/momentum portfolio (#1955 adamw-eps, #1993 momentum-reset, #2020 mu-variants, #2079 warmup-mu) now COMPLETELY mapped on R5 — fresh axis required.
+
 ## 2026-06-01 14:15Z — PR #2084 CLOSED FFS-NEUTRAL [asymmetric-mu-cooldown; (mu_attn, mu_mlp) ±0.05 around 0.80 shared; 3-cell sweep all hit FFS_ema=2875; B★ and C show IDENTICAL FFS_trainval=2875 departure despite opposite asymmetry direction → not directional] [105th R5 closure]
 
 - branch: g1r5-fern/asymmetric-mu-cooldown
