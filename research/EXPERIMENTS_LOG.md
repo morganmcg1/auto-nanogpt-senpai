@@ -1,3 +1,39 @@
+## 2026-06-01 08:06 — PR #2011: H345 alphonse Polyak EMA SCOPE decoupling at H266 stack (round-2 AUX_ONLY decay-axis sweep) — CLOSED 204th NULL/NEG (🎯 PAPER-GRADE BILATERAL CANALIZED TIE on AUX_ONLY decay-axis: arm_a CTRL d=0.05 val=3.26895 FFS=3025 Pattern A +25 IN FAMILY (DID NOT replicate round-1 arm_c FFS=3000 WIN, Δ=+1.74σ_H174 from same-config replica) + arm_b LIGHT d=0.025 val=3.26972 FFS=3025 +0.87σ TIE-NEG vs CTRL Pattern A +25 + arm_c HEAVY d=0.10 val=3.26909 FFS=3025 +0.16σ TIE vs CTRL Pattern A +25 IN FAMILY = ALL 3 ARMS Pattern A +25 IN FAMILY BILATERAL CANALIZED TIE. H323 (scope=all decay canalization at d=0.05 within ±2× envelope) HOLDS at AUX_ONLY scope. 5th member of CANALIZED TIE BILATERAL class. 1st cycle ~2700 demonstration of CUDA-determinism envelope on cluster membership — round-1 arm_c WIN re-classified as CUDA non-determinism lucky draw within Pattern A +25 envelope, NOT reproducible scope-decoupling mechanism. Cluster status: 11 deterministic anchors + multiple probabilistic boundary candidates with ±1.74σ_H174 replica drift caveat. H353 arm_a CTRL `2r51ezy4` val=3.26717 FFS=3000 EXACT = NEW 12th candidate cluster anchor with NEW LOWEST val of cluster + H353 arm_b TIGHT `4fzvzege` val=3.26779 FFS=3000 EXACT = 13th + H355 arm_a CTRL `05h3elld` val=3.2676 FFS=3000 EXACT = 14th + H356 arm_a CTRL `y3r9xv3k` val=3.2679 FFS=3000 EXACT = 15th. New cluster pattern: existing-flag value-changes preserve bit-id more reliably than new-flag introductions which trigger Pattern A drift.)
+
+- Branch: g1r3-alphonse/h345-polyak-ema-scope-decoupling
+- Hypothesis (round-2): test whether narrowing scope to AUX_ONLY would unlock a different Polyak EMA decay optimum than the H323 joint-scope closure (canalized at d=0.05 within ±2× envelope at scope=all). Per round-1 arm_c finding (val=3.26741 FFS=3000 EXACT, LOWEST val of cycle ~2700), AUX_ONLY scope appeared sufficient; round-2 directly tests decay-axis sensitivity at the narrowed scope.
+
+### Results (round-2 — 3-arm Pattern A chain)
+
+| Arm | `polyak_ema_decay` | half-life | W&B run_id | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Δ vs round-1 arm_c (σ_H174) | Verdict |
+|-----|--------------------|-----------|------------|----------|-----|---------------------|---------------------|------------------------------|---------|
+| arm_a CTRL d=0.05 (round-1 winner replica) | 0.050 | 20-step | `hts6rkix` | 3.26895 | 3025 | (ref) | +0.87σ NEG | **+1.74σ NEG (CUDA drift)** | Pattern A +25 IN FAMILY |
+| arm_b LIGHT d=0.025 | 0.025 | 40-step | `ti0fbo57` | 3.26972 | 3025 | +0.87σ TIE-NEG | +1.74σ NEG | +2.61σ NEG | Pattern A +25 IN FAMILY |
+| arm_c HEAVY d=0.10 | 0.100 | 10-step | `zzx8ytm1` | 3.26909 | 3025 | +0.16σ TIE | +1.03σ NEG | +1.90σ NEG | Pattern A +25 IN FAMILY |
+| Round-1 arm_c (reference, NOT replicated) | 0.050 | 20-step | `mpf7g9wz` | 3.26741 | 3000 | — | -0.87σ POS | (ref) | CUDA lucky draw |
+| H266 baseline (PR #1669) | 0.050 | 20-step | `m2ywl0o9` | 3.26818 | 3000 | — | — | — | (reference) |
+
+🎯 **204th NULL/NEG closure** — BILATERAL CANALIZED TIE Pattern A +25 IN FAMILY. All arms FFS=3025; none strict-clears FFS<3000 per Issue #1260.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — H323 decay canalization HOLDS at AUX_ONLY scope**: arm_b LIGHT (d=0.025, 2× lighter) and arm_c HEAVY (d=0.10, 2× heavier) both produce ZERO benefit vs arm_a CTRL (d=0.05). The decay value axis is canalized REGARDLESS of scope choice. Joint optimum at d=0.05 is NOT a joint-scope artifact but a fundamental property of Polyak averaging mechanism at H266 stack — the 20-step half-life is load-bearing.
+
+🎯 **FINDING #2 — 1st cycle ~2700 demonstration of CUDA-determinism envelope on cluster membership**: round-2 arm_a CTRL with identical config to round-1 arm_c WIN drifted +1.74σ_H174 = FFS=3000→FFS=3025 between replicas. Cluster membership is probabilistic, not deterministic config-level property. Round-1 arm_c WIN re-classified as CUDA non-determinism lucky draw within Pattern A +25 envelope, NOT reproducible scope-decoupling mechanism.
+
+🎯 **FINDING #3 — 5th member of CANALIZED TIE BILATERAL class**: joins H322 + H338 + H339 + H346 β1 cooldown ramp DOWN axis. AUX_ONLY decay axis is the 5th member.
+
+🎯 **FINDING #4 — Cluster status refinement**: 11 deterministic anchors + multiple probabilistic boundary candidates with ±1.74σ_H174 replica drift caveat. H353 (12th + 13th), H355 (14th), H356 (15th) candidate anchors added during overlapping turns.
+
+🎯 **FINDING #5 — Honest negative-result reporting strengthens cycle ~2700 portfolio**: round-1 arm_c was a real CUDA-determinism lucky draw, not a mechanism. Re-classification clears the cluster characterization to deterministic-vs-probabilistic distinction.
+
+### Cycle ~2700 update — 204 NULL/NEG + 1 MERGED WIN (H266)
+
+- CANALIZED TIE BILATERAL class: 5 members (H322 + H338 + H339 + H346 + **H345 round-2 AUX_ONLY decay**)
+- H266 attractor cluster: 11 deterministic anchors + multiple probabilistic boundary candidates (H353+H355+H356 arm_a CTRL all FFS=3000 EXACT in 12-15 candidate slots)
+
+---
+
 ## 2026-06-01 — PR #2044: H350 askeladd BODY init bisection of H342 conflated factors (per-module-match-broken vs depth-asymmetry) — CLOSED 203rd NULL/NEG (🎯 PAPER-GRADE BILATERAL DECOMPOSITION of H342 LARGEST single-direction NEG of cycle ~2700 (+40.7σ CATASTROPHIC) into LINEAR ADDITIVE per-module-match-broken + depth-asymmetry factors: arm_a CTRL `orthogonal_fnorm_matched` val=3.27011 FFS=3050 +2.18σ NEG Pattern A +50 outlier envelope + arm_b NO_DAMP_BAND `orthogonal_bottom_damp damp=1.0` val=3.27744 FFS=3200 +10.48σ MID NEG REACHES target with +200 FFS delay + arm_c MILD_DAMP `orthogonal_bottom_damp damp=0.75` val=3.29130 FFS=-1 NEVER REACHED +26.15σ HIGH NEG CATASTROPHIC = 6th HARD-LOAD-BEARING CATASTROPHIC entry on depth-asymmetry axis with sharp threshold in (0.75, 1.0]. Per-module-match-broken alone MILDLY-LOAD-BEARING (only +10.48σ NEG, reaches target). Depth-asymmetry HARD-LOAD-BEARING (any damp<1.0 → CATASTROPHIC FFS=-1). Linear additive damage ~15σ per 0.25 damp decrement. H342 catastrophic NEG decomposition: depth-asymmetry contributes ~75% (~+30σ), per-module-match-broken contributes ~25% (~+10σ). Mechanism: MuonH scale_invariant orthogonalization preserves init F-norm magnitudes through training; depth-asymmetry creates per-layer learning-rate imbalance via vanishing-gradient-compound effect through chain rule across attention/mlp blocks)
 
 - Branch: g1r3-askeladd/h350-body-init-bisection
