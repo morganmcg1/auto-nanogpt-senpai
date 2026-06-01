@@ -107,6 +107,14 @@ def parse_args():
                              "of training). Default=0.80 (winning value, PR #1966). "
                              "Set to None or 0.95 to disable the ramp. "
                              "Affects all muon_* param groups.")
+    parser.add_argument("--mu_cooldown_attn_target", type=float, default=None,
+                        help="If set, overrides mu_cooldown_target for the muon_attn param group. "
+                             "Default=None -> uses mu_cooldown_target for both groups. "
+                             "Example: 0.85 (less aggressive ramp for attn group).")
+    parser.add_argument("--mu_cooldown_mlp_target", type=float, default=None,
+                        help="If set, overrides mu_cooldown_target for the muon_mlp param group. "
+                             "Default=None -> uses mu_cooldown_target for both groups. "
+                             "Example: 0.75 (more aggressive ramp for mlp group).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -794,6 +802,12 @@ if dist.get_rank() == 0:
             "ema_eval_enabled": args.ema_eval_decay is not None,
             "mu_cooldown_target": args.mu_cooldown_target,
             "mu_cooldown_enabled": args.mu_cooldown_target is not None,
+            "mu_cooldown_attn_target": args.mu_cooldown_attn_target,
+            "mu_cooldown_mlp_target": args.mu_cooldown_mlp_target,
+            "mu_cooldown_asymmetric": (
+                args.mu_cooldown_attn_target is not None
+                or args.mu_cooldown_mlp_target is not None
+            ),
         },
     )
 
@@ -938,14 +952,26 @@ for trial_idx in range(args.num_trials):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
         if args.mu_cooldown_target is not None:
             if progress < 1 - cooldown_frac:
-                mu_sched = 0.95
+                x_mu = 0.0
+                in_cooldown = False
             else:
                 x_mu = (progress - (1 - cooldown_frac)) / cooldown_frac
-                mu_sched = 0.95 + (args.mu_cooldown_target - 0.95) * x_mu
+                in_cooldown = True
             for opt in optimizers:
                 for group in opt.param_groups:
-                    if group.get("name", "").startswith("muon_"):
-                        group["mu"] = mu_sched
+                    gname = group.get("name", "")
+                    if not gname.startswith("muon_"):
+                        continue
+                    if gname == "muon_attn" and args.mu_cooldown_attn_target is not None:
+                        target_mu = args.mu_cooldown_attn_target
+                    elif gname == "muon_mlp" and args.mu_cooldown_mlp_target is not None:
+                        target_mu = args.mu_cooldown_mlp_target
+                    else:
+                        target_mu = args.mu_cooldown_target
+                    if in_cooldown:
+                        group["mu"] = 0.95 + (target_mu - 0.95) * x_mu
+                    else:
+                        group["mu"] = 0.95
         return eta
 
 
