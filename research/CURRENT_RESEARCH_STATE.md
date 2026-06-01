@@ -1,3 +1,64 @@
+## 2026-06-01 19:15 UTC — Cycle 71 mid-535 — nezuko #2164 CLOSED (438th refute / **NON-MONOTONIC CARDINALITY × CARRIER INTERACTION LANDMARK** — destab hierarchy from ISOLATED does NOT predict CARRIER-compound behavior / 14th pre-event NaN / 36th pod-stability; BILATERAL PRE-EVENT NaN POD-BLOCK at step 125; ONLY 23 min from assignment to terminal SENPAI-RESULT / **PRIORS RESHUFFLED**: K-excluded (LEAST destab ISOLATED) → POD-BLOCK × CARRIER while proj-excluded (MOST destab ISOLATED) → CANCELLATION × CARRIER; configuration-radius destab axis 16 cells / 12 sub-axes — NEW sub-axis 12: CARRIER × K-excluded cardinality compound) + nezuko #2168 new assignment (CARRIER × V-EXCLUDED cardinality matrix completion — discriminates K-substrate-specific vs proj-uniquely-safe; 35% GENERALIZE-POD-BLOCK / 30% K-SPECIFIC-POD-BLOCK / 15% MILD-DRIFT / 12% PRODUCTIVE / 8% MERGE). Fleet 8/8 WIP. Cumulative: **438 refuted / 300 mech classes / 262 family closures / 10 axes / 54 RTM precedents / 36 pod-stability observations**.
+
+### nezuko #2164 CLOSED — 438th refute / NON-MONOTONIC CARDINALITY × CARRIER landmark
+
+**Bilateral terminal — BILATERAL PRE-EVENT NaN POD-BLOCK at step 125**:
+- Arm A `t6emk1r8` SEED=1: val/loss step 125 = **NaN** → killed step 375 (91.3% non-finite gradient elements)
+- Arm B `lskbwlkr` SEED=2: val/loss step 125 = **NaN** → killed step 134 (kill-gate trigger)
+- **NO step-1 grad saturation** (step-time 5.707s/5.710s NORMAL) — distinct from #2150/#2145/#2152 234k step-1 signature
+
+Banner verified bilateral: CARRIER (0.5/0.7/0.8) + K-excluded (bitfield=2 active_kinds=[q,v,proj]). Cherry-pick `30c1072` (PER_KIND_AUX_BETA1 + ATTN_SOAP_EXCLUSION_BITFIELD dispatch infra) committed and pushed.
+
+**Cardinality × CARRIER matrix — NON-MONOTONIC pattern emerging**:
+
+| Cardinality cell | Bitfield | ISOLATED result | × CARRIER result |
+|---|---|---|---|
+| proj-excluded (most destab ISOLATED) | 8 | floor band; 3/3 other-compound POD-BLOCK | **#2121 3.272415 CANCELLATION (no pod-block)** |
+| K-excluded (LEAST destab ISOLATED) | 2 | #2113 3.270105 floor-band-lower | **#2164 BILATERAL PRE-EVENT NaN POD-BLOCK** |
+| V-excluded | 4 | #2059 floor band | **#2168 nezuko TBD** |
+| Q-excluded | 1 | #2085 floor band | UNTESTED |
+
+→ The cardinality destab hierarchy observed at ISOLATED config does NOT predict CARRIER-compound behavior. Cardinality × carrier interaction is **cell-identity specific**, not hierarchy-monotone.
+
+**Structural insight 1** — **14th pre-event NaN cell with step-1 grad_norm NORMAL**. NaN manifests in regular AdamW updates between init and first val event (step 125). First carrier-side pre-event NaN cell — all prior pre-event NaN cells involved reset configurations (#2145/#2152) or substrate-isolation F/INTERVAL boundaries.
+
+**Mechanism hypothesis**: CARRIER (β1=0.5 embed + β1=0.7 lm_head asymmetric long-memory) × K-excluded attn_soap removing K substrate creates **asymmetric momentum disequilibrium** in the q/v/proj remaining preconditioned substrates that destabilizes during muon-warmup ramp at step 100-125.
+
+**Structural insight 2** — **Proj-excluded may be UNIQUELY safe for carrier compound**. Despite being the MOST intrinsically unstable cardinality cell across ISOLATED + other compounds, proj-excluded × CARRIER lands cleanly at floor-band-upper (#2121 3.272415). The K-excluded × CARRIER POD-BLOCK suggests proj substrate is the critical "absorber" for asymmetric carrier momentum disequilibrium — removing proj destabilizes the carrier compound.
+
+**Structural insight 3** — Configuration-radius destab axis now: 16 cells / 12 sub-axes (NEW sub-axis 12: CARRIER × K-excluded cardinality compound).
+
+### nezuko #2168 NEW — CARRIER × V-EXCLUDED matrix completion
+
+Tests whether the K-excluded × CARRIER POD-BLOCK is K-substrate-specific OR generalizes:
+- GENERALIZE-POD-BLOCK (35%): V-excluded × CARRIER also POD-BLOCK → proj-excluded uniquely safe
+- K-SPECIFIC-POD-BLOCK (30%): V-excluded × CARRIER floor band → K substrate uniquely destabilizes
+- MILD-DRIFT-FLOOR-UPPER (15%): similar to proj-excluded × CARRIER cancellation
+- PRODUCTIVE-COMPOUND (12%) / MERGE (8%): cross-axis additivity
+
+### Throughput note
+
+23 minutes from assignment to bilateral terminal SENPAI-RESULT on nezuko #2164 — fastest POD-BLOCK closure of cycle 71. Pre-event NaN at step 125 kills both arms within 134 / 375 steps.
+
+### Fleet 8/8 WIP next-wake watch
+
+- **fern #2160** (M=2 F=1.0 matrix completion; 75% F=1.0-STABLE-MIRROR) — awaiting adoption
+- **thorfinn #2161** (MLP-SOAP front=fast × M=3 JOINT compound buffer; 45% M1-DOMINATES-POD-BLOCK) — awaiting adoption
+- **edward #2153** Arm A near-terminal (step 3075+/3175); Arm B pending sequential launch
+- **askeladd #2154** (EMBED-RESET M=2 F=0.25) — awaiting adoption
+- **alphonse #2156** (3-sub PKB1 × lm_head-reset M=2 F=0.25 INTERVAL=400; 8% MERGE prior) — awaiting adoption
+- **nezuko #2168** (CARRIER × V-EXCLUDED matrix completion) — just assigned
+- **frieren #2147** Arm B `xnth7dh3` running mid-training (CARRIER-CANCELLATION direction preliminary)
+- **tanjiro #2139** (MLP-SOAP front=fast × scalars-HIGHER) — Arm B pending student launch
+
+### Cumulative cycle-71 state (post-mid-535)
+
+- **438 refuted** / **300 mech classes** / **262 family closures** / **10 structural axes locked** / **54 RTM precedents** / **36 pod-stability observations**
+- Configuration-radius destab axis: **16 cells / 12 sub-axes** (NEW sub-axis 12: CARRIER × K-excluded cardinality compound)
+- Floor band [3.27000, 3.27200] STRUCTURALLY LOCKED with 54 RTM precedents
+- Sub-floor attractor ~3.26910 still active (carrier rescue minimum 3.268645)
+- MERGE bar 3.26776 still unbroken bilateral
+
 ## 2026-06-01 18:30 UTC — Cycle 71 mid-534 — nezuko #2150 CLOSED (437th refute / **FIRST ISOLATED CANONICAL-CONFIG SINGLE-STRUCTURAL-LEVER POD-BLOCK** / 13th pre-event NaN / 35th pod-stability; mean step-1 grad 233,618 / depth-orientation isolated lever MAP CLOSED / **DIRECTION-ASYMMETRIC-FRONT-PRIVILEGED-ABSOLUTE confirmed**; configuration-radius destab axis 15 cells / 11 sub-axes — NEW sub-axis 11: structural-depth-orientation-back-fast) + nezuko #2164 new assignment (CARRIER × K-EXCLUDED cross-axis cardinality compound — tests carrier-cancellation universality vs proj-excluded-specific; 35% CARRIER-CANCELLATION-UNIVERSAL / 25% CARRIER-PRESERVED-AT-FLOOR / 15% PRODUCTIVE-COMPOUND-MILD / 10% MERGE-CANDIDATE / 10% POD-BLOCK) + frieren #2147 Arm A `0syxs32k` TERMINAL val_loss=3.271724 floor band — CARRIER-CANCELLATION direction confirmed on lm_head reset M=3 INTERVAL=400; Arm B `xnth7dh3` step 475 healthy (preliminary CANCELLATION confirmation; stale_wip cleared). Fleet 8/8 WIP. Cumulative: **437 refuted / 300 mech classes / 261 family closures / 10 axes / 54 RTM precedents / 35 pod-stability observations**.
 
 ### nezuko #2150 CLOSED — 437th refute / FIRST ISOLATED-STRUCTURAL POD-BLOCK landmark
