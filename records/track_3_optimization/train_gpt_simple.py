@@ -84,6 +84,13 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--body_muon_wd_pattern', type=str, default='uniform',
+                        choices=['uniform', 'ascending', 'descending'],
+                        help='Per-depth weight_decay pattern for body PMuon. '
+                             'uniform=0.025 across all 12 blocks (default). '
+                             'ascending=(shallow 0.0125, middle 0.025, deep 0.0375). '
+                             'descending=(shallow 0.0375, middle 0.025, deep 0.0125). '
+                             'Block buckets: shallow=[0,4), middle=[4,8), deep=[8,12).')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +772,7 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "body_muon_wd_pattern": args.body_muon_wd_pattern,
             "seed": args.seed,
         },
     )
@@ -801,10 +809,50 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
-    print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    # Depth-stratified body PMuon: split the 12 transformer blocks into three
+    # buckets (shallow=[0,4), middle=[4,8), deep=[8,12)) so each receives its
+    # own weight_decay group. Param-group LRs all start at args.muon_lr; the
+    # late-higher per-block LR multipliers (--muon_block_lr_pattern) still
+    # apply via optimizer2._param_lr_mults (keyed by id(p)) since the lookup
+    # is per-parameter, not per-group.
+    shallow_body_params, middle_body_params, deep_body_params = [], [], []
+    for _name, _p in model.named_parameters():
+        if _p.ndim >= 2 and _name.startswith("blocks."):
+            _idx = int(_name.split(".")[1])
+            if _idx < 4:
+                shallow_body_params.append(_p)
+            elif _idx < 8:
+                middle_body_params.append(_p)
+            else:
+                deep_body_params.append(_p)
+    if args.body_muon_wd_pattern == 'ascending':
+        wd_shallow, wd_middle, wd_deep = 0.0125, 0.025, 0.0375
+    elif args.body_muon_wd_pattern == 'descending':
+        wd_shallow, wd_middle, wd_deep = 0.0375, 0.025, 0.0125
+    else:  # uniform
+        wd_shallow = wd_middle = wd_deep = 0.025
+    # Pre-sort each bucket by size (reverse) to match Muon's internal sort.
+    shallow_body_params = sorted(shallow_body_params, key=lambda x: x.size(), reverse=True)
+    middle_body_params = sorted(middle_body_params, key=lambda x: x.size(), reverse=True)
+    deep_body_params = sorted(deep_body_params, key=lambda x: x.size(), reverse=True)
+    optimizer2 = Muon(shallow_body_params, lr=args.muon_lr, weight_decay=wd_shallow,
+                      beta_cov=0.95, gamma=PMUON_GAMMA)
+    optimizer2.param_groups[0]["name"] = "muon_blocks_shallow"
+    optimizer2.add_param_group(dict(params=middle_body_params,
+                                    weight_decay=wd_middle,
+                                    name="muon_blocks_middle"))
+    optimizer2.add_param_group(dict(params=deep_body_params,
+                                    weight_decay=wd_deep,
+                                    name="muon_blocks_deep"))
+    # Flat list used wherever the legacy single-group path indexed param_groups[0].
+    body_pmuon_params_flat = [_p for _g in optimizer2.param_groups for _p in _g["params"]]
+    print0(f"body-Muon optimizer (depth-stratified): pattern={args.body_muon_wd_pattern} "
+           f"wd_shallow={wd_shallow} wd_middle={wd_middle} wd_deep={wd_deep} "
+           f"lr={args.muon_lr} beta_cov=0.95 gamma={PMUON_GAMMA}")
+    if args.body_muon_wd_pattern != 'uniform':
+        print0(f"[step 0] body_muon_wd_pattern={args.body_muon_wd_pattern}: "
+               f"wd_shallow={wd_shallow}, wd_middle={wd_middle}, wd_deep={wd_deep}",
+               console=True)
 
     # Per-block Muon LR shape: mean-preserving linear ramp across block index.
     # block_mults sum to NUM_LAYERS × 1.0 exactly, so mean LR is unchanged vs uniform.
@@ -835,6 +883,13 @@ for trial_idx in range(args.num_trials):
                       step=0)
     optimizer2._param_lr_mults = param_lr_mults
 
+    if dist.get_rank() == 0:
+        wandb.log({
+            "optim/body_muon_wd_shallow": wd_shallow,
+            "optim/body_muon_wd_middle": wd_middle,
+            "optim/body_muon_wd_deep": wd_deep,
+        }, step=0)
+
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -850,7 +905,7 @@ for trial_idx in range(args.num_trials):
     # ema_beta (base) to ema_beta_target as the LR multiplier decays to 0.
     ema_params = None
     if args.ema_beta > 0:
-        ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
+        ema_params = [p.detach().float().clone() for p in body_pmuon_params_flat]
 
     # paramEMA refresh state: when --paramema_refresh_step>0, the buffer is reset
     # to live params at that step. ema_refresh/fired stays at 0 until then.
@@ -949,14 +1004,14 @@ for trial_idx in range(args.num_trials):
             # Swap in EMA weights (body-Muon matrix params only) for the eval pass.
             train_bufs = None
             if ema_params is not None:
-                train_bufs = [p.detach().clone() for p in optimizer2.param_groups[0]["params"]]
+                train_bufs = [p.detach().clone() for p in body_pmuon_params_flat]
                 # Compute Frobenius distance ||ema - live|| across all body-Muon params.
                 sq_sum = 0.0
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_pmuon_params_flat):
                     diff = (ema_p - p.detach().float())
                     sq_sum += float(diff.square().sum().item())
                 buffer_frob_dist = sq_sum ** 0.5
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_pmuon_params_flat):
                     p.data.copy_(ema_p.to(p.dtype))
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -968,7 +1023,7 @@ for trial_idx in range(args.num_trials):
             val_loss_float = float(val_loss.item())
             # Restore train weights immediately after eval so subsequent backward passes use them.
             if train_bufs is not None:
-                for train_p, p in zip(train_bufs, optimizer2.param_groups[0]["params"]):
+                for train_p, p in zip(train_bufs, body_pmuon_params_flat):
                     p.data.copy_(train_p)
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
@@ -1082,7 +1137,7 @@ for trial_idx in range(args.num_trials):
         ema_lr_mult_now = float("nan")
         if ema_params is not None:
             if step < args.ema_warmup_steps:
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_pmuon_params_flat):
                     ema_p.copy_(p.detach().float())
                 ema_beta_t_now = args.ema_beta
                 ema_lr_mult_now = compute_lr_mult(step)
@@ -1090,7 +1145,7 @@ for trial_idx in range(args.num_trials):
                 ema_lr_mult_now = compute_lr_mult(step)
                 ema_beta_t_now = compute_ema_beta_t(step)
                 lerp_w = 1.0 - ema_beta_t_now
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_pmuon_params_flat):
                     ema_p.lerp_(p.detach().float(), lerp_w)
             # paramEMA refresh: at --paramema_refresh_step, overwrite EMA buffer
             # with current live params (zeroing the accumulated EMA history).
@@ -1099,7 +1154,7 @@ for trial_idx in range(args.num_trials):
             # the refreshed buffer.
             if (args.paramema_refresh_step > 0
                     and step == args.paramema_refresh_step):
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_pmuon_params_flat):
                     ema_p.copy_(p.detach().float())
                 ema_refresh_fired_total = 1
                 ema_refresh_step_logged = step
