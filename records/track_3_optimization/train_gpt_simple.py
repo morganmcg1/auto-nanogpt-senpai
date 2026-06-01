@@ -106,6 +106,14 @@ def parse_args():
                              "this target value across the cooldown phase (last cooldown_frac "
                              "of training). None = constant mu=0.95 (default). "
                              "Affects all muon_* param groups.")
+    parser.add_argument("--z_loss_weight", type=float, default=0.0,
+                        help="Auxiliary z-loss coefficient (lambda_z). Adds "
+                             "0.5 * lambda_z * sum_t(logsumexp(logits_t)^2) to the "
+                             "sum-reduced cross-entropy loss (train-only) to penalize "
+                             "large output normalization constants. PaLM/Gopher use "
+                             "lambda_z=1e-4 in production. The .sum() reduction matches "
+                             "this codebase's reduction='sum' cross_entropy. "
+                             "Default=0.0 (disabled; bit-identical to baseline).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -116,6 +124,7 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+Z_LOSS_WEIGHT = float(args.z_loss_weight)
 
 
 def clean_metric_name(name: str) -> str:
@@ -489,6 +498,8 @@ class GPT(nn.Module):
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        # [loss_ce_sum, loss_z_sum, log_z_mean, log_z_std]; read post-forward for telemetry.
+        self.register_buffer("_z_stats", torch.zeros(4, dtype=torch.float32), persistent=False)
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
@@ -496,7 +507,20 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        flat_logits = logits.view(targets.numel(), -1)
+        flat_targets = targets.view(-1)
+        loss_ce = F.cross_entropy(flat_logits, flat_targets, reduction="sum")
+        if self.training and Z_LOSS_WEIGHT > 0:
+            log_z = torch.logsumexp(flat_logits, dim=-1)
+            log_z_sq_sum = log_z.pow(2).sum()
+            loss_z = 0.5 * Z_LOSS_WEIGHT * log_z_sq_sum
+            with torch.no_grad():
+                self._z_stats[0] = loss_ce.detach()
+                self._z_stats[1] = loss_z.detach()
+                self._z_stats[2] = log_z.mean().detach()
+                self._z_stats[3] = log_z.std().detach()
+            return loss_ce + loss_z
+        return loss_ce
 
 
 ########################################
@@ -793,6 +817,8 @@ if dist.get_rank() == 0:
             "ema_eval_enabled": args.ema_eval_decay is not None,
             "mu_cooldown_target": args.mu_cooldown_target,
             "mu_cooldown_enabled": args.mu_cooldown_target is not None,
+            "z_loss_weight": Z_LOSS_WEIGHT,
+            "z_loss_enabled": Z_LOSS_WEIGHT > 0,
         },
     )
 
@@ -1197,6 +1223,21 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            if Z_LOSS_WEIGHT > 0:
+                # _z_stats holds the last micro-batch's stats; mbs covers `mbs * seq_len` tokens.
+                z_stats_cpu = model._z_stats.detach().cpu().tolist()
+                mbs_tokens = float(mbs * 1024)
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/loss_ce": z_stats_cpu[0] / mbs_tokens,
+                    "train/loss_z": z_stats_cpu[1] / mbs_tokens,
+                    "train/log_z_mean": z_stats_cpu[2],
+                    "train/log_z_std": z_stats_cpu[3],
+                    "train/loss_z_fraction": (
+                        z_stats_cpu[1] / max(z_stats_cpu[0] + z_stats_cpu[1], 1e-12)
+                    ),
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
 
