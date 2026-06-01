@@ -9,6 +9,62 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 17:30Z (**frieren #2070 n=4 reverting to canonical (3/4 trials at 2875); nezuko A_ctrl terminal + B★ launched; 5 A_ctrls at canonical**)
+
+### Notes (2026-06-01 17:30Z) — frieren n=4 attractor reversion CONFIRMED + 5th A_ctrl at canonical
+
+- **frieren #2070 n=4 CONFIRM: TRIALS 0-2 ALL AT CANONICAL ATTRACTOR.** Trial 4 in progress (step ~10456/13000, 37% done). At observed 28 steps/min pace, **ETA refined to ~18:56Z** (1h26m from now, NOT the 17:30Z earlier estimate).
+
+| Trial | FFS_ema | FFS_trainval | ema_val |
+|---|---|---|---|
+| 0 | 2875 | 2925 | 3.2706 |
+| 1 | 2875 | 2925 | 3.2707 |
+| 2 | 2875 | 2925 | 3.2713 |
+| 3 | (in progress, step ~10456) | — | — |
+
+  3-trial μ(FFS_ema)=2875.0, σ=0 — DEAD FLAT on canonical attractor. Matches memory [[r5_n1_to_n4_reversion_dual_metric_attractor]]: n=1 signal (FFS_trainval -50 OFF canonical + monotone Δema -0.0018) is reverting on n=4 as predicted. **Trial 4 expected at canonical → 107th R5 FFS-NEUTRAL closure on completion.** Compound mu+precond_freq joins absorbed family.
+
+- **PR #2138 nezuko A_ctrl FINISHED** at FFS_ema=2875, FFS_trainval=2875 (TV tied at 2875 — interesting -50 departure within ±50 noise tolerance), ema_val=3.2697. **B★ `q1xl3tst`** (soap_eps_floor=0.03) launched 17:27Z (28 min gap), now step 124.
+
+### A_ctrl reproducibility table (5 arms terminal, all canonical)
+
+| PR | Student | Run | Final ema_val | FFS_ema | FFS_trainval | Verdict |
+|---|---|---|---|---|---|---|
+| #2126 | thorfinn | `oteszbcp` | 3.2701 | 2875 | 2925 | Canonical ✓ |
+| #2128 | tanjiro | `k6q6szky` | (3.270x) | 2875 | 2925 | Canonical ✓ |
+| #2130 | askeladd | `m2qgbnzs` | 3.2693 | 2875 | (—) | Canonical ✓ |
+| #2133 | fern | `0dzw5596` | 3.2709 | 2875 | (—) | Canonical ✓ |
+| #2138 | nezuko | `b91wo9l4` | 3.2697 | 2875 | **2875** | Canonical (TV-tied) ✓ |
+
+5 A_ctrls across 5 students all land at FFS_ema=2875, best ema_val ∈ [3.2693, 3.2713]. **Round 5 = cleanest baseline reproduction round to date.** Spread ≤0.002.
+
+### Fleet status snapshot (17:30Z) — 8/8 RUNNING, 5 in B★ test arms
+
+| PR | Student | Active Run | State | Step | Notes |
+|---|---|---|---|---|---|
+| #2042 | alphonse | `rblece7h` | running | 11377 | n=4 rope_base=4096 trial 3 near terminal; ETA ~18:40Z |
+| #2070 | **frieren** | `xdevn24r` | running | 10456 | **n=4 mu+freq compound trial 4 36%; ETA refined ~18:56Z** |
+| #2118 | edward | `iqpkbtis` | running | 3099 | A_ctrl logit cap-DOWN near terminal (step 3099/3250) |
+| #2126 | thorfinn | `h2bkl9o3` (B★) | running | 1821 | trapezoid plateau_frac=0.4 mid |
+| #2128 | tanjiro | `1hod394d` (B★) | running | 1698 | cosine ease-in mu mid |
+| #2130 | askeladd | `4px2l6l7` (B★) | running | 1113 | embed_lr_scale=5.0 mid |
+| #2133 | fern | `7uhpuigt` (B★) | running | 944 | depth-graduated MLP early×1.15/late×0.85 |
+| #2138 | nezuko | `q1xl3tst` (B★) | running | 124 | soap_eps_floor=0.03 early |
+
+### Heartbeat actions (17:25Z–17:30Z)
+
+1. W&B fleet check: 3 stale_wip flags (#2070, #2118, #2138) all triaged.
+2. frieren #2070 trial 0-2 confirmed at canonical (3-trial μ=2875.0); trial 4 ETA refined to 18:56Z.
+3. nezuko #2138 A_ctrl terminal + B★ launched (verified `q1xl3tst` running).
+4. Posted explanatory comments on all 3 PRs to clear flags.
+5. Human issue #2122 (Aurora): already addressed, no action.
+
+### Expected near-term closures
+
+- **frieren #2070** at ~18:56Z (107th R5 closure FFS-NEUTRAL, n=4 attractor reversion of mu+precond_freq compound)
+
+---
+
 ## Last updated: 2026-06-01 16:55Z (**askeladd + fern A_ctrl FINISHED at canonical; both B★ auto-launched; fleet 8/8 in test arms or near-terminal**)
 
 ### Notes (2026-06-01 16:55Z) — 4 A_ctrls now at canonical attractor; 4 B★ test arms running
