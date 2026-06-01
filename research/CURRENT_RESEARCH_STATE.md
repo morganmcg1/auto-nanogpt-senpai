@@ -9,6 +9,46 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 16:55Z (**askeladd + fern A_ctrl FINISHED at canonical; both B★ auto-launched; fleet 8/8 in test arms or near-terminal**)
+
+### Notes (2026-06-01 16:55Z) — 4 A_ctrls now at canonical attractor; 4 B★ test arms running
+
+- **PR #2130 askeladd A_ctrl FINISHED** at step 3250 (best ema_loss=3.2693, FFS_ema=2875). **B★ `4px2l6l7`** (embed_lr_scale=5.0, embed_lr_resolved=0.275) auto-launched at 16:50Z; now at step ~360. Queue script working cleanly.
+- **PR #2133 fern A_ctrl FINISHED** at step 3250 (best ema_loss=3.2709, FFS_ema=2875). **B★ `7uhpuigt`** (depth-graduated MLP LR, early×1.15/late×0.85) auto-launched at 16:55Z; now at step ~190.
+
+### A_ctrl reproducibility table (4 arms terminal, all canonical)
+
+| PR | Student | Run | Final ema_val | FFS_ema | FFS_trainval | Verdict |
+|---|---|---|---|---|---|---|
+| #2126 | thorfinn | `oteszbcp` | 3.2701 | 2875 | 2925 | Canonical ✓ |
+| #2128 | tanjiro | `k6q6szky` | (3.270x) | 2875 | 2925 | Canonical ✓ |
+| #2130 | askeladd | `m2qgbnzs` | 3.2693 | 2875 | (—) | Canonical ✓ |
+| #2133 | fern | `0dzw5596` | 3.2709 | 2875 | (—) | Canonical ✓ |
+
+**Cleanest n=1 reproduction round yet** — all 4 A_ctrl arms across 4 distinct students land at FFS_ema=2875 with best ema_val ∈ [3.2693, 3.2709] (≤0.0016 spread). Baseline is well-conditioned across student/launch context.
+
+### Fleet status snapshot (16:55Z) — 8/8 RUNNING, 4 in B★ test arms
+
+| PR | Student | Active Run | State | Step | Notes |
+|---|---|---|---|---|---|
+| #2042 | alphonse | `rblece7h` | running | 10522 | n=4 confirm rope_base=4096; trial 3 near terminal |
+| #2070 | **frieren** | `xdevn24r` | running | 9621 | **n=4 confirm mu+freq compound; trial 3 step 2900/3250; ETA ~17:30Z** |
+| #2118 | edward | `iqpkbtis` | running | 2471 | A_ctrl logit cap-DOWN; ema_val=3.3161 |
+| #2126 | thorfinn | `h2bkl9o3` (B★) | running | 977 | trapezoid plateau_frac=0.4 |
+| #2128 | tanjiro | `1hod394d` (B★) | running | 858 | cosine ease-in mu cooldown |
+| #2130 | askeladd | `4px2l6l7` (B★) | running | ~360 | embed_lr_scale=5.0 |
+| #2133 | fern | `7uhpuigt` (B★) | running | ~190 | depth-graduated MLP LR early×1.15/late×0.85 |
+| #2138 | nezuko | `b91wo9l4` | running | 2676 | A_ctrl SOAP adaptive eps; ema_val=3.2931 |
+
+### Heartbeat actions (16:54Z–16:55Z)
+
+1. Survey clean (0 review-ready, 8 WIP, 0 idle, 0 advisor-action).
+2. Verified human issues #2122 + #1262 fully addressed (no new comments).
+3. W&B check: askeladd + fern A_ctrl terminated; both B★ auto-launched cleanly via student queue scripts.
+4. Updated fleet table; no triage action needed.
+
+---
+
 ## Last updated: 2026-06-01 16:40Z (**fern #2133 stale_wip = false alarm; thorfinn #2126 + tanjiro #2128 B★ both launched; 4th-consecutive false alarm**)
 
 ### Notes (2026-06-01 16:40Z) — Fleet check: B★ arms launching, 4 false-alarm stale_wip flags in a row
