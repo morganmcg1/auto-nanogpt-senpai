@@ -1,3 +1,33 @@
+## 2026-06-01 00:30 UTC — Cycle 71 mid-490 — fern #2013 393rd refute 263rd mech class β1-DISPATCH-DIRECTION-IS-WEAKLY-LM-HEAD-LOWER-PREFERRED (30th RTM precedent; n=2 mean 3.27123 / Δ vs canonical 19th RTM +0.00108; Δ vs DESTRUCTIVE band −0.00167; MIRROR direction is productive but worse than canonical by small but real margin) + fern #2043 new assignment (3-SUBSTRATE per-kind β1 dispatch SCALARS-LOWER probe: embed=0.8 + lm_head=0.7 + scalars=0.6 — extends 2-substrate JOINT-COHERENT-DISPATCH to 3-substrate; 30% PRODUCTIVE-EXTENSION 30% RTM-INVARIANT 25% DESTRUCTIVE 10% POD-BLOCKED 5% MERGE). **Operational milestone**: env-var memory `feedback_per_kind_beta1_env_var_names` fully internalized — student caught PR-template phantom names PRE-LAUNCH (3rd successful application). **Structural reading**: β1-DISPATCH-OPTIMUM is weakly direction-sensitive with lm_head-LOWER preferred — both substrate-asymmetric directions live in productive plateau ~+0.001 above canonical, but lm_head-LOWER has +0.00108 edge over embed-LOWER. No human issues. Fleet 8/8 active 0 idle. Cumulative **393 refuted / 263 mech classes / 219 family closures / 9 axes locked / 30 RTM precedents / 15 pod-stability observations** (RTM-PERSISTENT-AT-N=16/17 = 94.1%).
+
+### fern #2013 bilateral terminal — 263rd mech class / 30th RTM / β1-dispatch 2-substrate direction-axis mapped
+
+**Bilateral terminal**: Arm A `m31bgljz` SEED=1 val=**3.27086**/3025; Arm B `6jarnrvr` SEED=2 val=**3.27159**/3050. n=2 mean **3.27123** (spread 0.00073). Δ vs baseline 3.26776 = +0.00347 (RTM band lower edge); stat margin 0.01241 ≥ 0.004 ✓ (statistically robust NEGATIVE).
+
+**β1-dispatch direction-axis mapped on both substrate-asymmetric directions**:
+
+| direction | reference | n=2 mean | gap to floor band |
+|---|---|---|---|
+| **lm_head-LOWER (canonical)** embed=0.8/lm_head=0.7 | #1972 (19th RTM) | 3.27015 | floor band |
+| **embed-LOWER (MIRROR)** embed=0.7/lm_head=0.8 | **#2013 THIS PR** | 3.27123 | +0.00108 above floor |
+| lm_head-LOWER-ISOLATED DESTRUCTIVE | #1972 isolated | 3.27290 | DESTRUCTIVE band |
+
+→ Both substrate-asymmetric directions are productive vs the DESTRUCTIVE single-axis lm_head-LOWER (−0.00167 below DESTRUCTIVE band). The β1-DISPATCH OPTIMUM has a small but real direction-asymmetry preference for lm_head-LOWER. Consistent with output-projection-layer-specific β1 sensitivity, but the substrate-asymmetric structure itself is the larger factor.
+
+### fern #2043 new assignment — 3-SUBSTRATE PER-KIND β1 DISPATCH SCALARS-LOWER PROBE
+
+Pivots fern from the 2-substrate direction-sensitivity axis (closed) to the **3-substrate dispatch space**. Tests embed-β1=0.8 + lm_head-β1=0.7 + scalars-β1=0.6 — extends JOINT-COHERENT-DISPATCH from 2-axis to 3-axis with scalars-LOWER asymmetry. The scalars substrate covers a small but distinct parameter group (norms, layer-norm scales, output-projection scales) — its β1 has been held at canonical 0.8 across ALL cycle-71 per-kind β1 PRs. Most likely (30% / 30%): SCALARS-LOWER-PRODUCTIVE-EXTENSION (sub-floor, opens 3rd dispatch substrate) OR SCALARS-LOWER-RTM-INVARIANT (~3.27030, scalars direction-invariant). Alternatives: 25% DESTRUCTIVE, 10% POD-BLOCKED, 5% MERGE.
+
+### Operational milestone — env-var memory fully internalized
+
+`feedback_per_kind_beta1_env_var_names` memory rule successfully applied for the 3rd time: student caught PR-template phantom `PER_KIND_AUX_BETA1_*` names and corrected to source-read `AUX_BETA1_*` names PRE-LAUNCH. Cross-fleet adoption confirmed (frieren #1999, tanjiro #2001 caught at relaunch; fern #2013 caught at first launch). Future PR templates always use `AUX_BETA1_<KIND>`.
+
+### Fleet status — 8/8 active 0 idle
+
+After fern #2013 close + fern #2043 assignment: g1r2-{askeladd #2035, alphonse #2034, edward #2031, fern #2043, nezuko #2033, thorfinn #2021, tanjiro #2026, frieren #2027} all WIP. Cumulative **393 refuted / 263 distinct mech classes / 219 family closures / 9 structural axes locked / 30 RTM precedents / 15 pod-stability observations** (RTM-PERSISTENT-AT-N=16/17 = 94.1%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]).
+
+---
+
 ## 2026-05-31 23:54 UTC — Cycle 71 mid-489 — askeladd #2007 392nd refute 262nd mech class MLP-SOAP-×-PER-KIND-β1-NULL-INTERACTION-AT-FLOOR (29th RTM precedent; n=2 mean 3.27090 / Δ +0.00072 vs MLP-SOAP isolated, Δ +0.00075 vs per-kind-β1 isolated both within seed noise; **3-MECHANISM COMPOUND TRIANGLE COMPLETE**: MLP-SOAP × embed-reset uniquely emergent; carrier-substrate hypothesis NARROWED to embed-substrate-reset OR substrate-reset-class) + askeladd #2035 new assignment (MLP-SOAP × LM-HEAD-RESET CARRIER-SUBSTRATE DISCRIMINATOR; 35% PRODUCTIVE-EMERGENT-substrate-reset-class-carrier 30% RTM-ADDITIVE-embed-uniquely-carrier 15% DESTRUCTIVE 15% POD-BLOCKED 5% MERGE). **Critical structural insight**: MLP-SOAP × per-kind β1 RTM-additive + per-kind β1 × embed-reset RTM-additive but MLP-SOAP × embed-reset emergent → the emergence is PAIR-SPECIFIC, not driven by MLP-SOAP alone NOR by embed-reset alone in arbitrary pairings. Next probe resolves substrate-reset-class vs embed-uniquely. Step-1500 cross-arm Δ −0.00004 = TIGHTEST early-gate of cycle 71. No human issues. Fleet 8/8 active 0 idle. Cumulative **392 refuted / 262 mech classes / 218 family closures / 9 axes locked / 29 RTM precedents / 15 pod-stability observations** (RTM-PERSISTENT-AT-N=15/16 = 93.75%).
 
 ### askeladd #2007 bilateral terminal — 262nd mech class / 29th RTM / 3-mechanism compound triangle COMPLETE
