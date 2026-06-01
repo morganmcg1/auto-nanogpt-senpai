@@ -1,3 +1,48 @@
+## 2026-06-01 16:40 UTC — Cycle 71 mid-528 — nezuko #2142 430th refute 299th mech class CARRIER×MLP-SOAP-FRONT-FAST-CROSS-AXIS-SUBSTRATE-β1×DEPTH-ORIENTATION-BILATERAL-POD-BLOCK (32nd pod-stability, 12th pre-event NaN cell; CARRIER NOT UNIVERSAL STABILIZER CONFIRMED; carrier × proj-excluded SEED-DEPENDENT is exceptional) + thorfinn #2131 Arm A 3.27196 floor-band-upper Arm B directive sent + fern #2145 Arm A POD-BLOCK CRASHED step-400 (LM_HEAD-RESET M=1 preconditioner isolated F=1.0 EARLY-destab NEW 5th sub-axis; Arm B directive sent) + nezuko #2150 new assignment (MLP-SOAP back=fast isolated; 35% DIRECTION-SYMMETRIC 30% FRONT-PRIVILEGED 15% MILD-DRIFT 10% MERGE). Fleet 8/8 WIP. Cumulative: 430 refuted / 299 mech classes / 253 family closures / 10 axes / 51 RTM precedents / 32 pod-stability.
+
+### nezuko #2142 bilateral terminal — 299th mech class / 32nd pod-stability / CARRIER × MLP-SOAP POD-BLOCK
+
+**Bilateral terminal** (DETERMINISTIC):
+- Arm A `owezjtk0` SEED=1: step-1 grad_norm **233,797** → step-25 NaN → step-125 val NaN
+- Arm B `xfy3opr3` SEED=2: step-1 grad_norm **233,439** → step-25 NaN → step-125 val NaN
+
+**CARRIER × MLP-SOAP-FRONT-FAST bilateral POD-BLOCK confirmed**. CARRIER rescue (#1972 sub-floor) × MLP-SOAP front=fast isolated (#1775 sub-floor) → BILATERAL POD-BLOCK when combined. Both components individually productive; combined they destabilize initialization.
+
+Updated carrier stabilization scope:
+- carrier × proj-excluded (#2121): SEED-DEPENDENT (exceptional survivor)
+- **carrier × MLP-SOAP front=fast (#2142): BILATERAL POD-BLOCK (no survival)**
+
+Configuration-radius destab axis now **12 cells / 9 mech sub-axes**. New sub-axis: substrate-β1 × depth-orientation.
+
+### fern #2145 Arm A POD-BLOCK — 5th EARLY-destab sub-axis (NEW — preconditioner-reset isolated)
+
+**LM_HEAD-RESET MOMENT=1 (preconditioner / exp_avg_sq only) ISOLATED F=1.0 INTERVAL=200** produces step-1 grad_norm 233,874 → POD-BLOCK at step 125 → crash at step 400. 
+
+**FIRST ISOLATED SINGLE-MECHANISM POD-BLOCK** (no cross-axis compound required). The reset fires at step 200, NOT step 1 — so step-1 explosion is from INITIALIZATION PERTURBATION of the periodic-reset config, not from the reset event itself. Compare: #2063 (M=2 / momentum, F=0.25) produced 3.270855 STABLE floor band. Two variable differences: MOMENT (1 vs 2) and PARTIAL_FACTOR (1.0 vs 0.25). Arm B directive sent to disambiguate.
+
+### nezuko #2150 new assignment — MLP-SOAP back=fast isolated
+
+**Mirror of #1775 front=fast (3.26789 sub-floor)** — tests depth-orientation symmetry. Config: `MLP_SOAP_PER_DEPTH_HALF_ENABLED=1 MLP_SOAP_FRONT_HALF=slow MLP_SOAP_BACK_HALF=fast`. Low POD-BLOCK risk (isolated structural change at canonical config). 35% DIRECTION-SYMMETRIC (back=fast equally productive) vs 30% FRONT-PRIVILEGED.
+
+### Fleet state mid-528
+
+| Student | PR | Status | Best result |
+|---|---|---|---|
+| g1r2-alphonse | #2129 | Arm A 3.2711 / Arm B `x2gva0t9` step ~900 | mid-training |
+| g1r2-askeladd | #2121 | Arm A 3.272400 / Arm B `orb419ai` step ~1525 val 3.537 | recovering slowly |
+| g1r2-edward | #2113 | Arm A 3.269693 / Arm B 3.2705 TERMINAL | **pending student submit** |
+| g1r2-fern | #2145 | Arm A POD-BLOCK crash / Arm B directive sent | bilateral pending |
+| g1r2-frieren | #2147 | carrier × lm_head-reset I=400 awaiting adoption | — |
+| g1r2-nezuko | #2150 | NEW assignment MLP-SOAP back=fast isolated | — |
+| g1r2-tanjiro | #2139 | Arm A step ~1950 val 3.456 | mid-training |
+| g1r2-thorfinn | #2131 | Arm A 3.27196 / Arm B directive sent | bilateral pending |
+
+**Critical watch: edward #2113 pending student submit** — n=2 mean ~3.270097 RTM-NEGATIVE refute (430th will become 431st after closure).
+
+Cumulative: **430 refuted / 299 mech classes / 253 family closures / 10 structural axes / 51 RTM precedents / 32 pod-stability observations**.
+
+---
+
 ## 2026-06-01 16:25 UTC — Cycle 71 mid-527 — edward #2113 Arm B `uszx206t` terminal val 3.2705 (n=2 mean ~3.270097 floor-band-lower-edge expected RTM-NEGATIVE — NOT MERGE; Arm A 3.269693 sub-floor / Arm B 3.270500 floor) + nezuko #2142 Arm B `xfy3opr3` step 225 step-1 grad_norm 233,439 EARLY-destab signature confirmed (carrier × MLP-SOAP bilateral POD-BLOCK pending) + fern #2145 Arm A `35vzyyld` step-1 grad_norm 233,874 SUSPICIOUS (preconditioner-only reset isolated — should not affect step-1 because reset fires at step 200; investigating) + BITFIELD CORRECTION: AUX_RESET_MOMENT semantics CODE convention M=1 = exp_avg_sq-only (preconditioner) M=2 = exp_avg-only (momentum) M=3 = joint; advisor mental model updated. Fleet 8/8 WIP. Cumulative: 429 refuted / 298 mech classes / 252 family closures / 10 axes / 51 RTM precedents / 31 pod-stability.
 
 ### edward #2113 bilateral terminal — pending student submit
