@@ -84,6 +84,12 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--muon_momentum_fresh_start_step', type=int, default=-1,
+                        help='Step at which to re-seed body PMuon momentum buffers from p.grad. '
+                             '-1 disables.')
+    parser.add_argument('--muon_momentum_fresh_start_blocks', type=str, default='all',
+                        choices=['all', 'deep'],
+                        help='"all" (all 12 blocks) or "deep" (blocks 8-11 only).')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +771,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "muon_momentum_fresh_start_step": args.muon_momentum_fresh_start_step,
+            "muon_momentum_fresh_start_blocks": args.muon_momentum_fresh_start_blocks,
             "seed": args.seed,
         },
     )
@@ -805,6 +813,13 @@ for trial_idx in range(args.num_trials):
                       lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+
+    # Map id(p) -> block_idx for body PMuon params. Used by --muon_momentum_fresh_start_*
+    # to scope the FRESH-START to a subset of blocks.
+    body_param_block_idx = {}
+    for name, p in model.named_parameters():
+        if p.ndim >= 2 and name.startswith("blocks."):
+            body_param_block_idx[id(p)] = int(name.split(".")[1])
 
     # Per-block Muon LR shape: mean-preserving linear ramp across block index.
     # block_mults sum to NUM_LAYERS × 1.0 exactly, so mean LR is unchanged vs uniform.
@@ -1070,6 +1085,27 @@ for trial_idx in range(args.num_trials):
             for group in optimizer1.param_groups:
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
+                   console=True)
+        if (args.muon_momentum_fresh_start_step > 0
+                and step == args.muon_momentum_fresh_start_step):
+            n_refreshed = 0
+            n_skipped_no_state = 0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    if args.muon_momentum_fresh_start_blocks == 'deep':
+                        b_idx = body_param_block_idx.get(id(p), None)
+                        if b_idx is None or b_idx < 8:
+                            continue
+                    if p.grad is None:
+                        continue
+                    state = optimizer2.state.get(p, None)
+                    if state is None or "momentum" not in state:
+                        n_skipped_no_state += 1
+                        continue
+                    state["momentum"].copy_(p.grad)
+                    n_refreshed += 1
+            print0(f"[step {step}] muon_momentum_fresh_start: copy_(grad) on {n_refreshed} buffers "
+                   f"(blocks={args.muon_momentum_fresh_start_blocks}, skipped_no_state={n_skipped_no_state})",
                    console=True)
         for opt in optimizers:
             opt.step()
