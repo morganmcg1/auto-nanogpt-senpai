@@ -107,6 +107,12 @@ def parse_args():
                              "of training). Default=0.80 (winning value, PR #1966). "
                              "Set to None or 0.95 to disable the ramp. "
                              "Affects all muon_* param groups.")
+    parser.add_argument("--mu_cooldown_shape", type=str, default="linear",
+                        choices=["linear", "cosine"],
+                        help="Interpolation kernel for Muon mu cooldown from 0.95 -> "
+                             "mu_cooldown_target. linear: mu_sched = 0.95 + (target - 0.95) * x_mu "
+                             "(current default). cosine: mu_sched = 0.95 + (target - 0.95) * "
+                             "0.5*(1 - cos(pi*x_mu)) -- front-loads damping.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -794,6 +800,7 @@ if dist.get_rank() == 0:
             "ema_eval_enabled": args.ema_eval_decay is not None,
             "mu_cooldown_target": args.mu_cooldown_target,
             "mu_cooldown_enabled": args.mu_cooldown_target is not None,
+            "mu_cooldown_shape": args.mu_cooldown_shape,
         },
     )
 
@@ -941,7 +948,11 @@ for trial_idx in range(args.num_trials):
                 mu_sched = 0.95
             else:
                 x_mu = (progress - (1 - cooldown_frac)) / cooldown_frac
-                mu_sched = 0.95 + (args.mu_cooldown_target - 0.95) * x_mu
+                if args.mu_cooldown_shape == "cosine":
+                    x_eff = 0.5 * (1.0 - math.cos(math.pi * x_mu))
+                else:
+                    x_eff = x_mu
+                mu_sched = 0.95 + (args.mu_cooldown_target - 0.95) * x_eff
             for opt in optimizers:
                 for group in opt.param_groups:
                     if group.get("name", "").startswith("muon_"):
