@@ -50,8 +50,9 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 - **NEZUKO #2020 SOAP β₂ cooldown — Cell C in flight**: Cell B★ established FFS=2925 attractor; Cell C at step 959/3250 (29.5%), Cell D pending.
 
 - **Action queue (next heartbeat):**
-  - Wait for edward #1948 terminal SENPAI-RESULT → close as 94th
-  - Wait for frieren #1966 trial 3 terminal → **MERGE** if μ_4 ≤ 2887.5
+  - ✅ edward #1948 CLOSED 94th R5 closure (μ_4(FFS_ema)=2912.5 = baseline FFS-NEUTRAL n=4-confirm-failed)
+  - ✅ edward #2062 NEW: mlp-act-variant (SiLU/GELU/SwiGLU — FIRST MLP activation experiment in 94 R5 closures; 8/8 active again)
+  - Wait for frieren #1966 trial 3 terminal → **MERGE** if μ_4 ≤ 2887.5 — FIRST R5 MERGE
   - Wait for thorfinn #1994 student decision (abort or continue trials 2+3) → close as 95th
   - Wait for tanjiro #2014 D-target9 terminal → likely close axis (NEUTRAL or NEG)
   - Address alphonse #2042 crash traceback when posted
