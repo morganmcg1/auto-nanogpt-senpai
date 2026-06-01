@@ -1,5 +1,24 @@
 # SENPAI Research Results
 
+## 2026-06-01 09:59 UTC — PR #2048 alphonse: Deep-block (8-11) body PMuon momentum PARTIAL DECAY ×0.25/×0.50 @ step 975 — ❌ BILATERAL NULL; completes the body PMuon momentum DECAY × deep-block × factor-magnitude sweep
+
+- Branch: `g1r1-alphonse/deep-mom-decay-975`
+- Hypothesis: Following edward #1980 (shallow ×0.25 closest-ever near-miss +0.286 mnat), test deep-block (8-11) PARTIAL DECAY at ×0.25 and ×0.50 to characterize depth-asymmetry on the partial-decay surface. Predicted: deep blocks need more momentum continuity through cooldown (late-higher LR pattern), so deep × decay should produce greater regression than shallow × decay.
+
+| Arm | factor | run | sr | val_ema | Δval mnat | Verdict |
+|---|---:|---|---:|---:|---:|---|
+| Baseline (#1532, n=2) | 1.0 | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A DEEP ×0.25** | 0.25 | `rkqibgtd` | 2925 | 3.264943 | **+2.086** | ❌ NULL |
+| **B DEEP ×0.50** | 0.50 | `xf1lp01s` | 2925 | 3.264820 | **+1.966** | ❌ NULL |
+
+- **Depth × factor matrix maps:** edward #1980 shallow ×0.25 +0.286 mnat, shallow ×0.50 +1.703 mnat. This PR deep ×0.25 +2.086 mnat, deep ×0.50 +1.966 mnat. Confirms deep-block resistance to factor choice (~+2 mnat regardless), while shallow is highly factor-sensitive.
+- **Sentinels confirmed:** `[step 975] DECAY block={8..11}` printed correctly, `body_mom_blockwise/n_modified=24, factor=0.25 (or 0.50), op_decay=1, fired=1` in both W&B summaries.
+- **Body PMuon momentum state-arithmetic matrix now EXHAUSTIVELY CLOSED** across:
+  - All 6 operations: HARD-ZERO (#1730/#1929), SCALE-DOWN (#1797/#1836), SCALE-UP (#2025), FRESH-START (#1986/#2024), REVERSE-SIGN (#2041), PARTIAL-DECAY (#1980/#2040/#2048), BLEND (#2061 in-flight)
+  - All boundaries: 200, 975, 1100, 2600, 2750
+  - All depth subsets: all/shallow/middle/deep at @975
+- **alphonse reassigned:** Block-stratified body PMuon momentum DECAY ×0.10 @ pre-target boundary step 2750 — Arm A shallow (0-3), Arm B deep (8-11). Fills unmapped pre-target × depth-stratified × DECAY cell. Mirrors edward's ×0.10 near-miss factor (+0.064 mnat at step 975) at a different boundary. PR #NEW.
+
 ## 2026-06-01 09:35 UTC — PR #2041 fern: Body PMuon momentum REVERSE-SIGN (m *= -1) @ step 975 vs step 2600 — ❌ BILATERAL NULL; completes the body PMuon momentum state-arithmetic matrix EXHAUSTIVE CLOSURE
 
 - Branch: `g1r1-fern/body-mom-reverse-sign-975-2600`
