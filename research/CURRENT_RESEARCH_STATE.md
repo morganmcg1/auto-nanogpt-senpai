@@ -9,6 +9,42 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-01 13:35Z (**103rd R5 closure — tanjiro NS5 cooldown FFS-NEUTRAL n=4; Aurora nudge issue #2122 addressed; 8/8 active; tanjiro assigned #2128 cosine-mu-cooldown-shape**)
+
+### Notes (2026-06-01 13:35Z) — tanjiro n=4 closed, Aurora addressed, fresh assignments
+
+- **PR #2014 tanjiro CLOSED FFS-NEUTRAL [103rd R5 closure]**: n=4 confirm ns_iter_cooldown_target=9 terminal. μ_4=2918.75 vs gate 2862.5 (+56.25). {2875, 2925, 2925, 2950} distribution. Textbook [[r5_n1_to_n4_reversion_dual_metric_attractor]] reversion. Direction-of-effect is real (monotone dose-response across all 4 cells — more polish during cooldown helps directionally), but σ_4=27 dominates ~−6 step mechanism shift. Polish-reduction axis closed; polish-increase bounded. n=4 ran on pre-frieren stack.
+- **Issue #2122 Aurora optimizer**: Human nudge addressed. r5-specific verdict: **LOW PRIORITY / deferred**. Architecture mismatch (SwiGLU required, we use ReLU²), bounded scope (only `c_fc` tall matrix per block), and r5 signal portfolio rich (5 in-flight crossing-window candidates). r3/c790g-18 already exploring Aurora; if r5 in-flight candidates exhaust without merge in 24-48h, will revisit with diagnostic-first (CV gating) approach.
+- **PR #2126 thorfinn**: trapezoid-lr-cooldown assigned 12:55Z. KGsmoke + A_ctrl + B★ (plateau=0.5) sequence in progress.
+- **PR #2128 tanjiro**: **NEW ASSIGNMENT cosine-mu-cooldown-shape** (13:35Z). Cosine ease-in interpolation for mu_cooldown (linear 0.95→0.80 replaced by cosine front-loaded shape). Symmetric to thorfinn's LR shape variant on the μ side.
+
+### Fleet status snapshot (13:35Z) — 8/8 active, 0 idle
+
+| PR | Student | Mechanism | Status |
+|---|---|---|---|
+| #2014 | tanjiro | NS5 cooldown ramp n=4 | **CLOSED FFS-NEUTRAL (103rd)** |
+| #2042 | alphonse | RoPE base=4096 n=4 | Trial 0 reverted 2925, trials 1+ in flight |
+| #2070 | frieren | mu+precond_freq compound n=4 | In flight, ETA ~17:30Z |
+| #2077 | askeladd | z-loss λ dose-response | B★ 8-step monotone signal; Cell C(λ=1e-3) terminal pending |
+| #2079 | nezuko | warmup mu ramp | B★ attractor lock; Cell C in flight |
+| #2084 | fern | asym mu_cooldown per-group | B★ trainval −50 signal; Cell C in flight |
+| #2118 | edward | logit cap-DOWN sweep | WIP |
+| #2126 | thorfinn | trapezoid LR shape | WIP (assigned 12:55Z) |
+| #2128 | tanjiro | cosine μ-cooldown shape | **WIP (assigned 13:35Z)** |
+
+### Signal candidate quality ranking (13:35Z)
+
+1. **askeladd #2077 z-loss (λ=1e-4)**: 8-step monotone ema Δ −0.002 vs A_ctrl FFS=2925. B★ FFS_ema=2875 = canonical attractor, but monotone-better at all 8 probes is the strongest consistent signal this round. Cell C(λ=1e-3) terminal soon — dose-response will indicate if z-loss is the 3rd merge candidate.
+2. **fern #2084 asym mu_cooldown (attn=0.85/mlp=0.75)**: FFS_trainval shifted −50 OFF canonical {2875, 2925} → {2875, 2875}. Δema −0.0024 monotone-better. Cell C in flight. Strong structural signal (dual-metric departure).
+3. **frieren #2070 compound mu+precond_freq n=4**: FFS_trainval −50 shift + monotone Δema −0.0018 at n=1 justified n=4 escalation. n=4 in flight ETA 17:30Z.
+4. **alphonse #2042 RoPE base=4096 n=4**: Trial 0 FFS=2925 (reverted, canonical). Remaining trials unlikely to recover gate. Expected FFS-NEUTRAL.
+5. **thorfinn #2126 trapezoid LR**: Just launched; A_ctrl + B★ sequence in progress.
+6. **tanjiro #2128 cosine mu shape**: Just assigned; symmetric to thorfinn.
+7. **nezuko #2079 warmup mu ramp**: B★ pure attractor lock, Cell C exploring direction.
+8. **edward #2118 logit cap-DOWN**: WIP cells.
+
+---
+
 ## Last updated: 2026-06-01 12:55Z (**102nd R5 closure — thorfinn AdamW WD ramp FFS-NEG; alphonse #2042 n=4 trial 0 reverted off-attractor; 2 n=4 in flight; 1 idle**)
 
 ### Notes (2026-06-01 12:55Z) — 102nd R5 closure + signal-candidate fleet status

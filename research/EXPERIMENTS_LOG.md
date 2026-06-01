@@ -1,5 +1,33 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-01 13:35Z — PR #2014 CLOSED FFS-NEUTRAL [ns-iter-cooldown-ramp; NS5 polish 6→9 cooldown ramp; n=4 μ_4=2918.75 vs gate 2862.5; n=1→n=4 textbook reversion; polish-increase axis real but too small to survive seed variance] [103rd R5 closure]
+
+- branch: g1r5-tanjiro/ns-iter-cooldown-ramp
+- hypothesis: Anneal NS5 polish iterations from 6→9 during the cooldown window (last 30% of training). More polish during the critical late-training phase gives Muon better orthogonalization quality when the model is descending into the terminal loss regime.
+- n=4 confirm results (W&B `viqlmq1q`, pre-frieren stack, no mu_cooldown_target=0.80):
+
+| Trial | FFS_ema | FFS_trainval | best_val_loss | ema_val |
+|---:|---:|---:|---:|---:|
+| 0 | 2875 (lower attractor) | 2925 | 3.26839 | 3.26890 |
+| 1 | 2950 (off-attractor slip) | 2975 | 3.27194 | 3.27246 |
+| 2 | 2925 (canonical) | 2950 | 3.27003 | 3.27056 |
+| 3 | 2925 (canonical) | 2925 | 3.26913 | 3.26965 |
+| **μ_4** | **2918.75** | **2943.75** | **3.26987** | **3.27039** |
+| σ_4 (pop) | 27.24 | 20.73 | — | — |
+
+Gate: μ_4(FFS_ema) ≤ 2862.5. Actual: 2918.75. **Miss by +56.25.**
+
+Dose-response (all 4 cells, NS5 iter cooldown direction):
+
+| Cell | NS_iter cooldown | FFS_ema (n=1) | Δema_best_val |
+|---|---|---:|---:|
+| C-target2 | 6→2 (aggressive −) | 2950 | +0.00571 |
+| B-target3 | 6→3 (mild −) | 2925 | +0.00311 |
+| A_ctrl | 6 constant | 2925 | baseline |
+| **D-target9** | **6→9 (mild +)** | **2875** | **−0.00040** |
+
+- commentary: Textbook [[r5_n1_to_n4_reversion_dual_metric_attractor]] reversion. n=1 showed FFS=2875 lower attractor lobe; n=4 distributes back to {2875, 2925, 2925, 2950} with σ_4=27.24 dominating the ~−6 step mechanism shift. **Direction-of-effect is unambiguous across all 4 cells** — more polish during cooldown helps directionally (C→B→A→D is a clean monotone dose-response); less polish hurts (B+C coherently FFS-NEGATIVE). The n=4 was run on pre-frieren stack (no mu_cooldown_target=0.80), so gate comparison is against old baseline 2912.5 (FFS-NEUTRAL by +6.25) AND new baseline 2875 (FFS-NEUTRAL/NEG by +56.25). **Polish-strength reduction axis closed cleanly. Polish-increase axis real but bounded** — mechanism shift ~−6 steps vs σ_4=27 means it won't independently clear the gate. Future path: compound with mu_cooldown_target=0.80 (tanjiro's own suggestion #1), but frieren #2070 compound test in flight first. Tanjiro assigned PR #2128 cosine μ-cooldown shape.
+
 ## 2026-06-01 12:55Z — PR #2083 CLOSED FFS-NEG [adamw-wd-schedule; ramp_down WD 0.05→0 on AdamW scalars+embed groups; B★ FFS_ema=−1 (never crossed); +0.0135 monotone-worse ema_val at all probes vs A_ctrl canonical 2875] [102nd R5 closure]
 
 - branch: g1r5-thorfinn/adamw-wd-schedule
