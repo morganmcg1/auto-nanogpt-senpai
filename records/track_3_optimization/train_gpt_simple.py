@@ -500,9 +500,9 @@ MLP_SOAP_BETA2_SLOW = float(os.environ.get("MLP_SOAP_BETA2_SLOW", "0.95"))
 # embed=0.8 lm_head=0.7 scalars=0.8 n=2 mean 3.27015). Allows independent β1 for
 # the three AdamW kinds (embed, lm_head, scalars). β2 stays at 0.95 across groups.
 PER_KIND_AUX_BETA1_ENABLED = int(os.environ.get("PER_KIND_AUX_BETA1_ENABLED", "0"))
-PER_KIND_BETA1_EMBED = float(os.environ.get("PER_KIND_BETA1_EMBED", "0.8"))
-PER_KIND_BETA1_LM_HEAD = float(os.environ.get("PER_KIND_BETA1_LM_HEAD", "0.8"))
-PER_KIND_BETA1_SCALARS = float(os.environ.get("PER_KIND_BETA1_SCALARS", "0.8"))
+PER_KIND_BETA1_EMBED = float(os.environ.get("AUX_BETA1_EMBED", os.environ.get("PER_KIND_BETA1_EMBED", "0.8")))
+PER_KIND_BETA1_LM_HEAD = float(os.environ.get("AUX_BETA1_LM_HEAD", os.environ.get("PER_KIND_BETA1_LM_HEAD", "0.8")))
+PER_KIND_BETA1_SCALARS = float(os.environ.get("AUX_BETA1_SCALARS", os.environ.get("PER_KIND_BETA1_SCALARS", "0.8")))
 
 # Optional explicit RNG seed for n=2 verification protocol (PR #1806 lineage).
 SEED_ENV = os.environ.get("SEED")
@@ -1068,8 +1068,8 @@ for trial_idx in range(args.num_trials):
         )
         _banner_beta1 = (
             f"[per_kind_aux_beta1] enabled={PER_KIND_AUX_BETA1_ENABLED} "
-            f"embed={PER_KIND_BETA1_EMBED} lm_head={PER_KIND_BETA1_LM_HEAD} "
-            f"scalars={PER_KIND_BETA1_SCALARS}"
+            f"embed_beta1={PER_KIND_BETA1_EMBED:.4f} lm_head_beta1={PER_KIND_BETA1_LM_HEAD:.4f} "
+            f"scalars_beta1={PER_KIND_BETA1_SCALARS:.4f}"
         )
         print0(_banner_mlp, console=True)
         print0(_banner_beta1, console=True)
