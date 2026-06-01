@@ -609,6 +609,10 @@ NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_T
 # diagonal prior accumulated over K steps of "naked Muon" training (NM bypassed pre-K).
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART", "0"))
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K", "100"))
+# #2039: bracket the preconditioning exponent α applied to R-buffer eigenvalues.
+# G_precond = G @ R^{-α}. Production α=0.5 (Newton step / R^{-1/2}); α=0 disables
+# preconditioning (Muon standard); α=1.0 full whitening. Values between test partial.
+NANOGPT_NEWTON_MUON_POWER = float(os.environ.get("NANOGPT_NEWTON_MUON_POWER", "0.5"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -883,12 +887,14 @@ class Muon(torch.optim.Optimizer):
                 )
             else:
                 R_for_decomp = state["R"]
-            # Symmetric eigendecomp -> inverse square root with eigenvalue floor.
+            # Symmetric eigendecomp -> R^{-α} with eigenvalue floor.
+            # #2039: α=NANOGPT_NEWTON_MUON_POWER (default 0.5 = R^{-1/2} Newton step).
             try:
                 vals, vecs = torch.linalg.eigh(R_for_decomp)
                 vals_clamped = vals.clamp(min=0.0) + self.newton_eps
-                inv_sqrt_vals = vals_clamped.rsqrt()
-                # R_inv_sqrt = V * diag(inv_sqrt_vals) * V^T (symmetric).
+                inv_sqrt_vals = vals_clamped.pow(-NANOGPT_NEWTON_MUON_POWER)
+                # R_inv_sqrt = V * diag(vals^{-α}) * V^T (symmetric). Name kept for
+                # back-compat with telemetry; semantically R^{-α} for α != 0.5.
                 state["R_inv_sqrt"] = (vecs * inv_sqrt_vals.unsqueeze(0)) @ vecs.T
                 # Stash eigvals on-device for lazy telemetry — no sync here.
                 state["_R_vals_clamped"] = vals_clamped
@@ -1040,6 +1046,10 @@ print0(
     f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K}",
     console=True,
 )
+print0(
+    f"NM_POWER: r_buffer_power={NANOGPT_NEWTON_MUON_POWER}",
+    console=True,
+)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -1161,6 +1171,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
             "nanogpt_newton_muon_r_adamw_warmstart": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART,
             "nanogpt_newton_muon_r_adamw_warmstart_k": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
+            "nanogpt_newton_muon_power": NANOGPT_NEWTON_MUON_POWER,
         },
     )
 
