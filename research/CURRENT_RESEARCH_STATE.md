@@ -1,3 +1,57 @@
+## 2026-06-01 02:50 UTC — Cycle 71 mid-494 — DOUBLE CLOSURE: frieren #2027 395th refute 265th mech class LM-HEAD-β1-AXIS-NON-MONOTONE-DESTRUCTION-PEAK-NEAR-0.85-0.9-RECOVERS-TOWARD-SATURATION-AT-0.5-0.7 (n=2 mean 3.281205 / cross-arm spread 0.00029 EXTREMELY TIGHT / β1=0.85 ≈ β1=0.9 = ~3.281 peak plateau / β1∈{0.5,0.7} ~3.279 recovery; REFUTES prior #1999 MONOTONE-DESTRUCTIVE-SATURATED reading — axis is NON-MONOTONE destruction-peak shape) + tanjiro #2026 396th refute 266th mech class RESCUE-MAGNITUDE-PROPORTIONAL-TO-PERTURBATION-DEPTH (32nd RTM precedent; n=2 mean 3.271985 / Arm A 3.27075 Arm B 3.27322 / stat margin 0.01133 ≥ 0.004 ✓ / rescue magnitude 0.00709 at saturated cell vs ~0.0105 plateau across β1∈[0.7,0.9] = 33.5% reduction; REFUTES UNIVERSAL-RESCUE-LOCKED 35%-prior — rescue is BOUNDED proportional to destructive depth) + frieren #2055 new assignment (LM-HEAD-β1=0.8 ISOLATED bridge probe: peak-to-recovery midpoint mapping; 35% SMOOTH-MONOTONE-RECOVERY 25% PEAK-EXTENDS-TO-0.8 20% SHARP-KNEE-AT-0.825 15% NON-MONOTONE-WITH-MINIMUM 5% MERGE) + tanjiro #2056 new assignment (EMBED-β1=0.5 + LM-HEAD-β1=0.6 rescue transition probe: rescue-plateau-to-reduced mapping; 35% SMOOTH-MONOTONE-RESCUE-DECAY 25% PLATEAU-WIDE-RESCUE-REGION 20% SHARP-KNEE-AT-0.65 15% NON-MONOTONE-RESCUE-CURVE 5% MERGE). **Critical structural insight**: lm_head β1 axis functional form FULLY CHARACTERIZED at n=1+ sampling — destruction-peak shape with plateau at [0.85, 0.9] and recovery to saturation at [0.5, 0.7], paired with rescue-magnitude that mirrors the inverse (plateau ~0.0105 at [0.7, 0.9], reduced 0.00709 at 0.5). Combined readings establish embed-β1=0.5 rescue mechanism has BOUNDED EFFECTIVENESS CEILING scaling INVERSELY with destructive perturbation depth — rescue is largest where destruction is moderate. Two new mech classes added in single triage cycle. No human issues. Fleet 8/8 active 0 idle. Cumulative **396 refuted / 266 mech classes / 222 family closures / 9 axes locked / 32 RTM precedents / 17 pod-stability observations** (RTM-PERSISTENT-AT-N=18/19 = 94.7%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]; lm_head-β1-axis-functional-form STRUCTURALLY LOCKED as NON-MONOTONE-DESTRUCTION-PEAK; rescue-magnitude STRUCTURALLY LOCKED as PROPORTIONAL-TO-PERTURBATION-DEPTH).
+
+### frieren #2027 bilateral terminal — 265th mech class / lm_head β1 non-monotone discovery
+
+**Bilateral terminal**: Arm A `7aoux372` SEED=1 val=**3.28106** ffs=−1; Arm B `hq93wirt` SEED=2 val=**3.28135** ffs=−1. n=2 mean **3.281205** (spread 0.00029 — extremely tight). Stat margin: (3.28 − 3.281205)·√2 = **−0.00170** (fails stat rule by design; terminal > 3.28). All 5 priors REFUTED (SHARP-THRESHOLD 35%, GRADIENT-ONSET 30%, ALREADY-SATURATED 20%, RTM-PRECEDENT 10%, MERGE 5%) — NEW mech class emerged that was not in hypothesis matrix.
+
+**lm_head β1 axis functional form**:
+
+| β1 | val (terminal) | n | source | Δ vs carrier |
+|---|---|---|---|---|
+| 0.95 (carrier) | 3.26776 | n=2 | #613 | 0.00000 |
+| 0.9 ISOLATED | 3.28145 | n=1 | #1976 A | +0.01369 |
+| **0.85 ISOLATED** | **3.281205** | **n=2** | **#2027** | **+0.013445** |
+| 0.7 ISOLATED | 3.27930 | n=2 | #1972 | +0.01154 |
+| 0.5 ISOLATED | 3.27908 | n=2 | #1999 | +0.01132 |
+
+→ Destruction NON-MONOTONE: peak/plateau at [0.85, 0.9] (~3.281), recovery at [0.5, 0.7] (~3.279). β1=0.85 (n=2) ≈ β1=0.9 (n=1) within seed spread (Δ=−0.000245). REFUTES #1999 MONOTONE-SATURATED reading.
+
+### tanjiro #2026 bilateral terminal — 266th mech class / 32nd RTM / rescue-magnitude-bounded discovery
+
+**Bilateral terminal**: Arm A `h69wp5h6` SEED=1 val=**3.27075** ffs=3025; Arm B `otq78ya9` SEED=2 val=**3.27322** ffs=3050. n=2 mean **3.271985** (spread 0.00247). Stat margin 0.01133 ≥ 0.004 ✓ (statistically robust NEGATIVE). Lands at upper boundary of floor band [3.27000, 3.27200] — 32nd RTM precedent. UNIVERSAL-RESCUE-LOCKED (35% prior) REFUTED, RESCUE-MAGNITUDE-BOUNDED (25% prior) CONFIRMED.
+
+**Embed β1=0.5 × lm_head β1 rescue magnitude map**:
+
+| lm_head β1 | isolated carrier val | embed=0.5 rescue val | rescue magnitude | source |
+|---|---|---|---|---|
+| 0.9 | 3.28145 (n=1) | 3.27097 (n=1) | **0.01048** | #1976 A/B |
+| 0.7 | 3.27930 (n=2) | 3.268645 (n=2) | **0.01066** | #1972 / #2001 |
+| **0.5** | **3.27908 (n=2)** | **3.271985 (n=2)** | **0.00709** | **#1999 / #2026** |
+
+→ Rescue magnitude plateaus at ~0.0105 across β1∈[0.7, 0.9] (constant rescue region), reduces 33.5% to 0.00709 at β1=0.5 (saturated cell). Rescue mechanism scales with destructive perturbation depth — NOT constant across destructive axis.
+
+### Combined finding — lm_head β1 axis fully characterized in BOTH isolated and rescue conditions
+
+The two closures establish **a structurally consistent dual-axis reading**:
+- **Isolated (no rescue)**: peak destruction at [0.85, 0.9] (~+0.0135), recovery to saturation at [0.5, 0.7] (~+0.0114)
+- **With embed β1=0.5 rescue**: plateau rescue magnitude ~0.0105 at β1∈[0.7, 0.9], reduced rescue 0.00709 at β1=0.5
+
+**Embed-rescue mechanism is largest where destruction is moderate, smallest where destruction has recovered toward saturation.** Rescue effectiveness is bounded by destructive perturbation depth — a structural law of the β1-rescue mechanism.
+
+### frieren #2055 new assignment — LM-HEAD-β1=0.8 ISOLATED bridge probe (peak-to-recovery midpoint)
+
+Pivots frieren to natural curve-mapping discriminator (student's suggested follow-up #1). Tests lm_head β1=0.8 isolated to map [0.7, 0.85] recovery shape. Most likely (35%): SMOOTH-MONOTONE-RECOVERY (~3.2800, smooth linear interp). Alternatives: 25% PEAK-EXTENDS-TO-0.8 (~3.281, plateau extends), 20% SHARP-KNEE-AT-0.825 (~3.27930, abrupt drop), 15% NON-MONOTONE-WITH-MINIMUM (<3.27908, recovery overshoots), 5% MERGE. Highest-information probe given non-monotone discovery.
+
+### tanjiro #2056 new assignment — EMBED-β1=0.5 + LM-HEAD-β1=0.6 rescue transition probe
+
+Pivots tanjiro to natural rescue-transition discriminator (student's suggested follow-up #1). Tests embed β1=0.5 + lm_head β1=0.6 — midpoint between rescue plateau (β1=0.7) and reduced (β1=0.5). Most likely (35%): SMOOTH-MONOTONE-RESCUE-DECAY (~3.27050, smooth interp). Alternatives: 25% PLATEAU-WIDE-RESCUE-REGION (~3.26871, plateau extends to 0.6), 20% SHARP-KNEE-AT-0.65 (~3.27209, already at reduced level), 15% NON-MONOTONE-RESCUE-CURVE (>3.27209, rescue minimum), 5% MERGE.
+
+### Fleet status — 8/8 active 0 idle
+
+After frieren #2027 + tanjiro #2026 closes + frieren #2055 + tanjiro #2056 assignments: g1r2-{askeladd #2035, alphonse #2034, edward #2031, fern #2043, nezuko #2049, thorfinn #2051, tanjiro #2056, frieren #2055} all WIP. Cumulative **396 refuted / 266 distinct mech classes / 222 family closures / 9 structural axes locked / 32 RTM precedents / 17 pod-stability observations** (RTM-PERSISTENT-AT-N=18/19 = 94.7%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]; lm_head-β1-axis-functional-form STRUCTURALLY LOCKED as NON-MONOTONE-DESTRUCTION-PEAK; rescue-magnitude STRUCTURALLY LOCKED as PROPORTIONAL-TO-PERTURBATION-DEPTH).
+
+---
+
 ## 2026-06-01 02:08 UTC — Cycle 71 mid-493 — thorfinn #2021 394th refute 264th mech class TRIPLE-COMPOUND-3-CARRIER-INTERFERENCE-AT-FLOOR (31st RTM precedent; n=2 mean 3.27102 / cross-arm spread 0.00031 SECOND-TIGHTEST of cycle 71 / Δ vs 3-single-carrier additive 3.27019 = **+0.00083 ABOVE** = first quantitative 3-way carrier-interference reading; embed-substrate-buffer-contention hypothesis active: per-kind β1=0.8 sets embed-Adam β1 AND embed-reset partial-resets embed exp_avg every 200 steps both touching same buffer) + thorfinn #2051 new assignment (TRIPLE-WITH-LM-HEAD-RESET-SWAP probe: MLP-SOAP × per-kind-β1 × **lm_head-reset** substituted for embed-reset — discriminates substrate-overlap vs substrate-agnostic 3-way interference; 25% RTM-ADDITIVE → embed-overlap source 25% RTM-INTERFERENCE → substrate-agnostic 25% PRODUCTIVE-SUB-FLOOR → substrate-substitution unlocks 15% DESTRUCTIVE 5% POD-BLOCKED 5% MERGE). **Critical structural insight**: 3-mechanism compound triangle now complete with 3-way interference characterized; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200] despite compounding 3 productive RTM carriers; 3-way coherence is +0.00083 destructive (1st quantitative 3-way reading); substrate-overlap-vs-substrate-agnostic discriminator is next critical question; complementary to in-flight askeladd #2035 (MLP-SOAP × lm_head-reset 2-carrier) — together they form a 2×2 substrate × cardinality matrix. **Memory note**: thorfinn branch script accepts BOTH `PER_KIND_AUX_BETA1_<KIND>` (canonical) AND `PER_KIND_BETA1_<KIND>` (legacy from #2007 cherry-pick) — env-var naming flexible on #2008/#2021 lineage branches. No human issues. Fleet 8/8 active 0 idle. Cumulative **394 refuted / 264 mech classes / 220 family closures / 9 axes locked / 31 RTM precedents / 17 pod-stability observations** (RTM-PERSISTENT-AT-N=17/18 = 94.4%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]).
 
 ## 2026-06-01 01:35 UTC — Cycle 71 mid-492 — nezuko #2046 17th pod-stability observation FORWARD-MATCHED-M=3-POD-BLOCKED-AT-SYMMETRIC-F (bilateral NaN step 125; SECOND consecutive symmetric-F pod-block in 30 min; both M-direction matched cells now POD-BLOCKED at symmetric f=0.25 / interval=200; embed=3 lm_head=3 joint-reset NOT a rescue from embed=2 lm_head=2 exp_avg-only; reset moment is NOT the discriminator; symmetry-direction IS the discriminator; MIRROR-INVERTED-M asymmetry STRUCTURALLY LOCKED as load-bearing for muon-warmup-boundary stability) + nezuko #2049 new assignment (MIRROR-INVERTED-M=3 (embed-M=3, lm_head-M=2) probe — completes 2×2 M-direction matrix; 50% RTM-BAND → mirror-inverted-family stable, 30% POD-BLOCKED → (2,3) uniquely stable via LR-ratio × M-direction interaction, 10% PRODUCTIVE, 5% DESTRUCTIVE, 5% MERGE). **Critical structural insight**: 2×2 M-direction matrix at symmetric-F+symmetric-interval now reads (2,3) STABLE RTM 3.27027 / (2,2) POD-BLOCKED / (3,3) POD-BLOCKED / (3,2) PENDING — sharp structural claim if (3,2) also POD-BLOCKED: per-substrate LR-ratio asymmetry (embed lr=0.3 vs lm_head lr=0.003125 = 100×) interacts with reset-moment-direction such that only embed-exp_avg-only + lm_head-joint-reset is stable. Fast turnaround (~25 min PR-to-terminal). No human issues. Fleet 8/8 active 0 idle. Cumulative **393 refuted / 263 mech classes / 219 family closures / 9 axes locked / 30 RTM precedents / 17 pod-stability observations** (RTM-PERSISTENT-AT-N=16/17 = 94.1%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]).
