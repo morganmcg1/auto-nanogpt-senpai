@@ -9,7 +9,28 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-01 20:00Z (**heartbeat: fleet 8/8 RUNNING; 5 B★ now terminal at n=1; new datapoint thorfinn #2126 B★(plateau=0.4) DUAL-METRIC DEPARTURE confirmed terminal — ema=3.26551 (best in fleet) but FFS=3000 = FFS-NEG per gate**)
+## Last updated: 2026-06-01 20:30Z (**110th R5 closure: askeladd #2130 embed-lr-coupling FFS-NEUTRAL at ±10%; askeladd → PR #2184 ns5-kj-coefficients assigned — first R5 probe on NS5 polynomial coefficients after 110+ closures**)
+
+### Notes (2026-06-01 20:30Z) — 110th closure + askeladd new assignment
+
+- **PR #2130 askeladd CLOSED as 110th R5 FFS-NEUTRAL** [embed-lr-coupling; all 3 cells (A_ctrl, B★ scale=5.0, C scale=6.0) at canonical FFS_ema=2875.0, ema_val=3.26977; embed-LR axis FLAT within ±10%; adds 6th axis to cooldown-saturation family]. AdamW adaptive 2nd-moment scaling self-regulates the effective embed update magnitude, masking ±10% nominal LR changes. **Cross-fleet intel:** entire AdamW param group (embed lr=0.3, lm_head lr=1/320, scalars lr=0.03) is likely on flat plateaus within ±10% — broader probes not warranted until a stronger mechanism hypothesis emerges.
+- **PR #2184 askeladd ASSIGNED** [ns5-kj-coefficients]: Replace hardcoded NS5 polynomial `(a, b, c) = (2.0, −1.5, 0.5)` with KJ-optimal `(3.4445, −4.7750, 2.0315)`. **FIRST R5 probe in 110+ closures on NS5 polynomial coefficients.** Confirmed orthogonal to all WIP: alphonse #2167 varies iteration count (not coefficients), frieren #2170 adds post-NS5 wrapper (not internals), tanjiro #2166 freezes SOAP eigenbasis (not NS5). KJ values derived for NanoGPT at fixed ns_iter budget; CANS paper confirms coefficient choice governs per-step convergence rate. 4-cell: A_ctrl, B★(KJ), C(midpoint 2.72/-3.13/1.27), D(quadratic-only c=0). If B★ alive (FFS < 2870 monotone-better) → n=4 confirm at KJ values → potential compound with alphonse per-group iters.
+
+### Fleet status snapshot (20:30Z) — 8/8 RUNNING
+
+| PR | Student | Assignment | Notes |
+|---|---|---|---|
+| **#2184** | askeladd | ns5-kj-coefficients | A_ctrl launching; first NS5-internal axis after 110 closures |
+| #2167 | alphonse | ns5-per-group-iters | A_ctrl terminal imminent |
+| #2166 | tanjiro | soap-basis-cooldown-freeze | A_ctrl terminal imminent |
+| #2126 | thorfinn | trapezoid-lr-cooldown | Cell D(plat=0.0) running |
+| #2118 | edward | logit-softcap-down-sweep | Cell D(cap=17.5) running |
+| #2130 | **CLOSED** | embed-lr-coupling (110th) | FFS-NEUTRAL informative null |
+| #2133 | fern | depth-graduated-mlp-lr | Cell D(inverse) near terminal |
+| #2138 | nezuko | soap-adaptive-eps-floor | Cell C(α=0.01) running |
+| #2170 | frieren | post-ns5-rownorm | A_ctrl at step 1405 |
+
+### Last updated: 2026-06-01 20:00Z (**heartbeat: fleet 8/8 RUNNING; 5 B★ now terminal at n=1; new datapoint thorfinn #2126 B★(plateau=0.4) DUAL-METRIC DEPARTURE confirmed terminal — ema=3.26551 (best in fleet) but FFS=3000 = FFS-NEG per gate**)
 
 ### Notes (2026-06-01 20:00Z) — fleet B★ terminal snapshot, FFS gate filtration
 
