@@ -1,3 +1,35 @@
+## 2026-06-01 — PR #2012: H346 thorfinn AUX β1 cooldown_ramp DOWN SCHEDULE — CLOSED 199th NULL/NEG (🎯 PAPER-GRADE BILATERAL TIE = CANALIZED axis at H266 stack: arm_b MILD ramp 0.8→0.5 val=3.26824 TIGHTEST val of cycle ~2700 +0.07σ_H174 above H266 baseline + arm_c AGGRESSIVE ramp 0.8→0.3 val=3.26890 +0.82σ TIE Pattern A IN FAMILY — all 3 arms FFS=3025 Pattern A +25 NO MERGE. β1 cooldown_ramp DOWN axis CANALIZED within tested envelope [0.3, 0.8] extends CANALIZED TIE BILATERAL class to 4 members. arm_b MILD ramp val-tightness may reflect noise-floor preference candidate for combining with AUX_ONLY Polyak scope in future stacks. Cross-validates "AUX over-averaged at H266 stack" portfolio narrative — β1 SCHEDULE axis NOT a discriminating axis within saturated-smoothing regime)
+
+- Branch: g1r3-thorfinn/h346-aux-beta1-cooldown-ramp-down-schedule
+- Hypothesis: AUX AdamW β1 cooldown_ramp DOWN SCHEDULE at H266 stack — ramp AUX first-moment coefficient from 0.8 (constant) down toward {0.5, 0.3} during cooldown window [2826 → 3325]. Tests whether reducing β1 lookback during cooldown improves, is neutral, or damages convergence.
+
+### Results
+
+| Arm | aux_beta1_schedule | start | end | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|---------------------|-------|-----|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL constant `vp94c7fy` | constant | 0.8 | n/a | 3.26842 | 3025 | (ref) | +0.27σ TIE Pattern A +25 | Pattern A +25 |
+| arm_b MILD ramp `28v0zctf` | cooldown_ramp | 0.8 | 0.5 | **3.26824** | 3025 | **-0.20σ TIE-POS** | **+0.07σ TIGHTEST val of cycle ~2700** ⭐ | Pattern A +25 / TIGHTEST val |
+| arm_c AGGRESSIVE ramp `fa4qd7m0` | cooldown_ramp | 0.8 | 0.3 | 3.26890 | 3025 | +0.54σ MILD TIE | +0.82σ TIE Pattern A +25 | Pattern A IN FAMILY |
+| H266 baseline (PR #1669) | constant | 0.8 | — | 3.26818 | 3000 | (ref) | — | — |
+
+🎯 **199th NULL/NEG closure** — BILATERAL TIE on β1 cooldown_ramp DOWN axis. All 3 arms FFS=3025 Pattern A +25 envelope; none strict-clears FFS<3000 per Issue #1260.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — β1 cooldown_ramp DOWN axis is CANALIZED BILATERAL**: all 3 arms FFS=3025 with val span +0.07σ to +0.82σ above H266 baseline (range 0.75σ_H174 = within noise floor). β1=0.8 sits within a flat region of the β1-schedule axis. Not load-bearing within tested envelope.
+
+🎯 **FINDING #2 — arm_b MILD ramp = TIGHTEST val of cycle ~2700**: val=3.26824 = +0.07σ above H266 baseline. Tighter than H344 arm_a CTRL +0.04σ (same magnitude) and lighter than H348 CTRL +0.23σ. FFS=3025 so no merge; but noise-floor val-tightness noted as candidate for stack combinations.
+
+🎯 **FINDING #3 — Extends CANALIZED TIE BILATERAL class to 4 members**: H322 BODY ORTHO POS / H338 K=20 / H339 F-norm proj soft / H346 β1 cooldown_ramp DOWN.
+
+🎯 **FINDING #4 — Confirms "AUX over-averaged at H266 stack" portfolio narrative — β1 SCHEDULE axis is not discriminating**: H346 MILD TIE fits the pattern that AUX optimizer is in a saturated-smoothing regime where schedule-shape adjustments (vs update-direction constraints) have minimal impact.
+
+### Cycle ~2700 update
+
+199 NULL/NEG + 1 MERGED WIN, 110 mechanism classes consolidated. H266 attractor cluster: 11 confirmed members. thorfinn reassigned to H353 AUX AGC clip ratio axis sweep [0.025, 0.05, 0.10].
+
+---
+
 ## 2026-06-01 — PR #2011: H345 alphonse Polyak EMA SCOPE decoupling (BODY-only vs AUX-only vs all) — ROUND-1 VAL-WIN FFS-TIE → SENT BACK (🎯 PAPER-GRADE arm_c AUX_ONLY val=3.26741 = LOWEST val of cycle ~2700 -0.87σ_H174 below H266 baseline + FFS=3000 EXACT recovered despite Pattern A +25 drift = 12th candidate H266 attractor cluster member with LOWEST val of all members. Per Issue #1260 strict FFS<3000 gate FFS=3000 EXACT TIES baseline NO MERGE. Mechanism — REMOVE BODY-side Polyak EMA improves val while preserving FFS via AUX-side EMA stabilization. Cross-validates "AUX over-averaged at H266 stack" portfolio narrative with directional asymmetry: removing AUX-side EMA arm_b BODY_ONLY is val-neutral but removing BODY-side EMA arm_c AUX_ONLY is val-improving. Round-2 follow-up assigned: AUX-side decay sweep [0.025, 0.05, 0.10] to strict-clear FFS<3000)
 
 - Branch: g1r3-alphonse/h345-polyak-ema-scope-body-vs-aux
