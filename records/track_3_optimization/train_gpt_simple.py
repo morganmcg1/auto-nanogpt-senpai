@@ -84,6 +84,21 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument('--body_muon_momentum_zero_blockwise_step', type=int, default=0,
+                        help='Step at which to apply blockwise op on body-PMuon momentum buffer. '
+                             '0 or negative disables.')
+    parser.add_argument('--body_muon_momentum_zero_blockwise_subset', type=str, default='deep',
+                        choices=['shallow', 'middle', 'deep'],
+                        help='Which block subset to target: shallow=[0,1,2,3], '
+                             'middle=[4,5,6,7], deep=[8,9,10,11].')
+    parser.add_argument('--body_muon_momentum_zero_blockwise_op', type=str, default='decay',
+                        choices=['zero', 'decay', 'fresh_start'],
+                        help='Op on momentum buffer at trigger step: '
+                             'zero=HARD-ZERO (m.zero_()), '
+                             'decay=DECAY (m.mul_(factor)), '
+                             'fresh_start=FRESH-START (m.copy_(p.grad)).')
+    parser.add_argument('--body_muon_momentum_zero_blockwise_factor', type=float, default=0.10,
+                        help='Decay factor used when op=decay. Ignored for zero/fresh_start.')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +780,10 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "body_muon_momentum_zero_blockwise_step": args.body_muon_momentum_zero_blockwise_step,
+            "body_muon_momentum_zero_blockwise_subset": args.body_muon_momentum_zero_blockwise_subset,
+            "body_muon_momentum_zero_blockwise_op": args.body_muon_momentum_zero_blockwise_op,
+            "body_muon_momentum_zero_blockwise_factor": args.body_muon_momentum_zero_blockwise_factor,
             "seed": args.seed,
         },
     )
@@ -809,6 +828,11 @@ for trial_idx in range(args.num_trials):
     # Per-block Muon LR shape: mean-preserving linear ramp across block index.
     # block_mults sum to NUM_LAYERS × 1.0 exactly, so mean LR is unchanged vs uniform.
     NUM_LAYERS = 12
+    # Tag body-Muon block params with their block index so blockwise hooks
+    # (e.g. body_muon_momentum_zero_blockwise) can target subsets by depth.
+    for name, p in model.named_parameters():
+        if p.ndim >= 2 and name.startswith("blocks."):
+            p._block_idx = int(name.split(".")[1])
     param_lr_mults = None
     block_mults = None
     b0_lr_mult = 1.0
@@ -859,6 +883,11 @@ for trial_idx in range(args.num_trials):
     ema_refresh_fired_total = 0
     ema_refresh_step_logged = -1
     lcov_refresh_fired_total = 0
+    # body PMuon blockwise momentum hook fired latch (latches to 1 at and after
+    # --body_muon_momentum_zero_blockwise_step). Surfaces as a per-step gauge in
+    # the recurring telemetry block.
+    body_mom_blockwise_fired_total = 0
+    body_mom_blockwise_step_logged = -1
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
@@ -1071,6 +1100,73 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        # Blockwise body-PMuon momentum hook. Fires once at the trigger step,
+        # AFTER p.grad is set (post all_reduce) and BEFORE opt.step(). Three ops:
+        #   zero        — HARD-ZERO: state["momentum"].zero_()
+        #   decay       — DECAY:     state["momentum"].mul_(factor)
+        #   fresh_start — FRESH-START: state["momentum"].copy_(p.grad)
+        body_mom_fired = 0
+        if (args.body_muon_momentum_zero_blockwise_step > 0
+                and step == args.body_muon_momentum_zero_blockwise_step):
+            subset = args.body_muon_momentum_zero_blockwise_subset
+            op = args.body_muon_momentum_zero_blockwise_op
+            factor = args.body_muon_momentum_zero_blockwise_factor
+            target_blocks = {"deep": [8, 9, 10, 11],
+                             "shallow": [0, 1, 2, 3],
+                             "middle": [4, 5, 6, 7]}[subset]
+            sentinel_logged = set()
+            n_modified = 0
+            n_eligible = 0
+            for g in optimizer2.param_groups:
+                for p in g["params"]:
+                    block_idx = getattr(p, "_block_idx", None)
+                    if block_idx not in target_blocks:
+                        continue
+                    n_eligible += 1
+                    state = optimizer2.state.get(p)
+                    if state is None or "momentum" not in state:
+                        continue
+                    m = state["momentum"]
+                    log_sentinel = (dist.get_rank() == 0 and block_idx not in sentinel_logged)
+                    if log_sentinel:
+                        m_before = float(m.detach().float().norm().item())
+                        g_norm = float(p.grad.detach().float().norm().item()) if p.grad is not None else float("nan")
+                    if op == "zero":
+                        m.zero_()
+                    elif op == "decay":
+                        m.mul_(factor)
+                    elif op == "fresh_start":
+                        if p.grad is None:
+                            if dist.get_rank() == 0:
+                                print0(f"WARNING [step {step}]: p.grad None for block {block_idx}; skip",
+                                       console=True)
+                            continue
+                        m.copy_(p.grad.detach())
+                    n_modified += 1
+                    if log_sentinel:
+                        m_after = float(m.detach().float().norm().item())
+                        print0(f"[step {step}] {op.upper()} block={block_idx} "
+                               f"||m_before||={m_before:.5g} ||m_after||={m_after:.5g} "
+                               f"||p.grad||={g_norm:.5g}",
+                               console=True)
+                        sentinel_logged.add(block_idx)
+            print0(f"[step {step}] body_muon_momentum_zero_blockwise: "
+                   f"n_eligible={n_eligible}, n_scaled={n_modified} "
+                   f"(subset={subset}, factor={factor})", console=True)
+            print0(f"[step {step}] body PMuon momentum {op.upper()} blockwise "
+                   f"(subset={subset}, target_blocks={target_blocks}, "
+                   f"factor={factor}, n_scaled={n_modified})", console=True)
+            body_mom_fired = 1
+            body_mom_blockwise_fired_total = 1
+            body_mom_blockwise_step_logged = step
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": step + 1,
+                    "body_mom_blockwise/fired_event": body_mom_fired,
+                    "body_mom_blockwise/n_modified": n_modified,
+                    "body_mom_blockwise/n_eligible": n_eligible,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1189,6 +1285,22 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "body_mom_blockwise/fired": body_mom_blockwise_fired_total,
+                "body_mom_blockwise/step": body_mom_blockwise_step_logged,
+                "body_mom_blockwise/target_step": args.body_muon_momentum_zero_blockwise_step,
+                "body_mom_blockwise/subset_shallow": int(
+                    args.body_muon_momentum_zero_blockwise_subset == "shallow"),
+                "body_mom_blockwise/subset_middle": int(
+                    args.body_muon_momentum_zero_blockwise_subset == "middle"),
+                "body_mom_blockwise/subset_deep": int(
+                    args.body_muon_momentum_zero_blockwise_subset == "deep"),
+                "body_mom_blockwise/op_zero": int(
+                    args.body_muon_momentum_zero_blockwise_op == "zero"),
+                "body_mom_blockwise/op_decay": int(
+                    args.body_muon_momentum_zero_blockwise_op == "decay"),
+                "body_mom_blockwise/op_fresh_start": int(
+                    args.body_muon_momentum_zero_blockwise_op == "fresh_start"),
+                "body_mom_blockwise/factor": args.body_muon_momentum_zero_blockwise_factor,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
