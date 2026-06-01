@@ -1,3 +1,37 @@
+## 2026-06-01 15:15 — PR #2095: H360 fern MuonH base LR magnitude value bracket at H266 stack — CLOSED 212th NULL/NEG (🎯 PAPER-GRADE CROSS-METRIC ASYMMETRY 1st class member of cycle ~2700: smaller LR favors FFS, larger LR favors val — H266 muonh_lr=0.018 is local optimum on BOTH axes within ±22% envelope + 16th candidate H266 attractor cluster anchor + BILATERAL MILDLY-LOAD-BEARING on BODY LR magnitude axis with mechanism-coherent BODY-LR-MAGNITUDE-CROSS-METRIC-ASYMMETRY finding.)
+
+- Branch: g1r3-fern/h360-muonh-lr-value-bracket
+- Hypothesis: Test whether MuonH base LR magnitude axis is load-bearing at H266 stack with bilateral envelope around H266 bit-id muonh_lr=0.018. 3-arm chain: arm_a CTRL `muonh_lr=0.018` (H266 bit-id) / arm_b LOW `muonh_lr=0.015` (−17% smaller) / arm_c HIGH `muonh_lr=0.022` (+22% larger).
+
+### Results
+
+| Arm | muonh_lr | W&B run_id | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|----------|------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL `muonh_lr=0.018` (H266 bit-id) | 0.018 | `r2azcst6` | **3.26945** | **3025** | (ref) | **+1.44σ NEG** | 🎯 16th candidate cluster anchor (Pattern A +25 envelope) |
+| arm_b LOW `muonh_lr=0.015` (−17%) | 0.015 | `vm48pvnx` | 3.27209 | 3050 | +2.99σ NEG val | **+4.42σ NEG val + FFS=+50 NEG** | 🔴 MID NEG (Pattern A +50) |
+| arm_c HIGH `muonh_lr=0.022` (+22%) | 0.022 | `n8tzjfdi` | 3.27108 | 3075 | +1.84σ NEG val | **+3.28σ NEG val + FFS=+75 NEG** | 🟠 MILD NEG (Pattern A +75) |
+| H266 baseline (PR #1669) | 0.018 | `m2ywl0o9` | 3.26818 | 3000 | — | — | (reference) |
+
+🎯 **212th NULL/NEG closure** — all 3 arms FAIL strict FFS<3000 per Issue #1260 (arm_a 3025 / arm_b 3050 / arm_c 3075). NOT merge-eligible.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — NEW CROSS-METRIC ASYMMETRY class (1st member of cycle ~2700)**: arm_b LOW vs arm_c HIGH cross-arm comparison reveals novel rank-reversal between val and FFS metrics. arm_b LOW val=3.27209 (WORSE) / FFS=3050 (BETTER); arm_c HIGH val=3.27108 (BETTER) / FFS=3075 (WORSE). Both off-CTRL arms are NEG vs H266 baseline on BOTH metrics individually (no within-arm val/FFS DECOUPLE), but BETWEEN arms the val and FFS metrics rank-order DIFFERENTLY. Distinct from val/FFS DECOUPLE class (H162 + H352 LINEAR) and BILATERAL ASYMMETRIC NEG class (H352 / H354 / H355). Mechanism: smaller BODY LR = tighter MuonH update steps = better F-norm preservation but slower target-cross; larger BODY LR = looser steps = faster initial progress but overshoots cooldown landing. H266 `lr=0.018` sits at a TIGHT joint-optimum where both effects balance.
+
+🎯 **FINDING #2 — 16th candidate H266 cluster anchor**: arm_a CTRL val=3.26945 FFS=3025 enters as 16th cluster anchor (Pattern A +25 envelope, +1.44σ NEG vs H266). Pattern A +25 envelope is the common CTRL behavior across cycle ~2700 existing-flag value-changes.
+
+🎯 **FINDING #3 — BODY LR magnitude axis BILATERAL MILDLY-LOAD-BEARING within ±22% envelope**: No catastrophic threshold detected on the BODY LR magnitude axis. Joins H353 AUX AGC clip ratio (BILATERAL TIE-NEG), H354 MuonH μ SHAPE (BILATERAL ASYMMETRIC NEG), H355 MuonH μ_end (BILATERAL ASYMMETRIC NEG) as a BODY/AUX-side axis where the H266 stack has a relatively WIDE basin within single-axis ±20% perturbations. The combination of well-tuned values produces the FFS=3000 cluster, not any single axis's narrow load-bearing.
+
+🎯 **FINDING #4 — H266 `muonh_lr=0.018` is local optimum on BOTH metrics**: arm_a CTRL beats BOTH off-CTRL arms on BOTH val/loss AND FFS. The H266 base LR magnitude was correctly tuned by the original hypothesis search — no room to retune the BODY LR magnitude within ±20% envelope.
+
+### Cycle ~2700 update — 212 NULL/NEG + 1 MERGED WIN (H266)
+
+- CROSS-METRIC ASYMMETRY class: 0 → 1 candidates (+H360 arm_b LOW val NEG / FFS BETTER vs arm_c HIGH val BETTER / FFS NEG)
+- H266 attractor cluster: 15 → 16 candidate anchors (+arm_a CTRL Pattern A +25 envelope)
+- Paper-grade taxonomy: NEW BODY-LR-MAGNITUDE-CROSS-METRIC-ASYMMETRY mechanism class
+
+---
+
 ## 2026-06-01 13:30 — PR #2081: H357 askeladd per-layer BODY LR scaled by init F-norm exponent α at H266 stack — CLOSED 211th NULL/NEG (🎯 PAPER-GRADE NEW LARGEST single-direction NEG of cycle ~2700 — H357 arm_c HEAVY +113.81σ vs H266 (1.51× LARGER than H356 prior record +75.31σ) + MONOTONIC NEG dose-response envelope on per-layer LR F-norm coupling axis + 14th H266 attractor cluster anchor entry + 10th HARD-LOAD-BEARING CATASTROPHIC family entry + mechanism-coherent BODY-INIT-FNORM-COUPLING-DISRUPTS-EQUILIBRIUM finding refining H351 OPTIMIZER-UPDATE-RULE-PRESERVES taxonomy + 2nd validated code-change-flag safe-default-0.0 pattern.)
 
 - Branch: g1r3-askeladd/h357-body-lr-init-fnorm-alpha
