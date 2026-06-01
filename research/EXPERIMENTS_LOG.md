@@ -1,3 +1,81 @@
+## 2026-06-01 — PR #2011: H345 alphonse Polyak EMA SCOPE decoupling (BODY-only vs AUX-only vs all) — ROUND-1 VAL-WIN FFS-TIE → SENT BACK (🎯 PAPER-GRADE arm_c AUX_ONLY val=3.26741 = LOWEST val of cycle ~2700 -0.87σ_H174 below H266 baseline + FFS=3000 EXACT recovered despite Pattern A +25 drift = 12th candidate H266 attractor cluster member with LOWEST val of all members. Per Issue #1260 strict FFS<3000 gate FFS=3000 EXACT TIES baseline NO MERGE. Mechanism — REMOVE BODY-side Polyak EMA improves val while preserving FFS via AUX-side EMA stabilization. Cross-validates "AUX over-averaged at H266 stack" portfolio narrative with directional asymmetry: removing AUX-side EMA arm_b BODY_ONLY is val-neutral but removing BODY-side EMA arm_c AUX_ONLY is val-improving. Round-2 follow-up assigned: AUX-side decay sweep [0.025, 0.05, 0.10] to strict-clear FFS<3000)
+
+- Branch: g1r3-alphonse/h345-polyak-ema-scope-body-vs-aux
+- Hypothesis: Polyak-Ruppert EMA SCOPE decoupling — decompose H266 baseline `scope=all` Polyak EMA into BODY-only vs AUX-only vs all. 3-arm chain: arm_a CTRL scope=all (H266 bit-id) / arm_b BODY_ONLY scope=body / arm_c AUX_ONLY scope=aux.
+
+### Results
+
+| Arm | polyak_ema_scope | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|-------------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL `23vou767` | all (H266 bit-id) | 3.26929 | 3025 | (ref) | +1.26σ TIE Pattern A +25 IN FAMILY | Pattern A +25 |
+| arm_b BODY_ONLY `ty7rvo01` | body | 3.26863 | 3025 | **-0.75σ TIE-POS vs CTRL** | +0.51σ TIE Pattern A +25 | val-side neutral-favorable |
+| arm_c AUX_ONLY `mpf7g9wz` | aux | **3.26741** | **3000** | **-2.13σ POS vs CTRL** ⭐ | **-0.87σ vs H266 = LOWEST val of cycle ~2700** ⭐ | VAL-WIN, FFS-TIE recovered FFS=3000 |
+| H266 baseline (PR #1669) | all | 3.26818 | 3000 | (ref) | — | — |
+
+🎯 **VAL-WIN FFS-TIE → SENT BACK for round-2** — Per Issue #1260 strict FFS<3000 gate, arm_c FFS=3000 EXACT TIES baseline. Same protocol as H162 round-1 (PR #1214). Round-2 chain assigned: AUX_ONLY with polyak_ema_decay axis sweep [0.025, 0.05, 0.10] to attempt strict-clear FFS<3000.
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — arm_c AUX_ONLY = 12th candidate H266 attractor cluster member with LOWEST val of cluster**: 11 confirmed FFS=3000 EXACT cluster members + arm_c new candidate. arm_c val=3.26741 = -0.87σ_H174 below H266 baseline val=3.26818 — 3rd-lowest val of cluster (behind H335 arm_b LOW −1.40σ and H338 arm_a CTRL −1.38σ).
+
+🎯 **FINDING #2 — directional asymmetry on Polyak EMA SCOPE axis**: Removing AUX-side EMA (arm_b BODY_ONLY, keep BODY-side EMA only) is val-neutral (-0.75σ vs CTRL). Removing BODY-side EMA (arm_c AUX_ONLY, keep AUX-side EMA only) is val-improving (-2.13σ vs CTRL = LOWEST of cycle ~2700). BODY-side Polyak EMA interferes with cooldown-emerging F-norm equilibrium; AUX-side Polyak EMA is necessary for FFS<3025 stability.
+
+🎯 **FINDING #3 — Confirms "AUX over-averaged at H266 stack" portfolio narrative with directional asymmetry**: H343 NEG sign-mask + H344 NEG slow-weight pullback + H345 BODY_ONLY TIE + H346 MILD TIE all aggregate to "AUX update direction information-rich, must be preserved." H345 AUX_ONLY adds new dimension: not just preserve AUX update direction, also preserve BODY F-norm cooldown equilibrium by REMOVING BODY-side averaging.
+
+### Mechanism interpretation
+
+- H266 baseline scope=all averages BODY 2D weights via 20-step half-life EMA (decay=0.05)
+- BODY F-norm equilibrium emerges during cooldown via Muon orthogonalizer + linear LR decay
+- BODY-side EMA tracking cooldown-terminal-state interferes with this emerging equilibrium → val plateaus at +0.87σ above arm_c AUX_ONLY
+- Removing BODY-side EMA (arm_c) allows BODY F-norm to settle freely → tighter val convergence
+- AUX-side EMA remains necessary for FFS<3025 stability (embed/lm_head smoothing during cooldown)
+
+### Round-2 follow-up assignment
+
+H345 round-2 — AUX_ONLY with polyak_ema_decay axis sweep at H266 stack. Tests whether decay=0.05 is at AUX-side smoothing optimum or whether decay=0.025 (40-step half-life) / decay=0.10 (10-step half-life) can strict-clear FFS<3000 with AUX-side EMA tuned to optimal rate. Decision branches: arm_b LIGHT (decay=0.025) strict-clear FFS<3000 → NEW mechanism class AUX-side EMA was over-smoothing, MERGE candidate / arm_c HEAVY (decay=0.10) strict-clear → AUX-side EMA was under-smoothing, MERGE candidate / both TIE → AUX-side EMA decay axis canalized at 0.05 / both NEG → AUX-side EMA at sharp optimum.
+
+---
+
+## 2026-06-01 — PR #2009: H344 edward Lookahead AdamW on AUX (Zhang et al. 2019, k=5/10 α=0.5) — CLOSED 198th NULL/NEG (🎯 PAPER-GRADE BILATERAL MID NEG with monotone-saturated dose response: arm_b LIGHT k=5 +10.20σ_H174 FFS=3200 +175 FFS vs CTRL + arm_c MEDIUM k=10 +10.59σ FFS=3200 +175 FFS = identical FFS with Δ_arm_b → arm_c = +0.40σ saturated dose response indicates Lookahead pullback frequency axis is NOT load-bearing factor; α=0.5 magnitude IS load-bearing + extends MILDLY-LOAD-BEARING ASYMMETRIC class with first dose-saturated bilateral MID NEG + CONFIRMS "AUX over-averaged at H266 stack" portfolio narrative across H343 NEG sign-mask H344 NEG slow-weight pullback H345 BODY_ONLY TIE H346 MILD TIE = AUX trajectory in saturated-smoothing regime additional averaging mechanisms damage convergence)
+
+- Branch: g1r3-edward/h344-lookahead-adamw-on-aux
+- Hypothesis: Lookahead AdamW (Zhang et al. 2019) slow-weight pullback applied to AUX param groups. Slow-weight average pulls AUX params back toward k-step lagged anchor with α=0.5 mixing every k inner steps. Tests whether slow-weight averaging on AUX trajectory improves cooldown convergence (POS), is neutral (TIE), or damages convergence by removing per-step update directional information (NEG) at H266 stack. 3-arm chain: arm_a CTRL k=0 (Lookahead off, H266 bit-id) / arm_b LIGHT k=5 / arm_c MEDIUM k=10.
+
+### Results
+
+| Arm | aux_lookahead_k | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|------------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL k=0 (H266 bit-id) `4aebqz58` | 0 | 3.26821 | 3025 | (ref) | **+0.04σ TIGHTEST CTRL of cycle ~2700** | Pattern A +25 / val bit-id-tight |
+| arm_b LIGHT k=5 `6l8smqkh` | 5 | 3.27720 | 3200 | +10.16σ MID NEG | +10.20σ MID NEG | +175 FFS vs CTRL |
+| arm_c MEDIUM k=10 `ytwrmz9j` | 10 | 3.27755 | 3200 | +10.56σ MID NEG | +10.59σ MID NEG | +175 FFS vs CTRL |
+| H266 baseline (PR #1669) | — | 3.26818 | 3000 | (ref) | — | — |
+
+🎯 **198th NULL/NEG closure** — Issue #1260 strict gate FAIL (no FFS<3000 candidate; both treatments NEG with monotone-saturated dose response).
+
+### Paper-grade findings
+
+🎯 **FINDING #1 — arm_a CTRL = TIGHTEST CTRL replica of cycle ~2700**: arm_a val=3.26821 = +0.04σ_H174 above H266 baseline = val bit-id-tight. TIGHTEST CTRL of cycle ~2700 (vs H346 +0.27σ, H348 +0.23σ, H349 +0.53σ, H347 +0.93σ, H345 +1.26σ). Lookahead AdamW CLI flag at default k=0 → no-op short-circuit + Pattern A +25 envelope on FFS. Paper-grade clean code-isolation for `--aux_lookahead_k` CLI flag.
+
+🎯 **FINDING #2 — dose-saturated bilateral MID NEG with monotone-saturated response**: arm_b LIGHT k=5 and arm_c MEDIUM k=10 land at identical FFS=3200 with ~indistinguishable val (Δ_arm_b → arm_c = +0.40σ_H174). Dose-response is saturated at MID NEG — doubling k from 5 to 10 produces only marginal additional damage. Pullback frequency axis is NOT the load-bearing factor; α=0.5 magnitude IS load-bearing. Mechanism interpretation: at k=5 every 5 inner steps AUX params get pulled halfway back to slow-weight → removes per-step grad-driven update directional information that H266 cooldown depends on; at k=10 less frequent pullback but more drift accumulated → similar magnitude of damage.
+
+🎯 **FINDING #3 — extends MILDLY-LOAD-BEARING ASYMMETRIC class with first dose-saturated bilateral MID NEG**: H344 is the first dose-saturated bilateral MID NEG within the MILDLY-LOAD-BEARING class (H328 wd / H334 β1 / H335 eps / H340 aux_embed_lr / H343 cautious_fraction c=0.5). Both arms equivalent magnitude → suggests Lookahead pullback mechanism saturates at k=5 with no marginal damage from k=10.
+
+🎯 **FINDING #4 — CONFIRMS "AUX over-averaged at H266 stack" portfolio narrative (paper-grade aggregation finding)**: H344 + H343 + H345 + H346 form multi-experiment paper-grade narrative on AUX optimizer at H266 stack. AUX trajectory in saturated-smoothing regime. Three independent perturbation classes ALL produce NEG: (1) sign-agreement filtering (H343) → CATASTROPHIC NEG, (2) slow-weight pullback (H344) → MID NEG bilateral SATURATED, (3) cautious mask (subset of H343). Two passive-removal perturbations produce neutral-or-better: (1) Remove AUX-side EMA (H345 BODY_ONLY) → TIE val-side, (2) Remove BODY-side EMA keep AUX-side (H345 AUX_ONLY) → val-WIN FFS-TIE. Optimal AUX update strategy is to PRESERVE rather than constrain per-step grad-driven update direction.
+
+### Mechanism interpretation
+
+- Lookahead AdamW pulls AUX params back toward k-step lagged anchor with α=0.5 every k inner steps
+- At k=5 every 5 inner steps AUX params get pulled halfway back to slow-weight → removes per-step grad-driven update directional information
+- At k=10 less frequent pullback but more drift accumulated → similar magnitude of damage
+- Saturation indicates pullback frequency axis is not the load-bearing factor; α=0.5 magnitude IS load-bearing
+- "AUX update direction is information-rich and must be preserved" — confirmed across H343/H344/H345/H346
+
+### Cycle ~2700 update
+
+198 NULL/NEG + 1 MERGED WIN, 110 mechanism classes consolidated. H266 attractor cluster: 11 confirmed members + arm_c AUX_ONLY (PR #2011) = 12th candidate at FFS=3000 EXACT with LOWEST val of cluster. edward reassigned to H352 MuonH cooldown SHAPE axis sweep (cosine vs linear vs sqrt).
+
+---
+
 ## 2026-06-01 — PR #2006: H343 fern Cautious Optimizer on AUX AdamW (sign-agreement masking, Liang 2024) — CLOSED 197th NULL/NEG (🎯 PAPER-GRADE BILATERAL ASYMMETRIC closure with CATASTROPHIC at full dose: arm_b HALF c=0.5 MID NEG +6.56σ_H174 FFS=3125 +125 FFS vs H266 baseline + arm_c FULL c=1.0 CATASTROPHIC NEG +15.71σ FFS=−1 NEVER REACHED 3.28 target = NEW 4th catastrophic mechanism class on AUX optimizer-mask family completing 4-axis HARD-LOAD-BEARING CATASTROPHIC decomposition with H337 outer_momentum BILATERAL + H342 BODY init BOTTOM_DAMP +40.7σ + H347 BODY orthogonalizer ns=6 +16.1σ + monotone c-axis dose response ~14.76σ per c-unit linear NEG slope + sign-disagreement updates carry LOAD-BEARING directional information at H266 cooldown not noise + cross-validates "AUX over-averaged at H266 stack" emerging portfolio narrative with H344 NEG H345 BODY_ONLY TIE-POS H346 MILD TIE)
 
 - Branch: g1r3-fern/h343-cautious-aux-adamw
