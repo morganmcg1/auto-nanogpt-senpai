@@ -1,3 +1,33 @@
+## 2026-06-01 05:32 UTC — Cycle 71 mid-501 — thorfinn #2051 402nd refute 271st mech class TRIPLE-LM-HEAD-RESET-SWAP-RTM-BAND-SUBSTRATE-INVARIANT / 36th RTM precedent (n=2 mean 3.27114 / cross-arm spread 0.00113 / Arm A 3.27170 Arm B 3.27057 / stat margin 0.01254 ✓ / IN floor band [3.27000, 3.27200] / Δ vs #2021 TRIPLE embed-reset = +0.00012 BIT-EQUIVALENT within seed noise; substrate-substitution in TRIPLE compound = RTM-INVARIANT; per-kind β1 mechanism is UNIQUE DESTROYER of #1985 productive emergence independent of reset-substrate choice) + thorfinn #2075 new assignment (MLP-SOAP × embed-reset BILATERAL CONFIRMATION n=2 of #1985 canonical productive cell; 50% PRODUCTIVE-CONFIRMED → robust productive direction 25% RTM-BAND-DRIFT → #1985 was seed-outlier 15% MERGE-CANDIDATE → first cycle-71 merge if both seeds favor productive 5% POD-BLOCK 5% DESTRUCTIVE). **Critical structural insight**: MLP-SOAP × embed-reset (#1985 single-seed 3.26992) remains SOLE productive cell in entire 4-mechanism compound space (8 compounds tested: 7 RTM-additive, 1 PRODUCTIVE single-seed) — bilateral confirmation is highest-value research move because (a) single-seed productive readings have ~30% historical reversal rate (b) MERGE-CANDIDATE has 15% prior given +0.00216 above baseline single-seed and favorable bilateral mean could cross merge bar (c) productive subspace is currently 1 cell deep at n=1, not actionable. **Operational note**: template SENPAI-RESULT in advisor heartbeat-recovery comments caught + acknowledged (`<n=2_mean>` placeholder broke mark_ready_for_review guard JSON parse; will describe expected marker structure in prose going forward per memory `feedback_senpai_result_template_in_advisor_comments`). Fleet 8/8 active 0 idle. Cumulative **402 refuted / 271 mech classes / 227 family closures / 9 axes / 36 RTM precedents / 20 pod-stability observations** (RTM-PERSISTENT-AT-N=21/22 = 95.5%; floor band STRUCTURALLY LOCKED at [3.27000, 3.27200]; per-kind β1 = unique destroyer of #1985 productive emergence; MLP-SOAP × embed-reset productive cell ENTERS bilateral confirmation).
+
+### thorfinn #2051 bilateral terminal — 271st mech class / TRIPLE substrate-invariance
+
+**Bilateral terminal**: Arm A `zqb7j3qc` SEED=1 val=**3.27170** ffs=3050; Arm B `7a0uns3g` SEED=2 val=**3.27057** ffs=3025. n=2 mean **3.27114** (spread 0.00113); stat margin 0.01254 ✓; **Δ vs #2021 TRIPLE embed-reset = +0.00012 BIT-EQUIVALENT** within seed noise; +0.00095 above single-carrier additive 3.27019.
+
+**4-mechanism compound landscape post-#2051**:
+
+| Compound | Per-kind β1 | n | val_mean | reading |
+|---|---|---|---|---|
+| **MLP-SOAP × embed-reset (#1985)** | OFF | **n=1** | **3.26992** | **PRODUCTIVE single-seed — UNIQUE → ENTERS bilateral #2075** |
+| MLP-SOAP × lm_head-reset (#2035) | OFF | n=2 | 3.27074 | RTM-additive floor |
+| MLP-SOAP × per-kind β1 (#2007) | ON | n=2 | 3.27090 | RTM-additive floor |
+| Per-kind β1 × embed-reset MOMENT=2 (#2008) | ON | n=2 | 3.27064 | RTM-additive floor |
+| Per-kind β1 × embed-reset MOMENT=1 (#2034) | ON | n=2 | 3.27057 | RTM-additive floor |
+| TRIPLE w/ embed-reset (#2021) | ON | n=2 | 3.27102 | RTM-band (productive destroyed) |
+| **TRIPLE w/ lm_head-reset SWAP (#2051)** | **ON** | **n=2** | **3.27114** | **RTM-band-substrate-invariant** |
+
+→ Substrate-substitution in TRIPLE compound is RTM-INVARIANT (Δ=+0.00012 within seed noise). The per-kind β1 mechanism uniquely destroys #1985's productive emergence — INDEPENDENT of which reset substrate is paired with MLP-SOAP.
+
+### thorfinn #2075 new assignment — #1985 bilateral confirmation
+
+Tests `MLP_SOAP_PER_DEPTH_HALF_ENABLED=1 + AUX_RESET_MOMENT_EMBED=2 + canonical F/INTERVAL` at canonical #1985 config, NO per-kind β1, NO lm_head reset. The sole productive cell entering bilateral confirmation. 50% PRODUCTIVE-CONFIRMED. 15% MERGE-CANDIDATE — first cycle-71 merge candidate if confirmed.
+
+### Cycle 71 cumulative state — post-this-close
+
+After thorfinn #2051 close + thorfinn #2075 assignment: g1r2-{askeladd #2063, alphonse #2065, edward #2059, fern #2068, nezuko #2072, thorfinn #2075, tanjiro #2056, frieren #2055} all WIP. Cumulative **402 refuted / 271 distinct mech classes / 227 family closures / 9 structural axes locked / 36 RTM precedents / 20 pod-stability observations**.
+
+---
+
 ## 2026-06-01 05:25 UTC — Cycle 71 mid-500 — nezuko #2064 401st refute 20th pod-stability observation (1,3) EMBED-EXP-AVG-ONLY-UNIQUELY-LOAD-BEARING POD-BLOCK (bilateral NaN step 125; step-0 val 10.82583 bilateral identical; banner verified `[PR1824-FRIEREN] EMBED interval=200 moment=1 factor=0.25 || LM_HEAD interval=200 moment=3 factor=0.25`; M-axis at canonical stable cell + symmetric F=0.25 + symmetric INTERVAL=200 NOW 6/6 CHARACTERIZED = 5/6 POD-BLOCK + UNIQUE (2,3) STABLE; **2-bit substrate-specific moment-axis lock STRUCTURALLY ESTABLISHED**: high-LR substrate (embed) uniquely requires exp_avg-only reset M=2, low-LR substrate (lm_head) uniquely requires joint reset M=3; any other single-bit deviation produces deterministic step-125 NaN) + nezuko #2072 new assignment ((2,3) F-asymmetric productive probe: EMBED-F=0.5 DOUBLE canonical + LM_HEAD-F=0.25 canonical at unique stable cell — productive search off M-axis preserving substrate-specific moment-axis pairing; 35% F-ASYMMETRIC-RTM-BAND-STABLE 25% F-ASYMMETRIC-PRODUCTIVE → first productive emergence OFF M-axis at canonical (2,3) 20% DESTRUCTIVE 15% POD-BLOCK 5% MERGE) + edward #2059 stale_wip override (W&B audit: Arm A `tijvukng` SEED=1 FINISHED val_loss=**3.26969** ffs=3025 — 2nd cycle-71 BELOW-FLOOR-BAND NON-MERGE reading after edward #2031 3.26914; duplicate Arm A `dt16gxso` started at 05:00 UTC with byte-identical config — NOT Arm B; advisor override posted instructing student to kill duplicate, acknowledge Arm A terminal heartbeat, launch true Arm B with SEED=2). **Critical structural insight**: M-axis at canonical stable cell now FULLY CHARACTERIZED — 5/6 cells POD-BLOCK with unique (2,3) survival. Substrate-asymmetry mechanism: AdamW update `exp_avg / sqrt(exp_avg_sq + ε)` requires specific moment-axis pairing on each substrate; ratio mismatch at muon-warmup boundary (step 125, MU_WARMUP_STEPS=200) propagates to NaN. Cherry-pick discipline maintained (commit `96341cee` from #2028 infra). **edward Arm A 3.26969 is structurally significant**: 2nd below-floor-band non-merge reading at 3-kind cardinality — if Arm B confirms, supports V-EXCLUSION matches PROJ-EXCLUSION at 3-kind cardinality. Fleet 8/8 active 0 idle. Cumulative **401 refuted / 270 mech classes / 226 family closures / 9 axes locked / 35 RTM precedents / 20 pod-stability observations**.
 
 ### nezuko #2064 bilateral terminal — 20th pod-stab observation / (1,3) POD-BLOCK / M-axis closure
