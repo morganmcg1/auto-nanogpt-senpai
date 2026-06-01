@@ -609,6 +609,10 @@ NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA = float(os.environ.get("NANOGPT_NEWTON_MUON_T
 # diagonal prior accumulated over K steps of "naked Muon" training (NM bypassed pre-K).
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART", "0"))
 NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K = int(os.environ.get("NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K", "100"))
+# Eigenvalue CEILING CLIP — cap max R eigenvalue at K * geometric_mean(vals_floored).
+# Bounds R condition number; mechanically distinct from Tikhonov gamma floor.
+# Applied after Tikhonov floor + eps, before rsqrt. K=0.0 → INACTIVE (bit-identical).
+NANOGPT_NEWTON_MUON_R_EIG_CEILING_K = float(os.environ.get("NANOGPT_NEWTON_MUON_R_EIG_CEILING_K", "0.0"))
 
 # Global per-parameter input-activation cache populated by forward hooks. Keyed by
 # id(weight_param) → tensor of shape (B*T, d_in) on device. Only populated when
@@ -887,6 +891,12 @@ class Muon(torch.optim.Optimizer):
             try:
                 vals, vecs = torch.linalg.eigh(R_for_decomp)
                 vals_clamped = vals.clamp(min=0.0) + self.newton_eps
+                # Eigenvalue CEILING CLIP — cap top eigenvalues at K * geo_mean(vals_clamped)
+                # to bound R condition number. Asymmetric vs Tikhonov gamma (floor raise).
+                if NANOGPT_NEWTON_MUON_R_EIG_CEILING_K > 0.0:
+                    geo_mean = vals_clamped.log().mean().exp()
+                    eig_ceiling = NANOGPT_NEWTON_MUON_R_EIG_CEILING_K * geo_mean
+                    vals_clamped = vals_clamped.clamp(max=eig_ceiling)
                 inv_sqrt_vals = vals_clamped.rsqrt()
                 # R_inv_sqrt = V * diag(inv_sqrt_vals) * V^T (symmetric).
                 state["R_inv_sqrt"] = (vecs * inv_sqrt_vals.unsqueeze(0)) @ vecs.T
@@ -1037,7 +1047,8 @@ print0(
     f"max_d_in={NANOGPT_NEWTON_MUON_MAX_D_IN} "
     f"tikhonov_gamma={NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA} "
     f"r_warmstart={'True' if NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART else 'False'} "
-    f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K}",
+    f"r_warmstart_k={NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K} "
+    f"r_eig_ceiling_k={NANOGPT_NEWTON_MUON_R_EIG_CEILING_K}",
     console=True,
 )
 if NS_ITERS_COOLDOWN > 0:
@@ -1161,6 +1172,7 @@ if dist.get_rank() == 0:
             "nanogpt_newton_muon_tikhonov_gamma": NANOGPT_NEWTON_MUON_TIKHONOV_GAMMA,
             "nanogpt_newton_muon_r_adamw_warmstart": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART,
             "nanogpt_newton_muon_r_adamw_warmstart_k": NANOGPT_NEWTON_MUON_R_ADAMW_WARMSTART_K,
+            "nanogpt_newton_muon_r_eig_ceiling_k": NANOGPT_NEWTON_MUON_R_EIG_CEILING_K,
         },
     )
 
