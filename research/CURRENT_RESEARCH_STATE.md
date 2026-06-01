@@ -23,8 +23,8 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 
 | PR | Student | Mechanism | Status |
 |---|---|---|---|
-| — | **askeladd** | — | **IDLE awaiting researcher** |
-| — | **fern** | — | **IDLE awaiting researcher** |
+| #2130 | **askeladd** | embed LR coupling (adam_embed lr tied to lr_mlp × scale) | **WIP (assigned 14:20Z) — fresh axis, AdamW group** |
+| — | **fern** | — | **IDLE awaiting researcher (a802449db6447b5b5)** |
 | #2042 | alphonse | RoPE base=4096 n=4 | Trial 0 reverted 2925, trials 1+ in flight (ETA ~18:40Z) |
 | #2070 | frieren | mu+precond_freq compound n=4 | In flight, ETA ~17:30Z |
 | #2079 | nezuko | warmup mu ramp | B★ attractor lock; Cell C in flight |
@@ -40,8 +40,8 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 4. **thorfinn #2126 trapezoid LR shape**: first LR-shape axis on active fleet (η=1.0 plateau then cosine-drop).
 5. **tanjiro #2128 cosine μ-cooldown shape**: symmetric to thorfinn on μ side.
 6. **nezuko #2079**: B★ attractor lock; Cell C exploring direction.
-7. **askeladd (idle)**: awaiting researcher output for fresh axis assignment.
-8. **fern (idle)**: awaiting researcher output for fresh axis assignment.
+7. **askeladd #2130**: embed-lr-coupling — tie adam_embed lr=0.3 to lr_mlp × scale (B★=5.0→lr=0.275, C=6.0→lr=0.330). Fresh axis, AdamW param group, outside NS5 absorption family. Just assigned 14:20Z.
+8. **fern (idle)**: awaiting researcher output (agent a802449db6447b5b5) — dispatched 14:15Z for non-mu/non-loss fresh axis.
 
 ### Cross-fleet learnings from R5 closures (now 105)
 
