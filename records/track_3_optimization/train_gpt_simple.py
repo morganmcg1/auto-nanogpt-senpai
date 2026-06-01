@@ -106,6 +106,16 @@ def parse_args():
                              "this target value across the cooldown phase (last cooldown_frac "
                              "of training). None = constant mu=0.95 (default). "
                              "Affects all muon_* param groups.")
+    parser.add_argument("--mu_warmup_start", type=float, default=None,
+                        help="If set, linearly ramp Muon Nesterov momentum from this value to "
+                             "0.95 during the warmup phase (first mu_warmup_frac of training). "
+                             "Example: 0.70. None = constant mu=0.95 throughout warmup (default). "
+                             "Affects all muon_* param groups. Warmup schedule fires before "
+                             "mu_cooldown_target ramp; they are sequential, not overlapping.")
+    parser.add_argument("--mu_warmup_frac", type=float, default=0.1,
+                        help="Fraction of train_steps over which the mu_warmup_start ramp runs. "
+                             "Default 0.1 (first 10%% of training). Only used when "
+                             "mu_warmup_start is set.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -793,6 +803,9 @@ if dist.get_rank() == 0:
             "ema_eval_enabled": args.ema_eval_decay is not None,
             "mu_cooldown_target": args.mu_cooldown_target,
             "mu_cooldown_enabled": args.mu_cooldown_target is not None,
+            "mu_warmup_start": args.mu_warmup_start,
+            "mu_warmup_frac": args.mu_warmup_frac,
+            "mu_warmup_enabled": args.mu_warmup_start is not None,
         },
     )
 
@@ -935,10 +948,12 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
-        if args.mu_cooldown_target is not None:
-            if progress < 1 - cooldown_frac:
-                mu_sched = 0.95
-            else:
+        if args.mu_warmup_start is not None or args.mu_cooldown_target is not None:
+            mu_sched = 0.95
+            if args.mu_warmup_start is not None and progress < args.mu_warmup_frac:
+                x_warm = progress / args.mu_warmup_frac
+                mu_sched = args.mu_warmup_start + (0.95 - args.mu_warmup_start) * x_warm
+            elif args.mu_cooldown_target is not None and progress >= 1 - cooldown_frac:
                 x_mu = (progress - (1 - cooldown_frac)) / cooldown_frac
                 mu_sched = 0.95 + (args.mu_cooldown_target - 0.95) * x_mu
             for opt in optimizers:
