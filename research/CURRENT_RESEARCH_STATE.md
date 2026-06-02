@@ -1,3 +1,45 @@
+## 2026-06-02 ~07:30 UTC — Cycle 71 mid-568 — **g1r2-nezuko POD-BROKEN CONFIRMED + STANDING AUDIT FILED for PR2237 axis-14 closure** — nezuko #2241 NOT-A-REFUTE (POD-BLOCK at disabled-check, byte-identical baseline path; cross-pod control on tanjiro `1zb5h0e5` reaches val/loss=4.42 at step 125; pre-event passing canary `mnm5jf3v` 2026-05-31 08:05:47 UTC; data integrity confirmed; hardware/CUDA-state fingerprint nf=147,758,208 step-1 byte-identical to #1239); issue #2250 [HUMAN-NEEDED] filed by morganmcg1 for pod remediation; sent #2241 status:review → status:wip; **CRITICAL AUDIT CONCERN**: PR2214/PR2231/PR2237 "BITFIELD-INVARIANT cascade attractor" closures all on broken pod since 2026-05-31 10:22 UTC — may be pod-broken signatures, not configuration-driven; cascade attractor 147,984,768 at step 125 IS genuine cross-pod (fern pod #2212/#2220/#2227/#2232), but nezuko pod's contributions are unreliable. Fleet 7/8 WIP (nezuko POD-BROKEN, no new assignments until remediation). Cumulative: **473 refuted / 323 mech classes / 295 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability observations + 1 POD-BROKEN-CONFIRMED**.
+
+### nezuko #2241 NOT-A-REFUTE — POD-BROKEN at disabled-check
+
+**Student diagnosis (g1r2-nezuko, methodologically gold-standard)**:
+- Disabled-check `cra5btli` (06:44Z) and `uvbj5wwr` (06:59Z): val_loss step-0 = 10.82583 ✓ baseline, val_loss step-125 = NaN, nonfinite_count step-1 = 147,758,208 (91.01%)
+- Cross-pod control: tanjiro `1zb5h0e5` same env stack + same RTX PRO 6000 Blackwell reaches val/loss=4.42 at step 125 healthy
+- Pre-event passing canary: `mnm5jf3v` last successful run on this pod 2026-05-31 08:05:47 UTC, final val 3.27047
+- Pod broken since 2026-05-31 10:22 UTC (~45h at filing)
+- Hardware/CUDA-state fingerprint identical to #1239 prior broken-pod state
+- Runtime: PyTorch 2.10.0+cu128 (note: May 26 remediation specified torch=2.12.0+cu130; this pod is on older stack)
+
+**PR #2241 status**: sent back to status:wip. AUX_CLIP_NORM hypothesis NEVER ran on working pod — NOT a refute. Cumulative refute count stays at 473.
+
+### STANDING AUDIT — PR2214 / PR2231 / PR2237 cascade attractor attributions
+
+**Concern**: All three nezuko bitfield closures (PR2214 bitfield=7, PR2231 bitfield=8, PR2237 bitfield=15) reported step-125 nonfinite_count = 147,984,768. The broken pod's disabled-check reproduces the same byte-identical step-1 fingerprint nf=147,758,208 → NaN propagation, with PKB1=OFF and AUX_CLIP_NORM=OFF. If the broken-pod NaN cascade ALSO produces nf=147,984,768 at step 125 (consistent with the network-architectural fixed-point), then the bitfield closures may have been MISATTRIBUTED to PKB1 dispatch rather than pod-broken hardware.
+
+**Distinguishing test**: Cascade attractor 147,984,768 at step 125 IS observed independently on fern pod (different hardware) for EMBED M=3 destabilizers (#2212 F=0.99, #2220 F=1.0, #2227 MLP-SOAP×EMBED M=3, #2232 F=0.5). So the attractor signature is genuine network-architectural, BUT nezuko's contributions from broken pod do not independently confirm bitfield-invariance.
+
+**Resolution plan**: Once nezuko pod is remediated, re-run bitfield=15 NO-ATTN-SOAP probe (PR2237 config) on the healthy pod. If fingerprint reproduces → axis-14 closure stands. If healthy-pod baseline path with PKB1=1 bitfield=15 instead reaches val/loss=4.42 at step 125 (clean trajectory) → axis-14 closure VOID and tally adjusts (473 → effective 470 by removing #2214/#2231/#2237 from refute count; 14 axes → effective 13).
+
+### Issue #2250 acknowledged
+
+Replied 07:30Z acknowledging student's diagnosis + audit implications + remediation pending. No new nezuko assignments until pod healthy.
+
+### Cycle 71 mid-568 fleet status
+
+Fleet 7/8 active (nezuko POD-BROKEN).
+- alphonse #2215 (n=4 variance): nudged 06:46Z for duplicate SEED=5 kill + plan clarification
+- askeladd #2217 (MLP-SOAP back=fast): bilateral expected near-terminal
+- tanjiro #2230 (PROJ-ONLY ATTN-SOAP pruning ablation): in-flight
+- frieren #2233 (SCALARS-RESET M=2 F=1.0 isolated): Arm A `u8h2e77o` at step 1525 healthy; nudged 06:46Z to wait for Arm A terminal before Arm B
+- fern #2238 (PER_DEPTH_HALF_MUON_LR): unblocked with Option A (cherry-pick 4130c311)
+- nezuko #2241 (AUX_CLIP_NORM): **HOLD — POD-BROKEN, sent back to status:wip pending pod replacement**
+- thorfinn #2243 (MLP-SOAP × PKB1_LM_HEAD=0.7 COMPOUND): assigned 06:44Z
+- edward #2244 (PER_KIND_MUON_LR attn-vs-mlp): assigned 06:44Z
+
+Cumulative: **473 refuted / 323 mech classes / 295 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability observations + 1 POD-BROKEN-CONFIRMED**.
+
+---
+
 ## 2026-06-02 ~08:30 UTC — Cycle 71 mid-567 — thorfinn #2218 CLOSED (472nd refute / **12th STRUCTURAL AXIS FULLY CLOSED — MLP-SOAP IS M-INVARIANT BUFFER ON LM_HEAD F=1.0 DESTAB CLASS** at 60% prior REALIZED; MLP-SOAP front=fast buffers BOTH M=1 exp_avg_sq reset AND M=2 exp_avg reset of LM_HEAD F=1.0; M-INVARIANT buffer established; edward #2216 CLOSED (473rd refute / **BINARY SUBSTRATE-CLASS F=1.0 STABILITY AXIS ESTABLISHED — {EMBED, SCALARS} STABLE vs {LM_HEAD} POD-BLOCK**); thorfinn #2243 MLP-SOAP×PKB1_LM_HEAD COMPOUND merge-bar break assigned; edward #2244 PER_KIND_MUON_LR attn-vs-mlp body-Muon kind-axis assigned). Fleet 8/8 WIP. Cumulative: **473 refuted / 323 mech classes / 295 family closures / 14 structural axes / 68 RTM precedents / 53 pod-stability observations**.
 
 ### thorfinn #2218 CLOSED — 472nd refute / 12th STRUCTURAL AXIS FULLY CLOSED — MLP-SOAP M-INVARIANT BUFFER
