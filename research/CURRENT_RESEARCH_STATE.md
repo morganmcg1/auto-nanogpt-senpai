@@ -9,13 +9,13 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 04:55Z (**PR #2170 frieren post-ns5-rownorm CLOSED FFS-NEUTRAL — 116th R5 closure. 4-cell mechanism-rich result: B★(all groups)=2875 (attractor), C(mlp only)=**2950 REGRESSION +75**, D(attn only)=2875. Row-norm variance IS INFORMATIVE in MLP (equalizing loses signal); attn rows already near-uniform. First post-NS5 transformation closure at R5. Frieren IDLE → researcher round dispatched. Fleet 7/8.**)
+## Last updated: 2026-06-02 05:15Z (**PR #2235 frieren post-ns5-dir-ema-gate ASSIGNED — scalar cosine-EMA gate on NS5 output direction; temporal consistency filter on orthogonalized updates; 3 cells: A_ctrl / B★(relu,β=0.9) / C(soft,β=0.95); ~35 LOC; novelty confirmed 6 zero-hit gh searches. Fleet 8/8.**)
 
 ### Notes (2026-06-02 04:55Z) — 116th R5 closure + frieren idle
 
 - **PR #2170 frieren CLOSED — 116th R5 closure** [post-ns5-rownorm]. 4-cell screen with per-group ablation. B★ (all groups normalized) lands on canonical FFS_ema=2875 attractor; C (MLP only) regresses +75 FFS to 2950; D (attn only) parity at 2875. Mechanism diagnostic confirms NS5 row-norm CV is asymmetric — MLP starts ~1.0 decaying to 0.18 (substantial variance), attn stays ~0.16 (already uniform). **Counter-intuitive finding**: row-norm variance carries signal in MLP groups — equalizing it destroys signal, producing FFS-NEG in C-cell. When both groups normalized in B★, MLP signal-loss is compensated downstream (LR scaling or SOAP preconditioner absorbing the rescaling), landing at attractor. **First closure on post-NS5 transformation axis at R5** — raises bar for future post-NS5 hypotheses: must address "why preserve rather than destroy NS5 output magnitude variance?"
 
-- **Frieren IDLE** post-#2170 closure. Researcher round dispatched (background `acae852835618fb37`) for fresh hypothesis. Constraints listed: avoid pre-NS5 family ([[pre_ns5_gradient_transformation_axis_saturated_at_r5]]), avoid post-NS5 row-norm equalization (just closed), avoid all 9 saturated families per memory. Encourage post-NS5 NON-magnitude-equalization mechanisms (column-projection, low-rank truncation, momentum-correlation gating), new loss-side mechanisms, cross-layer coordination, or non-LR/μ cooldown innovations. Researcher returning ETA 15-20 min.
+- **PR #2235 frieren ASSIGNED** [post-ns5-dir-ema-gate]. Maintains per-parameter bfloat16 EMA of NS5 output directions; gates each step's update magnitude by scalar cosine similarity to that EMA. Temporally consistent steps get full magnitude; divergent steps suppressed. Distinct from Cautious #844 (per-element sign), SOAP-trust #467 (cross-optimizer same step), and just-closed row-norm #2170 (spatial vs temporal). B★ uses relu mode (gate∈[0,1]), C uses soft mode (gate∈[0.5,1], never suppresses). Add `post_ns5_gate_mean` telemetry — if gate remains >0.95 throughout, mechanism is a no-op. 3 cells, 35 LOC. Frieren now running.
 
 - **Fleet status snapshot (04:55Z) — 7 running + frieren idle:**
 
@@ -28,7 +28,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 | #2195 | edward | soap-gram-tikhonov-v2 | B-a001 launched | running | A+C finished parity |
 | #2184 | askeladd | ns5-kj-coefficients | D-quadratic relaunch | running | A/B★/C terminal (monotone-degrading) |
 | #2133 | fern | depth-graduated-mlp-lr | D-n4-inverse step 7216 | 3.273 | n=4 confirm ~55% |
-| — | frieren | (idle; researcher in flight) | — | — | <5 min |
+| #2235 | frieren | post-ns5-dir-ema-gate | A-ctrl launching | — | newly assigned |
 
 - **PR #2167 alphonse** also closed (115th, ns5-per-group-iters FFS-NEUTRAL). Both closures now in EXPERIMENTS_LOG.md.
 
