@@ -68,6 +68,14 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--post_ns5_rownorm", action="store_true", default=False,
+        help="Normalize each row of the NS5 output to the mean row norm before applying the "
+             "Muon step. Applies to all Muon param groups (MLP + attn). Reduces implicit per-neuron "
+             "LR variance from NS5 polar factor row-norm imbalance.")
+    parser.add_argument("--post_ns5_rownorm_mlp", action="store_true", default=False,
+        help="Same as --post_ns5_rownorm but applied only to MLP SOAP groups (muon_mlp).")
+    parser.add_argument("--post_ns5_rownorm_attn", action="store_true", default=False,
+        help="Same as --post_ns5_rownorm but applied only to attn SOAP groups (muon_attn).")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -524,18 +532,26 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, rownorm=False):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    if rownorm:
+        row_norms = update.float().norm(dim=-1, keepdim=True)
+        mean_norm = row_norms.mean().clamp_min(1e-8)
+        update = (update / (row_norms.to(update.dtype) + 1e-8)) * mean_norm.to(update.dtype)
     return update
 
 
 @torch.compile
-def soap_ns_step(nesterov_update):
+def soap_ns_step(nesterov_update, rownorm=False):
     update = zeropower_via_newtonschulz5(nesterov_update)
     update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
+    if rownorm:
+        row_norms = update.float().norm(dim=-1, keepdim=True)
+        mean_norm = row_norms.mean().clamp_min(1e-8)
+        update = (update / (row_norms.to(update.dtype) + 1e-8)) * mean_norm.to(update.dtype)
     return update
 
 
@@ -627,6 +643,7 @@ class Muon(torch.optim.Optimizer):
                 "lr": g.get("lr", lr),
                 "weight_decay": g.get("weight_decay", weight_decay),
                 "mu": g.get("mu", mu),
+                "ns5_rownorm": g.get("ns5_rownorm", False),
             }
             if "name" in g:
                 g_dict["name"] = g["name"]
@@ -641,6 +658,7 @@ class Muon(torch.optim.Optimizer):
         rank = dist.get_rank()
         for group in self.param_groups:
             params = group["params"]
+            ns5_rownorm_for_group = group.get("ns5_rownorm", False)
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
@@ -661,9 +679,9 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
-                        u_soap = soap_ns_step(precond_nesterov)
+                        u_soap = soap_ns_step(precond_nesterov, rownorm=ns5_rownorm_for_group)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            u_muon = soap_ns_step(raw_nesterov, rownorm=ns5_rownorm_for_group)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -673,7 +691,7 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"], rownorm=ns5_rownorm_for_group)
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -794,6 +812,11 @@ if dist.get_rank() == 0:
             "ema_eval_enabled": args.ema_eval_decay is not None,
             "mu_cooldown_target": args.mu_cooldown_target,
             "mu_cooldown_enabled": args.mu_cooldown_target is not None,
+            "post_ns5_rownorm": bool(args.post_ns5_rownorm),
+            "post_ns5_rownorm_mlp": bool(args.post_ns5_rownorm_mlp),
+            "post_ns5_rownorm_attn": bool(args.post_ns5_rownorm_attn),
+            "ns5_rownorm_mlp_effective": bool(args.post_ns5_rownorm or args.post_ns5_rownorm_mlp),
+            "ns5_rownorm_attn_effective": bool(args.post_ns5_rownorm or args.post_ns5_rownorm_attn),
         },
     )
 
@@ -876,10 +899,12 @@ for trial_idx in range(args.num_trials):
     attn_named = [(n, p) for n, p in named_blocks
                   if not (n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"))]
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
+    ns5_rownorm_mlp  = args.post_ns5_rownorm or args.post_ns5_rownorm_mlp
+    ns5_rownorm_attn = args.post_ns5_rownorm or args.post_ns5_rownorm_attn
     optimizer2 = Muon(
         [
-            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
-            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
+            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp",  ns5_rownorm=ns5_rownorm_mlp),
+            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn", ns5_rownorm=ns5_rownorm_attn),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
@@ -1198,6 +1223,23 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if dist.get_rank() == 0 and telemetry_due:
+            with torch.no_grad():
+                rownorm_cv_metrics = {"trial": trial_idx, "train/step": train_step}
+                for group in optimizer2.param_groups:
+                    gname = group.get("name", "muon")
+                    p_first = next((p for p in group["params"] if p.grad is not None), None)
+                    if p_first is None:
+                        continue
+                    ns5_out = zeropower_via_newtonschulz5(p_first.grad)
+                    rn = ns5_out.float().norm(dim=-1)
+                    rn_mean = rn.mean().clamp_min(1e-8)
+                    cv = float((rn.std() / rn_mean).item())
+                    rownorm_cv_metrics[f"rownorm_cv/{gname}"] = cv
+                    rownorm_cv_metrics[f"rownorm_min/{gname}"] = float(rn.min().item())
+                    rownorm_cv_metrics[f"rownorm_max/{gname}"] = float(rn.max().item())
+                    rownorm_cv_metrics[f"rownorm_mean/{gname}"] = float(rn_mean.item())
+                wandb.log(rownorm_cv_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
 
