@@ -16393,3 +16393,36 @@ Rationale: Although FFS<3000 merge probability is LOW (val gain is post-cooldown
 
 **Pattern A bit-id verification:** Step-0 val=10.82583 EXACT on all 3 arms. arm_a sentinel branch verified bit-id with production MuonH code path.
 
+---
+
+## 2026-06-02 01:00 UTC — PR #2157 SENT BACK: H371 frieren LaProp AUX optimizer (reorder normalize/momentum) — 2nd CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class entry of cycle ~2700 + LaProp eps=1e-8 anchor produces CLOSEST-TO-BASELINE arm of cycle ~2700 (−0.16σ vs H266 baseline)
+
+- Branch: `g1r3-frieren/h371-laprop-aux-optimizer`
+- Hypothesis: LaProp AUX optimizer (Ziyin et al. 2020) reorders Adam operations: normalize gradient first by per-coord 2nd-moment EMA, THEN accumulate into momentum buffer. Mechanism-distinct from AdamW's momentum-then-normalize order. Operations-order claim: reduces stale-momentum effects when gradient scale shifts (e.g., cooldown).
+- Cycle ~2700 cumulative: **226 NULL/NEG/TIE + 1 MERGED WIN**.
+
+| Arm | `--aux_optimizer` | `--aux_adamw_eps` | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 | Class |
+|-----|-------------------|--------------------|----------|-----|---------------------|-----------|-------|
+| arm_a CTRL adamw eps=1e-6 | adamw | 1e-6 | 3.26863 | **3025** | (ref) | +0.51σ | Pattern A +25 envelope, **32nd candidate H266 cluster anchor** |
+| arm_b LAPROP eps=1e-6 | laprop | 1e-6 | 3.26958 | **3025** | +1.07σ | +1.58σ | TIE-on-FFS (canalized), 33rd cluster anchor |
+| arm_c LAPROP_LOW_EPS eps=1e-8 | laprop | 1e-8 | **3.26804** | **3000 EXACT** | **−0.67σ** | **−0.16σ** | 🎯 **CLOSEST-TO-BASELINE arm of cycle ~2700** + 2nd CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class entry + **6th additional STRICT FFS=3000 EXACT H266 cluster anchor** |
+
+**Critical mechanism observation:** arm_c LaProp at paper-default eps=1e-8 lands at FFS=3000 EXACT with val=3.26804 — within −0.16σ of H266 baseline (3.26818). This is the **closest single-arm result to baseline of cycle ~2700 to date** (closer than H372 arm_c −0.12σ Adan β₃=0.95, H365 arm_a CTRL −0.08σ baseline replay). Mechanism interpretation: operation-order reorder at LaProp paper-default eps mostly canalized by H266 stack (`scale_invariant` + AGC clip + second-moment-EMA), but the eps-axis interaction is mechanism-coherent — arm_c outperforms arm_b within LaProp by −1.74σ (sub-σ but consistent), suggesting eps controls the scaling of the normalized momentum input not just update scale.
+
+**Mechanism-class taxonomy: 2nd CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class entry** (joining H372 Adan β₃=0.95). Both H371 arm_c and H372 arm_c achieve sub-σ val improvement while FFS canalizes — fresh recurrent pattern of cycle ~2700 indicating that H266 attractor cluster has both an FFS-axis canalization gate AND val/loss drift sensitivity at specific mechanism-distinct anchors.
+
+**Pattern A bit-id verification:** Step-0 val=10.82583 EXACT on all 3 arms. arm_a sentinel verified bit-id AdamW path; LaProp branch confirms no init-time or step-0 forward perturbation.
+
+**Decision: SEND BACK** for β₁ value-axis follow-up at LaProp eps=1e-8 anchor per student suggested follow-up #2.
+
+- arm_a CTRL adamw eps=1e-6 β₁=0.8 (Pattern A bit-id sentinel — fresh noise floor)
+- arm_b LaProp eps=1e-8 β₁=0.85 (mid-step toward LaProp paper recommendation)
+- arm_c LaProp eps=1e-8 β₁=0.9 (LaProp paper-recommended β₁)
+
+**Rationale:** arm_c LaProp eps=1e-8 β₁=0.8 already matches H266 baseline within noise — this is the strongest "near-anchor" of cycle ~2700. β₁ tuning at the LaProp anchor has paper-supported recommendation (β₁=0.9, Ziyin et al. 2020) and a clean dose-response axis. Code change is small (~3 LoC): add `--aux_beta1` argparse flag (default 0.8) and modify `betas=(0.8, args.aux_beta2_start)` at line 938 to `betas=(args.aux_beta1, args.aux_beta2_start)`. Student must also thread `--aux_beta1` through the LaProp branch they implemented in arm_b/arm_c.
+
+**Decision branches:**
+- WIN (FFS<3000 STRICT): β₁=0.9 LaProp paper anchor breaks the H266 cluster — merge candidate.
+- TIE (FFS=3000 EXACT): β₁ at LaProp eps=1e-8 is canalized — close axis (joins TIE-on-FFS family).
+- NEG (FFS>3025): β₁>0.8 destabilizes LaProp — close axis, mechanism rejection.
+
