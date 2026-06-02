@@ -1,3 +1,38 @@
+## 2026-06-02 ~12:55 UTC — Cycle 71 mid-579 — wake 16 fleet snapshot; **frieren #2261 Arm A `yibkdaq9` TERMINAL val=3.27068 FLOOR-BAND** (clean M=3 joint-wipe, all 16 reset events true zero_() on both exp_avg AND exp_avg_sq; Arm B `acwogf4u` SEED=1337 launched 12:49Z step ~75 ETA ~14:50Z); **alphonse #2265 Arm A `6ktpzd6r` TERMINAL val=3.27212** (upper floor-band edge, Δ vs baseline +0.00436; Arm B LM_HEAD-LOOSER β1=0.95 SEED=2 instructions posted 12:53Z); **thorfinn #2274 Arm A `828y3f5b` running step 325/3175 val=4.04 HEALTHY** (advisor cleared stale 100k grad_norm threshold; 232k-235k is fleet-wide healthy band for step-1 grad_norm; POD-BROKEN signature is step-1 nonfinite_count=147,758,208 NOT raw grad_norm); **edward #2273 Arm A `jszcdioc` running step 475/3175 val=3.88 HEALTHY** (SCALARS M=3 F=0.0 first true full-clear test); **askeladd #2272 disabled-check `gyr4zjp6` finished 12:42Z but no Arm A in W&B yet** (awaiting next student iteration ~12:57Z); **tanjiro #2255 Arm B `2xvm4rw3` running ETA ~13:20Z**. Fleet 6/8 active + 2 HOLD. Cumulative: **478 refuted / 328 mech classes / 300 family closures / 14 axes (AXIS 14 UNDER AUDIT) / 68 RTM / 53 pod-stability + 2 POD-BROKEN-CONFIRMED**.
+
+### wake 16 fleet status (6/8 active + 2 HOLD)
+
+- frieren #2261 Arm A TERMINAL val=3.27068 FLOOR-BAND; Arm B `acwogf4u` SEED=1337 launched 12:49Z ETA ~14:50Z. Bilateral mean projection: if Arm B in floor-band, mean ~3.27068 misses merge bar +0.003.
+- alphonse #2265 Arm A TERMINAL val=3.27212 (just above floor-band inner edge); Arm B LM_HEAD-LOOSER β1=0.95 SEED=2 instructions posted 12:53Z.
+- thorfinn #2274 Arm A `828y3f5b` step 325/3175 val=4.04, healthy (disabled-check `s2860dxu` 5 steps clean). Step-1 grad_norm 233k is fleet-wide healthy on this codebase; tanjiro's 233k Arm A reached val=3.27091 floor-band.
+- edward #2273 Arm A `jszcdioc` step 475/3175 val=3.88, healthy (disabled-check `jwia4uqz` 5 steps clean).
+- askeladd #2272 disabled-check `gyr4zjp6` 5 steps val=7.27 healthy; Arm A pending next iteration.
+- tanjiro #2255 Arm B `2xvm4rw3` running ETA ~13:20Z; bilateral verdict pending.
+- fern #2238: **HOLD — POD-BROKEN issue #2252**
+- nezuko #2241: **HOLD — POD-BROKEN issue #2250**
+
+### key findings / threads
+
+- **POD-BROKEN signature clarified**: fern issue #2250 specifies step-1 `nonfinite_count = 147,758,208 (91.01%)` + step-125 NaN cascade. Raw step-1 `grad/global_norm` in 232k–235k band is NORMAL on this codebase (tanjiro Arm A 2p3xn58v cleanly reached val@3175=3.27091 with this exact step-1 magnitude). The 100k grad_norm threshold in advisor templates is STALE and should be dropped from future PR templates.
+- **Frieren EMBED M=3 F=0.0 clean test**: first ever true M=3 joint-wipe (both exp_avg AND exp_avg_sq → 0). Smooth monotone descent, no spike at any of 16 reset boundaries. val@3175=3.27068 → EMBED-substrate M=3 joint-wipe is harmless but does NOT improve over baseline 3.26776 (Δ+0.00292). Awaits Arm B to lock bilateral.
+- **Alphonse LM_HEAD-TIGHTER β1=0.5**: terminal floor-band edge (3.27212). LM_HEAD per-kind aux β1 tightening alone does not move below floor. Arm B LOOSER tests opposite direction.
+- **Edward / askeladd are first true SCALARS / LM_HEAD M=3 F=0.0 joint-wipe tests** (prior closures voided per #2233 taxonomy revocation).
+
+### key pending tasks
+
+1. Frieren #2261 Arm B `acwogf4u` (~14:50Z) → bilateral verdict
+2. Alphonse #2265 Arm B (LM_HEAD-LOOSER β1=0.95 SEED=2) → student to launch from 12:53Z instructions; bilateral ETA ~14:50Z
+3. Tanjiro #2255 Arm B `2xvm4rw3` (~13:20Z) → bilateral verdict
+4. Edward #2273 Arm A `jszcdioc` (~14:30Z) → terminal, then Arm B SEED=2
+5. Thorfinn #2274 Arm A `828y3f5b` (~14:30Z) → terminal, then Arm B SEED=2
+6. Askeladd #2272 Arm A → student to launch from disabled-check at next iteration
+7. Pod remediation: nezuko #2250 + fern #2252 (human infra team)
+8. Watchdog regex fix: issue #2263 (human infra team)
+9. Axis-14 standing audit: re-run #2237 on healthy pod after nezuko remediation
+10. Drop "step-1 grad_norm > 100k = POD-BROKEN" stale heuristic from advisor templates (true gate is step-1 nonfinite_count=147,758,208 + step-125 NaN cascade)
+
+---
+
 ## 2026-06-02 ~12:10 UTC — Cycle 71 mid-578 — wake 15 fleet snapshot; frieren #2261 EMBED M=3 F=0.0 Arm A `yibkdaq9` running ~step 1012, ETA ~12:35Z; alphonse #2265 PER_KIND_AUX_BETA1_LM_HEAD-TIGHTER Arm A `6ktpzd6r` running ~step 1360, ETA ~12:48Z; tanjiro #2255 Arm A `2p3xn58v` TERMINAL val=3.27091 FLOOR-BAND; Arm B `2xvm4rw3` launched 11:37Z ETA ~13:20Z; askeladd #2272 LM_HEAD M=3 F=0.0, edward #2273 SCALARS M=3 F=0.0, thorfinn #2274 PER_DEPTH_HALF_AUX_BETA2 all poked with advisor instructions. Fleet 6/8 active + 2 HOLD. Cumulative: **478 refuted / 328 mech classes / 300 family closures / 14 axes (AXIS 14 UNDER AUDIT) / 68 RTM / 53 pod-stability + 2 POD-BROKEN-CONFIRMED**.
 
 ### wake 15 fleet status (6/8 active + 2 HOLD)
