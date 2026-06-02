@@ -1,3 +1,102 @@
+## 2026-06-02 08:30 — PR #2157: H371_b1 frieren LaProp β₁ axis @ eps=1e-8 anchor (operation-order reorder + β₁ dose-response) — CLOSED 234th NULL/NEG (🎯 LaProp β₁ axis CLOSED on STRICT MONOTONE NEG, AUX adaptive-scaling preconditioner family BROADLY CANALIZED across 6 axes at H266 stack)
+
+- Branch: g1r3-frieren/h371-laprop-aux (v2 send-back round, β₁ value axis at eps=1e-8 anchor)
+- Hypothesis: H371 v1 closed LaProp eps axis at TIE Pattern A with arm_c eps=1e-8 at val=3.26804 (CLOSEST-TO-BASELINE of cycle ~2700). v2 sweeps LaProp β₁ ∈ {0.85, 0.9} at the eps=1e-8 anchor to test whether paper-default β₁=0.9 transfers from AdamW to LaProp at H266 stack.
+
+### Results — 3-arm terminal
+
+| Arm | aux_optimizer | eps | β₁ | W&B | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL | adamw | 1e-6 | 0.8 | `ie57wucv` | **3.26710** | **3000 EXACT** | (ref) | **−1.22σ** (LOW-end CTRL noise) | NOT strict less-than win (Issue #1260) |
+| arm_b LAPROP_B1_MID | laprop | 1e-8 | 0.85 | `h59hxgdt` | 3.27029 | 3050 | **+3.61σ** ↑ | +2.39σ | NEG, Pattern A +50 |
+| arm_c LAPROP_B1_PAPER | laprop | 1e-8 | 0.9 | `vav331zc` | 3.27185 | 3075 | **+5.37σ** ↑ | +4.15σ | NEG, Pattern A +75 |
+| H266 baseline (PR #1669) | adamw | 1e-10 | 0.8 | — | 3.26818 | 3000 EXACT | — | — | (reference) |
+
+### Mechanism interpretation
+
+**Finding #1**: **Strict MONOTONE NEG on β₁ axis** at LaProp eps=1e-8 anchor for BOTH val/loss and FFS. LaProp paper-default β₁=0.9 is the worst arm of the chain (+5.37σ vs CTRL). The paper recommendation does NOT transfer to H266 stack.
+
+**Finding #2**: arm_a CTRL FFS=3000 EXACT — NOT a strict less-than win per Issue #1260. val=3.26710 is −1.22σ vs H266 baseline 3.26818, but cycle ~2700 CTRL distribution spans 3.267-3.270 (~3.4σ wide), so this is a LOW-end CTRL noise excursion, not a stable improvement signal. Correctly NOT merged.
+
+**Finding #3 — AUX adaptive-scaling preconditioner family BROADLY CANALIZED**: Combined closure of 6 axes at H266 stack across cycle ~2700:
+- H371 LaProp (operation-order reorder): CANALIZED-TIE-with-MILD-POSITIVE-DRIFT at β₁=0.8, NEG on β₁ departure
+- H372 Adan (3rd-moment EMA β₃): U-shape with productive band [0.95, 0.99], no strict FFS clearance
+- H376 Sophia-H (Hessian estimate ρ): TIE Pattern A
+- H369 Lion (sign-step LR): monotone NEG dose-response
+- H375 Schedule-Free (no momentum + averaging): TIE Pattern A
+- H368 AdEMAMix (slow EMA α): monotone NEG dose-response
+
+Programme-level claim: No axis tested to date breaks strict FFS<3000 via per-coordinate gradient pre-conditioning alone. Pivot AUX exploration to non-preconditioner axes (cross-scope coupling H385 in flight, schedule axes, 2D eps × momentum probes).
+
+**Finding #4 — Combined 6-arm 2-round LaProp axis closure**:
+
+| Round | Arm | eps | β₁ | val/loss | FFS | Verdict |
+|---|---|---|---|---|---|---|
+| 1 | arm_a CTRL adamw | 1e-6 | 0.8 | 3.26863 | 3025 | Pattern A +25 |
+| 1 | arm_b LAPROP eps=1e-6 | 1e-6 | 0.8 | 3.26958 | 3025 | TIE Pattern A |
+| 1 | arm_c LAPROP eps=1e-8 | 1e-8 | 0.8 | 3.26804 | 3000 EXACT | TIE-on-FFS, anchor |
+| 2 | arm_a CTRL adamw | 1e-6 | 0.8 | 3.26710 | 3000 EXACT | TIE-on-FFS (CTRL replay) |
+| 2 | arm_b LAPROP eps=1e-8 | 1e-8 | 0.85 | 3.27029 | 3050 | NEG, +3.61σ vs CTRL |
+| 2 | arm_c LAPROP eps=1e-8 | 1e-8 | 0.9 | 3.27185 | 3075 | NEG, +5.37σ vs CTRL |
+
+LaProp axis closure verdict: **CANALIZED-TIE-with-MILD-POSITIVE-DRIFT at H266 stack, β₁-NEG-on-departure**.
+
+**Mechanism reading — why β₁>0.8 destabilizes LaProp specifically**: LaProp accumulates already-normalized gradient into the momentum buffer (vs AdamW which accumulates raw gradient before normalization). Higher β₁ → longer EMA window on the normalized gradient. At LaProp paper-eps=1e-8, the normalized gradient has higher per-step variance (smaller eps in `sqrt(v+eps)` denominator), and longer EMA window propagates this variance for more steps before cooldown. H266's β₁=0.8 design choice (vs AdamW canonical β₁=0.9) is deliberate; LaProp inherits this trade-off, with a larger penalty under normalized-momentum mechanism than under raw-momentum mechanism.
+
+### Programme rollup
+- 234 cumulative NULL/NEG/TIE closures + 1 MERGED WIN (H266) at cycle ~2700
+- 20 HARD-LOAD-BEARING family entries (H371_b1 stays MILDLY-LOAD-BEARING; doesn't add new tier)
+- 30+ candidate H266 attractor cluster anchors
+- AUX/BODY adaptive-scaling preconditioner family BROADLY CANALIZED (6 axes)
+- 4-way outer-loop axis coverage in flight (H379v2 FORM, H381 VALUE per-group, H382 RESET event, H384 FREQUENCY schedule)
+
+### Decision: CLOSED as 234th NULL/NEG. Frieren reassigned to H385 AUX→BODY v_t cross-axis coupling (PR #2247, RANK 5 fresh mechanism, first cross-optimizer state coupling probe).
+
+---
+
+## 2026-06-02 08:00 — PR #2202: H378 nezuko Gradient Centralization on BODY MuonH grads pre-NS5 — CLOSED 233rd NULL/NEG (🎯 1st GRADIENT-LAYOUT-CENTERING class entry + 3rd MONOTONE DOSE-RESPONSE NEG class joining H368 AdEMAMix α + H370 QHM ν, NS5 polar step + scale_invariant Frobenius normalization already implicitly absorb GC's geometric work — Yong et al. 2020 CV-style GC gains do NOT transfer to H266 stack)
+
+- Branch: g1r3-nezuko/h378-gradient-centralization-body
+- Hypothesis: Apply Gradient Centralization (Yong et al. 2020) to BODY MuonH gradients BEFORE momentum + NS5 polar step. Tests whether mean-direction removal improves convergence at H266 stack. 3-arm dose-response on body_gc_mode ∈ {0 (CTRL), 1 (input-dim GC), 2 (bidirectional GC)}.
+
+### Results — 3-arm terminal
+
+| Arm | gc_mode | W&B | step-0 val | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL | 0 | `u9ql13j0` | 10.82583 | **3.26924** | **3025** | (ref) | +1.20σ | Pattern A +25 (30th candidate H266 cluster anchor) |
+| arm_b GC_IN | 1 | `1v8sfi7o` | 10.82583 | 3.27038 | 3050 | **+1.29σ** ↑ | +2.49σ | MILDLY-LOAD-BEARING NEG, Pattern A +50 |
+| arm_c GC_BOTH | 2 | `ex4dms4y` | 10.82583 | 3.27205 | 3075 | **+3.18σ** ↑ | +4.38σ | MID NEG, just outside Pattern A +50 |
+| H266 baseline (PR #1669) | — | — | 10.82583 | 3.26818 | 3000 EXACT | — | — | (reference) |
+
+### Mechanism interpretation — paper-grade findings
+
+**Finding #1**: **Monotone dose-response on gc_mode axis** (gc=0→1 adds +1.29σ_H174, gc=1→2 adds +1.89σ_H174 — slightly accelerating per gc_mode unit). Clean continuous-axis NEG signature mirroring H370 (ν continuous) + H368 (AdEMAMix α). 3rd entry in MONOTONE DOSE-RESPONSE NEG class.
+
+**Finding #2 — 1st GRADIENT-LAYOUT-CENTERING class entry at H266 stack**: paper-grade mechanism explanation:
+1. **NS5 polar step partially absorbs GC**: NS5 orthogonalization removes the rank-1 mean component as a side effect of producing a near-isometric update. Explicit pre-NS5 GC is mechanism-redundant.
+2. **`scale_invariant` Frobenius renormalization redundancy**: already standardizes the update magnitude; centering before this adds no benefit.
+3. **Bidirectional GC over-flattens**: arm_c removes both rank-1 components (input AND output dim), leaving less directional signal for NS5 to orthogonalize → MID NEG at +3.18σ_H174.
+
+Yong et al. 2020 CV-style GC gains do NOT transfer to H266 because the LM optimizer already does the geometric work implicitly via NS5 + `scale_invariant`. Consistent with mixed LM-domain GC results in NaG / AdaBelief variants — GC requires an optimizer that does NOT already orthogonalize.
+
+**Finding #3 — Trajectory cross-over signature**: arm_b oscillates around CTRL within ~σ_H174 noise floor through mid-training (multiple BELOW↔ABOVE cross-overs), then converges to slight ABOVE CTRL through cooldown. arm_c shows stronger early-trajectory BELOW (step 125 −0.02250 strongest of any axis), single cross-over by step 500, then sustained ABOVE through mid-training and cooldown. Cooldown slopes near-identical across arms (CTRL −0.00582, arm_b −0.00580) — GC does NOT break cooldown dynamics, only lifts the convergence floor.
+
+**Finding #4 — Resolution of pre-launch mechanism uncertainties**:
+- Q1 (NS5 implicitly absorbs GC?) → YES partially. Explicit GC is redundant + slightly harmful.
+- Q2 (scale_invariant redundant with GC?) → YES. Both renormalize the update; layering them hurts.
+- Q3 (Output-dim centering composes orthogonally with input-dim centering?) → NO. arm_c shows additive damage, suggesting output-dim centering compounds rather than cancels.
+
+### Programme rollup
+- 233 cumulative NULL/NEG/TIE closures + 1 MERGED WIN (H266) at cycle ~2700
+- 20 HARD-LOAD-BEARING family entries (H378 stays HARD-LOAD-BEARING; doesn't add new tier)
+- 30 candidate H266 attractor cluster anchors (arm_a CTRL = 30th)
+- 3rd MONOTONE DOSE-RESPONSE NEG class on continuous parametric axis (joining H368 α-axis + H370 ν-axis)
+- 1st GRADIENT-LAYOUT-CENTERING class entry (axis fully canalized in NEG direction)
+
+### Decision: CLOSED as 233rd NULL/NEG with paper-grade mechanism findings. Nezuko reassigned to H386 NS5 Iteration Count Cooldown Schedule (PR #2246, fresh BODY schedule mechanism axis distinct from H267 static-iter closure).
+
+---
+
 ## 2026-06-02 06:35 — PR #2158: H372v2 tanjiro Adan BODY pre-NS5 β₃<0.95 dose-response extension (gradient-difference 3rd-moment EMA) — CLOSED 232nd NULL/NEG (🎯 1st U-SHAPE-CHARACTERIZED AXIS at H266 stack with PRODUCTIVE-BAND-EDGE LOCALIZATION between β₃=0.95 and β₃=0.9 + refinement of CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class (H372 arm_c β₃=0.95 retains BEST val/loss of 6-arm axis) + Adan BODY pre-NS5 3rd-moment family CLOSED at 6 dose-response points spanning β₃ ∈ {0.5, 0.9, 0.95, 0.99, -1.0 sentinel × 2})
 
 - Branch: g1r3-tanjiro/h372-adan-body-pre-ns5 (v2 send-back round)
