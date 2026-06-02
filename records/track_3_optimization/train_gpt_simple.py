@@ -84,6 +84,16 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--pmuon_update_ema_alpha_uniform", type=float, default=-1.0,
+                        help="Uniform Post-NS update EMA alpha applied to all body-PMuon "
+                             "params (Arm A). -1 disables. Mutually exclusive with the "
+                             "block-varying _min/_max pair.")
+    parser.add_argument("--pmuon_update_ema_alpha_min", type=float, default=-1.0,
+                        help="Block-varying Post-NS update EMA alpha at block 0 (Arm B). "
+                             "Requires --pmuon_update_ema_alpha_max also > 0.")
+    parser.add_argument("--pmuon_update_ema_alpha_max", type=float, default=-1.0,
+                        help="Block-varying Post-NS update EMA alpha at deepest block (Arm B). "
+                             "Requires --pmuon_update_ema_alpha_min also > 0.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -91,6 +101,20 @@ def parse_args():
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    uniform_on = args.pmuon_update_ema_alpha_uniform > 0.0
+    block_on = (args.pmuon_update_ema_alpha_min > 0.0
+                or args.pmuon_update_ema_alpha_max > 0.0)
+    if uniform_on and block_on:
+        raise ValueError(
+            "pmuon_update_ema: only one of --pmuon_update_ema_alpha_uniform or "
+            "(--pmuon_update_ema_alpha_min, --pmuon_update_ema_alpha_max) may be > 0."
+        )
+    if block_on and not (args.pmuon_update_ema_alpha_min > 0.0
+                         and args.pmuon_update_ema_alpha_max > 0.0):
+        raise ValueError(
+            "pmuon_update_ema: both --pmuon_update_ema_alpha_min and "
+            "--pmuon_update_ema_alpha_max must be > 0 for block-varying mode."
+        )
     return args
 
 
@@ -587,6 +611,8 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        ema_alphas = getattr(self, "_param_update_ema_alphas", None)
+        update_ema_buffer_norm_sample = None
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -598,6 +624,11 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                        if ema_alphas is not None and id(p) in ema_alphas:
+                            # Keep EMA buffer in fp32 for accumulation precision —
+                            # pmuon_update() returns bf16 (NS5 casts inside), so we
+                            # lerp into fp32 and cast the bf16 update once per step.
+                            state["update_ema"] = torch.zeros_like(p, dtype=torch.float32)
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
@@ -611,6 +642,20 @@ class Muon(torch.optim.Optimizer):
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
                     )
+                    if ema_alphas is not None:
+                        alpha = ema_alphas.get(id(p))
+                        if alpha is not None and alpha > 0.0:
+                            # update_ema ← α · update_ema + (1−α) · update
+                            # update is bf16 (NS5 output); cast to fp32 for the lerp
+                            # since the buffer is held in fp32.
+                            state["update_ema"].lerp_(update.float(), 1.0 - alpha)
+                            # Clone so the in-place u/w-floor mul_ does not
+                            # mutate the persistent EMA buffer.
+                            update = state["update_ema"].clone()
+                            if rank == 0 and update_ema_buffer_norm_sample is None:
+                                update_ema_buffer_norm_sample = float(
+                                    state["update_ema"].norm().item()
+                                )
                     floor_eligible_count += 1
                     w_norm = p.norm()
                     if w_norm > 0:
@@ -627,6 +672,10 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._update_ema_diag = {
+            "active": int(ema_alphas is not None),
+            "buffer_norm_sample": update_ema_buffer_norm_sample,
+        }
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -765,6 +814,9 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "pmuon_update_ema_alpha_uniform": args.pmuon_update_ema_alpha_uniform,
+            "pmuon_update_ema_alpha_min": args.pmuon_update_ema_alpha_min,
+            "pmuon_update_ema_alpha_max": args.pmuon_update_ema_alpha_max,
             "seed": args.seed,
         },
     )
@@ -834,6 +886,51 @@ for trial_idx in range(args.num_trials):
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
     optimizer2._param_lr_mults = param_lr_mults
+
+    # Post-NS update EMA per-param α mapping. None disables; otherwise a dict
+    # keyed by id(body-PMuon param) → α ∈ (0, 1). Uniform (Arm A) assigns the
+    # same α to every body param; block-varying (Arm B) linearly interpolates α
+    # from --pmuon_update_ema_alpha_min at block 0 to --pmuon_update_ema_alpha_max
+    # at the deepest block. Sort order of optimizer2's param list and
+    # block-depth order may diverge (optimizer params are sorted by size,
+    # descending), so build by named_parameters to keep α coupled to block_idx.
+    param_update_ema_alphas = None
+    pmuon_update_ema_block_alphas = None  # for telemetry: per-block-idx α
+    pmuon_update_ema_mode = "off"
+    if args.pmuon_update_ema_alpha_uniform > 0.0:
+        body_params = optimizer2.param_groups[0]["params"]
+        alpha_u = args.pmuon_update_ema_alpha_uniform
+        param_update_ema_alphas = {id(p): alpha_u for p in body_params}
+        pmuon_update_ema_block_alphas = [alpha_u] * NUM_LAYERS
+        pmuon_update_ema_mode = "uniform"
+        if dist.get_rank() == 0:
+            print0(f"pmuon_update_ema ENABLED: mode=uniform alpha={alpha_u}",
+                   console=True)
+            wandb.log({f"pmuon_update_ema/alpha_block_{i}": alpha_u
+                       for i in range(NUM_LAYERS)}, step=0)
+    elif args.pmuon_update_ema_alpha_min > 0.0 and args.pmuon_update_ema_alpha_max > 0.0:
+        alpha_min = args.pmuon_update_ema_alpha_min
+        alpha_max = args.pmuon_update_ema_alpha_max
+        block_alphas = [
+            alpha_min + (alpha_max - alpha_min) * (i / max(NUM_LAYERS - 1, 1))
+            for i in range(NUM_LAYERS)
+        ]
+        param_update_ema_alphas = {}
+        for name, p in model.named_parameters():
+            if p.ndim >= 2 and name.startswith("blocks."):
+                idx = int(name.split(".")[1])
+                param_update_ema_alphas[id(p)] = block_alphas[idx]
+        pmuon_update_ema_block_alphas = block_alphas
+        pmuon_update_ema_mode = "block-varying"
+        if dist.get_rank() == 0:
+            alpha_str = f"[{block_alphas[0]:.3f}, ..., {block_alphas[-1]:.3f}]"
+            print0(f"pmuon_update_ema ENABLED: mode=block-varying alpha={alpha_str}",
+                   console=True)
+            for i, a in enumerate(block_alphas):
+                print0(f"  block {i}: update_ema_alpha={a:.4f}", console=True)
+            wandb.log({f"pmuon_update_ema/alpha_block_{i}": a
+                       for i, a in enumerate(block_alphas)}, step=0)
+    optimizer2._param_update_ema_alphas = param_update_ema_alphas
 
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1137,6 +1234,27 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
                 }, step=wandb_step)
+            update_ema_diag = getattr(optimizer2, "_update_ema_diag", None)
+            if update_ema_diag is not None:
+                payload = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "pmuon_update_ema/active": update_ema_diag["active"],
+                }
+                if pmuon_update_ema_block_alphas is not None:
+                    payload.update({
+                        "pmuon_update_ema/alpha_block_0":
+                            pmuon_update_ema_block_alphas[0],
+                        "pmuon_update_ema/alpha_block_11":
+                            pmuon_update_ema_block_alphas[NUM_LAYERS - 1],
+                        "pmuon_update_ema/alpha_mean":
+                            sum(pmuon_update_ema_block_alphas)
+                            / len(pmuon_update_ema_block_alphas),
+                    })
+                buf_norm = update_ema_diag.get("buffer_norm_sample")
+                if buf_norm is not None:
+                    payload["pmuon_update_ema/buffer_norm_sample"] = buf_norm
+                wandb.log(payload, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
