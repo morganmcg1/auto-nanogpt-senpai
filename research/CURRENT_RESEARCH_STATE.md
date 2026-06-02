@@ -1,3 +1,54 @@
+- **Date:** 2026-06-02 07:30Z (cycle c790g-45 — **2 PRs CLOSED + 2 NEW ASSIGNMENTS + frieren HB-FINAL ACKed: #2176 tanjiro CLOSED catalog-PASSIVE-CONFIRMED-CROSS-SEED n=3 G2 FAIL +0.00059 (direction-FAV 3/3 weakening −1.12σ→−0.59σ→−0.13σ) → tanjiro assigned #2248 NEWTON_MUON_EPS bracket {1e-5, 1e-4 ctrl, 1e-3} (last uncharacterized NM parameter, zero-code-change); #2200 frieren CLOSED PORTFOLIO-NEG-ASYMMETRIC (Arm B +1.18σ, Arm C +0.78σ) production LM_HEAD_LR_MULT=1.0 at POST-#1702 curvature minimum + 5 catalog promotions including [[lm-head-lr-mult-couples-to-body-muon-r-buffer]] CATALOG-CONFIRMED bidirectional-asymmetric + [[grad-clip-modal-active-100pct-bracket-is-LR-scale-axis]] REFINED math-vs-trajectory-distinction + [[mid-train-fav-evaporation]] illustrative Arm C → frieren assigned #2249 NS_ITERS_COOLDOWN bracket {12, 16 ctrl, 20} (late_peak peak {12, 20 ctrl, 28}, untested on POST-#1702 stack). 8 PRs in flight 0 idle students.**)
+
+**#2176 tanjiro Tikhonov γ=0.025 PP-confirm CLOSED catalog-PASSIVE** (07:14Z verdict):
+- n=3 pooled μ_B=3.26177 vs baseline 3.26118 → G2 FAIL +0.00059. Direction-FAV 3/3 (−1.12σ → −0.59σ → −0.13σ) monotonically weakening. Paired t-stat = −2.15σ informative but not merge-eligible.
+- **Ctrl drift TIGHTENING**: SEED=0 HOT +1.40σ → SEED=2 cleanest +0.71σ (trend toward baseline)
+- R-buffer dual-mechanism compression REPRODUCES cross-SEED (R_cond_max −79/−79.51/−80.26% std<1% SEED-INVARIANT)
+- FFS triplet BROKEN at SEED=2 (2/3 at 3125) — [[gamma-up-ffs-25-step-earlier-cross-seed-reproducible]] NOT-PROMOTED
+- 3 catalog candidates: [[gamma-up-fav-magnitude-attenuates-cross-seed]] NEW + [[gamma-up-r-buffer-fingerprint-cross-seed-reproducible]] CONFIRMED at n=3 + [[gamma-up-ffs-25-step-earlier]] NOT-PROMOTED
+- **Production γ=0.005 RETAINED**
+
+**#2248 tanjiro NEW ASSIGNMENT** — NEWTON_MUON_EPS bracket `{1e-5, 1e-4 ctrl, 1e-3}`:
+- NANOGPT_NEWTON_MUON_EPS at L603, eigenvalue floor in R-buffer inverse-sqrt: `vals_clamped = vals.clamp(min=0.0) + newton_eps` (L889)
+- ZERO-code-change axis, **LAST UNCHARACTERIZED NM FUNDAMENTAL PARAMETER** not in "all bracketed" portfolio
+- Extreme-value R_inv_sqrt theoretical max: eps=1e-5 → max=316, eps=1e-4 ctrl → max=100, eps=1e-3 → max=31.6
+- Catalog tests: [[r-buffer-state-axis-decoupled-from-val-axis]] extension + [[clip-spectral-concentration-r-condition-rise]] analogy
+- ETA chain: Arm A HB1 ~2.5h from launch
+
+**#2200 frieren ADAMW_LM_HEAD_LR_MULT HB-FINAL CLOSED PORTFOLIO-NEG-ASYMMETRIC** (07:19Z → 07:30Z):
+- 3-arm complete: Arm A ctrl=3.26135, Arm B LM_HEAD=0.5 → +1.18σ NEG, Arm C LM_HEAD=2.0 → +0.78σ NEG
+- Production 1.0 at curvature minimum on POST-#1702 stack. PR #654 catalog-PASSIVE finding GENERALIZES INTACT.
+- **5 catalog promotions**:
+  - [[lm-head-lr-mult-couples-to-body-muon-r-buffer]] CATALOG-CONFIRMED bidirectional-asymmetric (B-side 1.8-2.5× stronger coupling than C-side; R_cond_number unidirectional regardless of LR-mult sign)
+  - [[mid-train-fav-evaporation]] catalog-illustrative Arm C (textbook transient FAV −0.024 step-125 → terminal +0.001 stable NEG)
+  - [[grad-clip-modal-active-100pct-bracket-is-LR-scale-axis]] REFINED: math-equivalence holds but trajectory-equivalence does NOT (dynamic vs constant scaling timing causal distinction)
+  - [[lm-head-lr-mult-curvature-minimum-at-production-1.0-post-nm-stack]] NEW CONFIRMED — axis flat on both stacks
+  - ΔW path bidirectional linearity CONFIRMED (B=0.530×, C=1.908×) with mild softmax-CE saturation sub-4×
+- RMS-normalization (Test 1) CONFIRMED across full 4× span (≤1.3%) + R-buffer coupling (Test 3) REFUTED decoupling with bidirectional-asymmetric nuanced pattern
+
+**#2249 frieren NEW ASSIGNMENT** — NS_ITERS_COOLDOWN bracket `{12, 16 ctrl, 20}` (late_peak peak={12, 20 ctrl, 28}):
+- Production NS_ITERS_COOLDOWN=16 → late_peak second-half peak=20; originally tuned at PR #176 PRE-NM on pre-#1138 stack — NEVER RE-TESTED on POST-#1702 stack
+- Arm C: peak=28 (+8 more NS iters in last ~500 steps = ~40% compute increase per step in late-cooldown only, ~5% total overhead)
+- Arm B: peak=12 (removes second-half boost entirely, tests whether current boost is load-bearing)
+- Mechanism: sharper Newton step direction (closer to exact polar-decomp) in precision-critical FFS-crossing window
+- HB0 includes: ns_schedule/iters_this_step W&B verification at step ~3100 (mid-late-cooldown) to confirm 20/12/28 values
+
+**Current PRs in flight (r4)** (8 active, 0 idle):
+- **#2177 alphonse** NS_STOC PP-confirm SEED={1,2} chain (HB2-PP Arm B s1 ETA ~09:11Z)
+- **#2179 edward** NM_BETA PP-confirm SEED={1,2} chain (HB2 Arm 2 s1 ETA ~09:11Z)
+- **#2199 nezuko** GRAD_CLIP_BODY Arm C in flight (~07:30Z+)
+- **#2204 thorfinn** GRAD_CLIP_AUX Arm C in flight (~07:30Z+)
+- **#2234 fern** AdamW β1 bracket Arm A in flight (~07:30Z+)
+- **#2236 askeladd** WARMSTART_K bracket Arm A HB1 in flight (~07:40Z)
+- **#2248 tanjiro** NEWTON_MUON_EPS bracket freshly assigned (chain launch imminent)
+- **#2249 frieren** NS_ITERS_COOLDOWN bracket freshly assigned (chain launch imminent)
+
+**Cross-PR mechanism distinction COMPLETED** (c790g cycle synthesis from #2199+#2204+#2200): Three "2× DOWN aux-side" variants produce distinct mechanism classes: BODY-clip (FAV-preserved via PRE-clip R-buffer + CLIPPED gg^T) vs AUX-clip (NULL via decoupled DYNAMIC-SCALE) vs LM_HEAD-LR-mult (NEG via COUPLED CONSTANT-SCALE). [[grad-clip-modal-active-100pct-bracket-is-LR-scale-axis]] math-equivalence confirmed while trajectory-equivalence REFUTED.
+
+**Dense HB wave continuing 07:30-09:11Z**: nezuko/thorfinn/fern Arm Cs + askeladd HB1 + alphonse/edward Arm 2/B s1 PP-confirm HB2s.
+
+---
+
 - **Date:** 2026-06-02 05:45Z (cycle c790g-40 — **3 HB2 ACKs + 2 HB0 ACKs landed + #2177 stale_wip flag investigated FALSE-ALARM (alphonse actively training iter 3470 at 06:22Z) + 4 CATALOG-NEW promotions from same-cycle HB2 cluster including [[body-update-scale-axis-r-buffer-accumulation-timing-asymmetry-clip-vs-lr]] NEW + [[clip-spectral-concentration-r-condition-rise]] NEW + [[lm-head-lr-mult-couples-to-body-muon-r-buffer]] PROMOTION-QUALIFIED refuting embed-axis-decoupling generalization to lm_head + [[embed-axis-decoupled-from-body-muon-precond-ratio]] CATALOG-CONFIRMED at 3rd-axis (AUX-clip extension) + [[mid-train-fav-evaporation-cooldown-precond-ratio-rise]] 5th-direct-observation via AUX-axis + dense HB-FINAL wave 07:00Z-07:15Z bringing 3 Arm Cs + tanjiro #2176 closure + alphonse #2177 PP-confirm HBs. 8 PRs in flight 0 idle students.**)
 
 **#2199 nezuko HB2 Arm B BODY=5 (0.5× scale) Δ_BA=−0.00233 = −1.45σ_seed FAV** (04:53Z):

@@ -1,5 +1,47 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r4
 
+## 2026-06-02 07:30 — PR #2200: ADAMW_LM_HEAD_LR_MULT bracket {0.5, 1 ctrl, 2} — **CLOSED-PORTFOLIO-NEG-ASYMMETRIC + 5 CATALOG PROMOTIONS**
+
+- branch: `g1r4-frieren/adamw-lm-head-lr-mult-bracket`
+- hypothesis: Modern POST-#1702 NM body-stack may have shifted lm_head LR optimum upward, making LOOSER lm_head LR FAV
+- results:
+
+| Arm | LM_HEAD_LR_MULT | val_loss | Δ vs ctrl | σ_seed | FFS |
+|---|---|---|---|---|---|
+| A ctrl | 1.0 | 3.26135 | — | — | 3125 |
+| B | 0.5 | 3.26324 | +0.00190 | +1.18σ | 3150 |
+| C | 2.0 | 3.26260 | +0.00125 | +0.78σ | 3150 |
+
+W&B runs: Arm A `3lw4q5jy`, Arm B `y6xfrz8e`, Arm C `p90j59ot`
+
+- verdict: PORTFOLIO-NEG-ASYMMETRIC. Production 1.0 is curvature minimum on POST-#1702 stack. PR #654 PRE-NM catalog-PASSIVE finding generalizes intact. Arm B (TIGHTER) more disruptive than Arm C (LOOSER) by 1.5×.
+- 5 catalog promotions:
+  1. [[lm-head-lr-mult-couples-to-body-muon-r-buffer]] CATALOG-CONFIRMED — bidirectional asymmetric (precond_ratio ±12.2%/+6.8%, R_cond unidirectional regardless of LR-mult sign; B-side 1.8-2.5× stronger response)
+  2. [[mid-train-fav-evaporation]] catalog-illustrative — Arm C textbook arc (step-125 FAV −0.024 → terminal NEG +0.001)
+  3. [[grad-clip-modal-active-100pct-bracket-is-LR-scale-axis]] REFINED — math-equivalence holds but trajectory-equivalence does NOT vs thorfinn #2204 AUX-clip same-cycle
+  4. [[lm-head-lr-mult-curvature-minimum-at-production-1.0-post-nm-stack]] NEW CONFIRMED
+  5. ΔW path bidirectional linearity CONFIRMED (B/A=0.530, C/A=1.908); mild softmax-CE saturation sub-4× on full span
+- mechanism tests: RMS-invariance ✓ (≤1.3% across 4× span) + ΔW linear ✓ + R-buffer decoupling ✗ REFUTED (COUPLED bidirectional-asymmetric)
+
+## 2026-06-02 07:14 — PR #2176: Tikhonov γ=0.025 PP-confirm SEED=2 n=3 — **CLOSED-CATALOG-PASSIVE-CONFIRMED-CROSS-SEED**
+
+- branch: `g1r4-tanjiro/tikhonov-gamma-0.025-pp-confirm-seed1`
+- hypothesis: γ=0.025 single-seed FAV at SEED=0 (#2116) would reproduce at SEED={1,2} → merge
+- results (n=3 cohort):
+
+| SEED | Arm A ctrl val | Arm B γ=0.025 val | Δ_BA | σ_seed |
+|---|---|---|---|---|
+| 0 | 3.26343 | 3.26163 | −0.00180 | −1.12σ |
+| 1 | 3.26251 | 3.26156 | −0.00095 | −0.59σ |
+| 2 | 3.26232 | 3.26211 | −0.00021 | −0.13σ |
+| **n=3 pooled** | μ_A=3.26275 | **μ_B=3.26177** | **−0.00099** | **−0.61σ** |
+
+W&B runs: s0 A `qm6oxsbn` B `wxkvyk22`, s1 A `pgudceup` B `tke4pttx`, s2 A `b9yrow6e` B `m92lehsu`
+
+- verdict: CLOSED-CATALOG-PASSIVE (G2 FAIL: μ_B=3.26177 > baseline 3.26118 by +0.00059; paired t-stat −2.15σ direction-FAV informative but not merge-eligible). Direction-FAV MONOTONICALLY WEAKENS across SEEDs (−1.12σ→−0.59σ→−0.13σ). Production γ=0.005 RETAINED.
+- catalog promotions: [[gamma-up-fav-magnitude-attenuates-cross-seed]] NEW + [[gamma-up-r-buffer-fingerprint-cross-seed-reproducible]] CONFIRMED n=3 (R_cond_max std<1% across SEEDs) + [[gamma-up-ffs-25-step-earlier-cross-seed-reproducible]] NOT-PROMOTED (2/3 only — SEED=2 FFS triplet BROKEN)
+- R-buffer: ALL 5 metrics direction-correct DOWN across ALL 3 SEEDs; precond_ratio compression STRENGTHENS as SEED ctrl baseline rises (−3.2% SEED=0 → −3.4% SEED=1 → −6.56% SEED=2)
+
 ## 2026-06-01 01:15 — PR #1883: NM pre-crossing burst PERIOD=1 steps 2400-3000 (late-cd FREEZE-R BURST PP-confirm n=3) — **CLOSED-CATALOG-NULL-SCREENING-NOT-REPRODUCING-UNDER-PP**
 
 - branch: `g1r4-thorfinn/nm-pre-crossing-burst-period1-window-bracket`
