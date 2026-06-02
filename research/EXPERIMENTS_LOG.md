@@ -1,3 +1,58 @@
+## 2026-06-02 03:35 — PR #2187: H377 edward Lookahead AUX wrapper (k-step outer-iterate averaging, fresh OUTER-on-AUX axis) — CLOSED 231st NULL/NEG (🎯 PAPER-GRADE 20th HARD-LOAD-BEARING family entry of cycle ~2700 + 1st K-INVARIANT STRONG NEG class on continuous α-interpolation magnitude axis + 1st OUTER-on-AUX-side mechanism probe at H266 stack + 1st TRAJECTORY-PRESERVATION vs TRAJECTORY-RESET dichotomy refinement of outer-step mechanism family + arm_a CTRL FFS=3025 is 26th candidate H266 cluster anchor)
+
+- Branch: g1r3-edward/h377-lookahead-aux-wrapper
+- Hypothesis: Apply Lookahead k-step outer-iterate averaging (Zhang et al. 2019) wrapped around AUX AdamW — `slow += α·(fast - slow)` then `fast ← slow` every K inner steps. First test of outer-step mechanism applied to AUX side at H266 stack (mirror probe to BODY μLoCo). Two K values predeclared (10, 30); α=0.5 fixed.
+
+### Results
+
+| Arm | Flags | W&B run_id | step-0 val | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|-----|-------|------------|------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL | `--aux_lookahead 0` (bypass) | `j0zlihsb` | **10.82583 EXACT** | **3.26829** | **3025** | (ref) | **+0.12σ TIE** | 🎯 **26th H266 cluster anchor (Pattern A +25 envelope)** |
+| arm_b LOOKAHEAD_K10 | `--aux_lookahead 1 --aux_lookahead_k 10 --aux_lookahead_alpha 0.5` | `ra1z4mxq` | **10.82583 EXACT** | **3.27766** | **3200** | **+10.60σ NEG** | **+10.72σ NEG** | 🔴 **STRONG NEG (332 outer-syncs, drift_rms=0.001000)** |
+| arm_c LOOKAHEAD_K30 | `--aux_lookahead 1 --aux_lookahead_k 30 --aux_lookahead_alpha 0.5` | `qjksizrw` | **10.82583 EXACT** | **3.27720** | **3175** | **+10.08σ NEG** | **+10.20σ NEG** | 🔴 **STRONG NEG (110 outer-syncs, drift_rms=0.016010)** |
+| H266 baseline (PR #1669) | — | `m2ywl0o9` | 10.82583 | 3.26818 | 3000 | — | — | (reference) |
+
+### Mechanism interpretation — paper-grade findings
+
+**Finding #1**: **K-INVARIANT STRONG NEG class on continuous α-interpolation magnitude axis** — first class entry. K=30 was deliberately aligned with μLoCo BODY `sync_interval=30` to test for constructive interference (simultaneous BODY+AUX outer-step). Result: arm_b ≈ arm_c within 0.52σ_H174 (Δ=0.00046) despite 3× difference in outer-sync count (332 vs 110) and 16× difference in per-sync drift_rms. Per the PR's pre-registered branches: **α=0.5 interpolation is the dominant failure mechanism; K interval and sync-alignment with μLoCo are NOT load-bearing on the magnitude axis tested.**
+
+**Finding #2**: **TRAJECTORY-PRESERVATION vs TRAJECTORY-RESET dichotomy** refinement of outer-step mechanism family at H266 stack. The clean split that explains BODY-WIN vs AUX-FAIL:
+
+| Outer-step mechanism | Type | H266 outcome |
+|---|---|---|
+| BODY μLoCo (Nesterov outer-grad direction) | TRAJECTORY-PRESERVING | WIN (load-bearing component) |
+| BODY-side outer-step removed (H358 NO_OUTER) | ABSENT | +18σ NEG |
+| BODY outer-step cold-start at cooldown (H367 LATE_ONLY) | COLD-MOMENTUM | +73σ CATASTROPHIC |
+| AUX Lookahead α=0.5 K∈{10,30} (H377) | TRAJECTORY-RESETTING | +10σ STRONG NEG (K-INVARIANT) |
+
+BODY μLoCo applies a momentum-corrected step in the *direction* of fast trajectory drift (preserves trajectory, fast NOT reset). AUX Lookahead's `fast ← slow` after `slow += α·(fast - slow)` partially-resets fast weights toward an EMA of past positions (trajectory partially reset). At α=0.5 the reset is 50% of the slow-fast gap.
+
+**Finding #3**: **Complement to H266 + H267 Polyak-Ruppert portfolio** — AUX-side iterate averaging at H266 stack is WIN only at **terminal weights** (PEMA decay=0.05 averages the final converged state at eval-time). AUX-side iterate averaging applied **throughout** training (Lookahead) drags warmed-up adaptive m/v state back toward stale slow-weight positions and fails STRONG NEG. The single-EMA AdamW with no outer reset is canalized for the AUX trajectory.
+
+**Finding #4**: **Monotonic lag profile from step 500 onward** — anchor points show arm_b/c lag arm_a CTRL by +0.021 nat (~+24σ) at step 500 (warmup phase, AdamW m/v EMAs themselves still warming so reset is most damaging), narrowing to ~+10σ steady-state from step 2500 through terminal. The Lookahead α=0.5 reset does NOT preferentially destroy cooldown convergence — it produces a roughly constant +10σ lag throughout the body of training that persists through cooldown.
+
+**Finding #5**: **Outer-step compute overhead negligible** — wall time arm_a 6077s, arm_b 6079s, arm_c 6077s. Only buffer ops every K steps. The +10σ NEG is purely mechanism-driven, not compute-budget mediated.
+
+### Process + portfolio update
+
+- ✓ Pattern A step-0 val=10.82583 EXACT on all 3 arms (RNG state unperturbed by Lookahead wrapper dispatch)
+- ✓ W&B config audit verified per-arm: `aux_lookahead`, `aux_lookahead_k`, `aux_lookahead_alpha` match expected
+- ✓ Wrapper banner logged on arms b/c, omitted on arm_a (safe-default bypass)
+- ✓ `train/lookahead/outer_step_count` final values match prediction: 332 (K=10), 110 (K=30)
+- ✓ Peak GPU memory comfortable (slow_weights = +50% AUX state on 96GB H100)
+- Cumulative: 231 NULL/NEG/TIE + 1 MERGED WIN (post-H377 closure)
+- HARD-LOAD-BEARING family: 19 → 20 entries (+H377)
+- NEW class: **K-INVARIANT STRONG NEG class on continuous α-interpolation magnitude axis** — 1 entry (H377)
+- NEW dichotomy: **TRAJECTORY-PRESERVATION vs TRAJECTORY-RESET** refines outer-step mechanism family
+- H266 attractor cluster: 25 → 26 candidate anchors (+H377 arm_a)
+
+### Suggested follow-ups (per student closure)
+
+1. Close H377 direction (recommended — accepted, edward pivoted to H383 per-shape PEMA decay)
+2. H377-α: α-sweep at K=10 — α∈{0.1, 0.2, 0.3, 0.8, 1.0} to parametrically characterize trajectory-reset axis (HIGH-PRIORITY but DEFERRED — K-invariance + +10σ NEG at α=0.5 establishes the mechanism class without needing a finer α dose-response yet)
+3. H377-β: Lookahead-on-BODY mirror probe — tests if trajectory-reset is universally NEG (vs. AUX-specific). Mechanism-interesting but H378 nezuko GC BODY is currently probing BODY-side perturbations.
+4. H377-γ: Cooldown-gated Lookahead (`--aux_lookahead_off_during_cooldown 1`) — terminal-window protection probe. NOT pursued; the +10σ steady-state lag persists from step 500 onward, suggesting cooldown gating wouldn't recover sufficiently.
+
 ## 2026-06-01 22:00 — PR #2137: H368 edward AdEMAMix AUX optimizer probe (dual-EMA first-moment) — CLOSED 223rd NULL/NEG (🎯 PAPER-GRADE 16th HARD-LOAD-BEARING family entry of cycle ~2700 + 1st MONOTONE DOSE-RESPONSE NEG class on continuous α parametric axis + 2nd FIRST-MOMENT-DUAL-EMA family probe at H266 stack joining H359 second-moment β₂ schedule probe + AUX dual-EMA at paper-default β₃=0.9999 is mechanism-clean NEG at every positive α value tested + arm_a CTRL FFS=3025 is 25th candidate H266 cluster anchor)
 
 - Branch: g1r3-edward/h368-ademamix-aux-optimizer
