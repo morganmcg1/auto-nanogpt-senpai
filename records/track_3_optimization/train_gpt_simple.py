@@ -107,6 +107,11 @@ def parse_args():
                              "of training). Default=0.80 (winning value, PR #1966). "
                              "Set to None or 0.95 to disable the ramp. "
                              "Affects all muon_* param groups.")
+    parser.add_argument("--pos_loss_alpha", type=float, default=1.0,
+                        help="Position-ramp loss weight: token at position t gets weight "
+                             "1 + (alpha-1) * t/(T-1), normalized by mean(w) to preserve "
+                             "loss scale. alpha=1.0=uniform (control). alpha>1 upweights "
+                             "later tokens.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -497,7 +502,17 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        loss = F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="none")
+        if args.pos_loss_alpha != 1.0:
+            B = logits.size(0)
+            T = targets.numel() // B
+            t = torch.arange(T, device=targets.device, dtype=torch.float32)
+            w = 1.0 + (args.pos_loss_alpha - 1.0) * t / max(T - 1, 1)
+            w = w.repeat(B) / w.mean()
+            loss = (loss * w).sum()
+        else:
+            loss = loss.sum()
+        return loss
 
 
 ########################################
@@ -794,6 +809,8 @@ if dist.get_rank() == 0:
             "ema_eval_enabled": args.ema_eval_decay is not None,
             "mu_cooldown_target": args.mu_cooldown_target,
             "mu_cooldown_enabled": args.mu_cooldown_target is not None,
+            "pos_loss_alpha": args.pos_loss_alpha,
+            "pos_loss_ramp_enabled": args.pos_loss_alpha != 1.0,
         },
     )
 
@@ -1103,6 +1120,7 @@ for trial_idx in range(args.num_trials):
                     "speedrun/reached_target_trainval": int(first_step_to_target_trainval >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
+                    "train/pos_loss_alpha": args.pos_loss_alpha,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 if ema_val_loss_float is not None:
