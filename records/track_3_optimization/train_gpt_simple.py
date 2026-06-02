@@ -84,6 +84,12 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--lm_head_b2_pulse_step", type=int, default=-1,
+                        help="Step at which to repulse β2 on adam_lm_head group only. "
+                             "-1 disables. Second-pulse hypothesis at pEMA refresh boundary.")
+    parser.add_argument("--lm_head_b2_pulse_target", type=float, default=0.99,
+                        help="β2 target value for the lm_head-only repulse. Default 0.99 "
+                             "matches @975 pulse semantics.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +771,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "lm_head_b2_pulse_step": args.lm_head_b2_pulse_step,
+            "lm_head_b2_pulse_target": args.lm_head_b2_pulse_target,
             "seed": args.seed,
         },
     )
@@ -918,6 +926,16 @@ for trial_idx in range(args.num_trials):
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    if dist.get_rank() == 0:
+        aux_group_names = [g.get("name", "?") for g in optimizer1.param_groups]
+        for nm in aux_group_names:
+            print0(f"[step 0] aux adam group: {nm}", console=True)
+        if args.lm_head_b2_pulse_step > 0:
+            print0(f"[step 0] lm_head_b2_pulse ENABLED: step={args.lm_head_b2_pulse_step} "
+                   f"target={args.lm_head_b2_pulse_target} group=adam_lm_head", console=True)
+            if "adam_lm_head" not in aux_group_names:
+                print0(f"[step 0] WARNING: 'adam_lm_head' not in aux groups {aux_group_names}; "
+                       f"pulse will be a no-op", console=True)
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -1071,6 +1089,15 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.lm_head_b2_pulse_step > 0
+                and step == args.lm_head_b2_pulse_step):
+            for group in optimizer1.param_groups:
+                if group.get("name") == "adam_lm_head":
+                    old_b2 = group["betas"][1]
+                    group["betas"] = (group["betas"][0], args.lm_head_b2_pulse_target)
+                    print0(f"[step {step}] lm_head_b2_pulse: β2 {old_b2} → "
+                           f"{args.lm_head_b2_pulse_target}", console=True)
+                    break
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1189,6 +1216,15 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "lm_head_b2_pulse/active": int(args.lm_head_b2_pulse_step > 0),
+                "lm_head_b2_pulse/step": args.lm_head_b2_pulse_step,
+                "lm_head_b2_pulse/target_b2": args.lm_head_b2_pulse_target,
+                "lm_head_b2_pulse/triggered_at": int(args.lm_head_b2_pulse_step > 0
+                                                      and step >= args.lm_head_b2_pulse_step),
+                "lm_head_b2_pulse/current_b2": next(
+                    (g["betas"][1] for g in optimizer1.param_groups
+                     if g.get("name") == "adam_lm_head"),
+                    float("nan")),
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
