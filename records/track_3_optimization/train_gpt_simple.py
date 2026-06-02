@@ -72,6 +72,14 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H379: AUX-side optimizer family selector. 'adamw' (default) = bit-identical H266 baseline.
+    # 'adabelief' = Zhuang et al. 2020 (arXiv:2010.07468), replaces v=β₂v+(1-β₂)g² with
+    # s=β₂s+(1-β₂)(g-m)²+eps (the "belief" term, variance of gradient against momentum).
+    parser.add_argument("--aux_optimizer", type=str,
+                        default=os.environ.get("AUX_OPTIMIZER", "adamw"),
+                        choices=["adamw", "adabelief"],
+                        help="AUX optimizer family. 'adamw' (default) = H266 baseline bit-id. "
+                             "'adabelief' = AdaBelief 2nd-moment formula (Zhuang et al. 2020).")
     # β2 schedule on aux AdamW (embed/lm_head/scalars). Mutates param_groups[*]['betas']
     # each step. constant = baseline (fused=True kept); cooldown_ramp = fused=False so
     # PyTorch reads the updated betas from the param_group on every .step() call.
@@ -752,6 +760,65 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class AdaBelief(torch.optim.Optimizer):
+    """AdaBelief optimizer (Zhuang et al. 2020, arXiv:2010.07468).
+
+    Same skeleton as AdamW (per-coord adaptive scaling, decoupled weight decay)
+    but replaces the second-moment buffer with a "belief" estimate of how much
+    the gradient agrees with the momentum direction:
+
+        v_t = β₂ v_{t-1} + (1-β₂) g_t²              # AdamW
+        s_t = β₂ s_{t-1} + (1-β₂) (g_t - m_t)² + ε  # AdaBelief
+
+    When the gradient agrees with momentum, (g-m)² is small → larger update.
+    When the gradient diverges, (g-m)² is large → smaller, more cautious update.
+
+    Implementation notes:
+    - eps is added inside the belief term per the PR instruction; the paper
+      writes the equivalent form with +ε after the EMA.
+    - eps is also added at the denominator: denom = √ŝ + ε.
+    - Buffers default to param dtype (matches AdamW behavior on this codebase).
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_belief"] = torch.zeros_like(p)
+                state["step"] += 1
+                step = state["step"]
+                m = state["exp_avg"]
+                s = state["exp_avg_belief"]
+                # First moment: m_t = β₁ m_{t-1} + (1-β₁) g_t (same as AdamW)
+                m.lerp_(grad, 1 - beta1)
+                # Belief: (g_t - m_t)² + eps (eps added inside per PR spec)
+                belief = (grad - m).pow_(2).add_(eps)
+                # s_t = β₂ s_{t-1} + (1-β₂) · belief
+                s.mul_(beta2).add_(belief, alpha=1 - beta2)
+                bias1 = 1 - beta1 ** step
+                bias2 = 1 - beta2 ** step
+                step_size = lr / bias1
+                # denom = √ŝ_t + eps where ŝ_t = s_t / (1 - β₂^t)
+                denom = (s / bias2).sqrt_().add_(eps)
+                if wd != 0:
+                    p.add_(p, alpha=-lr * wd)
+                p.addcdiv_(m, denom, value=-step_size)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -849,6 +916,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_optimizer": args.aux_optimizer,
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
@@ -931,11 +999,25 @@ for trial_idx in range(args.num_trials):
     # fused AdamW reads betas from param_groups on every .step(), but to avoid any
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
-    _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    # H379: AUX optimizer dispatch. 'adamw' (default) keeps the existing AdamW
+    # path bit-identical to H266 baseline. 'adabelief' swaps in our eager
+    # AdaBelief class (Zhuang et al. 2020) with the same param groups/lrs.
+    if args.aux_optimizer == "adabelief":
+        optimizer1 = AdaBelief([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                                dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                                dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                               betas=(0.8, args.aux_beta2_start),
+                               eps=args.aux_adamw_eps, weight_decay=0)
+        if trial_idx == 0:
+            print0(f"AUX optimizer: adabelief (eps={args.aux_adamw_eps}, betas=(0.8, {args.aux_beta2_start}))", console=True)
+    else:
+        _aux_fused = (args.aux_beta2_schedule == "constant")
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+        if trial_idx == 0:
+            print0(f"AUX optimizer: adamw (eps={args.aux_adamw_eps}, betas=(0.8, {args.aux_beta2_start}), fused={_aux_fused})", console=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
