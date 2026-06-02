@@ -1,3 +1,52 @@
+## 2026-06-02 ~08:38 UTC — Cycle 71 mid-572 — askeladd #2217 CLOSED (476th refute / **DEPTH-ORIENTATION ASYMMETRY AXIS: MLP-SOAP front=fast IS PRODUCTIVE, MLP-SOAP back=fast IS DEGRADATION** — bilateral mean 3.27368 above floor band by +0.00168, 15% prior REALIZED; structural finding establishes MLP-SOAP depth-orientation is DIRECTIONAL not symmetric; refutes 40% BACK=FAST PRODUCTIVE MIRROR prior); askeladd #2257 PER_KIND_AUX_BETA1_EMBED ISOLATED bilateral direction-test assigned (fresh per-group state-phase axis on EMBED side — only LM_HEAD has been ISOLATED-tested via #1789). Fleet 6/8 WIP (nezuko + fern HOLD). Cumulative: **476 refuted / 326 mech classes / 298 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability observations + 2 POD-BROKEN-CONFIRMED (nezuko + fern)**.
+
+### askeladd #2217 CLOSED — 476th refute / DEPTH-ORIENTATION ASYMMETRY
+
+**Bilateral terminal — MLP-SOAP back=fast / front=slow ISOLATED**:
+- Arm A SEED=1 (×2 replicate mean): 3.27404 (`jcjktlz8`=3.27306, `vykafqq0`=3.27502)
+- Arm B SEED=2: 3.27332 (`92plnpdy`)
+- Bilateral n=2 mean μ=3.27368 (3rd-run replicate within Arm A — protocol-correct treatment)
+- MERGE bar: 3.27368 > 3.26776 → MISSES BY Δ=+0.00592
+- Stat margin (3.28 − 3.27368)·√2 = 0.00894 ≥ 0.004 → clean RTM-NEGATIVE
+- **ABOVE FLOOR BAND** by +0.00168 (vs floor upper edge 3.27200)
+
+**Structural finding — MLP-SOAP depth-orientation is DIRECTIONAL (ASYMMETRIC)**:
+| Probe | Orientation | val_mean | Direction |
+|---|---|---|---|
+| #1775 | front=fast / back=slow | 3.26789 | sub-floor PRODUCTIVE |
+| #2217 | front=slow / back=fast | 3.27368 | ABOVE FLOOR DEGRADATION |
+| Δ reverse cost | | +0.00579 | depth-orientation load-bearing |
+
+The "fast" preconditioner half MUST sit on FRONT to be productive; flipping to BACK actively harms training beyond the floor band. Consistent with #1568's front-tight cooldown finding — front-half optimizer state is more load-bearing than back-half. Refutes 40% BACK=FAST PRODUCTIVE MIRROR prior.
+
+**Cross-pod evidence**: askeladd pod HEALTHY (step-25 nf=0 on all 3 runs); adds to cross-pod control corpus for fern/nezuko POD-BROKEN diagnoses.
+
+### askeladd #2257 next — PER_KIND_AUX_BETA1_EMBED ISOLATED bilateral direction-test
+
+Fresh per-group state-phase axis on EMBED side. The PKB1 per-kind dispatch has been ISOLATED-tested only on LM_HEAD (#1789 PKB1_LM_HEAD=0.7 sub-cluster-edge 3.26992). EMBED side has NEVER been ISOLATED-tested.
+- Arm A EMBED-TIGHTER: embed_β1=0.5 (more responsive momentum on input embedding)
+- Arm B EMBED-LOOSER: embed_β1=0.95 (smoother momentum on input embedding)
+- LM_HEAD/SCALARS β1 stay at canonical 0.8 (ISOLATE the EMBED-side effect)
+- Priors: 28% embed-tighter merge / 25% embed-looser merge / 32% null floor / 15% degradation
+- Requires PR2153 cherry-pick (commit 4130c311) for SEED hook + PKB1 dispatch infra
+- Env var safety: BOTH `PER_KIND_BETA1_EMBED=<val>` AND `AUX_BETA1_EMBED=<val>` styles included for branch-divergence forward compatibility
+
+### Cycle 71 mid-572 fleet status
+
+Fleet 6/8 active (nezuko HOLD, fern HOLD).
+- alphonse #2215 (n=4 variance): SEED=5 arm `v4r9afeq` ETA ~08:25Z, terminal expected; checking next wake
+- askeladd #2257 (PER_KIND_AUX_BETA1_EMBED ISOLATED): just assigned
+- frieren #2233 (SCALARS-RESET M=2 F=1.0): Arm A 3.27107 terminal; Arm B `ovhldwe4` in-flight, terminal ~10:00Z
+- edward #2244 (PER_KIND_MUON_LR attn-vs-mlp): in-flight
+- thorfinn #2251 (PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD): assigned, pending pickup
+- tanjiro #2255 (PER_DEPTH_HALF_MU_WARMUP_START): assigned, pending pickup
+- fern #2238 (PER_DEPTH_HALF_MUON_LR): **HOLD — POD-BROKEN pending issue #2252 remediation**
+- nezuko #2241 (AUX_CLIP_NORM): **HOLD — POD-BROKEN pending issue #2250 remediation**
+
+Cumulative: **476 refuted / 326 mech classes / 298 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability observations + 2 POD-BROKEN-CONFIRMED (nezuko + fern)**.
+
+---
+
 ## 2026-06-02 ~08:25 UTC — Cycle 71 mid-571 — tanjiro #2230 CLOSED (475th refute / **STRUCTURAL PRUNING ABLATION: q/k/v ATTN-SOAP coverage IS PRODUCTIVE-MODEST in MLP-SOAP front=fast stack** — bilateral mean 3.269755 > MERGE bar 3.26776 by +0.00200; removing q/k/v from ATTN-SOAP costs +0.00187 vs FULL ATTN-SOAP coverage; no POD-BLOCK confirms nezuko #2214 bitfield=7 destab was PKB1-CONDITIONAL not structural); tanjiro #2255 PER_DEPTH_HALF_MU_WARMUP_START depth × warmup-state-phase assigned. Fleet 6/8 WIP (nezuko HOLD, fern HOLD). Cumulative: **475 refuted / 325 mech classes / 297 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability observations + 2 POD-BROKEN-CONFIRMED (nezuko + fern)**.
 
 ### tanjiro #2230 CLOSED — 475th refute / STRUCTURAL PRUNING ABLATION FINDING
