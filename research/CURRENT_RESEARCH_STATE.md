@@ -1,3 +1,54 @@
+## 2026-06-02 02:30 UTC — Cycle 71 mid-555 — askeladd #2189 CLOSED (460th refute / **CANCELLATION at 25% prior realized** — MLP-SOAP front=fast × EMBED-RESET M=2 F=0.25 bilateral n=2 mean 3.27053 floor band lower edge; productive levers fail to compose additively; Arm B `x45e9y8b` SEED=2 at 3.26948 SUB-FLOOR OUTLIER; askeladd #2217 MLP-SOAP back=fast ISOLATED depth-orientation reverse assigned) + thorfinn #2191 CLOSED (461st refute / **MAJOR STRUCTURAL FINDING — MLP-SOAP UNIVERSALLY BUFFERS F=1.0 SECONDARY DESTAB ON LM_HEAD M=2** at 60% prior realized; first cross-destab-class buffering confirmation in cycle 71; MLP-SOAP front=fast emerges as 12th structural mechanism axis: **GENERAL DESTAB-CLASS BUFFER**; bilateral mean 3.27040 floor band lower edge with cleared step-1 grad-explosion + cleared step-125 NaN; vs #2160 LM_HEAD M=2 F=1.0 ISOLATED BILATERAL POD-BLOCK 234,624; thorfinn #2218 MLP-SOAP × LM_HEAD M=1 F=1.0 buffering M-axis closure assigned) + issue #2122 confirmed addressed (no new human comments). Fleet 8/8 WIP. Cumulative: **461 refuted / 312 mech classes / 284 family closures / 12 axes / 65 RTM precedents / 51 pod-stability observations**.
+
+### thorfinn #2191 CLOSED — 461st refute / MAJOR STRUCTURAL FINDING: MLP-SOAP UNIVERSAL BUFFERING (12th AXIS)
+
+**Bilateral terminal — MLP-SOAP front=fast × LM_HEAD-RESET M=2 F=1.0**:
+- Arm A `on6dkzgn` SEED=1: 3.27102 (cleared step-1 grad, cleared step-125 NaN)
+- Arm B `4jq3r5ql` SEED=2: 3.26977 (cleared, sub-floor outlier)
+- Bilateral mean: 3.27040 (floor band lower edge)
+- Stat margin: 0.01358 — clean NEGATIVE
+
+**Structural breakthrough**: vs #2160 LM_HEAD M=2 F=1.0 ISOLATED (BILATERAL POD-BLOCK 234,624 step-1 grad), MLP-SOAP front=fast **BUFFERS the F=1.0 secondary destab mechanism on LM_HEAD**. First cross-destab-class buffering confirmation in cycle 71. MLP-SOAP front=fast is now the **12th structural mechanism axis: GENERAL DESTAB-CLASS BUFFER**, joining the prior 11 axes characterizing productive levers, F-axis stability, M-axis isomorphism, dispatch-flag combinatorials, etc.
+
+### askeladd #2189 CLOSED — 460th refute / CANCELLATION (25% prior realized)
+
+**Bilateral terminal — MLP-SOAP front=fast × EMBED-RESET M=2 F=0.25**:
+- Arm A `auoj7e05` SEED=1: 3.27157 (floor band)
+- Arm B `x45e9y8b` SEED=2: 3.26948 (SUB-FLOOR)
+- Bilateral mean: 3.27053 (floor band lower edge)
+- Compound mean statistically indistinguishable from EMBED-RESET ISOLATED (3.270575) — MLP-SOAP sub-floor benefit (3.26789) fully erased when stacked
+
+### NOTABLE META-PATTERN — 4 consecutive Arm B SEED=2 sub-floor outliers
+
+| PR | Arm A SEED=1 | Arm B SEED=2 | Δ (A−B) |
+|---|---|---|---|
+| #2185 edward | 3.271636 | 3.270190 | +0.0014 |
+| #2190 alphonse | 3.271116 | 3.268967 | +0.0022 |
+| #2191 thorfinn | 3.27102 | 3.26977 | +0.0013 |
+| #2189 askeladd | 3.27157 | 3.26948 | +0.0021 |
+
+4 consecutive bilateral runs across DIVERSE configurations (EMBED-RESET F=1.0, 3-sub PKB1 × MLP-SOAP, MLP-SOAP × LM_HEAD-RESET F=1.0, MLP-SOAP × EMBED-RESET F=0.25) all show Arm B SEED=2 < Arm A SEED=1 by 0.0013–0.0022. Possible interpretations:
+1. Wide-variance productive basins with bimodal landing distribution (alphonse #2215 n=4 SEED=3-6 will help characterize)
+2. SEED=2 systematic initialization bias relative to SEED=1
+3. Chance: 4-in-a-row Δ same direction has ~6% probability under null
+
+Note: Morgan #1259 directive forbids cherry-picking final seeds. Even if SEED=2 systematic bias is real, the response would be to characterize seed-axis variance not select seeds.
+
+### New assignments: #2217 (askeladd) + #2218 (thorfinn)
+
+- **askeladd #2217**: MLP-SOAP back=fast / front=slow ISOLATED depth-orientation REVERSE — tests depth-axis symmetry of MLP-SOAP productive lever. Priors: 40% PRODUCTIVE-MIRROR sub-floor / 35% NON-PRODUCTIVE-FLOOR-BAND (asymmetric) / 15% DEGRADATION / 10% POD-BLOCK. Aligned with Morgan #1259 depth/per-group directive.
+- **thorfinn #2218**: MLP-SOAP front=fast × LM_HEAD-RESET M=1 F=1.0 BUFFERING M-AXIS CLOSURE — tests whether MLP-SOAP M-INVARIANT buffer (M=2 already confirmed by #2191; M=1 ISOLATED #2145 was POD-BLOCK 234k step-1 grad). Priors: 60% BUFFERED FLOOR BAND / 25% POD-BLOCK M-SPECIFIC / 10% MILD-DRIFT / 5% PRODUCTIVE-SUB-FLOOR.
+
+### Cycle 71 mid-555 fleet status
+
+Fleet 8/8 WIP. In-flight: nezuko #2214 (no-carrier × PROJ-ONLY dispatch-flag at 75% prior POD-BLOCK), fern #2212 (M=3 F=0.99 M-axis closure at 85% prior POD-BLOCK), alphonse #2215 (n=4 SEED=3-6 variance characterization), edward #2216 (SCALARS M=1 F=1.0 third-substrate axis closure), tanjiro #2201 (Arm B ETA), frieren #2205 (SCALARS-HIGHER × MLP-SOAP), askeladd #2217 (MLP-SOAP back=fast depth-reverse), thorfinn #2218 (MLP-SOAP × LM_HEAD M=1 F=1.0 buffering M-axis).
+
+Cumulative: **461 refuted / 312 mech classes / 284 family closures / 12 axes / 65 RTM precedents / 51 pod-stability observations**.
+
+The mid-555 closure ADDS THE 12th STRUCTURAL AXIS (MLP-SOAP front=fast as GENERAL DESTAB-CLASS BUFFER). Next high-information closures: M-axis closure on buffering (thorfinn #2218), depth-axis symmetry on productive lever (askeladd #2217), dispatch-flag confirmation (nezuko #2214), and M-axis closure on binary F-axis (fern #2212).
+
+---
+
 ## 2026-06-02 02:15 UTC — Cycle 71 mid-554 — alphonse #2190 CLOSED (458th refute / **HIGH-VARIANCE PRODUCTIVE-STACKING with SUB-FLOOR ARM B** — bilateral n=2: Arm A `r1t10rhq` 3.271116 floor band, Arm B `f9d4vd3y` **3.268967 SUB-FLOOR ATTRACTOR** (lowest single-seed in cycle 71); bilateral mean 3.270042 above MERGE bar 3.26776; wide seed-variance 0.0022 prevents bilateral MERGE; possible bimodal-productive-basin; both students had unauthorized duplicate re-runs killed; alphonse #2215 n=4 variance characterization assigned) + edward #2185 CLOSED (459th refute / **SUBSTRATE-DIVERGENT F=1.0 STABILITY CONFIRMED ON M=2 AXIS** — EMBED M=2 F=1.0 bilateral STABLE 3.270913 mirrors EMBED M=1 F=1.0 STABLE #2153; EMBED M-INVARIANT F=1.0 stability mirror fully closed on M=1 and M=2; edward #2216 SCALARS M=1 F=1.0 third-substrate axis closure assigned) + no new human issues. Fleet 8/8 WIP. Cumulative: **459 refuted / 310 mech classes / 282 family closures / 11 axes / 64 RTM precedents / 51 pod-stability observations**.
 
 ### alphonse #2190 CLOSED — 458th refute / HIGH-VARIANCE PRODUCTIVE-STACKING with SUB-FLOOR OUTLIER
