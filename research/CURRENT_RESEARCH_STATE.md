@@ -1,3 +1,52 @@
+## 2026-06-02 ~09:55 UTC — Cycle 71 mid-574 — wake 8 fleet update, frieren #2233 Arm B terminal (BILATERAL READY, val=3.269180 Arm B sub-cluster-edge + Arm A val=3.27107 floor band → bilateral mean 3.270125 floor-band null, awaiting student submission); edward #2244 Arm A `obbaknj4` terminal val=**3.285627 ABOVE BASELINE** (DEGRADATION signal — MLP-TIGHT body-Muon LR), student auto-launched Arm B `p7e8if41` ETA ~11:30Z; tanjiro #2255 **24-MINUTE SIGTERM PATTERN DIAGNOSED** (three runs killed at exactly ~24 min each — wall-clock watchdog NOT pod-broken NOT training-instability, student instructed to grep for stale poll-watchers); askeladd #2257 Arm A `yybv8mwq` LAUNCHED at 09:39Z; nezuko #2241 stale_wip refresh comment posted (HOLD continues, pod-broken issue #2250 awaiting human remediation). Fleet 6/8 active + 2/8 HOLD. Cumulative unchanged: **476 refuted / 326 mech classes / 298 family closures / 14 axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability + 2 POD-BROKEN-CONFIRMED**.
+
+### frieren #2233 BILATERAL TERMINAL — awaiting student SENPAI-RESULT submission
+
+| Arm | run_id | SEED | val_loss | Reading |
+|---|---|---|---|---|
+| A | `u8h2e77o` | 1 | 3.27107 | floor band |
+| B | `ovhldwe4` | 2 | **3.269180** | **sub-cluster-edge** |
+| Mean | n=2 | — | **3.270125** | floor-band null |
+
+- MERGE bar 3.270125 > 3.26776 → MISSES BY +0.00237 → NO MERGE
+- Stat (3.28−3.270125)·√2 = 0.01396 ≥ 0.004 → clean RTM-NEGATIVE
+- Refutes 30% "SCALARS substrate M=2 F=1.0 PRODUCTIVE" prior; confirms 38% null floor expectation
+- Arm B sub-cluster-edge + Arm A floor-band split is bimodal-productive-basin (similar to alphonse #2215)
+- **Expected close as 477th refute on student submission**
+
+### edward #2244 Arm A ABOVE BASELINE — DEGRADATION signal
+
+Arm A `obbaknj4` MLP-TIGHT (body-Muon LR mlp < attn) terminal val=**3.285627 at step 3175**. Stat margin n=1 (3.28−3.285627)·√1 = -0.005627 NEGATIVE → ABOVE 3.28 not below. Trajectory was healthy throughout (step-25 nf=0, normal scaling), terminal val just above baseline. **Algebra for Arm B**:
+- For bilateral mean μ_bilateral ≥ 3.276 → above 3.28 stat-margin failure (DEGRADATION confirmed)
+- For μ_bilateral < 3.27317 → satisfies (3.28−μ)·√2 ≥ 0.004 stat rule, but still > MERGE bar 3.26776
+- For μ_bilateral < 3.26776 → mathematically impossible from Arm A=3.285627 (Arm B would need < 3.249893)
+
+Verdict expected: **DEGRADATION refute**. Awaiting Arm B `p7e8if41` terminal ~11:30Z.
+
+### tanjiro #2255 — 24-min wall-clock SIGTERM pattern
+
+Three Arm A SEED=1 launches killed at exactly ~24 min each:
+- `z45ghu9l` 08:40Z → SIGTERM 09:04Z (24 min, step 697, val 3.754 healthy)
+- `hx4pusc9` 09:07Z → killed 09:31Z (24 min, step 625, val 3.754 healthy)
+- `2p3xn58v` 09:34Z → in flight (prediction: killed ~09:58Z if pattern holds)
+
+Trajectory PARALLEL TO BASELINE at every kill point. This is NOT pod-broken (no cascade attractor), NOT training instability (val_loss healthy). Most likely a stale poll-watcher from prior PR #2230 session (closed at ~08:25Z) running 24-min cycle and killing torchrun. Posted diagnosis to PR #2255 asking student to grep `ps -ef` for unauthorized watchers + report. Trying to find culprit before letting tanjiro continue burning GPU on 24-min cycles.
+
+### Wake 8 fleet status (8/8 allocated)
+
+- alphonse #2215 (n=4 variance): Arm F `fl8ou15m` step 1750, ETA terminal ~10:30Z → review next wake
+- askeladd #2257 (PER_KIND_AUX_BETA1_EMBED ISOLATED): Arm A `yybv8mwq` just launched step 0, ETA ~12:00Z
+- frieren #2233 (SCALARS-RESET M=2 F=1.0 isolated): **BILATERAL TERMINAL** awaiting student SENPAI-RESULT submission
+- edward #2244 (PER_KIND_MUON_LR attn-vs-mlp): Arm A 3.285627 ABOVE BASELINE; Arm B `p7e8if41` step 125 ETA ~11:30Z
+- thorfinn #2251 (PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD): Arm A `nmyqt4ur` step 2750, ETA terminal ~10:30Z
+- tanjiro #2255 (PER_DEPTH_HALF_MU_WARMUP_START): Arm A `2p3xn58v` step 125, 24-min SIGTERM diagnosis pending student investigation
+- fern #2238 (PER_DEPTH_HALF_MUON_LR): **HOLD — POD-BROKEN issue #2252**
+- nezuko #2241 (AUX_CLIP_NORM): **HOLD — POD-BROKEN issue #2250**
+
+Next wake ~10:30Z to catch frieren submission + alphonse + thorfinn terminals + tanjiro ps-grep response.
+
+---
+
 ## 2026-06-02 ~09:15 UTC — Cycle 71 mid-573 — wake 7 fleet snapshot, alphonse #2215 stale_wip cleared (Arm E `v4r9afeq` terminal val=3.271672, Arm F `fl8ou15m` running step 975/3175 ETA ~10:30Z; interim n=3 mean 3.270506 — verdict will be FLOOR-BAND RTM-NEGATIVE/no-merge variance characterization); frieren #2233 Arm A `u8h2e77o` terminal val=3.27107 FLOOR-BAND (Arm B `ovhldwe4` step 2405/3175 ETA ~10:00Z); tanjiro #2255 Arm A SIGTERM at step 697 (HEALTHY trajectory parallel to baseline — NOT pod-broken; student auto-relaunched `hx4pusc9` step 125); askeladd #2257 disabled-checks complete, pre-launch verification in progress. Fleet 6/8 active (nezuko + fern HOLD). Cumulative unchanged: **476 refuted / 326 mech classes / 298 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability observations + 2 POD-BROKEN-CONFIRMED (nezuko + fern)**.
 
 ### Wake 7 fleet snapshot (in-flight probe status)
