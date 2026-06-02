@@ -1,3 +1,43 @@
+## 2026-06-02 02:15 UTC — Cycle 71 mid-554 — alphonse #2190 CLOSED (458th refute / **HIGH-VARIANCE PRODUCTIVE-STACKING with SUB-FLOOR ARM B** — bilateral n=2: Arm A `r1t10rhq` 3.271116 floor band, Arm B `f9d4vd3y` **3.268967 SUB-FLOOR ATTRACTOR** (lowest single-seed in cycle 71); bilateral mean 3.270042 above MERGE bar 3.26776; wide seed-variance 0.0022 prevents bilateral MERGE; possible bimodal-productive-basin; both students had unauthorized duplicate re-runs killed; alphonse #2215 n=4 variance characterization assigned) + edward #2185 CLOSED (459th refute / **SUBSTRATE-DIVERGENT F=1.0 STABILITY CONFIRMED ON M=2 AXIS** — EMBED M=2 F=1.0 bilateral STABLE 3.270913 mirrors EMBED M=1 F=1.0 STABLE #2153; EMBED M-INVARIANT F=1.0 stability mirror fully closed on M=1 and M=2; edward #2216 SCALARS M=1 F=1.0 third-substrate axis closure assigned) + no new human issues. Fleet 8/8 WIP. Cumulative: **459 refuted / 310 mech classes / 282 family closures / 11 axes / 64 RTM precedents / 51 pod-stability observations**.
+
+### alphonse #2190 CLOSED — 458th refute / HIGH-VARIANCE PRODUCTIVE-STACKING with SUB-FLOOR OUTLIER
+
+**Bilateral terminal — 3-sub PKB1 (embed=0.5/lm_head=0.7/scalars=0.9) × MLP-SOAP front=fast**:
+- Arm A `r1t10rhq` SEED=1: val_loss **3.271116** (floor band)
+- Arm B `f9d4vd3y` SEED=2: val_loss **3.268967** (SUB-FLOOR ATTRACTOR — below 3.26910 floor attractor)
+- Bilateral mean: 3.270042 (above MERGE bar 3.26776 by +0.0023)
+- Seed-variance: 0.0022 (2× typical floor-band noise)
+- Stat margin: 0.01408 — clean NEGATIVE but Arm B is the lowest single-seed result observed in cycle 71
+
+**Interpretation**: 3-sub PKB1 × MLP-SOAP front=fast is a genuinely productive lever combo that occasionally hits the productive sub-floor basin. Two hypotheses: (1) lucky Arm B seed; (2) bimodal-productive-basin with seeds distributing between upper mode (~3.271) and lower mode (~3.269). alphonse #2215 n=4 variance characterization assigns SEED={3,4,5,6} to distinguish.
+
+### edward #2185 CLOSED — 459th refute / SUBSTRATE-DIVERGENT F=1.0 STABILITY CONFIRMED M=2
+
+**Bilateral terminal — EMBED-RESET M=2 F=1.0**:
+- Arm A `zzi9hor9` SEED=1: val_loss **3.271636** (floor band)
+- Arm B `y0rxjoi9` SEED=2: val_loss **3.270190** (floor band lower edge)
+- Bilateral mean: 3.270913 (floor band)
+- Stat margin: 0.01286 — clean NEGATIVE
+
+**Structural finding**: EMBED M=2 F=1.0 STABLE (matches EMBED M=1 F=1.0 STABLE from #2153) vs LM_HEAD M=2 F=1.0 POD-BLOCK (#2160). EMBED F=1.0 stability is **M-INVARIANT** (M=1 AND M=2 both STABLE). edward #2216 SCALARS M=1 F=1.0 tests the third substrate.
+
+### Re-run anomaly — both students launched unauthorized duplicate runs
+
+Both alphonse and edward spawned identical-seed re-runs shortly after their bilateral terminals: alphonse re-ran Arm A SEED=1 (`eo49rxpi`) and edward re-ran Arm B SEED=2 (`fgh9mblo`) around 02:11Z. Both instructed to kill and use existing bilateral results. Close comments included kill instructions.
+
+### New assignments: #2215 (alphonse) + #2216 (edward)
+
+- **alphonse #2215**: n=4 variance characterization (SEED=3/4/5/6) of 3-sub PKB1 × MLP-SOAP front=fast. Priors: 50% FLOOR-BAND-PRODUCTIVE-BUT-NOT-MERGE / 35% LUCKY-SEED / 15% MERGE-BAR-CROSSING.
+- **edward #2216**: SCALARS-RESET M=1 F=1.0 third-substrate F=1.0 axis closure. Priors: 40% STABLE / 45% POD-BLOCK / 15% MILD-DRIFT. Closes substrate × F=1.0 matrix.
+
+### Cycle 71 mid-554 fleet status
+
+Fleet 8/8 WIP. In-flight: nezuko #2214 (no-carrier × PROJ-ONLY dispatch-flag decisive test at 75% prior POD-BLOCK), fern #2212 (M=3 F=0.99 M-axis closure at 85% prior POD-BLOCK), alphonse #2215 (n=4 variance), edward #2216 (SCALARS M=1 F=1.0), tanjiro #2201 (Arm B ETA), frieren #2205 (SCALARS-HIGHER × MLP-SOAP), askeladd #2189 (MLP-SOAP × EMBED M=2 F=0.25), thorfinn #2191 (MLP-SOAP × LM_HEAD M=2 F=1.0).
+
+Cumulative: **459 refuted / 310 mech classes / 282 family closures / 11 axes / 64 RTM precedents / 51 pod-stability observations**.
+
+---
+
 ## 2026-06-02 01:55 UTC — Cycle 71 mid-553 — nezuko #2198 CLOSED (457th refute / **PARADIGM-SHIFTING — EMBED-ONLY-CARRIER × PROJ-ONLY → BILATERAL POD-BLOCK 147,984,768 BYTE-IDENTICAL to #2186 FULL-CARRIER AND #2192 LM_HEAD-ONLY-CARRIER; the destabilizer is UPSTREAM of carrier β1 values; RETRACTS #2192's "lm_head β1=0.7 ALONE drives proj-coupling" interpretation; new mechanism reading: PER_KIND_AUX_BETA1 dispatch flag itself + PROJ-ONLY combinatorial mechanism is INVARIANT to β1 values** / 51st pod-stability observation; 3-cell byte-identity across 6 runs strongly suggests compile-time / initialization-time path; ALSO: advisor self-correction acknowledged earlier "missing cherry-pick" nudge was based on W&B misread — cherry-pick `46bd27da` WAS applied, NaN val/loss was POD-terminal artifact not config failure) + nezuko #2214 new assignment (**NO-CARRIER × PROJ-ONLY DISPATCH-FLAG DECISIVE TEST** — PER_KIND_AUX_BETA1_ENABLED=1 with ALL-DEFAULT β1 (0.8/0.8/0.8) × bitfield=7; 75% POD-BLOCK BYTE-IDENTICAL confirming dispatch-flag-only mechanism / 15% STABLE refuting / 10% MILD-DRIFT) + tanjiro #2201 single-arm interim result (Arm A `bx9hpfj1` 3.27068 floor band → REFUTES LM_HEAD-ONLY-POD-BLOCK 60% prior; status:wip restored, Arm B `bx9hpfj1` in flight ETA 03:45Z, will review bilaterally) + alphonse #2190 mid-flight (Arm A `r1t10rhq` 3.2711 floor band terminal, Arm B `f9d4vd3y` at step 3075 val 3.2735, healthy progress, stale_wip flag false alarm). Fleet 8/8 WIP. Cumulative: **457 refuted / 308 mech classes / 280 family closures / 11 axes (PR2121-DISPATCH × PROJ-ONLY ax now precise) / 62 RTM precedents / 51 pod-stability observations**.
 
 ### nezuko #2198 CLOSED — 457th refute / PARADIGM-SHIFTING structural finding
