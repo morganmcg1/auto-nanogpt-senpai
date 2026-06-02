@@ -84,6 +84,10 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--body_muon_mom_scaleup_step", type=int, default=-1,
+                        help="Step at which to multiply body-PMuon momentum in-place. -1 = off.")
+    parser.add_argument("--body_muon_mom_scaleup_factor", type=float, default=1.0,
+                        help="Multiplicative factor applied to body-PMuon momentum at scaleup_step.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +769,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "body_muon_mom_scaleup_step": args.body_muon_mom_scaleup_step,
+            "body_muon_mom_scaleup_factor": args.body_muon_mom_scaleup_factor,
             "seed": args.seed,
         },
     )
@@ -859,6 +865,15 @@ for trial_idx in range(args.num_trials):
     ema_refresh_fired_total = 0
     ema_refresh_step_logged = -1
     lcov_refresh_fired_total = 0
+
+    # body-Muon momentum SCALE-UP pulse state.
+    body_muon_mom_scaleup_fired_total = 0
+    body_muon_mom_scaleup_n_buffers_logged = 0
+    if dist.get_rank() == 0:
+        wandb.log({
+            "optim/body_muon_mom_scaleup_step": args.body_muon_mom_scaleup_step,
+            "optim/body_muon_mom_scaleup_factor": args.body_muon_mom_scaleup_factor,
+        }, step=trial_idx * (train_steps + 1))
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
@@ -1071,6 +1086,26 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        if (args.body_muon_mom_scaleup_step >= 0
+                and step == args.body_muon_mom_scaleup_step
+                and args.body_muon_mom_scaleup_factor != 1.0):
+            n_scaled = 0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, {})
+                    if "momentum" in state:
+                        state["momentum"].mul_(args.body_muon_mom_scaleup_factor)
+                        n_scaled += 1
+            body_muon_mom_scaleup_fired_total = 1
+            body_muon_mom_scaleup_n_buffers_logged = n_scaled
+            print0(f"[body_muon_mom_scaleup] step={step} "
+                   f"factor={args.body_muon_mom_scaleup_factor} n_scaled={n_scaled}",
+                   console=True)
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "optim/body_muon_mom_scaleup_executed": 1,
+                    "optim/body_muon_mom_scaleup_n_buffers": n_scaled,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
