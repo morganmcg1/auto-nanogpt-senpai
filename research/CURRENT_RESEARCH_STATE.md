@@ -1,3 +1,45 @@
+- **Date:** 2026-06-02 05:18Z (cycle c790g-39 — **#2181 askeladd EMBED_INIT_ANCHOR_LAMBDA bracket CLOSED NULL-AXIS-FENCED at 10× DOWN/UP + 5 CATALOG-NEW promoted including [[mid-train-fav-evaporation-cooldown-precond-ratio-rise]] CATALOG-CONFIRMED at 4-direct-observation threshold + askeladd reassigned NEWTON_MUON_R_ADAMW_WARMSTART_K bracket {50, 100 ctrl, 200} (LAST UNBRACKETED NM-mechanism axis). 8 PRs in flight 0 idle students. Dense PP-confirm HB wave converging ~07:00Z-07:30Z.**)
+
+**#2181 askeladd EMBED_INIT_ANCHOR_LAMBDA HB-FINAL VERDICT CLOSED NULL-AXIS-FENCED** (c790g-39 05:06Z → 05:15Z):
+- 3-arm dose-response: Arm A λ=0.001 (ctrl) val=3.26114 = **−0.025σ_seed clean baseline-tracking**, Arm B λ=0.0001 (10× DOWN) val=3.26280 = +1.03σ_seed mild NEG edge-of-gate, Arm C λ=0.01 (10× UP) val=3.27036 = **+5.73σ_seed strong NEG OUTSIDE drift gate** + FFS=3225 (+75 slower)
+- **Asymmetric monotone-NEG-DIRECTION-AWAY-FROM-PRODUCTION with concave shape** — production λ=0.001 at INIT-axis val/loss minimum, both extremes harmful
+- All 3 arms FAIL G1 → NO PROMOTION → INIT-axis catalog-FENCED at this 10× bracket
+- **5 CATALOG-NEW candidates promoted from single PR**:
+  - [[mid-train-fav-evaporation-cooldown-precond-ratio-rise]] **CATALOG-CONFIRMED at 4-direct-observation threshold** — body-LR #2141 + TIMING #2143 + SHAPE #2149 + INIT #2181. Load-bearing catalog observation about c790g cooldown-phase regime shift mechanism spanning 4 INDEPENDENT axes (OPTIMIZER + DURATION + SHAPE + INIT). Arm B step-125 Δ_BA=−0.01821 = **−11.3σ_seed LARGEST c790g-cycle early-FAV magnitude**
+  - [[init-anchor-lambda-axis-asymmetric-production-at-minimum]] NEW CATALOG — production λ=0.001 at INIT-axis val/loss minimum
+  - [[init-anchor-lambda-axis-below-gradient-pressure-threshold]] CONFIRMED at Arm B (extends c790g-36 candidate) — embed-space ratio Arm B/A = 1.006 ≈ identical
+  - [[init-anchor-lambda-axis-above-gradient-pressure-threshold-asymmetric]] NEW CATALOG — Arm C terminal embed/dist_from_init = 32% of A (mid-train trough 22%)
+  - [[init-anchor-axis-weak-cross-coupling-to-r-buffer-at-strong-anchor]] NEW CANDIDATE — Arm C only: precond_ratio +4.74%, R_inv_sqrt −4.31%, R_cond_mean −26.3% (shared gradient-pressure feedback mechanism candidate)
+- Arm C U-shape embed/dist trajectory + cooldown-driven late-stage bounce (peak +0.034 NEG → terminal +0.00922 = 73% deficit-narrowing) — clean mechanistic demo of `linear_floor` cooldown × strong-anchor interaction
+- HB0 multiplicative-contraction math model FAILED on BOTH arms (predicted Arm B 3.87× → actual 1.006×; predicted Arm C → 0 → actual 0.32×) — validates equilibrium-by-magnitude-balance interpretation over pure-anchor-pull
+
+**#2236 askeladd NEW ASSIGNMENT** — NEWTON_MUON_R_ADAMW_WARMSTART_K bracket `{50, 100 ctrl, 200}`:
+- Production K=100 stable since #1138 NM-bootstrap, **NEVER BRACKETED** in c790g cycle
+- R-buffer warmstart fire-step — step at which NM transitions from passthrough (Standard Muon NS5) to active preconditioning (R-buffer initialized from AdamW v stats)
+- ZERO-code-change axis (env var already wired at L611, gate at L847)
+- **LAST UNBRACKETED NM-mechanism axis** — closes complete NM-axis portfolio coverage (TIKHONOV_GAMMA + BETA + UPDATE_PERIOD + MAX_D_IN + LR_SCALE + WARMSTART_K all bracketed)
+- 3-arm N=1 screen. If |Δ_paired| > 1.5σ_seed (>0.0024) FAV → PP-confirm n=3
+- Cross-axis catalog test: [[cross-K-warmstart-fire-step-fingerprint]] (CONFIRMED at edward #2179) extends to K-axis via √(τ/τ_ctrl) prediction — step-125 R_inv_sqrt ordering K=50 LARGEST > K=100 ctrl > K=200 SMALLEST (still passthrough at step 125 < K=200)
+
+**3 PP-confirms remaining in c790g cycle (P(MERGE) ordering unchanged)**:
+- alphonse #2177 NS_STOC=1 — P≈**60-65%** LOOSE gate ≤ 3.26167 — HB ETA ~07:30Z
+- edward #2179 β=0.90 — P≈**30%** TIGHT gate ≤ 3.26087 — HB1 ETA ~06:53Z, HB-FINAL ~14:14Z
+- tanjiro #2176 γ=0.025 — P<**15%** TIGHTEST gate ≤ 3.26035 — HB-FINAL ETA ~07:00Z
+
+**Current PRs in flight (r4)** (8 active, 0 idle):
+- **#2176 tanjiro γ=0.025** PP-confirm SEED=2 (HB-FINAL ~07:00Z)
+- **#2177 alphonse NS_STOC=1** PP-confirm SEED={1,2} chain (ETA ~07:30Z+)
+- **#2179 edward β=0.90** PP-confirm SEED={1,2} chain (HB1 ~06:53Z, HB-FINAL ~14:14Z)
+- **#2199 nezuko** GRAD_CLIP_BODY bracket (Arm C ~07:00Z)
+- **#2200 frieren** ADAMW_LM_HEAD_LR_MULT bracket (Arm C ~07:15Z)
+- **#2204 thorfinn** GRAD_CLIP_AUX bracket (Arm C ~06:10Z)
+- **#2234 fern** AdamW β1 bracket {0.7, 0.8 ctrl, 0.9} (untested axis, launch imminent)
+- **#2236 askeladd** WARMSTART_K bracket {50, 100 ctrl, 200} (last unbracketed NM axis, launch imminent)
+
+**Dense HB wave landing 06:10Z-07:30Z**: 6+ HB landings expected including 3 PP-confirm closures.
+
+---
+
 - **Date:** 2026-06-02 05:10Z (cycle c790g-38 — **#2146 fern PP-confirm CLOSED NULL-AT-N=3 / G1 FAIL + 3 CATALOG-NEW promoted + fern reassigned AdamW β1 bracket axis (UNTESTED). #2176 tanjiro SEED=2 HB1 ACKed: Arm A val=3.26232 BEST CTRL drift in cohort — Arm B SEED=2 HB-FINAL ETA ~07:00Z. P(MERGE) ordering: alphonse #2177 (60-65%) > edward #2179 (30%) > tanjiro #2176 (<15%). 3 PP-confirms remaining.**)
 
 **#2146 fern PP-confirm VERDICT CLOSED NULL-AT-N=3** (c790g-38 04:39Z → 05:05Z):
