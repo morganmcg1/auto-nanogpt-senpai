@@ -9,6 +9,32 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-02 11:30Z (**121st R5 closure: PR #2209 nezuko logit-cap-cooldown-schedule CLOSED FFS-NEG monotone. A_ctrl=2875 (cap=15 flat, baseline parity), B-tight10=2975 (+100), C-loose20=2925 (+50), D-tight7.5=−1 NEVER crossed (catastrophic late-step divergence, val climbs 3.294→3.318). Monotone in cap-target tightness. Cap=15 baseline at natural logit ceiling under SOAP+Muon+EMA at FFS-convergence (12-15 range). Tightening saturates high-confidence tokens late in training → silences gradient signal driving final FFS approach. Joins logit-magnitude closure cluster (z-loss #2077, cap-value #2080, softcap variants). Memory rule [[logit_magnitude_axis_closed_at_r5]] saved. Researcher-agent dispatched for nezuko fresh hypothesis (background a2d11a4eb70817336). Fleet now 7/8 occupied with nezuko idle. No review-ready PRs, no human issues.**)
+
+### Notes (2026-06-02 11:30Z) — 121st R5 closure (nezuko #2209 logit-cap-cooldown FFS-NEG monotone)
+
+- **PR #2209 nezuko logit-cap-cooldown-schedule CLOSED — 121st R5 FFS-NEG closure (monotone tightness regression):**
+  - A_ctrl (cap=15 flat): FFS_ema=2875 ✓ (val=3.26838, baseline parity)
+  - B (tight 15→10): FFS_ema=2975 (+100, val=3.27569 with late-step drift)
+  - C (loose 15→20): FFS_ema=2925 (+50, val=3.27114 monotonic descent)
+  - **D (tight 15→7.5)**: FFS_ema=−1 NEVER crossed target, val=3.29438 → climbs to 3.31797 in last 250 steps (catastrophic divergence)
+  - **Mechanism**: Natural unbounded logit norm under SOAP+Muon+EMA at FFS-convergence sits in [12, 15]. Tightening cap below natural ceiling forces saturation on high-confidence tokens late in training → silences gradient signal driving final FFS approach. Loosening to 20 adds noise from higher logit variance.
+  - **Cap=15 flat is at sweet spot** — pre-baseline tuning already found it. Joins logit-magnitude closure cluster.
+  - Memory rule `[[logit_magnitude_axis_closed_at_r5]]` saved.
+  - Bug-fix surfaced: `self.cap = 15.0` plain python attribute breaks under EMA-eval (eval uses stale cap); fix is `self.register_buffer("cap", torch.tensor(15.0))`. Documented in memory.
+- **Researcher-agent dispatched for fresh nezuko hypothesis** (background `a2d11a4eb70817336`). Brief includes full closed-axis list + 121st closure + in-flight PR list. Awaiting return; will assign via senpai:assign-experiment.
+- **Fleet 7/8 occupied** (nezuko idle awaiting researcher):
+  - alphonse #2223 n=4 trial 1 progressing (trial 0 BLOCKBUSTER FFS_ema=2625)
+  - edward #2195 B(α=0.01) n=4 confirm running (`zbni38qw` trial 0/4; ETA ~16:40Z)
+  - askeladd #2245 Cell B (K=2) in flight
+  - frieren #2235 Cell C-soft (β=0.95) in flight
+  - fern #2258 KL-EMA A_ctrl ~87% (val=3.29)
+  - thorfinn #2253 focal-loss A_ctrl ~99% (val=3.269, TERMINAL imminent)
+  - tanjiro #2266 AdaMuon A_ctrl assigned, pod pickup
+- **No review-ready PRs, no new human issues** (#2252/#2250 are r2 not r5).
+
+---
+
 ## Last updated: 2026-06-02 11:20Z (**PR #2266 tanjiro AdaMuon post-NS5 RMS rescaling ASSIGNED. Novel mechanism: per-matrix data-driven magnitude rescaling AFTER both SOAP preconditioning AND NS5 (NS5 output is direction-only, this adds adaptive magnitude). Distinct from all closed axes: not pre-NS5 conditioning, not static depth-LR scaling, not SOAP internal state, not aux clipping. 0/325 PR precedent. Researcher hypothesis required RESCOPE: original premise wrong about "Muon manages MLP weights" — in R5 with --soap_attn ALL Muon params (MLP+attn) are SOAP-preconditioned. AdaMuon now applies to ALL Muon-managed params after SOAP+NS5. Fleet 8/8 fully occupied again.**)
 
 ### Notes (2026-06-02 11:20Z) — PR #2266 tanjiro AdaMuon ASSIGNED + fleet back to 8/8

@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-02 11:30Z — PR #2209 CLOSED FFS-NEG [logit-cap-cooldown-schedule; soft-logit-cap cooldown ramp from 15 → target during cosine LR cooldown phase, 4-cell A/B/C/D sweep with cap targets in {15-flat, 10, 20, 7.5}; monotone FFS regression with cap-target tightness, catastrophic late-step val divergence at tight7.5; cap=15 baseline at natural logit ceiling under SOAP+Muon+EMA at FFS-convergence; tightening saturates high-confidence tokens late in training and silences gradient signal driving final FFS approach; joins logit-magnitude closure cluster with z-loss (#2077), cap-value sweep (#2080), softcap variants] [121st R5 closure]
+
+- branch: g1r5-nezuko/logit-cap-cooldown-schedule
+- hypothesis: Smoothly tapering the soft-logit-cap during cosine LR cooldown could let the model exploit a tighter logit ceiling once representations stabilize. Test 4 cells with cap_target ∈ {15 (flat), 10 (tight), 20 (loose), 7.5 (very tight)} ramping from cap=15 starting at cooldown engage step.
+- 4-cell n=1 results (W&B `bqr0dcs1`, `e6f8q69g`, `99uvsax6`, `ugoi04tt`):
+
+| Cell | Cap schedule (15→target) | FFS_ema | best_val_loss | ema_corr_val | Δ FFS vs A | Verdict |
+|------|--------------------------|--------:|--------------:|-------------:|-----------:|---------|
+| **A_ctrl** | 15 flat (no cooldown) | **2875** | **3.26838** | 3.26880 | — | baseline parity |
+| **B (tight10)** | 15 → 10 | 2975 | 3.27569 | 3.27716 | **+100** | worse |
+| **C (loose20)** | 15 → 20 | 2925 | 3.27114 | 3.27174 | **+50** | worse |
+| **D (tight7.5)** | 15 → 7.5 | **−1 (never)** | 3.29438 | 3.29564 | **fail** | catastrophic |
+
+- **Monotone in cap-target tightness:** loose 20 (Δ+50) < tight 10 (Δ+100) < tight 7.5 (FFS=−1 never crossed). Tightening hurts more than loosening.
+- **D-tight7.5 catastrophic divergence:** val_loss bottoms at 3.29438 @ step 2925 then climbs to 3.31797 @ step 3250 (Δ+0.024 over 325 steps). Cap=7.5 ≪ natural logit scale at cooldown convergence → model saturates the cap → gradients on saturated tokens vanish → post-bottom drift kills any FFS hit.
+- **B-tight10 also drifts upward** in last 100 steps (val 3.27569 → 3.27674); same mechanism, milder. Even target=10 is too restrictive for FFS regime.
+- **C-loose20 monotonic descent** to step 3225 (no drift) but still adds +50 FFS vs flat 15. Loosening also slightly hurts; baseline cap=15 is at/near the natural ceiling.
+- Mechanism: Natural unbounded logit norm under SOAP+Muon+EMA at FFS-convergence sits in [12, 15] (inferred from C's monotone descent under cap=20 and B/D's late-step drift under caps ≤ 10). Tightening cap below natural ceiling forces saturation on high-confidence tokens late in training → silences exactly the gradient signal driving final FFS approach to target=3.278. Loosening to 20 nominally removes ceiling but adds noise from higher logit variance → small +50 FFS penalty.
+- **Cap=15 flat is at sweet spot** — pre-baseline tuning already found it; this axis has no headroom.
+- Joins logit-magnitude closure cluster: PR #2080 (logit-cap value sweep), PR #2077 (z-loss), softcap variants. Memory rule `[[logit_magnitude_axis_closed_at_r5]]` added.
+- **Implementation bug-fix worth noting:** Adding `self.cap = 15.0` as a plain python attribute on `GPT.__init__` silently breaks under EMA-eval — the in-place EMA `p.data.copy_()` swap doesn't touch python attributes, so eval model uses stale cap value (val/loss frozen at random-init level). Fix: `self.register_buffer("cap", torch.tensor(15.0))` + `model.cap.fill_(value)` in `set_hparams()`. Any future hyperparam visible to GPT forward path should follow this buffer pattern.
+- Suggested follow-ups (declined): co-vary logit cap with `lr_scalars` (head scale) — crosses into multi-axis territory and the aux-LR-schedule axis is already closed via `[[adamw_aux_tetrad_fully_closed_at_r5]]`.
+- Action: PR #2209 closed FFS-NEG; researcher-agent dispatched for fresh nezuko hypothesis (background `a2d11a4eb70817336`).
+
 ## 2026-06-02 10:55Z — PR #2213 CLOSED FFS-NEG [clip-aux-norm; per-aux-group L2 grad clip on AdamW path (embed/lm_head/scalars groups), n=1 4-cell A/B/C'/D' sweep with mechanism-rich telemetry confirming clip fires on real spikes at calibrated 5-15% rate; FFS regresses MONOTONIC with fire rate even at calibrated thresholds; AdamW-path gradient magnitude established as SIGNAL not noise, matching closure of Muon-path pre-NS5 grad transformation axis] [120th R5 closure]
 
 - branch: g1r5-tanjiro/clip-aux-norm
