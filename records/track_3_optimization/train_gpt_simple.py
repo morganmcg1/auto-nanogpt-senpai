@@ -979,6 +979,14 @@ for trial_idx in range(args.num_trials):
                        body_adan_beta3=args.body_adan_beta3)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
+    # H372 Adan telemetry: capture a representative BODY MuonH param so we can log
+    # ||third_moment|| / ||prev_grad|| at telemetry steps when Adan is active.
+    adan_probe_name, adan_probe_param = None, None
+    if args.body_adan_beta3 >= 0.0:
+        for name, p in model.named_parameters():
+            if name == "blocks.5.mlp.fc.weight":
+                adan_probe_name, adan_probe_param = name, p
+                break
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
     aux_params_for_agc = [p for g in optimizer1.param_groups for p in g["params"]]
@@ -1279,6 +1287,15 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    if adan_probe_param is not None and opt is optimizer2:
+                        st = opt.state.get(adan_probe_param, {})
+                        tm = st.get("third_moment")
+                        pg = st.get("prev_grad")
+                        if tm is not None:
+                            muonh_metrics["train/muonh/adan/third_moment_norm"] = tm.norm().item()
+                            muonh_metrics["train/muonh/adan/third_moment_mean_abs"] = tm.abs().mean().item()
+                        if pg is not None:
+                            muonh_metrics["train/muonh/adan/prev_grad_norm"] = pg.norm().item()
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
