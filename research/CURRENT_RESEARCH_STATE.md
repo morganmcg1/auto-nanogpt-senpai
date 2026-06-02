@@ -1,3 +1,54 @@
+## 2026-06-02 00:45 UTC — Cycle 71 mid-551 — fern #2203 CLOSED (455th refute / **EMBED M=1 F=0.99 BILATERAL POD-BLOCK with QUADRUPLE BYTE-IDENTITY across F ∈ {0.25, 0.5, 0.75, 0.99} step-1 grad 233,618.18 + step-25 nonfinite_count 147,758,208 IDENTICAL — F-axis is BINARY (identity vs non-identity), NOT continuous; F=1.0 stability is a CODE-PATH DISCONTINUITY at the singleton, NOT a continuous limit of F→1.0; mechanism narrowed to COMPILE-TIME GRAPH SPECIALIZATION on literal F=1.0 OR INITIALIZATION-TIME PATH; 70% prior REALIZED with maximum certainty** / 49th pod-stability observation; bilateral n=2 Arm A `hcloxy1v` / Arm B `jzjujj0a` cascade IDENTICAL to F ∈ {0.25, 0.5, 0.75}) + fern #2206 new assignment (**EMBED M=2 F=0.99 BINARY F-AXIS M-INVARIANCE DECISIVE TEST** — tests whether binary F-axis hypothesis generalizes from M=1 to M=2 momentum-only reset; 75% M-INVARIANT POD-BLOCK confirming compile-time graph specialization mechanism / 20% M=1-SPECIFIC STABLE momentum-buffer-robust / 5% MILD-DRIFT). Fleet 8/8 WIP. Cumulative: **455 refuted / 306 mech classes / 278 family closures / 11 axes / 62 RTM precedents / 49 pod-stability observations**.
+
+### fern #2203 CLOSED — 455th refute / BINARY F-AXIS HYPOTHESIS DECISIVELY CONFIRMED
+
+**Bilateral terminal — QUADRUPLE byte-identical cascade signature**:
+- Arm A `hcloxy1v` SEED=1: step-1 grad 233,797.60, step-25 nonfinite **147,758,208**
+- Arm B `jzjujj0a` SEED=2: step-1 grad 233,438.76, step-25 nonfinite **147,758,208**
+- **Step-1 grad mean 233,618.18 byte-identical** to #2178 (F=0.25), #2188 (F=0.5), #2194 (F=0.75)
+- **Step-25 nonfinite_count 147,758,208 byte-identical** across all four F values, both seeds
+- Step-125 val/loss NaN → POD-BLOCK terminal kill at both arms
+
+### EMBED M=1 F-axis map — COMPLETE
+
+| F | Outcome | step-1 grad mean | step-25 nonfinite | Trajectory |
+|---|---|---|---|---|
+| 0.25 (#2178) | BILATERAL POD-BLOCK | 233,618 | 147,758,208 | NaN cascade step 25 |
+| 0.5 (#2188) | BILATERAL POD-BLOCK | 233,618 (byte-identical) | 147,758,208 (byte-identical) | NaN cascade step 25 |
+| 0.75 (#2194) | BILATERAL POD-BLOCK | 233,618 (byte-identical) | 147,758,208 (byte-identical) | NaN cascade step 25 |
+| **0.99 (#2203 THIS)** | **BILATERAL POD-BLOCK** | **233,618 (byte-identical)** | **147,758,208 (byte-identical)** | **NaN cascade step 25** |
+| 1.0 (#2153) | BILATERAL STABLE 3.27063 | 233,815 | 0 (RECOVERS) | RECOVERY (411k→16k) |
+
+### Mechanism — F=1.0 is a CODE-PATH DISCONTINUITY
+
+The cascade emerges at step 25 — **150 steps BEFORE the first scheduled reset at step 200**. F-axis acts through compile-time graph specialization OR initialization-time path, NOT through the reset event itself. By step 200, `exp_avg_sq` is ALREADY NaN — the reset code at lines 1324/1332 (`st["exp_avg_sq"].mul_(F)`) never fires on a finite state. **The F<1.0 perturbation must be acting BEFORE step 200.**
+
+Two candidate mechanisms (narrowed from prior #2188/#2194/#2203 hypothesis space):
+1. **Compile-time graph specialization on literal F=1.0** — PyTorch elides `.mul_(1.0)` as no-op via constant folding while `.mul_(F)` for F<1.0 is retained, changing kernel scheduling
+2. **Initialization-time path** — F threaded into preconditioner init before training, even if AUX_RESET_INTERVAL_EMBED=200 unreached
+
+### fern #2206 next — M-INVARIANCE DECISIVE TEST
+
+EMBED M=2 F=0.99 — extends the binary F-axis hypothesis from M=1 (preconditioner) to M=2 (momentum). Reference matrix:
+
+| M-axis \ F | F=0.99 | F=1.0 |
+|---|---|---|
+| **M=1 (preconditioner / exp_avg_sq)** | **#2203 POD-BLOCK ✓** | #2153 STABLE 3.27063 |
+| **M=2 (momentum / exp_avg)** | **#2206 THIS — TBD** | #2185 STABLE 3.2716 |
+
+If POD-BLOCK: binary F-axis is M-INVARIANT — paradigm-shifting universality finding.
+If STABLE: M=2 momentum-only reset is robust to non-identity F via long-memory β1 buffering.
+
+Priors: 75% M-INVARIANT POD-BLOCK / 20% M=1-SPECIFIC STABLE / 5% MILD-DRIFT.
+
+### Cycle 71 mid-551 fleet status
+
+Fleet 8/8 WIP. Cumulative: **455 refuted / 306 mech classes / 278 family closures / 11 axes / 62 RTM precedents / 49 pod-stability observations**.
+
+The mid-551 closure establishes binary F-axis as the deepest structural finding in cycle 71. fern #2206 (EMBED M=2 F=0.99) determines whether the binary F-axis mechanism (compile-time graph specialization OR initialization-time path) is M-invariant or M=1-specific. M-invariance would extend the paradigm-shifting finding to the entire EMBED-RESET mechanism family.
+
+---
+
 ## 2026-06-02 00:35 UTC — Cycle 71 mid-550 — frieren #2175 CLOSED (454th refute / **SCALARS-HIGHER × PROJ-EXCLUDED → 3.27105 FLOOR-BAND CANCELLATION confirming SOLO-ONLY pattern is COMPOUND-CLASS UNIVERSAL across 4 axes in 2 structurally different classes — productive × productive AND productive × safe-cardinality both cancel; proj-excluded cell is a "non-productive carrier" that dominates outcome regardless of layered productive lever** / 62nd RTM precedent) + frieren #2205 new assignment (**SCALARS-HIGHER β1=0.9 × MLP-SOAP front=fast SUBSTRATE-ORTHOGONAL probe** — cleanest test of SOLO-ONLY universality by pairing 1D scalar params with 2D MLP weight matrices, NO substrate overlap; 45% FLOOR-BAND CANCELLATION (5th SOLO-ONLY) / 25% PRODUCTIVE-STACKING-MILD / 15% PRODUCTIVE-MERGE / 10% POD-BLOCK / 5% MILD-DRIFT). Fleet 8/8 WIP. Cumulative: **454 refuted / 305 mech classes / 277 family closures / 11 axes / 62 RTM precedents / 48 pod-stability observations**.
 
 ### frieren #2175 CLOSED — 454th refute / SOLO-ONLY is COMPOUND-CLASS UNIVERSAL
