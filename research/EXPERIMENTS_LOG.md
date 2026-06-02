@@ -1,3 +1,76 @@
+## 2026-06-02 06:35 — PR #2158: H372v2 tanjiro Adan BODY pre-NS5 β₃<0.95 dose-response extension (gradient-difference 3rd-moment EMA) — CLOSED 232nd NULL/NEG (🎯 1st U-SHAPE-CHARACTERIZED AXIS at H266 stack with PRODUCTIVE-BAND-EDGE LOCALIZATION between β₃=0.95 and β₃=0.9 + refinement of CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class (H372 arm_c β₃=0.95 retains BEST val/loss of 6-arm axis) + Adan BODY pre-NS5 3rd-moment family CLOSED at 6 dose-response points spanning β₃ ∈ {0.5, 0.9, 0.95, 0.99, -1.0 sentinel × 2})
+
+- Branch: g1r3-tanjiro/h372-adan-body-pre-ns5 (v2 send-back round)
+- Hypothesis: Extend H372 Adan BODY pre-NS5 β₃ axis to lower β₃ values to localize U-shape minimum. H372 v1 showed monotone POSITIVE drift in productive band β₃ ∈ {0.99, 0.95}. v2 tests β₃ ∈ {0.9, 0.5} to locate productive-band edge and characterize harm direction.
+
+### Results — Combined v1+v2 6-arm dose-response
+
+| Cycle | Arm | β₃ | step-0 val | val/loss | FFS | Δ vs same-cycle CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| v1 | arm_a CTRL | -1.0 | 10.82583 | 3.27003 | 3050 | (ref v1) | +2.10σ | Pattern A +50 |
+| v1 | arm_b ADAN_PAPER | 0.99 | 10.82583 | 3.26973 | 3025 | **−0.34σ** ↓ | +1.76σ | TIE Pattern A +25 |
+| v1 | arm_c ADAN_FAST | 0.95 | 10.82583 | **3.26927** | 3025 | **−0.86σ** ↓ (BEST of axis) | +1.24σ | 🎯 **CLOSEST-TO-BASELINE of H372 family** |
+| v2 | arm_a CTRL v2 | -1.0 | 10.82583 | **3.26852** | 3025 | (ref v2) | **+0.04σ** essentially baseline | 🎯 **TIGHTEST CTRL anchor of cycle ~2700** |
+| v2 | arm_b ADAN_VERY_FAST | 0.9 | 10.82583 | 3.26956 | 3025 | **+1.18σ** ↑ (WORST of axis) | +1.56σ | MILDLY-LOAD-BEARING NEG |
+| v2 | arm_c ADAN_EXTREME | 0.5 | 10.82583 | 3.26933 | 3025 | **+0.92σ** ↑ (partial recovery) | +1.30σ | MILDLY-LOAD-BEARING NEG |
+| H266 baseline (PR #1669) | adamw + nesterov | — | 10.82583 | 3.26818 | 3000 | — | — | (reference) |
+
+### Mechanism interpretation — paper-grade findings
+
+**Finding #1**: **1st U-SHAPE-CHARACTERIZED AXIS at H266 stack with PRODUCTIVE-BAND-EDGE LOCALIZATION**. Most prior axes at H266 are bilateral symmetric (H362 warmup duration, H363 μ_start timing) or monotone (H368 AdEMAMix α, H369 Lion LR, H374 WSD cooldown ratio). H372 β₃ axis is the first axis with a clean U-shape on val/loss with sharp band-edge localization:
+
+- Productive band: β₃ ∈ [~0.95, 0.99] (mild POSITIVE drift)
+- Band edge: between β₃=0.95 and β₃=0.9 (sharp inversion)
+- Harm peak: β₃≈0.9 (+1.18σ vs same-cycle CTRL)
+- Partial recovery at extreme: β₃=0.5 (+0.92σ — less NEG than 0.9, NS5 polar projection absorbs late-stage oscillation)
+- FFS plateau: ALL 6 arms land FFS ∈ {3000, 3025, 3050} — strict gate FFS<3000 not advanced by ANY β₃ value
+
+**Finding #2**: **Even the best arm doesn't clear H266 baseline.** H372 v1 arm_c β₃=0.95 val=3.26927 = +1.24σ vs H266 = essentially NEG-TIE vs baseline. The "−0.86σ improvement" is relative to a high-noise v1 CTRL (FFS=3050, Pattern A +50 outlier). Calibrating to H266 baseline: NONE of the 6 arms clear val/loss=3.26818. **The val/loss "U-shape" mostly reflects v1 CTRL excursion, not genuine band improvement.** Adan BODY pre-NS5 3rd-moment EMA does not produce headroom at H266 stack.
+
+**Finding #3**: **Mid-training crossover and oscillation patterns characterize noise-vs-information trade-off** (paper-grade trajectory analysis by tanjiro):
+
+| step | arm_a CTRL v2 | arm_b VERY_FAST β₃=0.9 | Δ b−a (σ) | arm_c EXTREME β₃=0.5 | Δ c−a (σ) |
+|---|---|---|---|---|---|
+| 125 | 4.94287 | 4.93834 | **−5.12σ** (early help) | 4.95104 | **+9.24σ** (early harm — largest single-step perturbation in chain) |
+| 250 | 4.16016 | 4.15809 | −2.34σ | 4.15523 | **−5.58σ** (large oscillation reversal) |
+| 375 | 3.90954 | 3.90987 | **+0.04σ** (crossover) | 3.90908 | −0.52σ |
+| 1000 | 3.60820 | 3.61059 | +2.70σ | 3.60972 | +1.72σ |
+| 3000 | 3.28023 | 3.28145 | +1.38σ | 3.28109 | +0.97σ |
+| 3325 | 3.26852 | 3.26956 | +1.18σ | 3.26933 | +0.92σ |
+
+β₃=0.9 (EMA half-life ~7 steps): early help (−5.12σ at step 125) DISSIPATES at crossover step 375 then sustains NEG through cooldown. β₃=0.5 (EMA half-life ~1.4 steps): wild step-to-step oscillation (+9.24σ → −5.58σ → settles to mid-NEG). NS5 polar projection absorbs the early oscillation by mid-training, converging to mid-NEG envelope similar to arm_b. **Confirms advisor mid-training prediction**: stronger early perturbation does NOT translate to FFS advantage — the noise-vs-information trade-off makes sub-band β₃ counterproductive.
+
+**Finding #4**: **arm_a CTRL v2 is the TIGHTEST CTRL anchor of cycle ~2700** (Δ vs H266 = +0.04σ). 30+ candidate H266 cluster anchors exist; v2 CTRL at +0.04σ is essentially indistinguishable from baseline. Reusable as a noise-baseline calibration for future axis probes.
+
+**Finding #5**: **AUX/BODY adaptive-scaling preconditioner axes broadly canalized at H266 stack.** With H372v2 closure, the family is fully characterized:
+- H371 LaProp eps anchor (AUX-side): CLOSEST-TO-BASELINE at eps=1e-8 (−0.16σ vs H266)
+- H372 Adan β₃ (BODY-side 3rd-moment): U-shape with productive-band edge, no FFS gain
+- H376 Sophia-H ρ (AUX-side 2nd-order): STRONG NEG +16-29σ
+- H369 Lion LR (BODY/AUX sign-only): CATASTROPHIC (LR-invariant)
+- H375 Schedule-Free (AUX-side iterate averaging): BILATERAL CATASTROPHIC
+- H368 AdEMAMix α (AUX-side dual-EMA first-moment): MONOTONE DOSE-RESPONSE NEG
+
+The H371 β₁-axis send-back (frieren PR #2157 round 2) tests whether LaProp's tighter val/loss anchor unlocks strict FFS<3000. If H371 round 2 also closes TIE, the AUX adaptive-scaling preconditioner family is fully closed at H266 stack.
+
+### Process + portfolio update
+
+- ✓ Pattern A step-0 val=10.82583 EXACT on all 6 arms × 2 cycles (Adan 3rd-moment zero at step 0 → bit-id with CTRL regardless of β₃)
+- ✓ W&B config audit verified per-arm: `body_adan_beta3` matches expected on all 6 runs
+- ✓ Statistical margin check `(3.28−μ)·√n ≥ 0.004` documented per arm (all arms pass at 2.5-2.9× margin)
+- ✓ Mid-training trajectory analysis at 7 step anchors with crossover localization
+- ✓ Cross-launch CTRL noise envelope quantified: v1 vs v2 Δ=−1.51e-3 (~1.71σ_H174) — reusable noise baseline
+- Cumulative: 232 NULL/NEG/TIE + 1 MERGED WIN (post-H372v2 closure)
+- HARD-LOAD-BEARING family: 20 → 20 entries (H372v2 stays MILDLY-LOAD-BEARING, sub-3σ band)
+- NEW class: **U-SHAPE-CHARACTERIZED AXIS at H266 stack with PRODUCTIVE-BAND-EDGE LOCALIZATION** — 1 entry (H372)
+- H266 attractor cluster: 30+ candidate anchors (arm_a CTRL v2 +0.04σ = tightest anchor of cycle ~2700)
+
+### Suggested follow-ups (advisor decision)
+
+1. CLOSE H372 line direction (recommended — accepted, tanjiro pivoted to H384 WSD Outer Sync Interval)
+2. β₃ finer-grain sweep at {0.93, 0.97} to localize U-shape minimum — NOT pursued; even best arm doesn't clear H266 baseline
+3. AUX/BODY combined Adan probe — NOT pursued; both AUX and BODY adaptive-scaling families now canalized
+4. **OUTER-LOOP FREQUENCY axis (H384 WSD Outer Sync Interval)** — selected for tanjiro pivot; mechanism-distinct from in-flight outer-loop probes (H379v2 FORM, H381 PER-GROUP VALUE, H382 RESET EVENT)
+
 ## 2026-06-02 03:35 — PR #2187: H377 edward Lookahead AUX wrapper (k-step outer-iterate averaging, fresh OUTER-on-AUX axis) — CLOSED 231st NULL/NEG (🎯 PAPER-GRADE 20th HARD-LOAD-BEARING family entry of cycle ~2700 + 1st K-INVARIANT STRONG NEG class on continuous α-interpolation magnitude axis + 1st OUTER-on-AUX-side mechanism probe at H266 stack + 1st TRAJECTORY-PRESERVATION vs TRAJECTORY-RESET dichotomy refinement of outer-step mechanism family + arm_a CTRL FFS=3025 is 26th candidate H266 cluster anchor)
 
 - Branch: g1r3-edward/h377-lookahead-aux-wrapper

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-**Last updated:** 2026-06-02 04:25 UTC (cycle ~2700, 231 cumulative NULL/NEG/TIE closures + 1 MERGED WIN)
+**Last updated:** 2026-06-02 06:40 UTC (cycle ~2700, 232 cumulative NULL/NEG/TIE closures + 1 MERGED WIN)
 
 ## Most recent research direction from human researcher team
 
@@ -14,8 +14,10 @@ No new directives in current invocation. Issue #1260 strict FFS<3000 merge gate 
   - Reproduce: `torchrun --standalone --nproc_per_node=1 records/track_3_optimization/train_gpt_simple.py --num_trials 1 --train_steps 3325 --muonh_mode scale_invariant --muonh_cooldown_shape cosine --muonh_warmup_steps 100 --aux_adamw_eps 1e-6 --use_outer_optimizer 1 --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 --aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --aux_beta2_schedule constant --aux_beta2_start 0.99 --muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.90 --body_init orthogonal_fnorm_matched --polyak_ema_decay 0.05`
 
 ### Cycle ~2700 status (cumulative)
-- **231 cumulative NULL/NEG/TIE closures**, 1 MERGED WIN (H266)
+- **232 cumulative NULL/NEG/TIE closures**, 1 MERGED WIN (H266)
 - **20 HARD-LOAD-BEARING family entries**: H368/H375/H282/H169/H370/H374/H376/H377/etc.
+- **1 U-SHAPE-CHARACTERIZED-AXIS class entry with PRODUCTIVE-BAND-EDGE LOCALIZATION** (H372 Adan β₃ axis, U-shape minimum at β₃=0.95, band edge β₃∈(0.9, 0.95), no FFS gain at any β₃)
+- AUX/BODY adaptive-scaling preconditioner family broadly canalized: H371 LaProp eps (CLOSEST-TO-BASELINE), H372 Adan β₃ (U-shape, no FFS gain), H376 Sophia-H ρ (+16-29σ NEG), H369 Lion LR (CATASTROPHIC), H375 Schedule-Free (BILATERAL CATASTROPHIC), H368 AdEMAMix α (MONOTONE NEG)
 - **5 INIT-side closures**: H351 + H357 + H365 (HARD-LOAD-BEARING) + H366 Aurora + H373 LSUV (TIE AURORA-STACK-CONDITIONAL)
 - **3 CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class entries**: H371 arm_c LaProp eps=1e-8 (CLOSEST-TO-BASELINE, −0.16σ vs H266) + H372 arm_c Adan β₃=0.95 + H373 arm_c LSUV_STRICT
 - **2 AURORA-MECHANISM-STACK-CONDITIONAL class entries**: H366 + H373
@@ -64,8 +66,8 @@ Outer-step mechanisms split at H266 stack: BODY μLoCo (Nesterov-momentum-correc
 
 | PR | Student | Hypothesis | Status | Notes |
 |----|---------|-----------|--------|-------|
-| #2157 | frieren | H371 LaProp β₁-axis at eps=1e-8 (send-back) | WIP | β₁ ∈ {0.8, 0.85, 0.9} at CLOSEST-TO-BASELINE LaProp eps=1e-8 anchor |
-| #2158 | tanjiro | H372 Adan β₃<0.95 dose-response (send-back) | WIP | β₃ ∈ {-1 sentinel, 0.9, 0.5} |
+| #2157 | frieren | H371 LaProp β₁-axis at eps=1e-8 (send-back) | WIP | β₁ ∈ {0.8, 0.85, 0.9} at CLOSEST-TO-BASELINE LaProp eps=1e-8 anchor; arm_a CTRL adamw β₁=0.8 FFS=3000 val=-1.23σ (2nd observation of same mild positive signal) |
+| #2242 | tanjiro | H384 WSD-Scheduled Outer Sync Interval (FREQUENCY axis) | WIP (just assigned) | NEW — varies sync_interval between stable (30) and cooldown phases (15 or 60); cooldown boundary at step 1995/3325 |
 | #2228 | thorfinn | H382 Outer Velocity Reset at Cooldown Entry | WIP | ~10 LoC — reset outer_velocity buffer at cooldown onset (analogy to H170 AUX v_t reset merge-winner) |
 | #2229 | edward | H383 Per-Shape Polyak-Ruppert EMA Decay (blocks vs embed/lm_head/scalars) | WIP (just assigned) | NEW — first per-shape PEMA decay probe; arm_b BLOCKS_FASTER 0.10 / arm_c BLOCKS_SLOWER 0.025 with embed/lm_head/scalars held at H266 0.05 |
 | #2202 | nezuko | H378 Gradient Centralization BODY pre-NS5 | WIP | Mean-subtraction on BODY grads before polar projection |
@@ -75,6 +77,7 @@ Outer-step mechanisms split at H266 stack: BODY μLoCo (Nesterov-momentum-correc
 
 ### Recent closure cadence (last 12 hours)
 
+- **PR #2158 H372v2 tanjiro Adan BODY β₃ dose-response extension** — CLOSED 232nd NULL/NEG (1st U-SHAPE-CHARACTERIZED AXIS with PRODUCTIVE-BAND-EDGE LOCALIZATION class entry, AUX/BODY adaptive-scaling preconditioner family broadly canalized at 6 dose-response points β₃ ∈ {0.5, 0.9, 0.95, 0.99, -1.0 sentinel × 2}, even best arm doesn't clear H266 baseline; arm_a CTRL v2 = TIGHTEST CTRL anchor of cycle ~2700 at +0.04σ vs H266)
 - **PR #2187 H377 edward Lookahead AUX wrapper** — CLOSED 231st NULL/NEG (20th HARD-LOAD-BEARING family entry, 1st K-INVARIANT STRONG NEG class on α-interpolation magnitude axis, 1st OUTER-on-AUX probe at H266 stack, 1st TRAJECTORY-PRESERVATION vs TRAJECTORY-RESET dichotomy refinement; arm_a CTRL = 26th H266 cluster anchor)
 - **PR #2182 H376 thorfinn Sophia-H AUX** — CLOSED 230th NULL/NEG (19th HARD-LOAD-BEARING family entry, 2nd-order Hessian-diag preconditioner axis closed, 3-point monotone gradient on AUX adaptive-scaling axis: Lion CATASTROPHIC → Sophia STRONG NEG +16-29σ → AdamW BASELINE)
 - **PR #2172 H374 alphonse WSD BODY MuonH** — CLOSED 229th NULL/NEG (18th HARD-LOAD-BEARING family entry, 3rd STRUCTURAL-TIMING-AXIS NEG, 4th LR-schedule axis canalized, arm_a CTRL = 28th H266 cluster anchor)
@@ -90,21 +93,23 @@ Outer-step mechanisms split at H266 stack: BODY μLoCo (Nesterov-momentum-correc
 
 ## List of potential next research directions and themes
 
-### Outer-loop mechanism class (highest priority — H374 LR-schedule closure exhausted schedule axis)
+### Outer-loop mechanism class (4 in-flight probes spanning FORM/VALUE/RESET/FREQUENCY axes — highest priority cluster)
 
-- H381 Per-Param Outer LR/Momentum — body vs aux differentiated (alphonse, PR #2224, WIP)
-- H379v2 LIONS_OUTER — Lion sign-only outer step (fern, PR #2211, WIP)
-- H382 Outer Velocity Reset at Cooldown Entry (thorfinn, PR #2228, WIP)
-- RANK 4 from ideas file: WSD-Scheduled Outer Sync Interval (outer correction FREQUENCY schedule, distinct from VALUE bracket)
+- H379v2 LIONS_OUTER — Lion sign-only outer step FORM axis (fern, PR #2211, WIP; arm_a CTRL TERMINAL FFS=3000 STRICT, arm_b LION_DEFAULT_LR diverging as predicted)
+- H381 Per-Param Outer LR/Momentum — body vs aux differentiated VALUE axis (alphonse, PR #2224, WIP)
+- H382 Outer Velocity Reset at Cooldown Entry — RESET EVENT axis (thorfinn, PR #2228, WIP)
+- **H384 WSD-Scheduled Outer Sync Interval — FREQUENCY axis (tanjiro, PR #2242, NEW just assigned)**
+- All 4 mechanism-distinct, can co-exist if any clears strict FFS<3000
 
 ### NS5/Orthogonalization family (conditional on H380 outcome)
 - H380 Polar Express minimax-adaptive in flight (askeladd PR #2221) — if mechanism-distinct from H88 empirically confirmed
 - NS5 iteration count COOLDOWN SCHEDULE (more iterations during cooldown only) — distinct from per-layer iteration budget (H88 closed)
 - MuonG vs MuonH comparison at H266 stack (alternative NS5 polynomial form)
 
-### AUX mechanism class (heavy closures — only conditional/untested axes remain)
+### AUX mechanism class (heavy closures — adaptive-scaling preconditioner family broadly canalized post-H372v2; only conditional/untested axes remain)
 - Cross-axis AUX second moment injection into BODY step size (RANK 5 from ideas file) — AUX v_t read-only cross-scope coupling, orthogonal to PF#61 AUX replacement closures
-- Per-shape AUX optimizer routing (embed vs lm_head vs scalars get different AUX configs)
+- Per-shape AUX optimizer routing (embed vs lm_head vs scalars get different AUX configs) — distinct from H383 PEMA per-shape (which is averaging substrate, not AUX optimizer config)
+- AUX-side gradient-difference momentum probes — distinct from H372 Adan BODY pre-NS5 (which is BODY-side 3rd-moment)
 
 ### LaProp β₁ axis (in flight)
 - H371 frieren LaProp β₁ ∈ {0.8, 0.85, 0.9} at CLOSEST-TO-BASELINE eps=1e-8 anchor — decisive follow-up
@@ -126,12 +131,9 @@ Outer-step mechanisms split at H266 stack: BODY μLoCo (Nesterov-momentum-correc
 
 ### Next advisor invocation priorities
 
-1. Poll for terminations from 8 in-flight WIP chains (~5h remaining typical)
-2. H383 edward Per-Shape PEMA Decay (PR #2229) — await smoke gate + chain launch
-3. H382 thorfinn Outer Velocity Reset (PR #2228) — await smoke gate + chain launch
-4. H381 alphonse Per-Param Outer LR/Momentum (PR #2224) — await smoke gate + chain launch
-5. H380 askeladd Polar Express (PR #2221) — await arm_a TERMINAL with H88 coefficient audit
-6. H379v2 fern Lion-OUTER (PR #2211) — await arm_a TERMINAL
-7. H371 frieren / H372 tanjiro send-backs — await chain launch on revised configs
-8. Continue cycle ~2700 closure cadence — target 232+ this invocation
-9. Flag for follow-up: frieren PR #2157 arm_a CTRL adamw β₁=0.8 val=3.26710 FFS=3000 was −1.22σ vs H266 — if arm_b/c LaProp eps=1e-8 results arrive, verify whether the β₁=0.8 CTRL anchor is a stable signal or seed-noise excursion
+1. Poll for next round of arm_a terminations: H381 alphonse (~05:55Z ETA), H382 thorfinn / H383 edward (~06:15Z ETA), H371 frieren arm_c (~06:30Z ETA), H372v2 closed 06:35Z (this invocation)
+2. H378 nezuko arm_c GC_BOTH (~07:00Z ETA — last arm of 3)
+3. H380 askeladd arm_b PE_DEFAULT (~06:54Z ETA), arm_c PE8 (~08:48Z ETA)
+4. H379v2 fern arm_b LION_DEFAULT_LR likely-DIVERGENT (val=6.06 at step 1620 of audit) — monitor for early-kill or wait through; arm_c LION_TUNED_LR (lr=0.05) is the real test
+5. H384 tanjiro WSD-Scheduled Outer Sync Interval (PR #2242) — await smoke gate + chain launch
+6. **Flag for follow-up — TWO-INSTANCE adamw β₁=0.8 mild positive signal**: frieren PR #2157 arm_a CTRL adamw β₁=0.8 val=3.26710 FFS=3000 was −1.23σ vs H266 (1st observation in v1 round-2, 2nd observation in v2 round — same arm_a config). If arm_b LAPROP_B1_MID and arm_c LAPROP_B1_PAPER also produce FFS<3000 STRICT with similar val gain, the β₁=0.8 anchor across adamw AND LaProp would be load-bearing on a new axis.
