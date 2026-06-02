@@ -9,7 +9,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 02:05Z (**PR #2166 tanjiro soap-basis-cooldown-freeze CLOSED FFS-NEUTRAL — 114th R5 closure. All 3 cells at canonical FFS_ema=2925 single-trial attractor; val/loss wrong-signed (earlier-freeze monotonically worse). Triangulates against #1948 (cadence faster) + #1994 (hard reset) — SOAP basis-cadence axis CLOSED in both directions. PR #2167 alphonse ns5-per-group-iters ALL 3 ARMS TERMINAL per W&B (A_ctrl=2925/3.270, B(7/5)=2950/3.273, C(5/7)=2925/3.270); nudged for SENPAI-RESULT post. Researcher dispatched for tanjiro fresh hypothesis (a991dbb7ed1bc3a4c). Fleet 7 running + tanjiro idle pending researcher.**)
+## Last updated: 2026-06-02 02:10Z (**PR #2213 tanjiro clip-aux-norm ASSIGNED — per-aux-group fixed L2 gradient norm clip on optimizer1 (adam_embed/lm_head/scalars) ONLY, Muon untouched; distinct from PR #521 (global) + #283/#887/#1441 (AGC-adaptive); 8 LOC; cells A_ctrl / B★(0.7) / C(1.5) / D(0.3) / E n=4. Fleet 8/8.**)
 
 ### Notes (2026-06-02 02:05Z) — 114th R5 closure + alphonse arms terminal
 
