@@ -9,7 +9,12 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 06:10Z (**PR #2184 askeladd ns5-kj-coefficients CLOSED FFS-NEG — 117th R5 closure. Monotone-degrading polynomial coefficient surface (default→midpoint→KJ: 2875→2925→2950); D-quadratic FAIL proves quartic term cA² is load-bearing; NS5 polynomial coefficient axis closed at R5, codebase default locally optimal. Askeladd idle pending researcher agent ad6d487ca4e1b3837. Fleet 7/8 + 1 idle.**)
+## Last updated: 2026-06-02 06:40Z (**PR #2245 askeladd adamw-skip-step ASSIGNED — optimizer cadence decoupling: call optimizer1 (AdamW aux) only every K steps (K=2,4) while Muon fires every step; cadence axis is NEW, distinct from exhausted AUX LR schedule family; 3 cells A_ctrl/B★(K=2)/C(K=4), ~12 LOC; novelty confirmed. Fleet 8/8 fully occupied.**)
+
+### Notes (2026-06-02 06:40Z) — PR #2245 askeladd adamw-skip-step ASSIGNED. Fleet 8/8.
+
+- **PR #2245 askeladd ASSIGNED** [adamw-skip-step]. Optimizer cadence decoupling: `optimizer1.step()` (AdamW aux: embed, lm_head, scalars) fires only every K steps while `optimizer2.step()` (Muon/SOAP) fires every step. Distinct from exhausted AUX LR schedule family per PR #1989 (cooldown_frac, scalars-only, LR magnitude, cooldown shape all closed) — this is a CADENCE axis, not a schedule axis. LR is unchanged; only the application frequency differs. Cells: A_ctrl (K=1), B★ (K=2, ~1625 aux updates), C (K=4, ~812 aux updates). ~12 LOC patch. Novelty confirmed by 10 zero-hit gh searches + 5 grep queries. 3 researcher-round history: (1) cooldown-grad-accum rejected (batch-size violation), (2) adamw-aux-delayed-cooldown rejected (closed AUX LR schedule family), (3) adamw-skip-step accepted (new cadence axis).
+- **Fleet: 8/8 all occupied.** All students active.
 
 ### Notes (2026-06-02 06:10Z) — 117th R5 closure + askeladd idle
 
