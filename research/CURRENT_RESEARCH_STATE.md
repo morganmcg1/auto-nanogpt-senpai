@@ -1,3 +1,65 @@
+- **Date:** 2026-06-02 12:37Z (cycle c790g-57 — **1 HB-FINAL TERMINAL CLOSED + 2 HB2 ACKs landed DUAL-CATALOG-EVENT: #2234 fern HB-FINAL CLOSE-CATALOG-PASSIVE-NULL (3-arm β1 bracket {0.7, 0.8 ctrl, 0.9} all within ±1.5σ drift gate; both test arms NEG MONOTONE in |β1-0.8| → β1=0.8 production LOCAL OPTIMUM on N=1; HB0 cooldown-stability prediction REFUTED) + [[adamw-beta1-axis-r-buffer-mean-decoupled]] CATALOG-PROMOTED at n=3 arms (R-buffer central-tendency mean stable ±2.2% across 3× m-EMA range [3.33,10] steps; first AdamW-companion R-buffer-mean-decoupled axis to mature to 3-arm bracket level) + #2248 tanjiro HB2 DUAL-CATALOG: [[newton-muon-eps-saturates-r-inv-sqrt-at-warmstart-fire-step]] REFUTED-AT-3-ARM (predicted R_inv_sqrt step-125 ≈ 1/√eps wrong by ~3× in both extreme arms; v_diag/L853 normalization sets bulk eigenvalues≈1.0 so vals_i >> eps even for eps=1e-3; mechanistic coincidence NOT eps-dominance) + NEW CATALOG-CANDIDATE [[newton-muon-eps-axis-affects-r-condition-not-r-inv-sqrt-norm]] PROMOTED (R_cond_max step-125 MONOTONE with 1/eps: B=22953 / A=15095 / C=6047 = 3.80× span over 100× eps span; eps as spectral-spread/condition-axis NOT amplitude/Frobenius-axis) + #2249 frieren HB2 CATALOG-REFUTATION [[ns-iters-cooldown-late-peak-step-trajectory-mechanism]] NEGATIVE (Arm B DEGENERATE NS=12 flat shows IDENTICAL precond_ratio rise +28% to Arm A NS=20 second-half peak ACTIVE; even HIGHER at step-3000 1.106 vs 1.082) + NEW CATALOG-CANDIDATE [[precond-ratio-cooldown-rise-not-ns-iters-driven]] PROMOTED (cooldown-phase precond_ratio rise NS-iters-magnitude-invariant; driver is LR cooldown / ns_coef linear_ramp_down / embed cooldown interaction) + 8-NS-iter delta verified mid-late-cd yet val tracks within ±0.001 → NS_ITERS_COOLDOWN axis VAL-DECOUPLED + #2277 fern NEW ASSIGNMENT embed-init-anchor-lambda-bracket {0.0005, 0.001 ctrl, 0.002} probing post-NM stack local optimality of embed-anchor mechanism untouched since #847 (9 days through 5 NM merges). 8 PRs in flight 0 idle students.**)
+
+**#2234 fern HB-FINAL CLOSE-CATALOG-PASSIVE-NULL** (12:27Z):
+- Arm A ctrl β1=0.8 val=3.26164 (+0.29σ_seed within drift); Arm B β1=0.7 +0.39σ NEG paired; Arm C β1=0.9 +0.96σ NEG paired
+- **Monotone in |β1−0.8|** (|Δ_BA|=0.39σ < |Δ_CA|=0.96σ) → β1=0.8 production LOCAL OPTIMUM on N=1
+- All 3 arms WITHIN ±1.5σ_seed drift gate (±0.00242)
+- **[[adamw-beta1-axis-r-buffer-mean-decoupled]] CATALOG-PROMOTED** at n=3 arms × 3× m-EMA memory range [3.33, 10] steps: R_inv_sqrt_norm_mean ±0.79%, precond_ratio_mean ±2.14% — first AdamW-companion R-buffer-mean-decoupled axis to mature to 3-arm bracket level
+- HB0 cooldown-stability prediction REFUTED: Arm C cooldown band flat NEG +0.89-0.96σ throughout steps 3000-3350 → β2=0.99 v-memory extension to ~100 steps did NOT shift optimal β1 toward PyTorch m/v=1/100 ratio (β1=0.9)
+- Production stack interpretation: per-group LR multipliers (embed 1.5×, mlp 1.2×, attn 0.8×) create distinct effective LRs → m-EMA at β1=0.9 smooths embed group's cooldown phase, slightly degrading peak val
+- Closed PASSIVE-NULL with full catalog credit + retrospective + suggested follow-up portfolio routing (eps probe, weight_decay axis, fine-grain bracket LOW priority)
+- `NANOGPT_ADAMW_BETA1` env var added by fern but NOT MERGED (PR closed), branch retains env var for future re-testing
+
+**#2248 tanjiro HB2 ACKed PASS-CRITICAL-CATALOG-DEEP DUAL-CATALOG** (12:31Z):
+- Arm B eps=1e-5 val=3.26237 = +0.74σ_seed paired Δ_BA=+0.59σ NEG within drift gate
+- **[[newton-muon-eps-saturates-r-inv-sqrt-at-warmstart-fire-step]] REFUTED at 3-arm bracket** — predicted R_inv_sqrt step-125 ≈ 1/√eps wrong by ~3× in BOTH extreme arms (B obs=99.81 pred=316; C obs=98.53 pred=31.6; A obs=99.68 pred=100 was mechanistic coincidence)
+- Root cause: L853 `v_diag = v_diag / (v_diag.mean() + 1e-8)` — v_diag NORMALIZED prior to R-buffer init → eigenvalues vals_i mean≈1.0 in normalized R-space → vals_i >> eps even for eps=1e-3 → eps floor non-dominant → R_inv_sqrt amplitude set by NORMALIZED R-buffer spectrum NOT eps floor
+- **NEW CATALOG-CANDIDATE [[newton-muon-eps-axis-affects-r-condition-not-r-inv-sqrt-norm]] PROMOTED** — R_cond_max step-125 MONOTONE with 1/eps: B 22953 / A 15095 / C 6047 = 3.80× span over 100× eps span; R_cond_mean weaker dependence (~12% range); eps as spectral-spread/condition-axis NOT amplitude/Frobenius-axis (acts on smallest-eigenvalue tail where vals→0)
+- eps signature on R_cond_max is TRANSIENT warmstart-fire-step phenomenon — by step 500 ordering INVERTS (Arm A > Arm B at +52% → -23%); decays by step 500 as Muon²-EMA accumulates
+- [[r-buffer-state-axis-decoupled-from-val-axis]] 6th→7th-direct-observation pending Arm C: R_cond_max ±52% vs val ±0.59σ_seed decoupling
+- Arm C eps=1e-3 LAUNCHED 12:20Z; ETA HB-FINAL ~14:45Z
+
+**#2249 frieren HB2 ACKed PASS-CRITICAL-CATALOG-DEEP REFUTATION** (12:32Z):
+- Arm B nsc=12 DEGENERATE late_peak val=3.26229 = +0.69σ paired Δ_BA=-0.58σ FAV within drift gate (sub-σ noise, NOT merge signal)
+- FFS identical 3150 → DEGENERATE late_peak does NOT degrade val or FFS
+- **[[ns-iters-cooldown-late-peak-step-trajectory-mechanism]] REFUTED at 2-arm test** — Arm B DEGENERATE (flat NS=12, no second-half boost) shows precond_ratio rise to 1.106 at step 3000, EVEN HIGHER than Arm A (NS=20 peak ACTIVE) 1.082
+- **NEW CATALOG-CANDIDATE [[precond-ratio-cooldown-rise-not-ns-iters-driven]] PROMOTED** — +28% precond_ratio cooldown rise is COOLDOWN-PHASE-DRIVEN NOT NS_ITERS-driven; likely drivers: LR cooldown shape, ns_coef linear_ramp_down, embed cooldown, or interaction term
+- 8-NS-iter delta verified mid-late-cd (step-3100 Arm B NS=10 vs Arm A NS=18) yet val tracks within ±0.001 throughout entire trajectory → **NS_ITERS_COOLDOWN axis VAL-DECOUPLED** at this configuration
+- Discriminator candidates for future arms: LR cooldown shape variation, ns_coef DISABLED, embed cooldown disable, multiplicative LR×ns_coef joint test
+- Arm C nsc=20 LAUNCHED 12:21Z; ETA HB-FINAL ~14:46Z (late_peak math: peak=12+2*(20-12)=28 NS iters TRIPLE in second-half cooldown)
+
+**#2277 fern NEW ASSIGNMENT embed-init-anchor-lambda-bracket**:
+- 3-arm bracket: A=λ=0.001 (production ctrl) / B=λ=0.0005 (half) / C=λ=0.002 (2× production)
+- Hypothesis: embed init-anchor mechanism MERGED at #847 (2026-05-23) has been UNTOUCHED since — 9 days through 5 NM merges (#1138, #1240, #1421, #1543, #1702); production λ may no longer be locally optimal under post-NM stack
+- High merge-EV: truly untested axis bracket; orthogonal to current 7-PR portfolio (NS_STOC #2177, NM_BETA #2179, GRAD_CLIP #2199/#2204, WARMSTART_K #2236, NM_EPS #2248, NS_ITERS_COOLDOWN #2249)
+- Catalog hypotheses to verify: [[embed-init-anchor-axis-r-buffer-decoupled]] (analogous to fern's β1 mechanism), [[embed-init-anchor-cooldown-phase-interaction]] (probing whether λ shifts cooldown precond_ratio rise mechanism)
+- Methodology matched to fern's β1 bracket: N=1 SEED=0, chain-runner with flock guarding, atomic handoff, modern-stack Arm A reference per [[ctrl-anchor-cohort-config-heterogeneity]]
+- Branch `g1r4-fern/embed-init-anchor-lambda-bracket`, draft PR #2277
+
+**Portfolio composition after c790g-57**:
+
+| Axis class | PR | Student | Status | Stage |
+|---|---|---|---|---|
+| Embed mechanism | #2277 | fern | new draft | HB0 pending |
+| NS_STOC cohort | #2177 | alphonse | wip | HB-FINAL-PP ~14:00Z |
+| NM_BETA cohort | #2179 | edward | wip | HB-FINAL ~14:14Z |
+| GRAD_CLIP_BODY ceiling | #2199 | nezuko | wip | PP-HB2 expected |
+| GRAD_CLIP_BODY tighten | #2204 | thorfinn | wip | PP-HB2 expected |
+| NM WARMSTART_K | #2236 | askeladd | wip | HB-FINAL expected |
+| NM EPS axis | #2248 | tanjiro | wip | HB-FINAL ~14:45Z |
+| NS_ITERS_COOLDOWN | #2249 | frieren | wip | HB-FINAL ~14:46Z |
+
+**Catalog state after c790g-57**:
+
+- **PROMOTED at this cycle**: [[adamw-beta1-axis-r-buffer-mean-decoupled]] (n=3 arms maturity), [[newton-muon-eps-axis-affects-r-condition-not-r-inv-sqrt-norm]] (3-arm bracket monotone), [[precond-ratio-cooldown-rise-not-ns-iters-driven]] (2-arm REFUTATION-derived)
+- **REFUTED at this cycle**: [[newton-muon-eps-saturates-r-inv-sqrt-at-warmstart-fire-step]] (3-arm REFUTATION), [[ns-iters-cooldown-late-peak-step-trajectory-mechanism]] (2-arm REFUTATION)
+- **CONFIRMED in catalog (broader)**: [[seed-0-ctrl-cohort-c790g-cycle-late-window-hot-drift]] (cross-seed expansion at #2177), [[ctrl-anchor-cohort-config-heterogeneity]] (5-anchor μ revision UP +0.00025 to 3.26093), [[r-buffer-state-axis-decoupled-from-val-axis]] (7th-axis pending tanjiro Arm C), [[single-seed-headline-attrition]] (NS_STOC + NM_BETA axes confirming s0 → s1 sign-flip pattern), [[pp-collapse-arm-a-ctrl-realization-conflation]] (2nd direct observation)
+- **Cycle-wide methodology insight**: 3-arm bracket testing IS the catalog purification mechanism — 2 single-arm-promoted candidates REFUTED at multi-arm bracket level (eps + NS_ITERS), demonstrating value of cross-arm verification before catalog confirmation
+
+8 PRs in flight, 0 idle students. HB-wave landings expected sequentially: ~14:00Z alphonse PP-final, ~14:14Z edward final, ~14:45-46Z tanjiro+frieren HB-FINALs, ~12:55Z askeladd HB-FINAL, plus nezuko/thorfinn PP-HB2 waves between 12:30-12:40Z.
+
+---
+
 - **Date:** 2026-06-02 12:05Z (cycle c790g-54 — **2 HB3-PP ACKs landed CATALOG-DEEP: #2177 alphonse + #2179 edward BOTH SEED=2 ctrl terminal CRITICAL DIVERGENCE between same-cycle launch-windows: alphonse Arm A SEED=2 (09:18Z launch) val=3.26191 +0.45σ_seed HOT vs edward Arm 3 SEED=2 (~04:25Z launch) val=3.26150 +0.20σ_seed NULL = TEMPORAL LAUNCH-WINDOW CTRL DRIFT CONFIRMED at multi-seed level + [[seed-0-ctrl-cohort-c790g-cycle-late-window-hot-drift]] CATALOG-EXPANSION cross-seed (3-seed Arm A cohort MONOTONE UP drift -0.10σ→+0.07σ→+0.45σ at alphonse; SEED=0 OUTLIER NOT norm at edward) + [[ctrl-anchor-cohort-config-heterogeneity]] REINFORCED 5-anchor μ revised UP +0.00025 to 3.26093, σ_anchor=0.00065 (n=5 dof), cross-cycle CTRL LIFT decomposition framework (+0.00120 cohort-wide c790g-specific) + [[r-buffer-state-axis-decoupled-from-val-axis]] 7th-axis direct observation (alphonse Arm A s2 R-buffer BETWEEN s0/s1 but val HIGHEST) + alphonse n=3 cohort decisive-arm threshold pre-computed (Arm B s2 ≤3.26177 wafer-thin PASS / >3.26177 FAIL G1 catalog-PASSIVE-NULL); edward INFEASIBLE merge gate confirmed (required Δ_BA_s2 ≤-1.10σ statistically improbable after s1 sign-flip). HB-FINAL-PP ETAs: alphonse ~14:00Z, edward ~14:14Z. 8 PRs in flight 0 idle students.**)
 
 **#2177 alphonse HB3-PP courtesy ACKed PASS-CRITICAL-CATALOG-DEEP** (11:50Z):
