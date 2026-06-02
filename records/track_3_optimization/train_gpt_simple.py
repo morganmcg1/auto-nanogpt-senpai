@@ -70,6 +70,11 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--muon_block_lr_spread", type=float, default=0.20,
+                        help="Total spread of per-block Muon LR ramp from block 0 to block 11. "
+                             "lo = 1.0 - spread/2, hi = 1.0 + spread/2. Mean LR preserved at 1.0. "
+                             "Active only when --muon_block_lr_pattern != 'none'. "
+                             "Default 0.20 matches the merged late-higher baseline (lo=0.90, hi=1.10).")
     parser.add_argument("--paramema_refresh_step", type=int, default=-1,
                         help="If >0, refresh paramEMA buffer to live params at this step "
                              "(resets accumulated EMA history). -1=disabled. Requires "
@@ -761,6 +766,7 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "muon_block_lr_spread": args.muon_block_lr_spread,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
@@ -814,10 +820,11 @@ for trial_idx in range(args.num_trials):
     b0_lr_mult = 1.0
     b11_lr_mult = 1.0
     if args.muon_block_lr_pattern != "none":
+        half = args.muon_block_lr_spread / 2.0
         if args.muon_block_lr_pattern == "late-higher":
-            lo, hi = 0.90, 1.10
+            lo, hi = 1.0 - half, 1.0 + half
         elif args.muon_block_lr_pattern == "late-lower":
-            lo, hi = 1.10, 0.90
+            lo, hi = 1.0 + half, 1.0 - half
         block_mults = [lo + (hi - lo) * (i / (NUM_LAYERS - 1)) for i in range(NUM_LAYERS)]
         param_lr_mults = {}
         for name, p in model.named_parameters():
@@ -833,6 +840,11 @@ for trial_idx in range(args.num_trials):
                        console=True)
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
+            wandb.log({
+                "optim/muon_block_lr_spread": args.muon_block_lr_spread,
+                "optim/muon_block_0_lr_mult": block_mults[0],
+                "optim/muon_block_11_lr_mult": block_mults[NUM_LAYERS - 1],
+            }, step=0)
     optimizer2._param_lr_mults = param_lr_mults
 
     optimizers = [optimizer1, optimizer2]
