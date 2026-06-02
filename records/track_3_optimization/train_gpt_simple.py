@@ -84,6 +84,17 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--ns_phase_switch_step", type=int, default=-1,
+                        help="Step at which to switch body-PMuon Newton-Schulz polynomial "
+                             "coefficients (a,b,c) to (--ns_a2, --ns_b2, --ns_c2). "
+                             "-1 (default) disables: NS coefficients stay at baseline "
+                             "(NS_A, NS_B, NS_C) for the full run.")
+    parser.add_argument("--ns_a2", type=float, default=1.5,
+                        help="NS coefficient 'a' after phase switch (default 1.5 = baseline).")
+    parser.add_argument("--ns_b2", type=float, default=-0.5,
+                        help="NS coefficient 'b' after phase switch (default -0.5 = baseline).")
+    parser.add_argument("--ns_c2", type=float, default=0.0,
+                        help="NS coefficient 'c' after phase switch (default 0.0 = baseline).")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +776,13 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "ns_phase_switch_step": args.ns_phase_switch_step,
+            "ns_a2": args.ns_a2,
+            "ns_b2": args.ns_b2,
+            "ns_c2": args.ns_c2,
+            "ns_a_baseline": NS_A,
+            "ns_b_baseline": NS_B,
+            "ns_c_baseline": NS_C,
             "seed": args.seed,
         },
     )
@@ -920,7 +938,19 @@ for trial_idx in range(args.num_trials):
     val_loss_history: list[tuple[int, float]] = []
     dist.barrier()
     t0 = time.perf_counter()
+    ns_phase_switch_fired = 0
     for step in range(train_steps + 1):
+        if step == 0 and dist.get_rank() == 0:
+            a_now = optimizer2.param_groups[0]["ns_a"]
+            b_now = optimizer2.param_groups[0]["ns_b"]
+            c_now = optimizer2.param_groups[0]["ns_c"]
+            if args.ns_phase_switch_step > 0:
+                print0(f"[step 0] ns_phase_switch ENABLED: step={args.ns_phase_switch_step} "
+                       f"a={args.ns_a2} b={args.ns_b2} c={args.ns_c2} "
+                       f"(was a={a_now} b={b_now} c={c_now})", console=True)
+            else:
+                print0(f"[step 0] ns_phase_switch DISABLED: ns=(a={a_now}, b={b_now}, c={c_now})",
+                       console=True)
 
         # --------------- VALIDATION SECTION -----------------
         val_step_freq = 125 if step / train_steps < 0.9 else 25
@@ -1071,6 +1101,27 @@ for trial_idx in range(args.num_trials):
                 group["betas"] = new_betas
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
+        # NS polynomial coefficient phase switch (PR #2219). At the configured step,
+        # rewrite body-PMuon Newton-Schulz coefficients on the live param_group
+        # (the pmuon_update call site reads group["ns_a"]/["ns_b"]/["ns_c"], so
+        # mutating the dict is what propagates). Also mirror the change into the
+        # module-level NS_A/NS_B/NS_C globals so downstream telemetry that reads
+        # them (polar/ns_coef_* in the per-step log) stays consistent.
+        if (args.ns_phase_switch_step > 0
+                and step == args.ns_phase_switch_step):
+            old_ns = (optimizer2.param_groups[0]["ns_a"],
+                      optimizer2.param_groups[0]["ns_b"],
+                      optimizer2.param_groups[0]["ns_c"])
+            for group in optimizer2.param_groups:
+                group["ns_a"] = args.ns_a2
+                group["ns_b"] = args.ns_b2
+                group["ns_c"] = args.ns_c2
+            NS_A = args.ns_a2
+            NS_B = args.ns_b2
+            NS_C = args.ns_c2
+            ns_phase_switch_fired = 1
+            print0(f"[step {step}] ns_phase_switch: (a,b,c) {old_ns} "
+                   f"→ ({NS_A}, {NS_B}, {NS_C})", console=True)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1189,6 +1240,16 @@ for trial_idx in range(args.num_trials):
                 "aux_b2/fired": int(args.aux_b2_pulse_step > 0
                                     and args.aux_b2_pulse_target > 0.0
                                     and step >= args.aux_b2_pulse_step),
+                "ns_phase_switch/step": args.ns_phase_switch_step,
+                "ns_phase_switch/active": int(args.ns_phase_switch_step > 0
+                                              and step >= args.ns_phase_switch_step),
+                "ns_phase_switch/fired": ns_phase_switch_fired,
+                "ns_phase_switch/a_current": optimizer2.param_groups[0]["ns_a"],
+                "ns_phase_switch/b_current": optimizer2.param_groups[0]["ns_b"],
+                "ns_phase_switch/c_current": optimizer2.param_groups[0]["ns_c"],
+                "ns_phase_switch/a2": args.ns_a2,
+                "ns_phase_switch/b2": args.ns_b2,
+                "ns_phase_switch/c2": args.ns_c2,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
