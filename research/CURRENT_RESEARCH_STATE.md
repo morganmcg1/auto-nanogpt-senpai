@@ -1,3 +1,51 @@
+- **Date:** 2026-06-02 05:10Z (cycle c790g-38 — **#2146 fern PP-confirm CLOSED NULL-AT-N=3 / G1 FAIL + 3 CATALOG-NEW promoted + fern reassigned AdamW β1 bracket axis (UNTESTED). #2176 tanjiro SEED=2 HB1 ACKed: Arm A val=3.26232 BEST CTRL drift in cohort — Arm B SEED=2 HB-FINAL ETA ~07:00Z. P(MERGE) ordering: alphonse #2177 (60-65%) > edward #2179 (30%) > tanjiro #2176 (<15%). 3 PP-confirms remaining.**)
+
+**#2146 fern PP-confirm VERDICT CLOSED NULL-AT-N=3** (c790g-38 04:39Z → 05:05Z):
+- Pooled μ_n3 = (3.26052 + 3.26120 + 3.26257) / 3 = **3.26143** vs baseline 3.26118 = **+0.00025 G1 FAIL** (sub-σ NEG, sign-flip)
+- FFS mean = 3133.33 = **EXACT MATCH baseline** (2/3 SEEDs at 3125, 1/3 at 3150 — same as production CTRL distribution)
+- Δ_BA_n3 = −1.38σ_seed FAV-maintained but interpretable as **Arm A CTRL realization conflation** (Arm A ctrl 3.26365 = +1.53σ_seed ABOVE broader baseline — classic PP-collapse)
+- **3 CATALOG-NEW-CANDIDATES promoted**:
+  - [[ns-coef-schedule-axis-largely-passive-mean-c-invariant]] — NS5 SHAPE axis largely passive at production; mean(c)≈0.5 invariant is dominant determinant
+  - [[pp-collapse-arm-a-ctrl-realization-conflation]] CATALOG-MAJOR protocol insight — single-seed Δ_BA reflects Arm A CTRL realization drift not Arm B improvement; n=3 vs production baseline is binding test
+  - [[ns-coef-r-buffer-fingerprint-shape-passivity]] — NS5 polynomial SHAPE difference does not coherently propagate to terminal R-buffer state
+- **CANDIDATE [[ffs-mechanism-integer-floor-near-target-boundary-fragility]]** — FFS metric becomes seed-cohort-dependent at ±25 step granularity when val trajectory grazes 3.28 target boundary at FFS-cross step (SEED=2 step-3125 val = 3.28087 +0.00087 above → slipped to 3150)
+- Production `NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down` **RETAINED**; 5-axis NS-portfolio-passive-closure COMPLETE (AMOUNT + TIMING + SHAPE + COEFF + EMBED-SHAPE all passive)
+
+**#2176 tanjiro SEED=2 HB1 ACK** (04:35Z):
+- Arm A ctrl SEED=2 val=3.26232 = **+0.71σ_seed BEST CTRL drift in 3-seed cohort** (tightening trend: SEED=0 +1.40σ → SEED=1 +0.83σ → SEED=2 +0.71σ)
+- FFS=3150 SEED=2 = EXACT match SEED={0,1}? No — Arm A CTRL FFS=3150 all 3 SEEDs (CTRL arm FFS SEED-stable)
+- Arm B γ=0.025 SEED=2 launched 04:28:55Z ETA terminal **~06:55Z / HB-FINAL ~07:00Z**
+- Required Arm B SEED=2 val ≤ **3.26035** (TIGHTEST gate, requires −0.74σ to −0.77σ deviation from modal prediction 3.26144-3.26159) → P(MERGE)<15%
+- Modal outcome: catalog-PASSIVE-CONFIRMED-CROSS-SEED-DIRECTION-REPRODUCIBLE
+
+**Updated P(MERGE-CANDIDATE) portfolio (3 remaining)**:
+- alphonse #2177 NS_STOC=1 — P≈**60-65%** LOOSE gate ≤ 3.26167 (SEED={1,2} mean)
+- edward #2179 β=0.90 — P≈**30%** TIGHT gate ≤ 3.26087 (SEED={1,2} mean) — HB1 ETA ~06:53Z
+- tanjiro #2176 γ=0.025 — P<**15%** TIGHTEST gate ≤ 3.26035 (SEED=2) — HB-FINAL ETA ~07:00Z
+
+**fern #2234 NEW ASSIGNMENT** — AdamW β1 bracket `{0.7, 0.8 ctrl, 0.9}`:
+- β1=0.8 hardcoded at `records/track_3_optimization/train_gpt_simple.py` L1209 — **NEVER TESTED** as axis in any production cycle
+- β1=0.8 pre-dates all major merges (#236 β2=0.99, #393 embed-LR-mult, #579 attn/mlp-LR-asym, #708 per-group-clip, #1138+ NM); optimal β1 on current stack may differ
+- Student must introduce `NANOGPT_ADAMW_BETA1` env var (default 0.8) at L573 + update L1209 constructor + banner + wandb log
+- 3-arm N=1 screen: β1 ∈ {0.8 ctrl, 0.7 DOWN, 0.9 UP}. If |Δ| > 1.5σ_seed (>0.0024) FAV → PP n=3 chain
+
+**CATALOG-CONFIRMED cycle synthesisupdate** (c790g-38 additions):
+- [[ns-coef-schedule-axis-largely-passive-mean-c-invariant]] + [[pp-collapse-arm-a-ctrl-realization-conflation]] (MAJOR) + [[ns-coef-r-buffer-fingerprint-shape-passivity]] PROMOTED
+- [[ffs-mechanism-integer-floor-near-target-boundary-fragility]] CANDIDATE
+- [[r-buffer-compensation-reduction-shared-mechanism-channel]] 3-axis convergence SURVIVES fern NULL — β-DOWN + γ-UP + NS_STOC (NS_COEF collapsed due to CTRL conflation, not mechanism absence)
+
+**Current PRs in flight (r4)** (8 active, 0 idle):
+- **#2176 tanjiro γ=0.025** PP-confirm SEED=2 (HB-FINAL ~07:00Z, P<15%)
+- **#2177 alphonse NS_STOC=1** PP-confirm SEED={1,2} (pair-within-seed chain, ETA ~07:30Z+, P≈60-65%)
+- **#2179 edward β=0.90** PP-confirm SEED={1,2} (pair-within-seed chain, HB1 ~06:53Z, HB-FINAL ~14:14Z, P≈30%)
+- **#2181 askeladd** EMBED_INIT_ANCHOR_LAMBDA bracket (Arm C λ=0.01 ETA ~04:50Z)
+- **#2199 nezuko** GRAD_CLIP_BODY (Arm B HB-FINAL in flight, Arm C ~07:00Z)
+- **#2200 frieren** ADAMW_LM_HEAD_LR_MULT (Arm B HB-FINAL ~04:43Z, Arm C ~07:15Z)
+- **#2204 thorfinn** GRAD_CLIP_AUX (Arm B HB-FINAL ~04:21Z, Arm C ~06:10Z)
+- **#2234 fern** AdamW β1 bracket (fresh assignment, launch imminent)
+
+---
+
 - **Date:** 2026-06-02 04:22Z (cycle c790g-37 — **2 HB-FINAL DECISIONS SENT-BACK FOR PP-CONFIRM n=3 SEED={1,2}: #2179 edward β=0.90 verdict β-DOWN-DOMINANT-FAV-ASYMMETRIC + #2177 alphonse NS_STOC=1 non-monotone-local-max single-seed-FAV-baseline-coincident — 4 PP-confirms now in flight on [[r-buffer-compensation-reduction-shared-mechanism-channel]] axes — P(MERGE-CANDIDATE) ordering: alphonse #2177 (60-65%) > fern #2146 (50%) > edward #2179 (30%) > tanjiro #2176 (<15%)**)
 
 **#2179 edward HB-FINAL VERDICT** (04:13Z): **β-DOWN-DOMINANT-FAV ASYMMETRIC** verdict CONFIRMED. Arm B β=0.90 Δ_BA=−0.00159 = **−0.99σ_seed direction-FAV-paired** (persistent from step 500 onward). Arm C β=0.98 Δ_CA=+0.00024 = +0.15σ_seed NULL (PLATEAU-NULL on β-UP side). β-axis is **asymmetric monotone-DOWN-favoring** — only the β-DOWN faster-EMA arm delivers terminal FAV. R-buffer precond_ratio_mean compression −2.55% confirms [[r-buffer-compensation-reduction-shared-mechanism-channel]] 3-axis convergence (β-DOWN faster EMA wash + γ-UP pre-decomp regularization + NS_COEF=constant). [[cross-K-warmstart-fire-step-fingerprint]] CONFIRMED at HB-FINAL — step-125 R_inv_sqrt ordering C(115.7) > A(99.8) > B(92.4) precisely matches √(τ/τ_ctrl) prediction. Single-seed Arm B val=3.26180 above baseline +0.00062 → required SEED={1,2} mean ≤ 3.26087 for n=3 cohort merge. **SENT BACK for PP-confirm n=3 SEED={1,2} chain** ETA closure ~07:30Z+. P(MERGE-CANDIDATE)≈30%.
