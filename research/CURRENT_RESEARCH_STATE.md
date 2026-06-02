@@ -9,6 +9,33 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-02 11:20Z (**PR #2266 tanjiro AdaMuon post-NS5 RMS rescaling ASSIGNED. Novel mechanism: per-matrix data-driven magnitude rescaling AFTER both SOAP preconditioning AND NS5 (NS5 output is direction-only, this adds adaptive magnitude). Distinct from all closed axes: not pre-NS5 conditioning, not static depth-LR scaling, not SOAP internal state, not aux clipping. 0/325 PR precedent. Researcher hypothesis required RESCOPE: original premise wrong about "Muon manages MLP weights" — in R5 with --soap_attn ALL Muon params (MLP+attn) are SOAP-preconditioned. AdaMuon now applies to ALL Muon-managed params after SOAP+NS5. Fleet 8/8 fully occupied again.**)
+
+### Notes (2026-06-02 11:20Z) — PR #2266 tanjiro AdaMuon ASSIGNED + fleet back to 8/8
+
+- **PR #2266 tanjiro adamuon-rms-rescale ASSIGNED** (novel axis, 0/325 PR precedent):
+  - Mechanism: post-NS5 per-matrix magnitude rescaling using EMA of pre-SOAP gradient RMS. NS5 outputs unit-spectral-norm (direction-only); LR currently sets both rate AND magnitude. AdaMuon decouples them: LR=direction rate, grad_rms_ema=data-driven magnitude calibration.
+  - 4 cells: A_ctrl (rms_beta=0, baseline) → B★ (β=0.999, scale-neutral) → C (β=0.99, scale-neutral) → D (β=0.999, absolute + lr_mlp=0.040 compensation). Sequential n=1 with B★→n=4 only if FFS_ema<2875.
+  - Researcher's original premise "Muon manages MLP weights" was incorrect for R5 — with `--soap_attn` ALL MLP+attention weights are SOAP-preconditioned (`SOAP_MLP_SUFFIXES` always included at line 611). Rescoped to apply AdaMuon to ALL Muon-managed params AFTER both SOAP and NS5. Mechanism unchanged.
+  - Distinction from closed family explicitly documented in PR body:
+    - NOT pre-NS5 conditioning (PR #890 closure)
+    - NOT static per-block depth-LR scaling (PR #2133 closure)
+    - NOT SOAP internal state modification (covered by SOAP closure family)
+    - NOT aux-path grad clipping (PR #2213 just-closed)
+    - NOT NS5 internal ε
+- **Fleet back to 8/8 fully occupied:**
+  - alphonse #2223 n=4 trial 1 in flight (trial 0 BLOCKBUSTER FFS_ema=2625)
+  - edward #2195 B(α=0.01) n=4 confirm running
+  - askeladd #2245 Cell B (K=2) in flight
+  - frieren #2235 Cell C-soft (β=0.95) in flight
+  - nezuko #2209 D-tight75 ~25 min to terminal
+  - fern #2258 KL-EMA A_ctrl ~19%
+  - thorfinn #2253 focal-loss A_ctrl ~37%
+  - **tanjiro #2266 AdaMuon A_ctrl just assigned** (pod pickup in ~5 min)
+- **No review-ready PRs, no human issues** (#2252/#2250 are r2).
+
+---
+
 ## Last updated: 2026-06-02 11:00Z (**120th R5 closure: PR #2213 tanjiro clip-aux-norm CLOSED FFS-NEG with mechanism-rich falsification. A=2875, B(uniform 0.7)=3025, C'(embed=350)=2925, D'(lmh=35k+sc=25k)=2950. Per-group spike telemetry shows calibrated clippers fired on REAL outliers at 5-15% rate; FFS regresses MONOTONIC with fire rate — rare aux gradient spikes are SIGNAL not noise. Symmetric closure with Muon-path pre-NS5 axis. Memory rule [[aux_path_grad_magnitude_is_signal_at_r5]] added. Researcher-agent dispatched for tanjiro fresh hypothesis (background). Fleet now 7/8 occupied with tanjiro idle. No review-ready PRs, no human issues.**)
 
 ### Notes (2026-06-02 11:00Z) — 120th R5 closure (tanjiro #2213 clip-aux-norm FFS-NEG)
