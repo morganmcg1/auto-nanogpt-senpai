@@ -527,6 +527,10 @@ PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED = int(os.environ.get("PER_KIND_AUX_P
 AUX_RESET_INTERVAL_LM_HEAD = int(os.environ.get("AUX_RESET_INTERVAL_LM_HEAD", "250"))
 AUX_RESET_MOMENT_LM_HEAD = int(os.environ.get("AUX_RESET_MOMENT_LM_HEAD", "0"))
 AUX_RESET_PARTIAL_FACTOR_LM_HEAD = float(os.environ.get("AUX_RESET_PARTIAL_FACTOR_LM_HEAD", "0.0"))
+PER_KIND_AUX_PERIODIC_RESET_SCALARS_ENABLED = int(os.environ.get("PER_KIND_AUX_PERIODIC_RESET_SCALARS_ENABLED", "0"))
+AUX_RESET_INTERVAL_SCALARS = int(os.environ.get("AUX_RESET_INTERVAL_SCALARS", "250"))
+AUX_RESET_MOMENT_SCALARS = int(os.environ.get("AUX_RESET_MOMENT_SCALARS", "0"))
+AUX_RESET_PARTIAL_FACTOR_SCALARS = float(os.environ.get("AUX_RESET_PARTIAL_FACTOR_SCALARS", "0.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -912,6 +916,14 @@ print0(
     if PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED
     else "[aux_reset_lm_head] disabled"
 )
+print0(
+    f"[aux_reset_scalars] enabled={PER_KIND_AUX_PERIODIC_RESET_SCALARS_ENABLED}"
+    f" interval={AUX_RESET_INTERVAL_SCALARS}"
+    f" moment={AUX_RESET_MOMENT_SCALARS}"
+    f" partial_factor={AUX_RESET_PARTIAL_FACTOR_SCALARS}"
+    if PER_KIND_AUX_PERIODIC_RESET_SCALARS_ENABLED
+    else "[aux_reset_scalars] disabled"
+)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -994,6 +1006,10 @@ if dist.get_rank() == 0:
             "optimizer/aux_reset_interval_lm_head": AUX_RESET_INTERVAL_LM_HEAD,
             "optimizer/aux_reset_moment_lm_head": AUX_RESET_MOMENT_LM_HEAD,
             "optimizer/aux_reset_partial_factor_lm_head": AUX_RESET_PARTIAL_FACTOR_LM_HEAD,
+            "optimizer/per_kind_aux_periodic_reset_scalars_enabled": PER_KIND_AUX_PERIODIC_RESET_SCALARS_ENABLED,
+            "optimizer/aux_reset_interval_scalars": AUX_RESET_INTERVAL_SCALARS,
+            "optimizer/aux_reset_moment_scalars": AUX_RESET_MOMENT_SCALARS,
+            "optimizer/aux_reset_partial_factor_scalars": AUX_RESET_PARTIAL_FACTOR_SCALARS,
             "seed": SEED if SEED is not None else -1,
         },
     )
@@ -1024,6 +1040,10 @@ for trial_idx in range(args.num_trials):
     if PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED and AUX_RESET_INTERVAL_LM_HEAD > 0:
         for _b in range(AUX_RESET_INTERVAL_LM_HEAD, train_steps + 1, AUX_RESET_INTERVAL_LM_HEAD):
             lm_head_snapshot_steps.update((_b - 5, _b, _b + 5))
+    scalars_snapshot_steps: set[int] = {500, 1000, 1500, 2000, 2500, 3000, 3175}
+    if PER_KIND_AUX_PERIODIC_RESET_SCALARS_ENABLED and AUX_RESET_INTERVAL_SCALARS > 0:
+        for _b in range(AUX_RESET_INTERVAL_SCALARS, train_steps + 1, AUX_RESET_INTERVAL_SCALARS):
+            scalars_snapshot_steps.update((_b - 5, _b, _b + 5))
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -1108,7 +1128,10 @@ for trial_idx in range(args.num_trials):
             f"partial_factor_embed={AUX_RESET_PARTIAL_FACTOR_EMBED} || "
             f"per_kind_aux_periodic_reset_lm_head={PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED} "
             f"interval_lm_head={AUX_RESET_INTERVAL_LM_HEAD} moment_lm_head={AUX_RESET_MOMENT_LM_HEAD} "
-            f"partial_factor_lm_head={AUX_RESET_PARTIAL_FACTOR_LM_HEAD}",
+            f"partial_factor_lm_head={AUX_RESET_PARTIAL_FACTOR_LM_HEAD} || "
+            f"per_kind_aux_periodic_reset_scalars={PER_KIND_AUX_PERIODIC_RESET_SCALARS_ENABLED} "
+            f"interval_scalars={AUX_RESET_INTERVAL_SCALARS} moment_scalars={AUX_RESET_MOMENT_SCALARS} "
+            f"partial_factor_scalars={AUX_RESET_PARTIAL_FACTOR_SCALARS}",
             console=True,
         )
     optimizers = [optimizer1, optimizer2]
@@ -1281,7 +1304,10 @@ for trial_idx in range(args.num_trials):
                 f" factor={AUX_RESET_PARTIAL_FACTOR_EMBED}"
                 f" || LM_HEAD enabled={PER_KIND_AUX_PERIODIC_RESET_LM_HEAD_ENABLED}"
                 f" interval={AUX_RESET_INTERVAL_LM_HEAD} moment={AUX_RESET_MOMENT_LM_HEAD}"
-                f" factor={AUX_RESET_PARTIAL_FACTOR_LM_HEAD}",
+                f" factor={AUX_RESET_PARTIAL_FACTOR_LM_HEAD}"
+                f" || SCALARS enabled={PER_KIND_AUX_PERIODIC_RESET_SCALARS_ENABLED}"
+                f" interval={AUX_RESET_INTERVAL_SCALARS} moment={AUX_RESET_MOMENT_SCALARS}"
+                f" factor={AUX_RESET_PARTIAL_FACTOR_SCALARS}",
                 console=True,
             )
             print0(
@@ -1429,10 +1455,78 @@ for trial_idx in range(args.num_trials):
                     f" params_avg={lh_params_reset_avg} params_sq={lh_params_reset_sq}",
                     flush=True,
                 )
+        scalars_reset_exp_avg = bool(AUX_RESET_MOMENT_SCALARS & 2)
+        scalars_reset_exp_avg_sq = bool(AUX_RESET_MOMENT_SCALARS & 1)
+        if (
+            PER_KIND_AUX_PERIODIC_RESET_SCALARS_ENABLED
+            and AUX_RESET_INTERVAL_SCALARS > 0
+            and (scalars_reset_exp_avg or scalars_reset_exp_avg_sq)
+            and train_step > 0
+            and train_step % AUX_RESET_INTERVAL_SCALARS == 0
+        ):
+            sc_ea_pre_sq_sum = 0.0
+            sc_ea_post_sq_sum = 0.0
+            sc_eas_pre_sq_sum = 0.0
+            sc_eas_post_sq_sum = 0.0
+            sc_params_reset_avg = 0
+            sc_params_reset_sq = 0
+            for g in optimizer1.param_groups:
+                if g.get("name") == "adam_scalars":
+                    for p in g["params"]:
+                        st = optimizer1.state.get(p, {})
+                        if scalars_reset_exp_avg and "exp_avg" in st:
+                            sc_ea_pre_sq_sum += float(st["exp_avg"].float().square().sum().item())
+                            if AUX_RESET_PARTIAL_FACTOR_SCALARS == 0.0:
+                                st["exp_avg"].zero_()
+                            else:
+                                st["exp_avg"].mul_(AUX_RESET_PARTIAL_FACTOR_SCALARS)
+                            sc_ea_post_sq_sum += float(st["exp_avg"].float().square().sum().item())
+                            sc_params_reset_avg += 1
+                        if scalars_reset_exp_avg_sq and "exp_avg_sq" in st:
+                            sc_eas_pre_sq_sum += float(st["exp_avg_sq"].float().square().sum().item())
+                            if AUX_RESET_PARTIAL_FACTOR_SCALARS == 0.0:
+                                st["exp_avg_sq"].zero_()
+                            else:
+                                st["exp_avg_sq"].mul_(AUX_RESET_PARTIAL_FACTOR_SCALARS)
+                            sc_eas_post_sq_sum += float(st["exp_avg_sq"].float().square().sum().item())
+                            sc_params_reset_sq += 1
+                    break
+            if dist.get_rank() == 0:
+                event = {
+                    "trial": trial_idx,
+                    "reset/scalars/event_step": train_step,
+                    "reset/scalars/moment": AUX_RESET_MOMENT_SCALARS,
+                    "reset/scalars/partial_factor": AUX_RESET_PARTIAL_FACTOR_SCALARS,
+                    "reset/scalars/params_reset_avg": sc_params_reset_avg,
+                    "reset/scalars/params_reset_sq": sc_params_reset_sq,
+                }
+                if scalars_reset_exp_avg:
+                    event["reset/scalars/exp_avg.norm_pre"] = sc_ea_pre_sq_sum ** 0.5
+                    event["reset/scalars/exp_avg.norm_post"] = sc_ea_post_sq_sum ** 0.5
+                if scalars_reset_exp_avg_sq:
+                    event["reset/scalars/exp_avg_sq.norm_pre"] = sc_eas_pre_sq_sum ** 0.5
+                    event["reset/scalars/exp_avg_sq.norm_post"] = sc_eas_post_sq_sum ** 0.5
+                wandb.log(event, step=wandb_step)
+                _applied = []
+                if scalars_reset_exp_avg:
+                    _applied.append("exp_avg")
+                if scalars_reset_exp_avg_sq:
+                    _applied.append("exp_avg_sq")
+                print(
+                    f"[PER_KIND_AUX_PERIODIC_RESET] step {train_step}: scalars AdamW state reset"
+                    f" applied={_applied} moment={AUX_RESET_MOMENT_SCALARS}"
+                    f" factor={AUX_RESET_PARTIAL_FACTOR_SCALARS}"
+                    f" exp_avg.norm {sc_ea_pre_sq_sum**0.5:.4f}->{sc_ea_post_sq_sum**0.5:.4f}"
+                    f" exp_avg_sq.norm {sc_eas_pre_sq_sum**0.5:.4f}->{sc_eas_post_sq_sum**0.5:.4f}"
+                    f" params_avg={sc_params_reset_avg} params_sq={sc_params_reset_sq}",
+                    flush=True,
+                )
         # Per-kind reset telemetry: snapshot embed and lm_head adam moments at validation
         # steps and at ±5 around each reset boundary so the reset-induced trajectory is visible.
         if dist.get_rank() == 0 and (
-            train_step in embed_snapshot_steps or train_step in lm_head_snapshot_steps
+            train_step in embed_snapshot_steps
+            or train_step in lm_head_snapshot_steps
+            or train_step in scalars_snapshot_steps
         ):
             for group in optimizer1.param_groups:
                 gname = group.get("name")
@@ -1440,6 +1534,8 @@ for trial_idx in range(args.num_trials):
                     prefix = "per_kind_reset/embed"
                 elif gname == "adam_lm_head" and train_step in lm_head_snapshot_steps:
                     prefix = "per_kind_reset/lm_head"
+                elif gname == "adam_scalars" and train_step in scalars_snapshot_steps:
+                    prefix = "per_kind_reset/scalars"
                 else:
                     continue
                 for p in group["params"]:
