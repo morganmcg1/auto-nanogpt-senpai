@@ -1,3 +1,55 @@
+## 2026-06-02 ~09:15 UTC — Cycle 71 mid-573 — wake 7 fleet snapshot, alphonse #2215 stale_wip cleared (Arm E `v4r9afeq` terminal val=3.271672, Arm F `fl8ou15m` running step 975/3175 ETA ~10:30Z; interim n=3 mean 3.270506 — verdict will be FLOOR-BAND RTM-NEGATIVE/no-merge variance characterization); frieren #2233 Arm A `u8h2e77o` terminal val=3.27107 FLOOR-BAND (Arm B `ovhldwe4` step 2405/3175 ETA ~10:00Z); tanjiro #2255 Arm A SIGTERM at step 697 (HEALTHY trajectory parallel to baseline — NOT pod-broken; student auto-relaunched `hx4pusc9` step 125); askeladd #2257 disabled-checks complete, pre-launch verification in progress. Fleet 6/8 active (nezuko + fern HOLD). Cumulative unchanged: **476 refuted / 326 mech classes / 298 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability observations + 2 POD-BROKEN-CONFIRMED (nezuko + fern)**.
+
+### Wake 7 fleet snapshot (in-flight probe status)
+
+| Student | PR | Arm | run_id | step | val_loss | State |
+|---|---|---|---|---|---|---|
+| alphonse | #2215 | C SEED=3 | `rztxbkik` | 3175 | **3.269156** | TERMINAL sub-cluster-edge |
+| alphonse | #2215 | D SEED=4 | `vf6t44i9` | 3175 | **3.270690** | TERMINAL floor band |
+| alphonse | #2215 | E SEED=5 | `v4r9afeq` | 3175 | **3.271672** | TERMINAL upper floor band |
+| alphonse | #2215 | F SEED=6 | `fl8ou15m` | 975 | 3.69179 | RUNNING ETA ~10:30Z |
+| frieren | #2233 | A SEED=1 | `u8h2e77o` | 3175 | **3.27107** | TERMINAL floor band |
+| frieren | #2233 | B SEED=2 | `ovhldwe4` | 2405 | 3.36453 | RUNNING ETA ~10:00Z |
+| edward | #2244 | A | `obbaknj4` | 2862 | 3.33331 | RUNNING ETA ~09:30Z |
+| thorfinn | #2251 | A | `nmyqt4ur` | 1975 | 3.45384 | RUNNING ETA ~10:30Z |
+| tanjiro | #2255 | A (1st) | `z45ghu9l` | 650 | (SIGTERM) | KILLED healthy trajectory |
+| tanjiro | #2255 | A (restart) | `hx4pusc9` | 125 | 4.41669 | RUNNING ETA ~11:30Z |
+| askeladd | #2257 | (disabled-checks) | `duq0vja8` + `pry78zkx` | 200-260 | 3.94-4.09 | TERMINAL (pre-launch verification) |
+
+### alphonse #2215 algebra for merge bar (informational)
+
+For final n=4 mean to clear MERGE bar 3.26776, Arm F would need val_loss < 3.259522 (bar×4 − sum(C+D+E) = 13.07104 − 9.811518 = 3.259522). Sub-cluster-edge band lower bound is 3.26926. **Arm F cannot mathematically pull n=4 mean below the bar — verdict will be RTM-NEGATIVE / variance characterization PR.** Posted as advisor nudge to clear stale_wip; standing by for student's final results comment after Arm F lands.
+
+### frieren #2233 interim signal (SCALARS-RESET M=2 F=1.0 isolated)
+
+Arm A SEED=1 `u8h2e77o` terminal val=3.27107 (floor band, exactly inside [3.27000, 3.27200]). Stat margin n=1 (3.28−3.27107)·√1 = 0.00893 ≥ 0.004 → clean RTM-NEGATIVE per-seed. Arm B `ovhldwe4` will determine bilateral verdict. Prior expectation for SCALARS-RESET M=2 (momentum-only reset) at F=1.0 (every-step trigger): 38% null floor / 27% productive / 35% degradation. If Arm B lands in [3.270, 3.272] → floor band null (most likely); if Arm B < 3.269 → productive bilateral; if Arm B > 3.275 → bimodal degradation signal.
+
+### tanjiro #2255 SIGTERM — NOT POD-BROKEN
+
+Student's prior Arm A SEED=1 `z45ghu9l` was SIGTERM'd at step 697 (PID 676843, killed by pod entrypoint at 09:04:15Z after 08:40Z launch). Trajectory verified HEALTHY: val@0=10.83, val@125=4.4156, val@250=4.046, val@500=3.804, val@625=3.754 — parallel to baseline. Banner confirmed enabled=1 front=0.8 back=0.9 split=6 front_count=36 back_count=36. Pod-state fingerprint: NO cascade attractor, NO 233k step-1 grad. SIGTERM was operational (likely pod entrypoint timeout/refresh, not training instability). Student auto-relaunched as `hx4pusc9` SEED=1 at 09:07Z, currently step 125, healthy.
+
+### askeladd #2257 pre-launch verification
+
+Student picked up assignment, ran two disabled-checks (`duq0vja8` at 08:49Z val=3.944 step 260, `pry78zkx` at 09:03Z val=4.086 step 200). Both terminal at expected disabled-check val_loss (baseline disabled-check val~4.0). No PR comments yet — student is in pre-launch banner verification phase. Expected Arm A launch within 30-60 min. Will monitor next wake.
+
+### Cycle 71 mid-573 fleet state (8/8 active, 0 idle)
+
+Fleet 6/8 active probe arms in flight + 2/8 POD-BROKEN HOLD:
+- alphonse #2215 (n=4 variance): Arm F running step 975, terminal expected ~10:30Z → review-ready next wake
+- frieren #2233 (SCALARS-RESET M=2 F=1.0): Arm B running step 2405, terminal expected ~10:00Z → review-ready next wake
+- edward #2244 (PER_KIND_MUON_LR attn vs mlp): Arm A running step 2862, terminal expected ~09:30Z → review-ready next wake (likely)
+- thorfinn #2251 (PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD): Arm A running step 1975, terminal expected ~10:30Z
+- tanjiro #2255 (PER_DEPTH_HALF_MU_WARMUP_START): Arm A restart step 125, terminal expected ~11:30Z
+- askeladd #2257 (PER_KIND_AUX_BETA1_EMBED ISOLATED): disabled-checks complete, Arm A launch imminent
+- fern #2238 (PER_DEPTH_HALF_MUON_LR): **HOLD — POD-BROKEN issue #2252**
+- nezuko #2241 (AUX_CLIP_NORM): **HOLD — POD-BROKEN issue #2250**
+
+No new human responses on #2250 / #2252 since 08:21Z (my own filings). Standing by for human team remediation.
+
+Next wake check: ~10:00Z to catch frieren #2233 Arm B terminal + edward #2244 Arm A terminal (both within next 30-45 min).
+
+---
+
 ## 2026-06-02 ~08:38 UTC — Cycle 71 mid-572 — askeladd #2217 CLOSED (476th refute / **DEPTH-ORIENTATION ASYMMETRY AXIS: MLP-SOAP front=fast IS PRODUCTIVE, MLP-SOAP back=fast IS DEGRADATION** — bilateral mean 3.27368 above floor band by +0.00168, 15% prior REALIZED; structural finding establishes MLP-SOAP depth-orientation is DIRECTIONAL not symmetric; refutes 40% BACK=FAST PRODUCTIVE MIRROR prior); askeladd #2257 PER_KIND_AUX_BETA1_EMBED ISOLATED bilateral direction-test assigned (fresh per-group state-phase axis on EMBED side — only LM_HEAD has been ISOLATED-tested via #1789). Fleet 6/8 WIP (nezuko + fern HOLD). Cumulative: **476 refuted / 326 mech classes / 298 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability observations + 2 POD-BROKEN-CONFIRMED (nezuko + fern)**.
 
 ### askeladd #2217 CLOSED — 476th refute / DEPTH-ORIENTATION ASYMMETRY
