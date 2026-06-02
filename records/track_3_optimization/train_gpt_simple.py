@@ -107,6 +107,15 @@ def parse_args():
                              "of training). Default=0.80 (winning value, PR #1966). "
                              "Set to None or 0.95 to disable the ramp. "
                              "Affects all muon_* param groups.")
+    parser.add_argument("--post_ns5_dir_gate", action="store_true", default=False,
+                        help="Gate NS5 update by cosine similarity to per-param direction EMA "
+                             "(temporal direction-consistency gate; scalar per-matrix; PR #2235).")
+    parser.add_argument("--post_ns5_dir_ema_beta", type=float, default=0.9,
+                        help="EMA decay for NS5 direction buffer. 0.9=fast adapt, 0.95=slow.")
+    parser.add_argument("--post_ns5_dir_gate_mode", type=str, default="relu",
+                        choices=["relu", "soft", "abs"],
+                        help="Gate transform on cos_sim. relu: clamp(cos,0,1); "
+                             "soft: (1+cos)/2; abs: |cos|.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -618,6 +627,7 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.dir_gate_buffer: dict[str, Tensor] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -637,6 +647,7 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.dir_gate_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -657,6 +668,8 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                        if args.post_ns5_dir_gate:
+                            state["ns5_dir_ema"] = torch.zeros_like(p)
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
@@ -674,6 +687,26 @@ class Muon(torch.optim.Optimizer):
                         soap_update_preconditioner(p.grad, state)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if args.post_ns5_dir_gate:
+                        dir_ema = state["ns5_dir_ema"]
+                        ema_norm = dir_ema.float().norm()
+                        update_f = update.float()
+                        upd_norm = update_f.norm()
+                        if ema_norm > 1e-8:
+                            cos_sim = (update_f * dir_ema.float()).sum() / (
+                                upd_norm * ema_norm + 1e-8)
+                            if args.post_ns5_dir_gate_mode == "relu":
+                                gate = cos_sim.clamp(min=0.0, max=1.0)
+                            elif args.post_ns5_dir_gate_mode == "soft":
+                                gate = (1.0 + cos_sim) * 0.5
+                            else:  # abs
+                                gate = cos_sim.abs()
+                            update = (update_f * gate).to(update.dtype)
+                        else:
+                            gate = torch.ones((), device=p.device, dtype=torch.float32)
+                        state["ns5_dir_ema"].lerp_(update.detach().to(p.dtype),
+                                                    1 - args.post_ns5_dir_ema_beta)
+                        self.dir_gate_buffer[self.param_names[id(p)]] = gate.detach()
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -794,6 +827,9 @@ if dist.get_rank() == 0:
             "ema_eval_enabled": args.ema_eval_decay is not None,
             "mu_cooldown_target": args.mu_cooldown_target,
             "mu_cooldown_enabled": args.mu_cooldown_target is not None,
+            "post_ns5_dir_gate": bool(args.post_ns5_dir_gate),
+            "post_ns5_dir_ema_beta": float(args.post_ns5_dir_ema_beta),
+            "post_ns5_dir_gate_mode": str(args.post_ns5_dir_gate_mode),
         },
     )
 
@@ -1290,6 +1326,31 @@ for trial_idx in range(args.num_trials):
                 trust_metrics["trust/cos_sim_mean_attn"] = sum(attn_vals) / len(attn_vals)
                 trust_metrics["trust/fired_count_attn"] = fired_attn
             wandb.log(trust_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and optimizer2.dir_gate_buffer:
+            dg_names = list(optimizer2.dir_gate_buffer.keys())
+            dg_tensors = list(optimizer2.dir_gate_buffer.values())
+            dg_values = torch.stack([t.float().view(()) for t in dg_tensors]).cpu().tolist()
+            gate_metrics = {"trial": trial_idx, "train/step": train_step}
+            mlp_gate_vals: list[float] = []
+            attn_gate_vals: list[float] = []
+            zero_count = 0
+            for dg_name, dg_val in zip(dg_names, dg_values):
+                gate_metrics[f"post_ns5/gate/{clean_metric_name(dg_name)}"] = dg_val
+                if dg_val <= 1e-6:
+                    zero_count += 1
+                if any(dg_name.endswith(suf) for suf in Muon.SOAP_ATTN_SUFFIXES):
+                    attn_gate_vals.append(dg_val)
+                else:
+                    mlp_gate_vals.append(dg_val)
+            gate_metrics["post_ns5_gate_mean"] = sum(dg_values) / len(dg_values)
+            gate_metrics["post_ns5/gate_min"] = min(dg_values)
+            gate_metrics["post_ns5/gate_max"] = max(dg_values)
+            gate_metrics["post_ns5/gate_zero_fraction"] = zero_count / len(dg_values)
+            if mlp_gate_vals:
+                gate_metrics["post_ns5/gate_mean_mlp"] = sum(mlp_gate_vals) / len(mlp_gate_vals)
+            if attn_gate_vals:
+                gate_metrics["post_ns5/gate_mean_attn"] = sum(attn_gate_vals) / len(attn_gate_vals)
+            wandb.log(gate_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
