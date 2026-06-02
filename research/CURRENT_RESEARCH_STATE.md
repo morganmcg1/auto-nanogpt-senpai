@@ -1,3 +1,51 @@
+## 2026-06-02 01:40 UTC — Cycle 71 mid-552 — fern #2206 CLOSED (456th refute / **EMBED M=2 F=0.99 BILATERAL POD-BLOCK confirming BINARY F-AXIS is M-INVARIANT — both M=1 (preconditioner) and M=2 (momentum) reset code paths exhibit IDENTICAL binary F-axis behavior; compile-time graph specialization (torch.compile constant-folding on literal F=1.0) DECISIVELY favored over moment-specific numerics hypothesis; F=1.0 stability gate is SUBSTRATE-SPECIFIC (EMBED only) but M-INVARIANT within EMBED** / 50th pod-stability observation; bilateral n=2 Arm A `id7g5jzp` / Arm B `8yowl65a` step-200 `exp_avg.norm nan→nan` byte-identical) + fern #2212 new assignment (**EMBED M=3 F=0.99 M-AXIS CLOSURE** — joint exp_avg + exp_avg_sq reset closes the M-axis with full universality; 85% POD-BLOCK confirming compile-time graph specialization uniform across all moment-reset substrates / 10% M=3-SPECIFIC compound destabilization / 5% MILD-DRIFT) + nezuko #2198 cherry-pick anomaly nudge (3 W&B runs all showing NaN train/val loss + missing PR2121-ASKELADD config keys → likely missing cherry-pick `46bd27da`; advisor authorized kill of `mv8z0gv7` + relaunch with verified cherry-pick + push-to-remote-before-launch). Fleet 8/8 WIP. Cumulative: **456 refuted / 307 mech classes / 279 family closures / 11 axes / 62 RTM precedents / 50 pod-stability observations**.
+
+### fern #2206 CLOSED — 456th refute / M-INVARIANT BINARY F-AXIS CONFIRMED
+
+**Bilateral terminal — POD-BLOCK with `exp_avg.norm nan→nan` byte-identity**:
+- Arm A `id7g5jzp` SEED=1: step-125 val/loss NaN, step-200 reset `exp_avg.norm nan→nan exp_avg_sq.norm 0.0→0.0`
+- Arm B `8yowl65a` SEED=2: step-125 val/loss NaN, step-200 reset `exp_avg.norm nan→nan` (byte-identical bilaterally)
+- Step-200 reset banner shows momentum buffer was ALREADY NaN at first reset event → cascade emerges BEFORE step 200 (just like M=1 case)
+
+### M-axis × F-axis matrix — fully resolved for EMBED at F=0.99 / F=1.0
+
+| M-axis \ F | F=0.99 | F=1.0 |
+|---|---|---|
+| **M=1 (preconditioner / exp_avg_sq)** | #2203 POD-BLOCK | #2153 STABLE 3.27063 |
+| **M=2 (momentum / exp_avg)** | **#2206 POD-BLOCK ✓ THIS** | #2185 STABLE 3.2716 |
+| M=3 (joint exp_avg + exp_avg_sq) | **#2212 in flight** | UNTESTED |
+
+→ **Binary F-axis is M-INVARIANT** across both tested moments. Both `.mul_(F)` code paths exhibit IDENTICAL binary behavior — only common factor is the `.mul_(literal_F)` operation. This DECISIVELY favors **torch.compile constant-folding mechanism** over moment-specific numerics.
+
+### Substrate-axis comparison — F=1.0 stability gate is SUBSTRATE-SPECIFIC (EMBED only)
+
+| Substrate × M | F=0.99 | F=1.0 |
+|---|---|---|
+| EMBED M=1 | POD-BLOCK | STABLE 3.27063 |
+| EMBED M=2 | POD-BLOCK | STABLE 3.2716 |
+| LM_HEAD M=1 | (#2152 F=0.25 POD-BLOCK) | #2145 POD-BLOCK |
+| LM_HEAD M=2 | UNTESTED | #2160 POD-BLOCK |
+
+→ F=1.0 stability gate is EMBED-specific. LM_HEAD substrate has fundamentally different stability dynamics — POD-BLOCKs even at F=1.0. The substrate-axis decomposition is decoupled from the M-axis decomposition.
+
+### nezuko #2198 cherry-pick anomaly
+
+3 W&B runs observed in flight: `w4fggqnc` crashed, `7z8picun` crashed, `mv8z0gv7` running at step 575 — ALL show NaN train/val loss from start AND MISSING `attn_soap_exclusion_bitfield`, `per_kind_aux_beta1_enabled`, `aux_beta1_embed`, `aux_beta1_lm_head`, `aux_beta1_scalars` config keys in W&B (per memory `feedback-pr2121-infra-cherry-pick`, missing config keys indicate cherry-pick `46bd27da` was NOT applied). NaN train loss from step 0 is unusual — without cherry-pick, training should run with default config (= baseline STABLE 3.27063), not NaN. Advisor posted nudge requesting: verify cherry-pick state, kill current Arm B, push cherry-pick to remote, relaunch sequentially.
+
+### fern #2212 next — M-AXIS CLOSURE
+
+EMBED M=3 F=0.99 (joint exp_avg + exp_avg_sq reset). Tests whether the compile-time graph specialization mechanism applies uniformly when BOTH `.mul_(F)` calls fire jointly. Compile-time hypothesis predicts BOTH `.mul_(1.0)` elided at F=1.0 (STABLE) and BOTH `.mul_(0.99)` retained at F=0.99 (POD-BLOCK with possible compound severity).
+
+Priors: 85% POD-BLOCK (M-axis closure with full universality) / 10% M=3-SPECIFIC (compound destabilization with different signature) / 5% MILD-DRIFT.
+
+### Cycle 71 mid-552 fleet status
+
+Fleet 8/8 WIP. Cumulative: **456 refuted / 307 mech classes / 279 family closures / 11 axes / 62 RTM precedents / 50 pod-stability observations**.
+
+The mid-552 closure DECISIVELY confirms M-INVARIANCE of the binary F-axis with compile-time graph specialization as the favored mechanism. fern #2212 (M=3 joint reset) provides M-axis closure. Combined with the substrate-axis decomposition observation (EMBED has F=1.0 stability gate, LM_HEAD does not), the structural map of the EMBED-RESET mechanism family is approaching full closure.
+
+---
+
 ## 2026-06-02 00:45 UTC — Cycle 71 mid-551 — fern #2203 CLOSED (455th refute / **EMBED M=1 F=0.99 BILATERAL POD-BLOCK with QUADRUPLE BYTE-IDENTITY across F ∈ {0.25, 0.5, 0.75, 0.99} step-1 grad 233,618.18 + step-25 nonfinite_count 147,758,208 IDENTICAL — F-axis is BINARY (identity vs non-identity), NOT continuous; F=1.0 stability is a CODE-PATH DISCONTINUITY at the singleton, NOT a continuous limit of F→1.0; mechanism narrowed to COMPILE-TIME GRAPH SPECIALIZATION on literal F=1.0 OR INITIALIZATION-TIME PATH; 70% prior REALIZED with maximum certainty** / 49th pod-stability observation; bilateral n=2 Arm A `hcloxy1v` / Arm B `jzjujj0a` cascade IDENTICAL to F ∈ {0.25, 0.5, 0.75}) + fern #2206 new assignment (**EMBED M=2 F=0.99 BINARY F-AXIS M-INVARIANCE DECISIVE TEST** — tests whether binary F-axis hypothesis generalizes from M=1 to M=2 momentum-only reset; 75% M-INVARIANT POD-BLOCK confirming compile-time graph specialization mechanism / 20% M=1-SPECIFIC STABLE momentum-buffer-robust / 5% MILD-DRIFT). Fleet 8/8 WIP. Cumulative: **455 refuted / 306 mech classes / 278 family closures / 11 axes / 62 RTM precedents / 49 pod-stability observations**.
 
 ### fern #2203 CLOSED — 455th refute / BINARY F-AXIS HYPOTHESIS DECISIVELY CONFIRMED
