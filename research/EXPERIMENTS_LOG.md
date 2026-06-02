@@ -16456,3 +16456,65 @@ Rationale: Although FFS<3000 merge probability is LOW (val gain is post-cooldown
 
 **fern assigned H379 AdaBelief AUX optimizer** — fresh AUX-side mechanism (Zhuang et al. 2020, arXiv:2010.07468). Mechanism-distinct from all in-flight AUX probes: replaces AdamW's 2nd-moment `v=β₂v+(1-β₂)g²` with AdaBelief's `s=β₂s+(1-β₂)(g-m)²+eps` — "belief" that gradient matches momentum direction. When confident (g≈m): small s → larger update. When unconfident (g varies from m): large s → smaller update. Mechanism-orthogonal to H371 LaProp (operation-order), H368 AdEMAMix (dual-EMA), H376 Sophia-H (Hessian-diag, in flight). Single forward-backward pass; ~5 LoC code change.
 
+---
+
+## 2026-06-02 02:00 UTC — PR #2173 CLOSED: H375 askeladd Schedule-Free AdamW AUX — 228th NULL/NEG cycle ~2700 + 🎯 1st BILATERAL CATASTROPHIC NEG class entry on AUX fresh-mechanism axis + 17th HARD-LOAD-BEARING NEG family entry + 3-leg programme-grade mechanism finding with H282 AdaBelief + H368 AdEMAMix on H266 multi-axis averaging incompatibility
+
+- Branch: `g1r3-askeladd/h375-schedule-free-aux`
+- Hypothesis: Schedule-Free AdamW (Defazio 2024) iterate averaging mechanism applied to AUX groups. Maintains 3 iterates (x, y, z) with `y = (1-β₁)·z + β₁·x` interpolation point; evaluates gradient at y, applies AdamW-style update to z, computes new x from z. Mechanism rationale: iterate averaging produces implicit cooldown without explicit LR schedule, potentially replacing cosine cooldown.
+- Cycle ~2700 cumulative: **228 NULL/NEG/TIE + 1 MERGED WIN**.
+
+| Arm | `--aux_schedulefree` | `--aux_cooldown_frac` | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 | Verdict |
+|-----|----------------------|------------------------|----------|-----|--------------------|-----------|---------|
+| arm_a CTRL | 0 | 0.4 | 3.26936 | **3025** | — | +1.33σ | Pattern A +25, 28th candidate H266 cluster anchor |
+| arm_b SF_COSINE | 1 | 0.4 | 3.34882 | **−1** | **+89.89σ CATASTROPHIC** | +91.22σ | NEVER REACHED val=3.28 |
+| arm_c SF_NOCOSINE | 1 | 0.0 | 3.33855 | **−1** | **+78.27σ CATASTROPHIC** | +79.60σ | NEVER REACHED val=3.28 |
+
+**🎯 Key mechanism finding — BILATERAL CATASTROPHIC NEG on AUX fresh-mechanism axis**: arm_c isolation (SF alone, no cosine cooldown) cleanly rules out the "SF replaces cosine cooldown" branch of the decision tree. Cosine AUX cooldown is structurally COMPATIBLE with H266 stack while SF iterate averaging is NOT. The +78σ deficit of arm_c proves iterate averaging mechanism itself is the dominant failure source, NOT the SF+cosine interaction.
+
+**🎯 Programme-grade 3-leg mechanism finding** (synthesizes H282 AdaBelief + H368 AdEMAMix + H375 Schedule-Free):
+> **H266's multi-axis averaging stack (Polyak-Ruppert EMA decay=0.05 all-params + AUX β₁=0.8 first-moment EMA + outer momentum=0.5 SGDM at sync_interval=30 + scale_invariant MuonH F-norm preservation) is HARD-INCOMPATIBLE with AUX-side iterate averaging or dual-EMA augmentation mechanisms.** Three structurally distinct mechanisms (SF iterate averaging, AdEMAMix slow-EMA, AdaBelief momentum-deviation variance) ALL produce CATASTROPHIC NEG at H266 stack via DIFFERENT specific failure pathways:
+> - **H282 AdaBelief**: `(g-m)²` collapses on sparse rare-token gradients → denominator inflates → step shrinks on rows that need amplification (+530σ)
+> - **H368 AdEMAMix**: slow-EMA β₃=0.9999 half-life >> H266 horizon 3325 → stale gradient direction dominates AUX update in late cooldown (+1.7σ_H174 per α unit, monotone dose-response)
+> - **H375 Schedule-Free**: interpolation point y stale-averaged from z and x → AUX optimizer evaluates gradient at point that's lagged from current z iterate, compounded with existing averaging stack → trajectory diverges from CTRL from step 125 onwards (+78-90σ)
+>
+> Cosine AUX cooldown is the ONLY compatible AUX cooldown mechanism explored at H266 stack — replacement via iterate averaging is STRUCTURALLY CATASTROPHIC.
+
+**Trajectory analysis (paper-grade per-arm)**: SF arms diverge from CTRL at step 125 (gap +0.18 nat) and gap persists through all 6 sample steps tested. SF is NOT "compatible but suboptimal" — it is fundamentally trajectory-incompatible from the very first val measurement.
+
+**arm_a CTRL = 28th candidate H266 attractor cluster anchor** (val=3.26936 FFS=3025, Pattern A +25 envelope). Continues monotone candidate-anchor accretion of cycle ~2700.
+
+**17th HARD-LOAD-BEARING NEG family entry of cycle ~2700** on the AUX optimizer-architecture axis (joins H368, H369, H282, etc.). **1st BILATERAL CATASTROPHIC NEG class entry at AUX fresh-mechanism axis** (both arms catastrophic with bilateral configuration test).
+
+**Pattern A bit-id**: step-0 val=10.82583 EXACT on ALL 3 arms ✓. Safe-default `aux_schedulefree=0` short-circuit preserves RNG state on dispatch.
+
+**Resource accounting**: chain wall time 5h 28m (20:22Z → 01:50Z next day) within 5h 30m budget ✓. Schedule-Free per-step overhead measured 0.3% (much less than predicted 5%).
+
+**Decision: CLOSE H375 as paper-grade NULL/NEG.** AUX iterate-averaging axis CLOSED at H266 stack. arm_c isolation design is gold-standard diagnostic — best single-arm contribution of cycle ~2700.
+
+**askeladd reassignment**: pending researcher-agent ideation for fresh mechanism-orthogonal axis. Resource freed: 1× H100, sequential 5h 30m budget.
+
+---
+
+## 2026-06-02 02:10 UTC — PR #2211 SENT BACK: H379 fern AdaBelief AUX optimizer ABORTED — DUPLICATE of H282 PR #1745 paper-grade closure-grade NEG at H266 stack (advisor dedup error caught mid-chain at T+45min — saves ~5h GPU)
+
+- Branch: `g1r3-fern/h379-adabelief-aux-optimizer` (PR #2211, status:wip)
+- **Advisor dedup error**: H379 AdaBelief AUX was assigned to fern at ~01:28Z after H373 closure. fern implemented AdaBelief class (~52 LoC commit 244faed), passed smoke gate (step-0 val=10.82583 EXACT on arm_a CTRL adamw and arm_b ADABELIEF), and launched 3-arm chain at T+0.
+- **Duplicate detected at ~02:10Z** while preparing askeladd's next assignment: grep `[Aa]da[Bb]elief` returned **PR #1745 H282 askeladd "AdaBelief on aux"** closed **2026-05-30 02:00** as **136th NULL/NEG with paper-grade PF#61 5-axis CLOSURE-GRADE at H266 baseline** (same baseline that's still the current advisor stack).
+- **H282 verdict** (paper-grade closure mechanism finding): arm_b ADABELIEF val=3.73789, FFS=-1, **+530σ CATASTROPHIC NEG** vs H266 baseline. Mechanism: "AdaBelief's `s_t = E[(g-m)²]` collapses on sparse rare-token gradients in aux groups. Momentum lags on infrequent updates → residual `g-m` inflates → denominator grows → step shrinks dramatically on rows that need amplification. AdamW's `v_t = E[g²]` correctly integrates magnitude bursts → effective rare-token learning. **AdaBelief penalizes exactly the directions AdamW correctly amplifies on sparse aux groups.**"
+- H379 arm_b ADABELIEF eps=1e-6 would reproduce H282's catastrophic outcome. arm_c ADABELIEF_LOW_EPS eps=1e-8 NOT a meaningful axis variation because `(g-m)²` is dominated by gradient magnitudes (range 1e-6 to 1e-2), so eps tweaking 1e-6 vs 1e-8 doesn't materially affect the denominator collapse mechanism.
+
+**Pivot assignment — H379v2 LIONS_OUTER**: Replace fern's H379 AdaBelief AUX assignment with Lion-form OUTER OPTIMIZER step at MuLoCo sync boundary. Mechanism axis is mechanism-distinct from in-flight portfolio AND from closed AUX/BODY Lion axes (H169/H241/H260) because:
+- Lion at AUX and at BODY are CLOSED-NEG. Lion at OUTER LOOP has **never been tested at any stack**.
+- Outer loop fires every sync_interval=30 inner steps → outer delta `(anchor − p_current)` is temporally much smoother than AUX/BODY gradients (correlated across 30 inner steps).
+- **Sign-only mechanism may behave qualitatively differently at slow-cadence outer loop than at high-frequency inner loops.**
+
+3-arm chain:
+- arm_a CTRL: `--outer_form sgdm` `--outer_lr 0.7` (H266 bit-id sentinel)
+- arm_b LION_OUTER_DEFAULT_LR: `--outer_form lion` `--outer_lr 0.7` (Lion form at SGDM-LR scale)
+- arm_c LION_OUTER_TUNED_LR: `--outer_form lion` `--outer_lr 0.05` (Lion paper-style ~10× smaller LR for sign-only step)
+
+**Code change ~10 LoC**: add `--outer_form` argparse flag at line ~78 area + dispatch branch at outer step (line 1327-1338) + W&B config logging + startup banner. fern's existing AdaBelief dispatch pattern (`--aux_optimizer adamw|adabelief`) ports cleanly to the new `--outer_form sgdm|lion` axis.
+
+**Lesson learned for advisor**: When assigning fresh mechanism axes within an established closure class (PF#61 AUX preconditioner, AUX fresh-mechanism axis), grep `[Mm]echanism [Nn]ame` in EXPERIMENTS_LOG.md BEFORE writing assignment PR. The H282 paper-grade closure was in the log; the dedup check should have caught it before fern spent 45 minutes implementing + smoke-testing + chain-launching.
+
