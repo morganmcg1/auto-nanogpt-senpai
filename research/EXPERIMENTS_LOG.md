@@ -16518,3 +16518,41 @@ Rationale: Although FFS<3000 merge probability is LOW (val gain is post-cooldown
 
 **Lesson learned for advisor**: When assigning fresh mechanism axes within an established closure class (PF#61 AUX preconditioner, AUX fresh-mechanism axis), grep `[Mm]echanism [Nn]ame` in EXPERIMENTS_LOG.md BEFORE writing assignment PR. The H282 paper-grade closure was in the log; the dedup check should have caught it before fern spent 45 minutes implementing + smoke-testing + chain-launching.
 
+
+## 2026-06-02 05:30 — PR #2172: H374 alphonse WSD (Warmup-Stable-Decay) BODY MuonH cooldown duration probe
+
+- g1r3-alphonse/h374-wsd-body-cooldown-frac
+- Hypothesis: WSD schedule (Warmup-Stable-Decay, Hu et al 2024 MiniCPM) for BODY MuonH LR — introducing a STABLE plateau phase before cosine cooldown. Tested whether H266's continuous cosine-annealing from warmup to terminal step requires its full-horizon duration, or can absorb a stable pre-cooldown phase. Filled the "cooldown DURATION axis" gap (3rd STRUCTURAL-TIMING-AXIS candidate): H352 cosine shape CLOSED + H362 warmup CLOSED + H363 μ_start CLOSED + H374 cooldown duration (this PR).
+- Results:
+
+| Arm | `muonh_h_cooldown_frac` | W&B run | step-0 val | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) |
+|-----|------|---------|---------|---------|-----|-----|-----|
+| arm_a CTRL | 1.0 (H266 bit-id) | `giw9syax` | 10.82583 EXACT ✓ | 3.26938 | 3025 | 0.00 | +1.36σ |
+| arm_b WSD_50 | 0.5 (50% stable + 50% cooldown) | `3y8my9vd` | 10.82583 EXACT ✓ | 3.29143 | −1 NEVER REACHED | **+24.94σ CATASTROPHIC NEG** | +26.30σ |
+| arm_c WSD_30 | 0.3 (70% stable + 30% cooldown, MiniCPM canonical) | `btpuqmpc` | 10.82583 EXACT ✓ | 3.31890 | −1 NEVER REACHED | **+56.02σ MORE CATASTROPHIC** | +57.38σ |
+
+σ_H174 = 0.000884. Pattern A bit-id verified EXACT all 3 arms. Monotonic: arm_c MORE NEG than arm_b (more stable phase = worse).
+
+- Commentary: **CLOSED NULL/NEG — 229th cumulative cycle ~2700 closure. 18th HARD-LOAD-BEARING family entry. 3rd STRUCTURAL-TIMING-AXIS NEG class entry** (joining H362 warmup_steps BILATERAL ASYMMETRIC NEG + H363 μ_start BILATERAL ASYMMETRIC NEG). Note: H374 is MONOTONIC-asymmetric (not bilateral) because `muonh_h_cooldown_frac > 1.0` is not a meaningful direction.
+
+  **arm_a CTRL = 28th candidate H266 attractor cluster anchor** (Pattern A +25 envelope, FFS=3025, val=3.26938).
+
+  **Mechanism reading:** H266's cosine cooldown spanning the FULL post-warmup horizon is load-bearing at 3325-step short-budget. Compressed cooldown (50% or 30% of horizon) cannot bring val/loss across 3.28 target. `train/muonh_lr` diagnostic confirmed mechanism signature: arm_b/arm_c held peak LR=0.018 through stable phases, then compressed cosine fails to converge. External WSD evidence (MiniCPM 100k+ steps) does not transfer to this short-budget regime.
+
+  **4 LR-schedule axes confirmed canalized at H266 stack:**
+  1. H352 cosine cooldown SHAPE (bilateral asymmetric NEG — cosine is optimum)
+  2. H362 warmup_steps DURATION (bilateral asymmetric NEG, 1st STRUCTURAL-TIMING-AXIS)
+  3. H363 μ_start TIMING (bilateral asymmetric NEG, 2nd STRUCTURAL-TIMING-AXIS)
+  4. **H374 cooldown DURATION** (monotonic-asymmetric NEG, 3rd STRUCTURAL-TIMING-AXIS, this PR)
+
+  All 4 structural-timing axes of the LR schedule are confirmed canalized. Strong evidence that further LR-schedule probes are unlikely to yield WIN candidates at 3325-step short-budget.
+
+  **Post-closure action:** Assigned alphonse H381 (Per-Param Outer LR/Momentum, fresh OUTER mechanism class axis, PR #2224).
+
+## 2026-06-02 05:30 — Advisor note: H88 PR #889 caveat applied to H380 PR #2221
+
+- Process note (not a new experiment): researcher-agent assigned H380 Polar Express minimax-adaptive NS5 to askeladd (PR #2221) but did not address H88 PR #889 ("H88 Polar Express orthogonalization — programme-level closure on polynomial-Schulz polar-map family (degree sweep × coef sweep)") which was closed at OLDER stack (pre-H266) 2026-05-23.
+- H88 closure language: "Schulz polynomial polar-map family — measured along degree, schedule-shape, input pre-normalization, **coef sweep within stable basin**, and per-layer iteration budget — has no detectable headroom above canonical Muon (2,-1.5,0.5) at k=12"
+- **Mechanism distinction (keeping PR #2221 active):** H88 tested STATIC FIXED coefficients (Chebyshev-optimal quintic, family (a, 2.5-2a, a-1.5) with a∈(2.0,3.0)). H380 (Amsel et al. 2025, arXiv:2505.16932) tests RUNTIME MINIMAX-ADAPTIVE coefficients computed per-iteration from spectral interval [l,u]. Runtime adaptation is a genuinely different axis dimension from design-time coefficient sweep.
+- H88 was at OLDER stack (pre-H266). Per dedup memory: re-test at H266 stack IS permissible. Added follow-up comment to PR #2221 with H88 context + 3 smoke gate additions (coefficient sequence audit, bfloat16 safety, spectral interval tracking).
+- Additional H88 finding noted: "Original Polar Express coefs (3.4445, −4.7750, 2.0315) are MISATTRIBUTED in optimizer-paper folklore — violate p(1)=1, belong to Halley/Padé family, NOT pure Schulz." Added to PR comment to prevent inadvertent reproduction of misattributed coefficients.
