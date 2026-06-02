@@ -9,6 +9,35 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-02 11:45Z (**PR #2270 nezuko entropy-weighted-ce ASSIGNED (DIRECT-CONSTRUCTED — researcher autocompact-thrashed 3rd consecutive failure on huge PR context). Mechanism: per-token CE × normalized prediction-distribution entropy^γ. Loss-axis family alive at R5 (alphonse #2223 trial 0 BLOCKBUSTER FFS=2625). Distinct from alphonse (position) / thorfinn (target-prob focal) / fern (KL-teacher) — uses FULL distribution entropy not target-prob point estimate. 4 cells with B★ primary probe (γ=1.0), D inverse falsifier (γ=-1.0). Distinct from all closed loss-axes (label smoothing #1870, z-loss #2077, logit-cap #2080/#2209, aux clip #2213). Fleet back to 8/8 fully occupied.**)
+
+### Notes (2026-06-02 11:45Z) — PR #2270 nezuko entropy-weighted-ce ASSIGNED + researcher 3rd consecutive failure
+
+- **Background researcher `a2d11a4eb70817336` FAILED (3rd consecutive autocompact thrash)** — context refilled within 3 turns each round. Direct-constructed hypothesis from advisor's domain knowledge instead.
+- **PR #2270 nezuko entropy-weighted-ce ASSIGNED:**
+  - Mechanism: replace `F.cross_entropy(logits, targets)` with `mean[ce_per_token × (H(p_model)/mean_H)^γ]`. Per-token entropy H(p_model) computed from full softmax distribution, normalized by batch mean, used as multiplicative loss weight with renormalization to preserve loss scale.
+  - **Mechanism distinct from in-flight loss-axis work:**
+    - alphonse #2223 = position-based weighting
+    - thorfinn #2253 = (1-p_target)^γ focal (point-wise wrongness)
+    - fern #2258 = KL vs EMA teacher
+    - **nezuko #2270 = full-distribution entropy^γ** (distributional uncertainty)
+  - Loss-axis family alive at R5 (alphonse trial 0 BLOCKBUSTER FFS=2625) — entropy-weighted probes generality of the alive axis.
+  - 4 cells: A_ctrl (γ=0 BYTE-CLEAN) → B★ (γ=1.0 primary) → C (γ=2.0 dose-response) → D (γ=−1.0 inverse falsifier).
+  - Promotion: B★ < 2875 → n=4 confirm; B★ ≥ 2925 AND C ≥ B★ → close FFS-NEG.
+  - Implementation includes byte-clean gamma=0 path (keeps existing F.cross_entropy for baseline), torch.no_grad weight computation (mechanism isolation), weight renormalization (preserves loss scale), clamp(max=10) for negative γ.
+- **Fleet back to 8/8 fully occupied:**
+  - alphonse #2223 n=4 trial 1 progressing (trial 0 BLOCKBUSTER FFS_ema=2625)
+  - edward #2195 B(α=0.01) n=4 confirm running (ETA ~16:40Z)
+  - askeladd #2245 Cell B (K=2) in flight
+  - frieren #2235 Cell C-soft (β=0.95) in flight
+  - fern #2258 KL-EMA A_ctrl ~87%
+  - thorfinn #2253 focal-loss A_ctrl ~99% (terminal imminent)
+  - tanjiro #2266 AdaMuon A_ctrl
+  - **nezuko #2270 entropy-weighted-ce A_ctrl just assigned** (pod pickup in ~5 min)
+- **No review-ready PRs, no human issues**, all R5 students productive.
+
+---
+
 ## Last updated: 2026-06-02 11:30Z (**121st R5 closure: PR #2209 nezuko logit-cap-cooldown-schedule CLOSED FFS-NEG monotone. A_ctrl=2875 (cap=15 flat, baseline parity), B-tight10=2975 (+100), C-loose20=2925 (+50), D-tight7.5=−1 NEVER crossed (catastrophic late-step divergence, val climbs 3.294→3.318). Monotone in cap-target tightness. Cap=15 baseline at natural logit ceiling under SOAP+Muon+EMA at FFS-convergence (12-15 range). Tightening saturates high-confidence tokens late in training → silences gradient signal driving final FFS approach. Joins logit-magnitude closure cluster (z-loss #2077, cap-value #2080, softcap variants). Memory rule [[logit_magnitude_axis_closed_at_r5]] saved. Researcher-agent dispatched for nezuko fresh hypothesis (background a2d11a4eb70817336). Fleet now 7/8 occupied with nezuko idle. No review-ready PRs, no human issues.**)
 
 ### Notes (2026-06-02 11:30Z) — 121st R5 closure (nezuko #2209 logit-cap-cooldown FFS-NEG monotone)
