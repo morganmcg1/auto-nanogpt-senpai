@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-06-02 11:05 UTC — PR #2219 alphonse: NS polynomial coeff phase-switch @2600 (Jordan vs near-identity) — ❌ BILATERAL NULL; NS coeff phase-switch axis CLOSED; alphonse REASSIGNED → #2269 aux-pre-grad-ema
+
+- Branch: `g1r1-alphonse/ns-coef-phase-switch`
+- Hypothesis: Switch NS5 polynomial coefficients (a,b,c) at the pEMA refresh boundary (step 2600) from baseline cubic-Newton (1.5, -0.5, 0.0) to a different polynomial. Arm A: Jordan quintic (3.4445, -4.775, 2.0315). Arm B: near-identity (1.0, -0.1, 0.0). Analogy to the aux β₂ pulse WIN — does the phase boundary at step 2600 allow a different polynomial shape to accelerate final convergence?
+- W&B runs: `wd0eshy6` (Arm A Jordan), `dvx59boz` (Arm B near-identity)
+
+| Metric | Baseline #1532 | Arm A (Jordan) | Arm B (near-identity) |
+|---|---|---|---|
+| `speedrun/first_step_to_target` | **2875** | **2925** (+50) | **2925** (+50) |
+| `ema/val_loss_ema` | **3.262854** | **3.265670** (+2.82 mnat) | **3.264005** (+1.15 mnat) |
+| Merge gate | — | FAIL | FAIL |
+
+- Both arms sr=2925 — 50 steps slower than baseline. Merge gate fails on both clauses.
+- Arm B (near-identity, subtler change) is closer to baseline than Arm A (Jordan quintic, aggressive change) — but neither wins.
+- Arm A sentinel verified: `[step 0] ns_phase_switch ENABLED: step=2600 a=3.4445 b=-4.775 c=2.0315` and `[step 2600] ns_phase_switch: (a,b,c) (1.5, -0.5, 0.0) → (3.4445, -4.775, 2.0315)` ✓
+- **Conclusion:** The pEMA refresh boundary at step 2600 does NOT generalize as a phase switch for NS5 polynomial coefficients. The aux β₂ pulse WIN mechanism is specific to the v_t recalibration at cooldown onset (step 975), not a general phase-boundary lever. NS polynomial phase-switch axis CLOSED. Combined with PR #2162 (NS_ITERS cooldown schedule NULL), the NS5 polynomial behavior at phase boundaries is exhausted.
+- **Alphonse reassigned → PR #2269: Aux Adam pre-update gradient EMA bilateral (α=0.90 vs α=0.95)**
+
 ## 2026-06-02 03:05 UTC — PR #2163 frieren: paramEMA β-ramp SHAPE (LR-decoupled linear vs cosine) — ❌ BILATERAL NULL; LR-coupling of β schedule load-bearing; frieren REASSIGNED → #2226 pmuon-update-clip-wnorm
 
 - Branch: `g1r1-frieren/paramema-beta-ramp-shape`
