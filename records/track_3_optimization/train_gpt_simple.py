@@ -107,6 +107,12 @@ def parse_args():
                              "of training). Default=0.80 (winning value, PR #1966). "
                              "Set to None or 0.95 to disable the ramp. "
                              "Affects all muon_* param groups.")
+    parser.add_argument("--soap_eps_floor", type=float, default=0.0,
+                        help="Adaptive eigenvalue floor as fraction of mean exp_avg_sq for "
+                             "the SOAP preconditioner denominator (Levenberg-Marquardt-style "
+                             "Tikhonov damping). 0.0 = fixed eps=1e-8 only (exact baseline; "
+                             "byte-identical code path). Adaptive eps = alpha_floor * "
+                             "exp_avg_sq.mean() + 1e-8. Try 0.01, 0.03, 0.10.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -564,14 +570,20 @@ def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
     return q_row, q_col, exp_avg_sq
 
 
-def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
+def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8, alpha_floor=0.0):
     update_f = update.float()
     if state["q_row"] is None:
         return update
     q_row, q_col = state["q_row"], state["q_col"]
     projected = q_row.T @ update_f @ q_col
     state["exp_avg_sq"].mul_(beta2).add_(projected.square(), alpha=1 - beta2)
-    precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
+    if alpha_floor > 0.0:
+        adaptive_eps = alpha_floor * state["exp_avg_sq"].mean() + eps
+        state["last_adaptive_eps"] = adaptive_eps.detach()
+        denom = state["exp_avg_sq"].sqrt().add(adaptive_eps)
+    else:
+        denom = state["exp_avg_sq"].sqrt().add(eps)
+    precond = q_row @ (projected / denom) @ q_col.T
     precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
     return precond.to(update.dtype)
 
@@ -595,7 +607,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, alpha_floor=0.0):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -617,6 +629,7 @@ class Muon(torch.optim.Optimizer):
         self.soap_attn = soap_attn
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
+        self.alpha_floor = float(alpha_floor)
         self.cos_sims_buffer: dict[str, Tensor] = {}
 
         param_groups = []
@@ -642,6 +655,8 @@ class Muon(torch.optim.Optimizer):
         for group in self.param_groups:
             params = group["params"]
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
+            eps_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
+            eps_count = 0
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
@@ -660,7 +675,10 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
-                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
+                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state, alpha_floor=self.alpha_floor)
+                        if self.alpha_floor > 0.0 and "last_adaptive_eps" in state:
+                            eps_sum.add_(state["last_adaptive_eps"].float())
+                            eps_count += 1
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
                             u_muon = soap_ns_step(raw_nesterov)
@@ -680,6 +698,8 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+            group["_step_eps_sum"] = eps_sum
+            group["_step_eps_count"] = eps_count
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -702,6 +722,36 @@ class Muon(torch.optim.Optimizer):
                 mean = float(norm_sum.item()) / count
             name = group.get("name", f"group_{g_idx}")
             result[name] = mean
+        return result
+
+    def get_step_adaptive_eps(self) -> dict[str, float]:
+        """Return per-group mean adaptive eps used by SOAP this step.
+
+        Only meaningful when alpha_floor > 0. Returns empty dict otherwise
+        or when no SOAP params contributed.
+        """
+        if self.alpha_floor <= 0.0:
+            return {}
+        world_size = dist.get_world_size()
+        result: dict[str, float] = {}
+        for g_idx, group in enumerate(self.param_groups):
+            eps_sum = group.get("_step_eps_sum", None)
+            local_count = group.get("_step_eps_count", 0)
+            if eps_sum is None:
+                continue
+            if world_size > 1:
+                es = eps_sum.clone()
+                cnt = torch.tensor(float(local_count), device=es.device, dtype=torch.float32)
+                dist.all_reduce(es, op=dist.ReduceOp.SUM)
+                dist.all_reduce(cnt, op=dist.ReduceOp.SUM)
+                total_count = int(cnt.item())
+                if total_count == 0:
+                    continue
+                result[group.get("name", f"group_{g_idx}")] = float(es.item()) / total_count
+            else:
+                if local_count == 0:
+                    continue
+                result[group.get("name", f"group_{g_idx}")] = float(eps_sum.item()) / local_count
         return result
 
 
@@ -794,6 +844,8 @@ if dist.get_rank() == 0:
             "ema_eval_enabled": args.ema_eval_decay is not None,
             "mu_cooldown_target": args.mu_cooldown_target,
             "mu_cooldown_enabled": args.mu_cooldown_target is not None,
+            "soap_eps_floor": args.soap_eps_floor,
+            "soap_eps_floor_enabled": args.soap_eps_floor > 0.0,
         },
     )
 
@@ -882,6 +934,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        alpha_floor=args.soap_eps_floor,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1237,6 +1290,7 @@ for trial_idx in range(args.num_trials):
 
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
+            adaptive_eps_per_group = optimizer2.get_step_adaptive_eps()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
@@ -1256,6 +1310,13 @@ for trial_idx in range(args.num_trials):
                 for group in optimizer2.param_groups:
                     gname = group.get("name", "muon")
                     per_group_metrics[f"train/mu/{gname}"] = float(group["mu"])
+                if adaptive_eps_per_group:
+                    eps_values = list(adaptive_eps_per_group.values())
+                    per_group_metrics["train/soap/adaptive_eps_mean"] = (
+                        sum(eps_values) / len(eps_values)
+                    )
+                    for gname, eps_mean in adaptive_eps_per_group.items():
+                        per_group_metrics[f"train/soap/adaptive_eps/{gname}"] = eps_mean
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
