@@ -1,3 +1,52 @@
+## 2026-06-02 02:38 UTC — Cycle 71 mid-556 — fern #2212 CLOSED (462nd refute / **EMBED M-AXIS × F=0.99 FULLY CLOSED — M-INVARIANT BINARY F-AXIS CONFIRMED ACROSS M ∈ {1, 2, 3}** at 85% prior REALIZED; bilateral n=2 BYTE-IDENTICAL POD-BLOCK with step-25 nonfinite 147,758,208 + step-125 nonfinite 147,984,768; step-1 grad_norm 0.077% M-axis discriminant (233,797.60 M=3 vs 233,618.18 M=1) does NOT propagate to cascade; compile-time graph specialization M-INVARIANT across all moment-reset substrates; fern #2220 EMBED M=3 F=1.0 final cell of M × F=1.0 matrix assigned at 90% STABLE prior) + alphonse #2215 SENT BACK to status:wip — **advisor self-correction acknowledged 2 transcription errors in PR command** (AUX_BETA1_EMBED=0.5 typo, should be 0.8; MLP_SOAP_FRONT_FAST_ENABLED phantom env-var, should be 3-var canonical stanza); saved memory `feedback_mlp_soap_env_var_canonical_stanza` to prevent recurrence; corrected launch command provided. Fleet 8/8 WIP. Cumulative: **462 refuted / 313 mech classes / 285 family closures / 12 axes / 66 RTM precedents / 51 pod-stability observations**.
+
+### fern #2212 CLOSED — 462nd refute / EMBED M-AXIS × F=0.99 FULLY CLOSED
+
+**Bilateral terminal — EMBED M=3 F=0.99 JOINT RESET**:
+- Arm A `b2q14069` SEED=1: step-25 nonfinite **147,758,208**, step-125 nonfinite **147,984,768**, step-125 NaN
+- Arm B `0gra17gs` SEED=2: BYTE-IDENTICAL across step-25, step-50, step-125 cascade fingerprints
+
+**EMBED M-axis × F=0.99 matrix now fully closed**:
+| EMBED M-axis | F ∈ {0.25, 0.5, 0.75} | F=0.99 |
+|---|---|---|
+| M=1 | #2194 triple-byte-identical POD-BLOCK | #2203 quadruple-byte-identical POD-BLOCK |
+| M=2 | (UNTESTED) | #2206 POD-BLOCK |
+| M=3 | (UNTESTED) | **#2212 (THIS) POD-BLOCK BYTE-IDENTICAL ✓** |
+
+**Compile-time graph specialization mechanism is M-INVARIANT** across all moment-reset substrates. The 11th structural axis (M-INVARIANT binary F-axis within EMBED) is fully consolidated.
+
+**Step-1 grad — sole M-axis discriminant**: step-1 grad_norm 233,797.60 (M=3) vs 233,618.18 (M=1) — 0.077% difference is the first observed M-axis discriminant in the binary F-axis. Does NOT propagate to step-25 cascade (both arrive at byte-identical attractor 147,758,208). Suggests step-1 path is mildly M-axis-sensitive but the step-25 attractor is purely structural (compile-time / initialization-time path).
+
+### alphonse #2215 SENT BACK — advisor self-correction on 2 transcription errors
+
+Alphonse's pre-launch verification caught two discrepancies in my #2215 PR command that would have produced misconfigured runs:
+
+1. **AUX_BETA1_EMBED**: I wrote `0.5` (carrier value from #2186/#2192/#2198 lineage), but the variance characterization of #2190 requires `0.8` (default). #2190 was a 2-CARRIER stack with embed default + (lm_head=0.7, scalars=0.9) carriers, not a 3-carrier stack.
+
+2. **MLP-SOAP env vars**: I wrote `MLP_SOAP_FRONT_FAST_ENABLED=1` — a PHANTOM env-var name not in source. Correct canonical stanza is the 3-var dispatch: `MLP_SOAP_PER_DEPTH_HALF_ENABLED=1 MLP_SOAP_FRONT_HALF=fast MLP_SOAP_BACK_HALF=slow` (per #1806-ASKELADD-COMPOUND).
+
+**Action**: Acknowledged both errors with apology + provided corrected launch command + sent back to status:wip. Saved memory `feedback_mlp_soap_env_var_canonical_stanza` to prevent recurrence (related to `feedback_phantom_envvar_template_drift` general pattern).
+
+Student is in safe parking state and ready to launch immediately with corrected config.
+
+### fern #2220 next — EMBED M=3 F=1.0 final cell
+
+Tests the M × F=1.0 stability matrix final cell. Predictions:
+- 90% STABLE floor band (compile-time `.mul_(1.0)` constant-fold elision → no-op joint reset)
+- 10% POD-BLOCK / MILD-DRIFT (joint-dispatch-specific F=1.0 destabilization)
+
+If STABLE → EMBED M-INVARIANT F=1.0 STABILITY MIRROR FULLY CLOSED across M ∈ {1, 2, 3}.
+
+### Cycle 71 mid-556 fleet status
+
+Fleet 8/8 WIP. In-flight: nezuko #2214 (no-carrier × PROJ-ONLY dispatch-flag at 75% prior POD-BLOCK), alphonse #2215 (n=4 SEED=3-6 variance with CORRECTED config), edward #2216 (SCALARS M=1 F=1.0 third-substrate axis), tanjiro #2201 (Arm B ETA), frieren #2205 (SCALARS-HIGHER × MLP-SOAP), askeladd #2217 (MLP-SOAP back=fast depth-reverse), thorfinn #2218 (MLP-SOAP × LM_HEAD M=1 F=1.0 buffering M-axis), fern #2220 (EMBED M=3 F=1.0 final cell).
+
+Cumulative: **462 refuted / 313 mech classes / 285 family closures / 12 axes / 66 RTM precedents / 51 pod-stability observations**.
+
+The mid-556 closure CONSOLIDATES the 11th structural axis (EMBED M-INVARIANT binary F-axis × F=0.99 closed across M ∈ {1, 2, 3}). Next high-information closures: EMBED M=3 F=1.0 final cell (fern #2220), depth-axis productive symmetry (askeladd #2217), buffering M-axis closure (thorfinn #2218), no-carrier dispatch-flag mechanism (nezuko #2214), variance characterization (alphonse #2215 with corrected config), third-substrate F=1.0 (edward #2216).
+
+---
+
 ## 2026-06-02 02:30 UTC — Cycle 71 mid-555 — askeladd #2189 CLOSED (460th refute / **CANCELLATION at 25% prior realized** — MLP-SOAP front=fast × EMBED-RESET M=2 F=0.25 bilateral n=2 mean 3.27053 floor band lower edge; productive levers fail to compose additively; Arm B `x45e9y8b` SEED=2 at 3.26948 SUB-FLOOR OUTLIER; askeladd #2217 MLP-SOAP back=fast ISOLATED depth-orientation reverse assigned) + thorfinn #2191 CLOSED (461st refute / **MAJOR STRUCTURAL FINDING — MLP-SOAP UNIVERSALLY BUFFERS F=1.0 SECONDARY DESTAB ON LM_HEAD M=2** at 60% prior realized; first cross-destab-class buffering confirmation in cycle 71; MLP-SOAP front=fast emerges as 12th structural mechanism axis: **GENERAL DESTAB-CLASS BUFFER**; bilateral mean 3.27040 floor band lower edge with cleared step-1 grad-explosion + cleared step-125 NaN; vs #2160 LM_HEAD M=2 F=1.0 ISOLATED BILATERAL POD-BLOCK 234,624; thorfinn #2218 MLP-SOAP × LM_HEAD M=1 F=1.0 buffering M-axis closure assigned) + issue #2122 confirmed addressed (no new human comments). Fleet 8/8 WIP. Cumulative: **461 refuted / 312 mech classes / 284 family closures / 12 axes / 65 RTM precedents / 51 pod-stability observations**.
 
 ### thorfinn #2191 CLOSED — 461st refute / MAJOR STRUCTURAL FINDING: MLP-SOAP UNIVERSAL BUFFERING (12th AXIS)
