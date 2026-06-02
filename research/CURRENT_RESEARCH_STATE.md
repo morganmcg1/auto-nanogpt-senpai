@@ -1,3 +1,48 @@
+## 2026-06-02 00:35 UTC — Cycle 71 mid-550 — frieren #2175 CLOSED (454th refute / **SCALARS-HIGHER × PROJ-EXCLUDED → 3.27105 FLOOR-BAND CANCELLATION confirming SOLO-ONLY pattern is COMPOUND-CLASS UNIVERSAL across 4 axes in 2 structurally different classes — productive × productive AND productive × safe-cardinality both cancel; proj-excluded cell is a "non-productive carrier" that dominates outcome regardless of layered productive lever** / 62nd RTM precedent) + frieren #2205 new assignment (**SCALARS-HIGHER β1=0.9 × MLP-SOAP front=fast SUBSTRATE-ORTHOGONAL probe** — cleanest test of SOLO-ONLY universality by pairing 1D scalar params with 2D MLP weight matrices, NO substrate overlap; 45% FLOOR-BAND CANCELLATION (5th SOLO-ONLY) / 25% PRODUCTIVE-STACKING-MILD / 15% PRODUCTIVE-MERGE / 10% POD-BLOCK / 5% MILD-DRIFT). Fleet 8/8 WIP. Cumulative: **454 refuted / 305 mech classes / 277 family closures / 11 axes / 62 RTM precedents / 48 pod-stability observations**.
+
+### frieren #2175 CLOSED — 454th refute / SOLO-ONLY is COMPOUND-CLASS UNIVERSAL
+
+**Bilateral terminal — clean RTM-NEGATIVE floor band**:
+- Arm A `jwg7t4v4` SEED=1: val_loss **3.27062** (first_step_to_target 3025)
+- Arm B `6bxmljap` SEED=2: val_loss **3.27148** (first_step_to_target 3050)
+- **n=2 mean μ = 3.27105** (range 0.00086); stat margin 0.01266 ≫ 0.004
+- Above MERGE bar 3.26776 by +0.00329
+- **Above sub-floor 3.26910 (#2068 scalars-HIGHER ISOLATED) by +0.00195 → REGRESSION vs solo**
+
+### SOLO-ONLY pattern — now COMPOUND-CLASS UNIVERSAL across 4 axes
+
+| Class | Compound | Outcome |
+|---|---|---|
+| productive × productive | #2101 (scalars-HIGHER × substrate-reset) | CANCELLATION |
+| productive × productive | #2109 (scalars-HIGHER × substrate-β1) | CANCELLATION |
+| productive × productive | #2139 (scalars-HIGHER × depth-orientation) | CANCELLATION |
+| **productive × safe-cardinality** | **#2175 (scalars-HIGHER × proj-excluded) THIS** | **CANCELLATION (62nd RTM precedent)** |
+
+→ **The proj-excluded cell does NOT serve as a "carrier-replacement substrate platform" for scalars-HIGHER.** Compound regressed BELOW scalars-HIGHER solo by 0.00195; proj-substrate removal reduces effective optimization budget available to scalars-HIGHER long-memory mechanism. Proj-excluded acts as "non-productive carrier" — dominates outcome regardless of layered productive lever (Δ to #2085 proj-excluded ISOLATED only +0.000625 within seed noise).
+
+### Substrate-orthogonality decisive test — frieren #2205
+
+All 4 SOLO-ONLY confirmations share substrate overlap: scalars-HIGHER touches Adam preconditioner state for adam_scalars; each compound counterpart touches Adam preconditioning machinery that interacts with adam_scalars state. **frieren #2205 is the CLEAN substrate-orthogonal test** pairing:
+- SCALARS-HIGHER β1=0.9 → 1D scalar params (bias/scale/shift) via adam_scalars
+- MLP-SOAP front=fast → 2D MLP weight matrices via per-depth-half Muon SOAP
+- **NO substrate overlap, NO shared param group**
+
+If THIS ALSO cancels, the SOLO-ONLY pattern is **structurally universal** and cycle-71 MERGE-bar break truly requires a NEW mechanism family.
+
+Priors: 45% FLOOR-BAND CANCELLATION (5th SOLO-ONLY confirmation) / 25% PRODUCTIVE-STACKING-MILD / 15% PRODUCTIVE-MERGE / 10% POD-BLOCK / 5% MILD-DRIFT.
+
+### askeladd #2189 status update (mid-549 follow-up)
+
+Arm A `auoj7e05` terminal at val_loss **3.27160** (floor-band CANCELLATION direction (3) at 25% prior). Refutes PRODUCTIVE-STACKING-MILD and PRODUCTIVE-MERGE priors for MLP-SOAP × EMBED-RESET M=2 F=0.25 stacking. Dual-Arm-A-SEED=1 anomaly flagged in advisor nudge — student authorized to kill duplicates and relaunch as Arm B SEED=2.
+
+### Cycle 71 mid-550 fleet status
+
+Fleet 8/8 WIP. Cumulative: **454 refuted / 305 mech classes / 277 family closures / 11 axes / 62 RTM precedents / 48 pod-stability observations**.
+
+The mid-550 closure completes the productive × safe-cardinality compound class test. frieren #2205 (substrate-orthogonal) provides the cleanest test of SOLO-ONLY pattern universality across orthogonal substrate axes. Joint resolution of #2205 + the in-flight carrier-substrate decomposition matrix (nezuko #2198 / tanjiro #2201) will characterize whether the SOLO-ONLY pattern is mechanism-class universal OR substrate-overlap specific.
+
+---
+
 ## 2026-06-01 23:55 UTC — Cycle 71 mid-549 — fern #2194 CLOSED (453rd refute / **EMBED M=1 F=0.75 BILATERAL POD-BLOCK with TRIPLE BYTE-IDENTITY at F ∈ {0.25, 0.5, 0.75} step-25 nonfinite_count 147,758,208 IDENTICAL across F values — asymptotic-stability hypothesis CONFIRMED; only F=1.0 (identity) recovers; F-axis acts BEFORE reset code runs at step 200 → compile-time/initialization MECHANISM MYSTERY** / 48th pod-stability observation; bilateral n=2 Arm A `9xz1drxz` / Arm B `cyv1hud8` step-1 grad ~234k saturated + step-125 NaN cascade; refutes F=0.75-STABLE 60% prior; F-coupling boundary localized to F ∈ (0.75, 1.0) — extreme asymptotic-stability bracket) + fern #2203 new assignment (**EMBED M=1 F=0.99 ULTRA-TIGHTENING DECISIVE TEST** — disambiguates F=1.0 unique-stability mechanism between IDENTITY-NUMERICAL-PROPERTY vs COMPILE-TIME/INITIALIZATION code-path artifact; 70% F=0.99-POD-BLOCK / 25% F=0.99-STABLE / 5% MILD-DRIFT). Fleet 8/8 WIP. Cumulative: **453 refuted / 305 mech classes / 277 family closures / 11 axes / 61 RTM precedents / 48 pod-stability observations**.
 
 ### fern #2194 CLOSED — 453rd refute / EMBED M=1 F=0.75 BILATERAL POD-BLOCK TRIPLE BYTE-IDENTITY
