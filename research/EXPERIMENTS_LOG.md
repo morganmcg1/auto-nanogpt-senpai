@@ -16426,3 +16426,33 @@ Rationale: Although FFS<3000 merge probability is LOW (val gain is post-cooldown
 - TIE (FFS=3000 EXACT): β₁ at LaProp eps=1e-8 is canalized — close axis (joins TIE-on-FFS family).
 - NEG (FFS>3025): β₁>0.8 destabilizes LaProp — close axis, mechanism rejection.
 
+---
+
+## 2026-06-02 02:00 UTC — PR #2165 CLOSED: H373 fern LSUV (Layer-Sequential Unit-Variance) INIT probe at H266 stack — 227th NULL/TIE (2nd AURORA-MECHANISM-STACK-CONDITIONAL class entry of cycle ~2700 + INIT-side mechanism-redundancy with `scale_invariant` MuonH F-norm preservation jointly confirmed via Aurora row-norm equalization (H366) + LSUV depth-aware variance rescaling (H373))
+
+- Branch: `g1r3-fern/h373-lsuv-init-probe`
+- Hypothesis: LSUV (Mishkin & Matas 2015) iteratively rescales each body 2D weight so post-Linear pre-nonlinearity output activations have target_std variance. Mechanism-distinct from `body_init=orthogonal_fnorm_matched` (depth-blind F-norm matching) — LSUV's depth-cascade variance flow could pick up signal the H266 init missed.
+- Cycle ~2700 cumulative: **227 NULL/NEG/TIE + 1 MERGED WIN**.
+
+| Arm | `--body_init_lsuv` | `--body_init_lsuv_target_std` | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 | Class |
+|-----|--------------------|-----------------------------|----------|-----|---------------------|-----------|-------|
+| arm_a CTRL safe-default | 0 (short-circuit) | 1.0 (unused) | 3.27017 | **3050** | (ref) | +2.25σ | Pattern A +50 envelope, 35th candidate H266 cluster anchor |
+| arm_b LSUV classical | 1 | 1.0 (unit-variance) | 3.27085 | **3050** | +0.77σ | +3.02σ | TIE-on-FFS (canalized), 36th cluster anchor |
+| arm_c LSUV_STRICT | 1 | 0.5 (half-variance) | **3.26991** | **3050** | **−0.29σ** | +1.96σ | TIE-on-FFS (canalized), 37th cluster anchor (LOWEST val of H373) |
+
+**Key mechanism finding — 2nd AURORA-MECHANISM-STACK-CONDITIONAL class entry**: H373 confirms H366 Aurora prior. LSUV produces substantial INIT F-norm changes (ratios spanning 0.477× mlp.proj to 6.54× block-0 attn.proj) but the `scale_invariant` MuonH operator absorbs the difference via its F-norm preservation invariant. Mid-training lead arm_b held vs arm_a (-0.0025 nat at step 1125, ~-2.8σ) collapses to +0.77σ noise at terminal — cooldown phase + F-norm preservation jointly absorb LSUV's depth-aware rescaling effect.
+
+**Critical depth-cascade observation reproduced from smoke through chain**: block-0 attn.proj is uniquely under-variance (0.153 std → 6.54× scale-up) because residual stream hasn't accumulated variance yet at depth 0. attn.q/k/v cluster at ~0.575 std → ~1.74× scale-up. mlp.fc cluster at ~0.86 → ~1.16× scale-up. mlp.proj cluster at ~2.1 → ~0.48× scale-down. This depth profile is consistent and reproducible — confirms LSUV mechanism functioning correctly, but the H266 stack's `scale_invariant` operator normalizes around this redistribution within ~500 steps.
+
+**Pattern A bit-id verification**: arm_a CTRL step-0 val=10.82583 EXACT + body F-norms match H266 baseline EXACTLY (15.916 / 47.610 / 15.902 / 47.654 / 15.899 / 47.600 sample). Safe-default `body_init_lsuv=0` short-circuit verified non-disruptive. arm_b/arm_c step-0 val also 10.82583 (invariant because zero-init lm_head dominates step-0 prediction regardless of body F-norm shifts).
+
+**arm_a CTRL +50 FFS envelope is noteworthy**: this is the second cycle ~2700 anchor that lands at Pattern A +50 instead of +25 (H367 LATE-ONLY CTRL was +50). Suggests Pattern A is NOT strictly +25 for the H266 reproduce config at `--num_trials 1 --train_steps 3325` — there's an inherent +25/+50 cluster spread. Does not invalidate the safe-default check.
+
+**INIT-side mechanism class taxonomy update**: Cycle ~2700 INIT-side now has 5 closures: H351 F-norm coupling (HARD-LOAD-BEARING), H357 per-layer F-norm exponent (BILATERAL CATASTROPHIC), H365 inverse α F-norm (HARD-LOAD-BEARING), H366 Aurora (TIE AURORA-STACK-CONDITIONAL), H373 LSUV (TIE AURORA-STACK-CONDITIONAL). Joint Aurora+LSUV closure establishes that **`scale_invariant` MuonH F-norm preservation is a STRONG canalizer for INIT-side variance/row-norm equalization mechanisms** — both H366 (Aurora alternating projection) and H373 (LSUV depth-cascade variance rescaling) produce the same TIE-on-FFS verdict via the same canalization mechanism.
+
+**arm_c marginally lowest val (3.26991, -0.29σ vs CTRL)** is sub-σ noise but worth noting as 3rd CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class entry (joining H371 arm_c LaProp eps=1e-8 and H372 arm_c Adan β₃=0.95). All three are sub-σ POSITIVE val/loss anchors at H266 stack via mechanism-distinct paths. Recurrent pattern of cycle ~2700: H266 attractor has both FFS-axis canalization gate AND val/loss drift sensitivity at specific anchors.
+
+**Decision: CLOSE H373** — INIT-side AURORA-STACK-CONDITIONAL axis closed, mechanism-redundant with `scale_invariant` MuonH. Student's primary recommendation accepted.
+
+**fern assigned H379 AdaBelief AUX optimizer** — fresh AUX-side mechanism (Zhuang et al. 2020, arXiv:2010.07468). Mechanism-distinct from all in-flight AUX probes: replaces AdamW's 2nd-moment `v=β₂v+(1-β₂)g²` with AdaBelief's `s=β₂s+(1-β₂)(g-m)²+eps` — "belief" that gradient matches momentum direction. When confident (g≈m): small s → larger update. When unconfident (g varies from m): large s → smaller update. Mechanism-orthogonal to H371 LaProp (operation-order), H368 AdEMAMix (dual-EMA), H376 Sophia-H (Hessian-diag, in flight). Single forward-backward pass; ~5 LoC code change.
+
