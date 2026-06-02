@@ -470,6 +470,12 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
+# PR #2244 — per-kind body-Muon LR dispatch (attn QKV/proj vs mlp fc/proj).
+# When enabled, MUON_LR_ATTN applies to attn.{q,k,v,proj}.weight and
+# MUON_LR_MLP applies to mlp.{fc,proj}.weight. When disabled, MUON_LR is uniform.
+PER_KIND_MUON_LR_ENABLED = int(os.environ.get("PER_KIND_MUON_LR_ENABLED", "0")) == 1
+MUON_LR_ATTN = float(os.environ.get("MUON_LR_ATTN", "0.04"))
+MUON_LR_MLP = float(os.environ.get("MUON_LR_MLP", "0.04"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
@@ -685,6 +691,15 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
     return precond.to(update.dtype)
 
 
+def _is_body_attn_name(n: str) -> bool:
+    return (n.endswith(".attn.q.weight") or n.endswith(".attn.k.weight")
+            or n.endswith(".attn.v.weight") or n.endswith(".attn.proj.weight"))
+
+
+def _is_body_mlp_name(n: str) -> bool:
+    return n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU):
         assert isinstance(named_params, list) and len(named_params) >= 1
@@ -736,9 +751,25 @@ class Muon(torch.optim.Optimizer):
                 else:
                     self.mlp_soap_beta2[id(p)] = SOAP_BETA2
                     self.mlp_soap_depth_half[id(p)] = "uniform"
-        params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
-        super().__init__(params, defaults)
+        if PER_KIND_MUON_LR_ENABLED:
+            attn_named = [(n, p) for n, p in named_params if _is_body_attn_name(n)]
+            mlp_named = [(n, p) for n, p in named_params if _is_body_mlp_name(n)]
+            assert len(attn_named) + len(mlp_named) == len(named_params), (
+                f"PER_KIND_MUON_LR classifier incomplete: "
+                f"attn={len(attn_named)} + mlp={len(mlp_named)} != total={len(named_params)}; "
+                f"unmatched={[n for n, _ in named_params if not (_is_body_attn_name(n) or _is_body_mlp_name(n))]}"
+            )
+            attn_params = sorted([p for _, p in attn_named], key=lambda x: x.size(), reverse=True)
+            mlp_params = sorted([p for _, p in mlp_named], key=lambda x: x.size(), reverse=True)
+            groups = [
+                dict(params=attn_params, lr=MUON_LR_ATTN, mu=mu, weight_decay=weight_decay, name="muon_blocks_attn"),
+                dict(params=mlp_params, lr=MUON_LR_MLP, mu=mu, weight_decay=weight_decay, name="muon_blocks_mlp"),
+            ]
+            super().__init__(groups, defaults)
+        else:
+            params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
+            super().__init__(params, defaults)
 
     @torch.no_grad()
     def step(self):
@@ -961,6 +992,18 @@ if dist.get_rank() == 0:
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
+            # PR #2244 — per-kind body-Muon LR dispatch (attn QKV/proj vs mlp fc/proj).
+            "optimizer/per_kind_muon_lr_enabled": int(PER_KIND_MUON_LR_ENABLED),
+            "optimizer/muon_lr_attn": MUON_LR_ATTN,
+            "optimizer/muon_lr_mlp": MUON_LR_MLP,
+            "optimizer/muon_attn_param_count": sum(
+                1 for n, p in model.blocks.named_parameters()
+                if p.ndim >= 2 and _is_body_attn_name(n)
+            ),
+            "optimizer/muon_mlp_param_count": sum(
+                1 for n, p in model.blocks.named_parameters()
+                if p.ndim >= 2 and _is_body_mlp_name(n)
+            ),
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
@@ -1057,7 +1100,8 @@ for trial_idx in range(args.num_trials):
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if not PER_KIND_MUON_LR_ENABLED:
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
 
     # PR #2007 step-0 banner: confirm both compound infras are config-operative.
     if dist.get_rank() == 0:
@@ -1073,6 +1117,23 @@ for trial_idx in range(args.num_trials):
         )
         print0(_banner_mlp, console=True)
         print0(_banner_beta1, console=True)
+        # PR #2244 — per-kind body-Muon LR dispatch banner with attn/mlp counts.
+        _attn_count = sum(len(g["params"]) for g in optimizer2.param_groups
+                          if g.get("name") == "muon_blocks_attn")
+        _mlp_count = sum(len(g["params"]) for g in optimizer2.param_groups
+                         if g.get("name") == "muon_blocks_mlp")
+        _total_body_muon = sum(len(g["params"]) for g in optimizer2.param_groups)
+        if PER_KIND_MUON_LR_ENABLED:
+            assert _attn_count + _mlp_count == _total_body_muon, (
+                f"[PR-EDWARD-KIND-MUON] count mismatch: "
+                f"attn={_attn_count} + mlp={_mlp_count} != total={_total_body_muon}"
+            )
+        print0(
+            f"[PR-EDWARD-KIND-MUON] PER_KIND_MUON_LR enabled={int(PER_KIND_MUON_LR_ENABLED)} "
+            f"attn_lr={MUON_LR_ATTN} mlp_lr={MUON_LR_MLP} "
+            f"attn_count={_attn_count} mlp_count={_mlp_count} total={_total_body_muon}",
+            console=True,
+        )
         # Per-param β2 distribution diagnostic for MLP-SOAP depth-half:
         _front_betas = sorted({optimizer2.mlp_soap_beta2[id(p)]
                                for p in optimizer2.soap_params
