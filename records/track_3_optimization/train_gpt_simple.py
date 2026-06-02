@@ -82,6 +82,9 @@ def parse_args():
     # β2 schedule on aux AdamW (embed/lm_head/scalars). Mutates param_groups[*]['betas']
     # each step. constant = baseline (fused=True kept); cooldown_ramp = fused=False so
     # PyTorch reads the updated betas from the param_group on every .step() call.
+    parser.add_argument("--aux_beta1", type=float, default=float(os.environ.get("AUX_BETA1", "0.8")),
+                        help="AUX AdamW/LaProp first-moment EMA decay β₁ (default 0.8 = H266 stack). "
+                             "LaProp paper recommends 0.9 (Ziyin et al. ICML 2021).")
     parser.add_argument("--aux_beta2_schedule", type=str, default=os.environ.get("AUX_BETA2_SCHEDULE", "constant"),
                         choices=["constant", "cooldown_ramp"],
                         help="If 'cooldown_ramp', ramp aux AdamW β2 from --aux_beta2_start to --aux_beta2_end "
@@ -857,7 +860,7 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
-print0(f"AUX optimizer: {args.aux_optimizer} (eps={args.aux_adamw_eps})", console=True)
+print0(f"AUX optimizer: {args.aux_optimizer} (eps={args.aux_adamw_eps}, β₁={args.aux_beta1})", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -912,6 +915,7 @@ if dist.get_rank() == 0:
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
             "aux_optimizer": args.aux_optimizer,
+            "aux_beta1": args.aux_beta1,
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
@@ -1002,10 +1006,10 @@ for trial_idx in range(args.num_trials):
         # Replicate AdamW path EXACTLY (same param groups + lr + name + betas + eps + wd).
         # Only the optimizer class differs — clean A/B mechanism comparison.
         optimizer1 = LaProp(_aux_param_groups,
-                            betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0)
+                            betas=(args.aux_beta1, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0)
     else:
         optimizer1 = AdamW(_aux_param_groups,
-                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+                           betas=(args.aux_beta1, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
