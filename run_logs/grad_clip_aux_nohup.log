@@ -1,0 +1,21 @@
+[PRE-LAUNCH] OK: no train_gpt_simple processes, GPU at 0 MiB
+===== START PR2204 grad-clip-aux 3-arm chain 2026-06-02T00:09:38Z =====
+==============================================
+Arm A: clip=5.0 | 2026-06-02T00:09:38Z
+  wandb_name=g1r4-thorfinn/arm-A-grad-clip-aux-5
+  log=run_logs/grad_clip_aux_arm_A.log
+==============================================
+Arm A exit code: 0 | 2026-06-02T02:36:07Z
+==============================================
+Arm B: clip=2.5 | 2026-06-02T02:36:07Z
+  wandb_name=g1r4-thorfinn/arm-B-grad-clip-aux-2.5
+  log=run_logs/grad_clip_aux_arm_B.log
+==============================================
+Arm B exit code: 0 | 2026-06-02T05:02:41Z
+==============================================
+Arm C: clip=10.0 | 2026-06-02T05:02:41Z
+  wandb_name=g1r4-thorfinn/arm-C-grad-clip-aux-10
+  log=run_logs/grad_clip_aux_arm_C.log
+==============================================
+Arm C exit code: 0 | 2026-06-02T07:29:03Z
+===== END PR2204 grad-clip-aux 3-arm chain 2026-06-02T07:29:03Z =====
