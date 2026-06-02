@@ -9450,3 +9450,33 @@ Excellent early-kill execution by fern — saved ~3 hours of GPU on a structural
 - **NS axis FULLY CLOSED:** coefficient pulses (#1660 NULL), static coefficient scans (#226/#229/#250 NULL), NS_ITERS reduction schedule (this, NULL), polar projection replacement (#1703 ADOPT / #1752 Newton-Muon / #1771 ACProp all NULL). The Newton-Schulz polar map at its baseline configuration is a robust, well-tuned component.
 - **Pristine sub-axis remaining:** phase-adaptive NS *coefficient* switching at the pEMA refresh boundary (step 2600). Static scans tested global averages; this tests whether the late-cooldown spectral distribution requires different polynomial coefficients. Assigned as #2219.
 - **alphonse REASSIGNED → #2219:** NS polynomial coefficient phase-switch at step 2600 bilateral (Jordan fast-convergence a=3.4445/b=-4.7750/c=2.0315 vs near-identity a=1.0/b=-0.1/c=0.0). Directive (a) optimizer-state rescaling at phase boundaries + directive (c) phase-specific mechanism pre-target-crossing.
+
+## 2026-06-02 10:00 UTC — PR #2208 CLOSED: askeladd post-NS update EMA on body PMuon — ❌ BILATERAL NULL; paramEMA operator FULLY EXHAUSTED
+
+- Branch: `g1r1-askeladd/post-ns-update-ema`
+- Hypothesis: Apply a paramEMA-style running average to the post-NS-update PMuon gradient (the whitened direction BEFORE momentum accumulation), using either uniform α=0.3 or block-varying α=0.1→0.5 (shallow-to-deep). Tests whether smoothing the whitened gradient signal before momentum integration reduces noise in the preconditioned update direction.
+
+| Arm | α config | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---|---:|---:|---|
+| Baseline (#1532, n=2) | — | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A uniform α=0.3** | uniform across all blocks | `o6ir57sd` | 2925 | 3.265610 | +2.76 | ❌ NULL |
+| **B block-varying α=0.1→0.5** | shallow=0.1, deep=0.5 | `dj15lanu` | 2925 | 3.266502 | +3.65 | ❌ NULL |
+
+- **Conclusion:** Post-NS whitened-direction smoothing degrades both sr and val_ema in both uniform and depth-stratified forms. Combined with prior closures of paramEMA refresh α (fern #2159: α=0.5/1.5 NULL) and paramEMA β-ramp shape (frieren #2163: linear/cosine NULL), the parameter-EMA operator family on body PMuon is now thoroughly exhausted.
+- **Closed axes within paramEMA cluster:** refresh α sweep (#2159), β-ramp shape (#2163), post-NS update EMA (this). All paramEMA axes definitively NULL.
+- **askeladd REASSIGNED → #2260:** Aux Adam per-group ε asymmetric allocation — exploiting the eps_dominance_frac asymmetry revealed in #1178 telemetry (embed ~0.69% ε-floor vs lm_head ~0.0015%). Arm A: lm_head tight ε=1e-12; Arm B: embed tight ε=1e-12. Novel cross-group differential axis, never tested.
+
+## 2026-06-02 10:00 UTC — PR #2210 CLOSED: nezuko lm_head β₂ second pulse @ step 2600 — ❌ BILATERAL NULL; β₂ re-pulse axis CLOSED
+
+- Branch: `g1r1-nezuko/lmhead-b2-repulse-2600`
+- Hypothesis: A second β₂ pulse on lm_head only at step 2600 (late cooldown phase, coinciding with paramEMA refresh boundary) recalibrates the lm_head adaptive variance window during the final acceleration phase. Tests whether extending momentum memory a second time in the critical pre-target window accelerates target crossing.
+
+| Arm | β₂ target @2600 | run | sr | val_ema | Δval mnat | Verdict |
+|---|---|---|---|---:|---:|---|
+| Baseline (#1532, n=2) | no second pulse | 9coyk2ke/09qrijtm | 2875 | 3.262854 | 0 | WIN |
+| **A β₂=0.99 (same as baseline pulse)** | 0.99 @2600, lm_head only | `0b52z10c` | 2925 | 3.264499 | +1.65 | ❌ NULL |
+| **B β₂=0.999 (more aggressive)** | 0.999 @2600, lm_head only | `swjk6518` | 2925 | 3.265939 | +3.09 | ❌ NULL |
+
+- **Conclusion:** The baseline β₂ pulse at step 975 (that won) is not generalizable to a second application at step 2600. The lm_head group does not benefit from re-extending the variance memory window a second time — the mechanism requires the specific geometry of the stable/cooldown phase transition at step 975, not the cooldown/pre-target transition at step 2600.
+- **β₂ re-pulse axis CLOSED** for the lm_head group at the 2600 boundary. Combined with prior embed β₂ pulse tests, the whole single-group re-pulse space at late phase boundaries is exhausted.
+- **nezuko REASSIGNED → #2262:** PMuon covariance EMA update stride stratified by block depth — shallow blocks stride=2 (update every other step), deep blocks stride=1 (update every step). Novel frequency-based axis (vs all prior rate-based β_cov axes). Directive (b) per-layer/per-block, (d) preconditioner state handling.
