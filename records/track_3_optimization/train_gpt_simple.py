@@ -114,6 +114,25 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H385 cross-axis AUX→BODY coupling: AUX AdamW v_t (exp_avg_sq) modulates the
+    # effective MuonH lr each step. 'off' (default sentinel) is bit-identical to
+    # baseline since coupling_s_t stays at 1.0 → effective_lr = lr * 1.0 = lr.
+    parser.add_argument("--aux_v_inject_mode", type=str,
+                        default=os.environ.get("AUX_V_INJECT_MODE", "off"),
+                        choices=["off", "direct", "inverse"],
+                        help="Cross-axis coupling: BODY MuonH effective lr modulated by AUX AdamW v_t. "
+                             "'off' (default sentinel) = no coupling, bit-identical to baseline. "
+                             "'direct' = effective_lr = lr * (s_t/s_anchor) where s_t = sqrt(mean(aux v_t)). "
+                             "'inverse' = effective_lr = lr * (s_anchor/s_t).")
+    parser.add_argument("--aux_v_inject_anchor_step", type=int,
+                        default=int(os.environ.get("AUX_V_INJECT_ANCHOR_STEP", "50")),
+                        help="Step at which to capture s_anchor = sqrt(mean(aux v_t)). "
+                             "AUX v_t is near-zero immediately post-init under β2=0.99 (100-step half-life); "
+                             "default 50 = ~half-EMA-window warmup before anchoring.")
+    parser.add_argument("--aux_v_inject_clamp", type=float,
+                        default=float(os.environ.get("AUX_V_INJECT_CLAMP", "2.0")),
+                        help="Symmetric clamp on the coupling scalar: s_t ∈ [1/clamp, clamp]. "
+                             "Default 2.0 → effective_lr ∈ [0.5x, 2x] of baseline.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -674,9 +693,13 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 aux_v_inject_mode="off",
+                 aux_v_inject_anchor_step=50,
+                 aux_v_inject_clamp=2.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
+        assert aux_v_inject_mode in ("off", "direct", "inverse")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
                         hyperball=hyperball, budget_mult=budget_mult, mode=mode)
@@ -684,9 +707,47 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # H385 cross-axis coupling state. Sentinel "off" keeps coupling_s_t at 1.0
+        # → effective_lr = group["lr"] * 1.0 = group["lr"] (bit-id with baseline).
+        self._aux_v_inject_mode = aux_v_inject_mode
+        self._aux_v_inject_anchor_step = aux_v_inject_anchor_step
+        self._aux_v_inject_clamp = aux_v_inject_clamp
+        self._aux_optimizer_ref = None       # wired externally to AdamW
+        self._current_train_step = 0          # updated externally each step
+        self._aux_v_anchor = None             # captured at anchor_step
+        self._last_aux_v_rms = 0.0            # telemetry
+        self._last_coupling_s_t = 1.0         # telemetry
 
     @torch.no_grad()
     def step(self):
+        # ===== H385 cross-axis AUX→BODY coupling =====
+        # Sentinel mode "off" → coupling_s_t stays 1.0 → effective_lr = lr * 1.0 → bit-id.
+        coupling_s_t = 1.0
+        if self._aux_v_inject_mode != "off" and self._aux_optimizer_ref is not None:
+            # Aggregate v_t = exp_avg_sq across all AUX params on GPU; single .item() at end.
+            v_sum = torch.zeros((), device="cuda", dtype=torch.float64)
+            v_count = 0
+            for p_aux in self._aux_optimizer_ref.state:
+                st_aux = self._aux_optimizer_ref.state[p_aux]
+                if "exp_avg_sq" in st_aux:
+                    v = st_aux["exp_avg_sq"]
+                    v_sum = v_sum + v.detach().double().sum()
+                    v_count += v.numel()
+            if v_count > 0:
+                v_rms = float((v_sum / v_count).sqrt().item())
+                self._last_aux_v_rms = v_rms
+                if self._aux_v_anchor is None and self._current_train_step >= self._aux_v_inject_anchor_step:
+                    self._aux_v_anchor = max(v_rms, 1e-12)
+                if self._aux_v_anchor is not None:
+                    s_raw = v_rms / self._aux_v_anchor
+                    if self._aux_v_inject_mode == "direct":
+                        coupling_s_t = s_raw
+                    else:  # inverse
+                        coupling_s_t = 1.0 / max(s_raw, 1e-6)
+                    clamp = self._aux_v_inject_clamp
+                    coupling_s_t = max(1.0 / clamp, min(clamp, coupling_s_t))
+        self._last_coupling_s_t = coupling_s_t
+        # ===== End H385 coupling =====
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         clip_count_local = 0
@@ -699,6 +760,8 @@ class MuonH(torch.optim.Optimizer):
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            # H385: scale lr by coupling_s_t. When coupling_s_t=1.0 (off mode), this is bit-id.
+            effective_lr = group["lr"] * coupling_s_t
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -710,12 +773,12 @@ class MuonH(torch.optim.Optimizer):
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
-                        scale_invariant_update_(p.data, update, group["lr"])
+                        scale_invariant_update_(p.data, update, effective_lr)
                         total_count_local += 1
                         clip_count_local += 1  # by definition projection is always active
                     else:
-                        p.mul_(1 - group["lr"] * group["weight_decay"])
-                        p.add_(update, alpha=-group["lr"])
+                        p.mul_(1 - effective_lr * group["weight_decay"])
+                        p.add_(update, alpha=-effective_lr)
                         if hb:
                             R = state["hyperball_radius"]
                             norm = p.data.norm().item()
@@ -796,6 +859,9 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+print0(f"H385 AUX→BODY coupling: mode={args.aux_v_inject_mode} "
+       f"anchor_step={args.aux_v_inject_anchor_step} clamp={args.aux_v_inject_clamp}",
+       console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -856,6 +922,9 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "aux_v_inject_mode": args.aux_v_inject_mode,
+            "aux_v_inject_anchor_step": args.aux_v_inject_anchor_step,
+            "aux_v_inject_clamp": args.aux_v_inject_clamp,
         },
     )
 
@@ -939,8 +1008,14 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       aux_v_inject_mode=args.aux_v_inject_mode,
+                       aux_v_inject_anchor_step=args.aux_v_inject_anchor_step,
+                       aux_v_inject_clamp=args.aux_v_inject_clamp)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # H385: wire AUX→BODY coupling. No-op when aux_v_inject_mode=="off".
+    if args.aux_v_inject_mode != "off":
+        optimizer2._aux_optimizer_ref = optimizer1
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1212,6 +1287,9 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H385: feed train_step into MuonH for anchor-capture gating. Cheap (one int assign).
+        if args.aux_v_inject_mode != "off":
+            optimizer2._current_train_step = train_step
         for opt in optimizers:
             opt.step()
         # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
@@ -1242,6 +1320,16 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    # H385 cross-axis coupling telemetry. Logged on every telemetry step
+                    # when coupling is active so we can trace s_t trajectory across training.
+                    if args.aux_v_inject_mode != "off":
+                        muonh_metrics["train/h385/aux_v_rms"] = opt._last_aux_v_rms
+                        muonh_metrics["train/h385/coupling_s_t"] = opt._last_coupling_s_t
+                        muonh_metrics["train/h385/effective_lr_post_coupling"] = (
+                            opt.param_groups[0]["lr"] * opt._last_coupling_s_t
+                        )
+                        if opt._aux_v_anchor is not None:
+                            muonh_metrics["train/h385/aux_v_anchor"] = opt._aux_v_anchor
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
