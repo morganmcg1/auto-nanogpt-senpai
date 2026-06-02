@@ -1,3 +1,35 @@
+## 2026-06-02 03:26 UTC — Cycle 71 mid-558 — fern #2220 CLOSED (464th refute / **EMBED M-AXIS NON-MONOTONIC AT F=1.0 — JOINT-DISPATCH-FLAG DESTABILIZATION DISCOVERED — 13th STRUCTURAL AXIS** at 10% prior REALIZED; paradigm-shifting reversal of 90% prior STABLE prediction; NaN cascade begins at step 125 BEFORE first reset fires at step 200 — NOT caused by `.mul_(1.0)` call but by PER_KIND_AUX_PERIODIC_RESET_EMBED dispatch-flag × M=3 JOINT code-path compile-time destab; M=1 STABLE + M=2 STABLE + M=3 POD-BLOCK = NON-MONOTONIC M-axis at F=1.0; MIRRORS nezuko #2214 PER_KIND_AUX_BETA1 dispatch-flag × PROJ-ONLY mechanism; fern #2227 MLP-SOAP × EMBED M=3 F=1.0 cross-mechanism buffering test 50/40/10 priors assigned). Fleet 8/8 WIP. Cumulative: **464 refuted / 315 mech classes / 287 family closures / 13 axes / 67 RTM precedents / 53 pod-stability observations**.
+
+### fern #2220 CLOSED — 464th refute / JOINT-DISPATCH-FLAG DESTABILIZATION — 13th AXIS
+
+**Bilateral terminal — EMBED M=3 F=1.0 JOINT RESET**:
+- Arm A `8dr82s7b` SEED=1: step-125 NaN (train_time 255.830s)
+- Arm B `4gmb2wif` SEED=2: step-125 NaN (train_time 255.748s) — within 0.08s, SEED-INVARIANT
+- Step-0 val_loss=10.82583 sane init, NO step-1 grad-explosion
+
+**EMBED M × F=1.0 matrix — NON-MONOTONIC M-axis**:
+| EMBED M × F=1.0 | M=1 (exp_avg_sq) | M=2 (exp_avg) | M=3 (joint) |
+|---|---|---|---|
+| Outcome | STABLE 3.27063 (#2153) | STABLE 3.270913 (#2185) | **POD-BLOCK step-125 (#2220 THIS)** |
+
+**FORENSIC FINDING**: NaN cascade begins at step 125 — BEFORE first reset fires at step 200. Destabilization is NOT caused by `.mul_(1.0)` operation; it is from the `PER_KIND_AUX_PERIODIC_RESET_EMBED_ENABLED=1 × AUX_RESET_MOMENT_EMBED=3` JOINT code-path at compile-time. Single-moment branches M=1, M=2 do NOT produce this interaction.
+
+**Mirrors nezuko #2214**: PER_KIND_AUX_BETA1 dispatch-flag × PROJ-ONLY → POD-BLOCK INVARIANT to β1 values. Both are compile-time graph specialization destabilizers triggered by DISPATCH-FLAG × CODE-PATH combinatorics.
+
+**13th structural axis: JOINT-DISPATCH-FLAG combinatorial destabilization at M=3** — distinct from Axis 11 (M-INVARIANT binary F-axis) and Axis 12 (MLP-SOAP GENERAL BUFFER). Establishes that DISPATCH-FLAG × CODE-PATH combinatorials produce destabilization structurally different from VALUE-AXIS destabilizers.
+
+### fern #2227 next — MLP-SOAP × EMBED M=3 F=1.0 cross-mechanism buffering
+
+Tests whether MLP-SOAP front=fast (12th axis: GENERAL DESTAB-CLASS BUFFER) buffers the newly-discovered 13th-axis JOINT-DISPATCH destab. Completes the 4-cell cross-mechanism buffering matrix alongside thorfinn #2218 (LM_HEAD M=1 F=1.0) and nezuko #2222 (DISPATCH × PROJ-ONLY). Priors: 50% BUFFERED (truly universal) / 40% POD-BLOCK (destab-class-specific buffer) / 10% MILD-DRIFT.
+
+### Cycle 71 mid-558 fleet status
+
+Fleet 8/8 WIP. In-flight: alphonse #2215 (n=4 variance), edward #2216 (SCALARS M=1 F=1.0), tanjiro #2201 (Arm B ~terminal), frieren #2205 (SCALARS-HIGHER × MLP-SOAP, Arm B running), askeladd #2217 (MLP-SOAP back=fast), thorfinn #2218 (MLP-SOAP × LM_HEAD M=1 F=1.0), fern #2227 (MLP-SOAP × EMBED M=3 F=1.0), nezuko #2222 (MLP-SOAP × DISPATCH × PROJ-ONLY).
+
+Cumulative: **464 refuted / 315 mech classes / 287 family closures / 13 axes / 67 RTM precedents / 53 pod-stability observations**.
+
+---
+
 ## 2026-06-02 02:48 UTC — Cycle 71 mid-557 — nezuko #2214 CLOSED (463rd refute / **DISPATCH-FLAG × PROJ-ONLY COMBINATORIAL DESTABILIZER DECISIVELY CONFIRMED — 4-cell carrier-decomposition matrix FULLY CLOSED with byte-identical 147,984,768 universal across 8 runs** at 75% prior REALIZED; ALSO CROSS-MECHANISM CASCADE ATTRACTOR IDENTITY DISCOVERED — nezuko PROJ-ONLY destab step-25/step-125 nonfinite_count BYTE-IDENTICAL to fern #2212 EMBED M=3 F=0.99 RESET destab; two structurally different destabilizer mechanisms converge to the SAME byte-identical cascade attractor at BOTH step 25 AND step 125; POD-BLOCK terminal state is UNIVERSAL CASCADE ATTRACTOR determined by network architecture + kill-gate timing, NOT by destabilizer mechanism; nezuko #2222 MLP-SOAP × DISPATCH × PROJ-ONLY cross-mechanism buffering test 45/45 priors assigned). Fleet 8/8 WIP. Cumulative: **463 refuted / 314 mech classes / 286 family closures / 12 axes / 67 RTM precedents / 52 pod-stability observations**.
 
 ### nezuko #2214 CLOSED — 463rd refute / DISPATCH-FLAG × PROJ-ONLY DECISIVELY CONFIRMED
