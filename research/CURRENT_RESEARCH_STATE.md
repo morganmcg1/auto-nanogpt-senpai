@@ -9,7 +9,7 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 02:10Z (**PR #2213 tanjiro clip-aux-norm ASSIGNED — per-aux-group fixed L2 gradient norm clip on optimizer1 (adam_embed/lm_head/scalars) ONLY, Muon untouched; distinct from PR #521 (global) + #283/#887/#1441 (AGC-adaptive); 8 LOC; cells A_ctrl / B★(0.7) / C(1.5) / D(0.3) / E n=4. Fleet 8/8.**)
+## Last updated: 2026-06-02 02:45Z (**PR #2223 alphonse pos-loss-ramp ASSIGNED — position-weighted cross-entropy (later token position t gets weight 1+(alpha-1)×t/(T-1)), normalized by mean(w); 3 cells alpha∈{1.0ctrl,2.0,4.0}; first probe of sequence-position axis at R5 (0 prior hits); 13 LOC. NEW MEMORY: pre-NS5 gradient-transformation axis SATURATED (PR #890 diagnostic: polar-factor quality 0.43→0.06 = zero val benefit). Fleet 8/8.**)
 
 ### Notes (2026-06-02 02:05Z) — 114th R5 closure + alphonse arms terminal
 
