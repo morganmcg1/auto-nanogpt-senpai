@@ -83,6 +83,14 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    # H388: per-aux-group cooldown_frac decoupling for adam_lm_head ONLY.
+    # Sentinel -1.0 = baseline (all aux groups use aux_cooldown_frac=0.4).
+    # > 0 overrides adam_lm_head's cooldown_frac; embed + scalars stay at 0.4.
+    parser.add_argument("--aux_lmhead_cooldown_frac", type=float,
+                        default=float(os.environ.get("AUX_LMHEAD_COOLDOWN_FRAC", "-1.0")),
+                        help="If > 0, overrides cooldown_frac for the adam_lm_head group only. "
+                             "embed and scalars remain at aux_cooldown_frac=0.4. "
+                             "Sentinel -1.0 preserves H266 bit-id.")
     # Inner MuonH µ schedule (H109). Static µ=0.95 baseline preserved when schedule=off.
     # 'linear' ramps µ across all train_steps. 'cooldown_ramp' stays at mu_start until
     # cooldown starts (using h_cooldown_frac), then ramps linearly across the cooldown.
@@ -856,6 +864,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "aux_lmhead_cooldown_frac": args.aux_lmhead_cooldown_frac,
         },
     )
 
@@ -959,7 +968,10 @@ for trial_idx in range(args.num_trials):
     h_cooldown_frac = 1.0
     aux_cooldown_frac = 0.4
     for group in optimizer1.param_groups:
-        group["cooldown_frac"] = aux_cooldown_frac
+        if group.get("name") == "adam_lm_head" and args.aux_lmhead_cooldown_frac > 0:
+            group["cooldown_frac"] = args.aux_lmhead_cooldown_frac
+        else:
+            group["cooldown_frac"] = aux_cooldown_frac
         group["cooldown_shape"] = "linear"
     for group in optimizer2.param_groups:
         group["cooldown_frac"] = h_cooldown_frac
@@ -1234,6 +1246,10 @@ for trial_idx in range(args.num_trials):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
             muonh_metrics["train/muonh_mu"] = muonh_mu_t
+            # H388: per-group AUX LR telemetry — makes decoupled lm_head cooldown
+            # trajectory directly visible in W&B vs embed/scalars.
+            for g in optimizer1.param_groups:
+                muonh_metrics[f"aux_lr/{g['name']}"] = g["lr"]
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
