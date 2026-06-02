@@ -1,3 +1,105 @@
+## 2026-06-02 ~08:25 UTC — Cycle 71 mid-571 — tanjiro #2230 CLOSED (475th refute / **STRUCTURAL PRUNING ABLATION: q/k/v ATTN-SOAP coverage IS PRODUCTIVE-MODEST in MLP-SOAP front=fast stack** — bilateral mean 3.269755 > MERGE bar 3.26776 by +0.00200; removing q/k/v from ATTN-SOAP costs +0.00187 vs FULL ATTN-SOAP coverage; no POD-BLOCK confirms nezuko #2214 bitfield=7 destab was PKB1-CONDITIONAL not structural); tanjiro #2255 PER_DEPTH_HALF_MU_WARMUP_START depth × warmup-state-phase assigned. Fleet 6/8 WIP (nezuko HOLD, fern HOLD). Cumulative: **475 refuted / 325 mech classes / 297 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability observations + 2 POD-BROKEN-CONFIRMED (nezuko + fern)**.
+
+### tanjiro #2230 CLOSED — 475th refute / STRUCTURAL PRUNING ABLATION FINDING
+
+**Bilateral terminal — MLP-SOAP front=fast × PROJ-ONLY ATTN-SOAP**:
+- Arm A `a1ml06hk` SEED=1: val=3.26896 (sub-floor Arm A)
+- Arm B `bupthmwf` SEED=2: val=3.27055 (floor band)
+- val_mean=3.269755 — just below floor band lower edge (3.27000) but above MERGE bar (3.26776)
+- MERGE bar: 3.269755 > 3.26776 → MISSES BY Δ=+0.00200
+- Stat margin (3.28 − 3.269755)·√2 = 0.01449 ≥ 0.004 → clean RTM-NEGATIVE
+
+**Structural finding — q/k/v ATTN-SOAP coverage is PRODUCTIVE-MODEST**:
+| Probe | Coverage | val_loss | Δ vs #1775 |
+|---|---|---|---|
+| #1775 | MLP-SOAP front=fast + FULL ATTN-SOAP | 3.26789 sub-floor | reference |
+| #2230 | MLP-SOAP front=fast + PROJ-ONLY ATTN-SOAP | 3.269755 floor-edge | **+0.00187** |
+
+q/k/v preconditioning is not critical (would expect Δ>0.005) nor decorative (would expect Δ=0) — productive-modest means q/k/v ATTN-SOAP contributes ~0.002 val improvement to the MLP-SOAP front=fast stack. The productive stack does NOT simplify by pruning q/k/v ATTN-SOAP.
+
+**Bitfield-destab confirmation**: no POD-BLOCK observed on bitfield=7 WITHOUT PKB1 dispatch. Confirms nezuko #2214's bitfield=7 destab was PKB1-CONDITIONAL (not bitfield-structural). Useful cross-pod evidence — tanjiro pod healthy throughout.
+
+### tanjiro #2255 next — PER_DEPTH_HALF_MU_WARMUP_START depth × warmup-state-phase
+
+Fresh depth × warmup-state-phase axis. Split MU_WARMUP_START by depth-half:
+- Arm A FRONT-LOOSE: front_start=0.80, back_start=0.90 (less momentum smoothing in front-half warmup)
+- Arm B BACK-LOOSE: front_start=0.90, back_start=0.80 (less momentum smoothing in back-half warmup)
+- Depth split=6 (layers 0..5 front, 6..11 back), same convention as #1568/#2238
+- Post-warmup (step 200+): both groups rejoin uniform MU_COOLDOWN_START=0.95 → MU_COOLDOWN_END=0.90 schedule
+- Priors: 28% front-loose merge / 22% back-loose merge / 35% null floor / 15% degradation
+- Requires PR2153 cherry-pick (commit 4130c311) for SEED hook + ~35 LOC infra impl
+
+### Cycle 71 mid-571 fleet status
+
+Fleet 6/8 active (nezuko HOLD, fern HOLD).
+- alphonse #2215 (n=4 variance): SEED=5 arm `v4r9afeq` near-terminal (~08:25Z); awaiting bilateral mean
+- askeladd #2217 (MLP-SOAP back=fast): two SEED=1 arms complete; SEED=2 pending advisor green-light
+- frieren #2233 (SCALARS-RESET M=2 F=1.0): Arm A `u8h2e77o` terminal 3.27107; Arm B `ovhldwe4` in-flight, terminal ~10:00Z
+- edward #2244 (PER_KIND_MUON_LR attn-vs-mlp): in-flight early steps
+- thorfinn #2251 (PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD): assigned, pending student pickup
+- tanjiro #2255 (PER_DEPTH_HALF_MU_WARMUP_START): just assigned
+- fern #2238 (PER_DEPTH_HALF_MUON_LR): **HOLD — POD-BROKEN pending issue #2252 remediation**
+- nezuko #2241 (AUX_CLIP_NORM): **HOLD — POD-BROKEN pending issue #2250 remediation**
+
+Cumulative: **475 refuted / 325 mech classes / 297 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability observations + 2 POD-BROKEN-CONFIRMED (nezuko + fern)**.
+
+---
+
+## 2026-06-02 ~08:20 UTC — Cycle 71 mid-570 — **g1r2-fern POD-BROKEN-CONFIRMED (SECOND ON r2 THIS CYCLE)** — fern #2238 (PER_DEPTH_HALF_MUON_LR) NOT-A-REFUTE; v2 disabled-check `p29obk82` AFTER PR2153 cherry-pick + clean impl produced byte-identical fingerprint to nezuko #2250 / #1239 (step-1 grad=233,797, step-25 nf=147,758,208, step-125 nf=147,984,768 NaN cascade); cross-pod control on tanjiro `a1ml06hk` (val=3.26896), askeladd `rcdjxfzp` (val=3.27075), edward `hclju59k` (val=3.27094) all HEALTHY on identical env stack — failure is fern-pod-local; issue #2252 [HUMAN-NEEDED] filed; cross-ref on #2250 posted; PR #2238 moved status:review → status:wip; standing audit refined to clarify FERN MAY CLOSURES (PR2212/2220/2227/2232 — healthy fern episode) remain VALID, only fern post-2026-06-01 13:39 UTC runs suspect. Fleet 6/8 active (nezuko + fern HOLD pending remediation). Cumulative: **474 refuted / 324 mech classes / 296 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability observations + 2 POD-BROKEN-CONFIRMED**.
+
+### fern #2238 NOT-A-REFUTE — POD-BROKEN at disabled-check (second on r2 this cycle)
+
+**Diagnostic synthesis (cross-pod control + on-pod fingerprint)**:
+
+| Diagnostic | fern v2 disabled-check `p29obk82` | nezuko POD-BROKEN baseline (issue #2250) | healthy baseline (any other pod) |
+|---|---|---|---|
+| step-1 grad/global_norm | **233,797.60** | ~234,580 | ~17-25 |
+| step-25 nonfinite_count | **147,758,208** | 147,758,208 | 0 |
+| step-125 nonfinite_count | **147,984,768** | 147,984,768 | 0 |
+| val@125 | **NaN** | NaN | ~4.42 healthy |
+
+**Cross-pod control (same env stack, OTHER pods, ALL HEALTHY)**:
+- tanjiro `a1ml06hk`: val=3.26896
+- askeladd `rcdjxfzp`: val=3.27075
+- edward `hclju59k`: val=3.27094
+
+**Student's mistake**: launched bilateral arms (`mymfx3u2`, `341q6mv1`) under "cascade-attractor-is-env-stack" interpretation. Both NaN at step 25 with identical broken-pod fingerprint. Correct interpretation required cross-pod control comparison — same env stack runs healthy on three other pods.
+
+**Implementation quality acknowledged**: cherry-picked PR2153 cleanly, verified `torch.manual_seed(SEED)` wired at line 1015, `if PER_DEPTH_HALF_MUON_LR_ENABLED:` guard at line 1072 structurally correct, banner verification on all three runs, front/back param counts 36+36=72 correct.
+
+**PR #2238 status**: sent back to status:wip. PER_DEPTH_HALF_MUON_LR hypothesis NEVER ran on working pod — NOT a refute. Cumulative refute count stays at 474. Re-run on healthy pod after remediation.
+
+### STANDING AUDIT BOUNDARY REFINEMENT — fern temporal split
+
+**Critical boundary (issue #2252)**: fern pod broken since ~2026-06-01 13:39 UTC. Two separate fern-pod episodes:
+
+| Period | Status | PRs affected | Audit |
+|---|---|---|---|
+| May 2026 (HEALTHY) | Genuine cascade attractor on EMBED M=3 destab | #2212 F=0.99, #2220 F=1.0, #2227 MLP-SOAP×EMBED M=3, #2232 F=0.5 | **VALID — 13th axis F-INVARIANT closure stands** |
+| Jun 1 13:39 UTC onward (BROKEN) | Pod-broken fingerprint regardless of config | #2238 (only one so far) | NOT-A-REFUTE, awaiting remediation |
+
+The 13th axis F-INVARIANT UNIVERSAL CASCADE ATTRACTOR closure (PR2232, May) is UNAFFECTED. The June 1 fern episode is structurally distinct — same fingerprint but produced from byte-identical-to-baseline disabled config = hardware failure, not mechanism-driven.
+
+### Issue #2252 [HUMAN-NEEDED] filed (sibling to #2250)
+
+Sibling issue to nezuko #2250. Same hardware/CUDA-state failure pattern. Requested pod remediation per established protocol. Cross-reference comment posted on #2250.
+
+### Cycle 71 mid-570 fleet status
+
+Fleet 6/8 active (nezuko + fern HOLD).
+- alphonse #2215 (n=4 variance): nudged for SEED=5 duplicate, awaiting response
+- askeladd #2217 (MLP-SOAP back=fast): near-terminal
+- tanjiro #2230 (PROJ-ONLY ATTN-SOAP pruning ablation): in-flight
+- frieren #2233 (SCALARS-RESET M=2 F=1.0): Arm A `u8h2e77o` expected terminal ~08:00Z
+- fern #2238 (PER_DEPTH_HALF_MUON_LR): **HOLD — POD-BROKEN pending issue #2252 remediation**
+- nezuko #2241 (AUX_CLIP_NORM): **HOLD — POD-BROKEN pending issue #2250 remediation**
+- edward #2244 (PER_KIND_MUON_LR attn-vs-mlp): in-flight early steps
+- thorfinn #2251 (PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD): assigned, pending student pickup
+
+Cumulative: **474 refuted / 324 mech classes / 296 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability observations + 2 POD-BROKEN-CONFIRMED (nezuko + fern)**.
+
+---
+
 ## 2026-06-02 ~07:45 UTC — Cycle 71 mid-569 — thorfinn #2243 CLOSED (474th refute / **ABOVE-FLOOR DEGRADATION — MLP-SOAP × PER_KIND_BETA1_LM_HEAD=0.7 COMPOUND DESTRUCTIVELY INTERFERES** — Arm A val@500=3.806 decisive kill, refute on n=1 at 10% prior REALIZED; env var correction: post-PR2153 canonical value names are `PER_KIND_BETA1_*` not `AUX_BETA1_*`; thorfinn #2251 PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD depth-axis trust gate assigned). Fleet 7/8 WIP (nezuko HOLD). Cumulative: **474 refuted / 324 mech classes / 296 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability observations + 1 POD-BROKEN-CONFIRMED**.
 
 ### thorfinn #2243 CLOSED — 474th refute / ABOVE-FLOOR DEGRADATION (10% prior REALIZED)
