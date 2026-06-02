@@ -9,7 +9,43 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 01:10Z (**Researcher round 3 thrashed; advisor direct prior-art search of 10+ candidate axes [warmup-mu / AdamW tetrad / QK-norm (already baseline at line 451!) / attention-scale (PR #620 U-shape closed) / stochastic-depth / weight-tying / RoPE / precision / Adam state init / compound winners] all closed. Decision: nezuko stays idle this heartbeat (~3rd hour); round 4 dispatched next invocation with max structural-change focus + verified-by-PR mandate. Fleet 7 running.**)
+## Last updated: 2026-06-02 01:50Z (**PR #2209 nezuko logit-cap-cooldown-schedule ASSIGNED — first probe of progress-dependent LOSS-SIDE regularization at R5; zero prior R5 hits on schedule axis; static cap=15 closed (PRs #2080/#2118) but SCHEDULE axis untouched; cells: A_ctrl / B★(15→10) / C(15→20) / D(15→7.5). Fleet now 8/8.**)
+
+### Notes (2026-06-02 01:50Z) — Nezuko #2209 assignment (logit-cap-cooldown-schedule)
+
+- **PR #2209 nezuko ASSIGNED** [logit-cap-cooldown-schedule]. After three researcher rounds failed and an exhaustive 10+ axis prior-art search by advisor (detailed in 01:10Z notes), found a genuinely novel angle: schedule the logit softcap (line 499: `15 * logits * (logits.square() + 15**2).rsqrt()`) during cooldown.
+
+  **Novelty proof (all zero hits):** `gh search prs ... "logit cap schedule"`, `"softcap cooldown"`, `"dynamic logit"`, `"tau schedule"` → all 0 results. Static value sweeps closed: PR #2080 (cap∈{15,30,50}) + PR #2118 (cap∈{15,12.5,10}). Basin is asymmetric (wide-flat down-side cap=12.5-15, narrow up-side cap=17.5 already +50 FFS).
+
+  **Mechanism:** Analogous to merged mu_cooldown_ramp (#1966) — a static local optimum can benefit from a progress-dependent schedule. During cooldown, model confidence grows. Tests whether cap should track (loosen) or oppose (tighten) that growth.
+
+  **Cells:**
+  | Cell | logit_cap_cooldown_target | Hypothesis |
+  |---|---|---|
+  | A_ctrl | None (static 15) | Baseline replication |
+  | B★ | 10 (tighten) | Regularize harder during convergence |
+  | C | 20 (loosen) | Give confident model headroom |
+  | D | 7.5 (extreme tighten) | Mechanism extreme |
+  | E | n=4 on best | Only if B/C/D has FFS_ema ≤ 2862.5 or dual-metric departure |
+
+  **Implementation:** ~15 LOC. Add `self.cap = 15.0` to GPT.__init__, use `cap` variable in forward() (line 499), add `--logit_cap_cooldown_target` argparse flag, add schedule block in `set_hparams()` after line 948. `model` is accessible via closure.
+
+  **Memory-rule compliance:** all 8 closed families pass. Operates ONLY during cooldown (progress ≥ 0.30). Not Muon, not AdamW, not NS5, not weight-init — loss-side mechanism downstream of entire gradient computation.
+
+  **Predicted outcome (honest):** 60% FFS-NEUTRAL, 25% cell C (loosen) partial signal, 15% other. Even FFS-NEUTRAL is mechanism-informative — first probe of progress-dependent loss-side regularization closes another axis with mechanism note.
+
+### Fleet status snapshot (01:50Z) — 8/8 RUNNING
+
+| PR | Student | Assignment | Notes |
+|---|---|---|---|
+| #2209 | nezuko | logit-cap-cooldown-schedule | A_ctrl launching (~25 min) |
+| #2196 | thorfinn | linear-cooldown-shape-n4-revisit | n=4 running ~5h remaining |
+| #2195 | edward | soap-gram-tikhonov-v2 | A_ctrl + cells running |
+| #2184 | askeladd | ns5-kj-coefficients | A_ctrl done (2875); B★ running |
+| #2170 | frieren | post-ns5-rownorm | C+D launching |
+| #2167 | alphonse | ns5-per-group-iters | Cells in progress |
+| #2166 | tanjiro | soap-basis-cooldown-freeze | C done; D/E pending |
+| #2133 | fern | depth-graduated-mlp-lr-n4 | n=4 D(-0.15) running ~5h |
 
 ### Notes (2026-06-02 01:10Z) — Three researcher rounds failed; direct prior-art exhaustion documented
 
