@@ -114,6 +114,20 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    parser.add_argument("--polyak_ema_decay_blocks", type=float,
+                        default=float(os.environ.get("POLYAK_EMA_DECAY_BLOCKS", "-1.0")),
+                        help="H383: Per-shape PEMA decay override for MuonH-governed 2D block weights "
+                             "(blocks.*.{attn,mlp}.*.weight, ndim>=2). -1.0 sentinel = use --polyak_ema_decay uniformly "
+                             "(safe-default bypass for Pattern A bit-id). Active only when this value > 0.")
+    parser.add_argument("--polyak_ema_decay_embed", type=float,
+                        default=float(os.environ.get("POLYAK_EMA_DECAY_EMBED", "-1.0")),
+                        help="H383: Per-shape PEMA decay override for embed.weight. -1.0 = use --polyak_ema_decay.")
+    parser.add_argument("--polyak_ema_decay_lm_head", type=float,
+                        default=float(os.environ.get("POLYAK_EMA_DECAY_LM_HEAD", "-1.0")),
+                        help="H383: Per-shape PEMA decay override for proj.weight (LM head). -1.0 = use --polyak_ema_decay.")
+    parser.add_argument("--polyak_ema_decay_scalars", type=float,
+                        default=float(os.environ.get("POLYAK_EMA_DECAY_SCALARS", "-1.0")),
+                        help="H383: Per-shape PEMA decay override for scalars (1D params: gains, biases). -1.0 = use --polyak_ema_decay.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -856,6 +870,10 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "polyak_ema_decay_blocks": args.polyak_ema_decay_blocks,
+            "polyak_ema_decay_embed": args.polyak_ema_decay_embed,
+            "polyak_ema_decay_lm_head": args.polyak_ema_decay_lm_head,
+            "polyak_ema_decay_scalars": args.polyak_ema_decay_scalars,
         },
     )
 
@@ -1063,6 +1081,7 @@ for trial_idx in range(args.num_trials):
     # When decay == 0.0 the state stays None and all H266 code paths short-circuit, so the
     # train/val flow remains bit-identical to the H203 baseline.
     polyak_ema_state = None
+    polyak_ema_decay_lookup = None
     if args.polyak_ema_decay > 0.0:
         polyak_ema_state = {
             name: param.data.clone().detach()
@@ -1072,6 +1091,35 @@ for trial_idx in range(args.num_trials):
             total_ema_bytes = sum(p.numel() * p.element_size() for p in polyak_ema_state.values())
             print0(f"H266 Polyak EMA buffer initialized: decay={args.polyak_ema_decay}, "
                    f"total_bytes={total_ema_bytes/(1024**3):.2f}GB", console=True)
+        # H383: Per-shape PEMA decay lookup. Falls back to args.polyak_ema_decay when
+        # the per-shape sentinel is -1.0. When ALL 4 sentinels are -1.0 the lookup is
+        # uniform → bit-identical to H266 baseline.
+        def _decay_for(name: str, param) -> float:
+            if name == "embed.weight":
+                return args.polyak_ema_decay_embed if args.polyak_ema_decay_embed >= 0 else args.polyak_ema_decay
+            if name == "proj.weight":
+                return args.polyak_ema_decay_lm_head if args.polyak_ema_decay_lm_head >= 0 else args.polyak_ema_decay
+            if param.ndim < 2:
+                return args.polyak_ema_decay_scalars if args.polyak_ema_decay_scalars >= 0 else args.polyak_ema_decay
+            return args.polyak_ema_decay_blocks if args.polyak_ema_decay_blocks >= 0 else args.polyak_ema_decay
+        polyak_ema_decay_lookup = {
+            name: _decay_for(name, param)
+            for name, param in model.named_parameters()
+        }
+        per_shape_active = any(v >= 0 for v in [
+            args.polyak_ema_decay_blocks, args.polyak_ema_decay_embed,
+            args.polyak_ema_decay_lm_head, args.polyak_ema_decay_scalars,
+        ])
+        if dist.get_rank() == 0:
+            if per_shape_active:
+                unique_decays = sorted(set(polyak_ema_decay_lookup.values()))
+                print0(f"H383 per-shape PEMA decay ENABLED: blocks={args.polyak_ema_decay_blocks}, "
+                       f"embed={args.polyak_ema_decay_embed}, lm_head={args.polyak_ema_decay_lm_head}, "
+                       f"scalars={args.polyak_ema_decay_scalars}, uniform_fallback={args.polyak_ema_decay}, "
+                       f"unique_decays_in_use={unique_decays}", console=True)
+            else:
+                print0(f"H383 per-shape PEMA decay BYPASS (all sentinels -1.0): "
+                       f"uniform decay={args.polyak_ema_decay}", console=True)
 
     # start the clock
     training_time = 0
@@ -1219,8 +1267,8 @@ for trial_idx in range(args.num_trials):
         # path bit-identical to the H203 baseline.
         if polyak_ema_state is not None:
             with torch.no_grad():
-                decay = args.polyak_ema_decay
                 for name, param in model.named_parameters():
+                    decay = polyak_ema_decay_lookup[name]
                     polyak_ema_state[name].mul_(1.0 - decay).add_(param.data, alpha=decay)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
