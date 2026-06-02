@@ -1,3 +1,61 @@
+## 2026-06-02 01:55 UTC — Cycle 71 mid-553 — nezuko #2198 CLOSED (457th refute / **PARADIGM-SHIFTING — EMBED-ONLY-CARRIER × PROJ-ONLY → BILATERAL POD-BLOCK 147,984,768 BYTE-IDENTICAL to #2186 FULL-CARRIER AND #2192 LM_HEAD-ONLY-CARRIER; the destabilizer is UPSTREAM of carrier β1 values; RETRACTS #2192's "lm_head β1=0.7 ALONE drives proj-coupling" interpretation; new mechanism reading: PER_KIND_AUX_BETA1 dispatch flag itself + PROJ-ONLY combinatorial mechanism is INVARIANT to β1 values** / 51st pod-stability observation; 3-cell byte-identity across 6 runs strongly suggests compile-time / initialization-time path; ALSO: advisor self-correction acknowledged earlier "missing cherry-pick" nudge was based on W&B misread — cherry-pick `46bd27da` WAS applied, NaN val/loss was POD-terminal artifact not config failure) + nezuko #2214 new assignment (**NO-CARRIER × PROJ-ONLY DISPATCH-FLAG DECISIVE TEST** — PER_KIND_AUX_BETA1_ENABLED=1 with ALL-DEFAULT β1 (0.8/0.8/0.8) × bitfield=7; 75% POD-BLOCK BYTE-IDENTICAL confirming dispatch-flag-only mechanism / 15% STABLE refuting / 10% MILD-DRIFT) + tanjiro #2201 single-arm interim result (Arm A `bx9hpfj1` 3.27068 floor band → REFUTES LM_HEAD-ONLY-POD-BLOCK 60% prior; status:wip restored, Arm B `bx9hpfj1` in flight ETA 03:45Z, will review bilaterally) + alphonse #2190 mid-flight (Arm A `r1t10rhq` 3.2711 floor band terminal, Arm B `f9d4vd3y` at step 3075 val 3.2735, healthy progress, stale_wip flag false alarm). Fleet 8/8 WIP. Cumulative: **457 refuted / 308 mech classes / 280 family closures / 11 axes (PR2121-DISPATCH × PROJ-ONLY ax now precise) / 62 RTM precedents / 51 pod-stability observations**.
+
+### nezuko #2198 CLOSED — 457th refute / PARADIGM-SHIFTING structural finding
+
+**Bilateral terminal — BYTE-IDENTICAL to #2186 AND #2192**:
+- Arm A `w4fggqnc` SEED=1: step-25 nonfinite 147,758,208 + step-125 nonfinite **147,984,768**
+- Arm B `mv8z0gv7` SEED=2: step-25 nonfinite 147,758,208 + step-125 nonfinite **147,984,768 (BYTE-IDENTICAL)**
+
+### 4-cell carrier-decomposition matrix × PROJ-ONLY — 3/4 cells produce BYTE-IDENTICAL POD signature
+
+| CARRIER decomposition | embed β1 | lm_head β1 | scalars β1 | step-125 nonfinite_count |
+|---|---|---|---|---|
+| FULL CARRIER (#2186) | 0.5 | 0.7 | 0.8 | **147,984,768** |
+| lm_head-only-carrier (#2192) | 0.8 DEFAULT | 0.7 | 0.8 DEFAULT | **147,984,768 (BYTE-IDENTICAL)** |
+| **embed-only-carrier (#2198 THIS)** | **0.5** | **0.8 DEFAULT** | **0.8 DEFAULT** | **147,984,768 (BYTE-IDENTICAL)** |
+| **no-carrier (#2214 DECISIVE TEST)** | 0.8 default | 0.8 default | 0.8 default | DECISIVE |
+
+→ **PARADIGM-SHIFTING**: 3 different carrier configurations (FULL, LM_HEAD-ONLY, EMBED-ONLY) all produce IDENTICAL byte-signature 147,984,768. The #2192 interpretation that "lm_head β1=0.7 ALONE drives proj-coupled destabilization" is RETRACTED. The destabilizer is upstream of carrier β1 values.
+
+### Mechanism — PER_KIND_AUX_BETA1 dispatch flag × PROJ-ONLY combinatorial
+
+11th structural mechanism axis (PROJ→LM_HEAD LINEAR COUPLING from mid-547) **RETRACTED and replaced with**: **PER_KIND_AUX_BETA1_ENABLED=1 dispatch flag × PROJ-ONLY ATTN-SOAP exclusion combinatorial destabilizer**. The destabilizer mechanism is upstream of β1 values:
+- Dispatch flag triggers AdamW state-tree restructuring (single param-group → 3 param-groups at construction)
+- PROJ-ONLY ATTN-SOAP cardinality (bitfield=7) excludes q/k/v, leaves proj-only active
+- Interaction between PROJ-ONLY's attn_soap exclusion and the multi-group AdamW state path triggers compile-time / initialization-time pod fingerprint
+
+Deterministic byte-identical replication across 6 runs (3 cells × 2 seeds) confirms this is a STRUCTURAL property of the (dispatch flag + PROJ-ONLY) combination, not a β1-magnitude-driven dynamic.
+
+### Advisor self-correction
+
+Earlier I posted a nudge suggesting the cherry-pick `46bd27da` was missing because wandb config keys appeared absent. The actual situation: banner verification confirms cherry-pick WAS applied (`[PR2121-ASKELADD] PER-KIND-β1 enabled=1 embed=0.5 lm_head=0.8 scalars=0.8`), and the NaN train/val loss I observed was the POD-BLOCK terminal artifact (kill-gate at step 125 produces NaN — that's the expected POD signature). The wandb_config namespace I queried (flat keys) differs from the actual nested `optimizer/` prefix used by the code. Apology posted on PR #2198, proceeding with the paradigm-shifting interpretation.
+
+### nezuko #2214 next — DECISIVE NO-CARRIER TEST
+
+PER_KIND_AUX_BETA1_ENABLED=1 × ALL-DEFAULT β1 (0.8/0.8/0.8) × PROJ-ONLY (bitfield=7). Tests whether the dispatch flag itself is the destabilizer:
+- If POD-BLOCK 147,984,768 BYTE-IDENTICAL: dispatch-flag-only mechanism confirmed, carrier β1 values irrelevant
+- If STABLE floor band: low-amplitude carrier contribution required, dispatch flag alone non-destabilizing
+
+Priors: 75% POD-BLOCK BYTE-IDENTICAL / 15% STABLE / 10% MILD-DRIFT.
+
+### tanjiro #2201 single-arm interim
+
+Arm A `bx9hpfj1` SEED=1 terminal at val_loss 3.27068 (floor band, first_step_to_target=3025) → REFUTES HYPOTHESIS 1 LM_HEAD-ONLY-POD-BLOCK 60% prior. lm_head β1=0.7 alone does NOT destabilize MLP-SOAP front=fast. Cross-compound parity with #2192/#2198 BROKEN — MLP-SOAP compound does NOT inherit the PROJ-ONLY destabilizer. Substrate-mechanism-specificity confirmed.
+
+Status:wip restored from incorrect status:review. Arm B SEED=2 in flight, ETA 03:45Z. Will review bilaterally after Arm B terminal.
+
+### alphonse #2190 progress check
+
+Arm A `r1t10rhq` SEED=1 terminal at val_loss 3.2711 (floor band, finished at step 3175). Arm B `f9d4vd3y` SEED=2 actively running at step 3075 val 3.2735 (heartbeat live). Pod healthy, GPU 100%. The "stale_wip" flag is false alarm — student is making healthy progress; Arm B should reach terminal step 3175 within ~10 min.
+
+### Cycle 71 mid-553 fleet status
+
+Fleet 8/8 WIP. Cumulative: **457 refuted / 308 mech classes / 280 family closures / 11 axes / 62 RTM precedents / 51 pod-stability observations**.
+
+The mid-553 closure DECISIVELY pivots the proj-coupled destabilizer interpretation from "lm_head β1=0.7 carrier" to "PER_KIND_AUX_BETA1 dispatch-flag × PROJ-ONLY combinatorial". nezuko #2214 (no-carrier decisive test) closes the carrier-decomposition matrix at maximum information. Joint resolution of #2214 + tanjiro #2201 bilateral terminal + the M-axis closure from fern #2212 will close out the cycle-71 structural-mechanism inventory.
+
+---
+
 ## 2026-06-02 01:40 UTC — Cycle 71 mid-552 — fern #2206 CLOSED (456th refute / **EMBED M=2 F=0.99 BILATERAL POD-BLOCK confirming BINARY F-AXIS is M-INVARIANT — both M=1 (preconditioner) and M=2 (momentum) reset code paths exhibit IDENTICAL binary F-axis behavior; compile-time graph specialization (torch.compile constant-folding on literal F=1.0) DECISIVELY favored over moment-specific numerics hypothesis; F=1.0 stability gate is SUBSTRATE-SPECIFIC (EMBED only) but M-INVARIANT within EMBED** / 50th pod-stability observation; bilateral n=2 Arm A `id7g5jzp` / Arm B `8yowl65a` step-200 `exp_avg.norm nan→nan` byte-identical) + fern #2212 new assignment (**EMBED M=3 F=0.99 M-AXIS CLOSURE** — joint exp_avg + exp_avg_sq reset closes the M-axis with full universality; 85% POD-BLOCK confirming compile-time graph specialization uniform across all moment-reset substrates / 10% M=3-SPECIFIC compound destabilization / 5% MILD-DRIFT) + nezuko #2198 cherry-pick anomaly nudge (3 W&B runs all showing NaN train/val loss + missing PR2121-ASKELADD config keys → likely missing cherry-pick `46bd27da`; advisor authorized kill of `mv8z0gv7` + relaunch with verified cherry-pick + push-to-remote-before-launch). Fleet 8/8 WIP. Cumulative: **456 refuted / 307 mech classes / 279 family closures / 11 axes / 62 RTM precedents / 50 pod-stability observations**.
 
 ### fern #2206 CLOSED — 456th refute / M-INVARIANT BINARY F-AXIS CONFIRMED
