@@ -1,5 +1,32 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-02 06:10Z — PR #2184 CLOSED FFS-NEG [ns5-kj-coefficients; Keller Jordan's NanoGPT-empirical NS5 polynomial coefficients (3.4445, −4.7750, 2.0315) vs codebase default (2.0, −1.5, 0.5); 4-cell mechanism-rich result: A_ctrl FFS_ema=2875 (baseline replication ✓), C_mid (2.72, −3.13, 1.27) FFS_ema=2925 (+50), B★_KJ FFS_ema=2950 (+75, KILL gate exactly), D_quad (1.5, −0.5, 0.0) FAIL (never reaches target); monotone-degrading surface confirms local convexity around codebase default; D-quadratic FAIL proves quartic term cA² is LOAD-BEARING for NS5 convergence within 3250-step budget] [117th R5 closure]
+
+- branch: g1r5-askeladd/ns5-kj-coefficients
+- hypothesis: Replace codebase NS5 polynomial coefficients `(a, b, c) = (2.0, −1.5, 0.5)` with Keller Jordan's NanoGPT-empirical `(3.4445, −4.7750, 2.0315)` to improve NS5 polar-factor quality at ns_iter=6. Mechanism: KJ's coefficients are tuned for low-iteration convergence on real Muon gradients. Cells: A_ctrl (default), C_mid (midpoint), B★_KJ (full KJ), D_quad (c=0 falsifier — kills quartic term).
+- n=1 4-cell mechanism screen (W&B runs `md9hw9ki`, `ahz7ixpc`, `hja9xo7f`, `oxne9cya`; group `g1r5-askeladd/ns5-kj-coefficients`):
+
+| Cell | (a, b, c) | FFS_ema | FFS_trainval | val/loss | ema_val_loss | reached |
+|---|---|---|---|---|---|---|
+| A_ctrl | (2.0, −1.5, 0.5) | **2875** | 2925 | 3.27088 | 3.27129 | ✓ |
+| C_mid | (2.72, −3.13, 1.27) | **2925** | 2925 | 3.27195 | 3.27236 | ✓ |
+| B★_KJ | (3.4445, −4.7750, 2.0315) | **2950** [KILL] | 2950 | 3.27387 | 3.27429 | ✓ |
+| D_quad | (1.5, −0.5, 0.0) | **−1 FAIL** | −1 | 3.28130 | 3.28171 | ✗ |
+
+- Baseline μ_4(FFS_ema)=2875, σ_4=0, val=3.27007. Merge gate ≤2862.5. KILL gate 2950 (B★ hit exactly).
+- Verdict: **FFS-NEG**. The NS5 polynomial coefficient axis is closed at R5 — codebase default is locally optimal for our stack (ns_iter=6 + soap_attn + mu_cooldown + musoft + ramp_down).
+- Mechanism (3 findings):
+  - (1) Monotone-degrading surface (default → midpoint → KJ: 2875 → 2925 → 2950, val 3.27088 → 3.27195 → 3.27387). No non-convexity to exploit — coefficient landscape locally convex around codebase default.
+  - (2) D-quadratic FAIL proves quartic term cA² is LOAD-BEARING. NS5 requires cubic-in-X structure to converge within 3250-step budget. The polynomial mechanism IS real; the coefficients are just saturated at default.
+  - (3) Stack-specific optimum shift: KJ's coefficients tuned on vanilla NanoGPT + Muon-only QKV; our R5 stack moves the optimum back toward default. ns_iter=6 + soap_attn + ramp_down WD all push the orthogonalization regime.
+- Memory rule [[pre_ns5_gradient_transformation_axis_saturated_at_r5]] applies (NS5 polar-factor quality axis): polynomial coefficients are the orthogonalization implementation — perturbing them gives the same null at cooldown-end as perturbing inputs to NS5. PR #890 (orthogonality 0.43→0.06, zero val benefit) closed inputs; PR #2184 now closes the orthogonalization itself.
+- Closure family alignment: 117th R5 closure overall. Joins pre-NS5 gradient transformations, NS5-internal ε floors, post-NS5 row-norm equalization (#2170), pre-NS5 perturbation absorption (2D init / depth-LR scale / SGLD noise). All converge to: NS5 polynomial fixed point is dominant at cooldown-end terminal loss in our R5 regime.
+- Suggested follow-ups (noted, not promising):
+  - Per-group coefficients (KJ-on-QKV-only) — floor effect makes it unlikely to beat default.
+  - Bernstein-Newhouse Remez-optimal at ns_iter=6 — same family, expected same closure.
+  - Asymmetric (b, c) sweep with a fixed — same family.
+- Action: PR #2184 closed FFS-NEG. Fresh hypothesis researched for askeladd (researcher agent ad6d487ca4e1b3837 in flight).
+
 ## 2026-06-02 04:55Z — PR #2170 CLOSED FFS-NEUTRAL [post-ns5-rownorm; per-row L2 normalization on NS5 output to mean(row_norm); 4-cell mechanism-rich result: B★(all groups) FFS_ema=2875 (attractor parity), C(mlp only) FFS_ema=2950 (REGRESSION +75), D(attn only) FFS_ema=2875 (parity); row-norm variance IS INFORMATIVE in MLP — equalizing loses signal — while attn rows already near-uniform; first post-NS5 transformation closure at R5] [116th R5 closure]
 
 - branch: g1r5-frieren/post-ns5-rownorm

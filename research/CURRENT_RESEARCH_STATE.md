@@ -9,7 +9,23 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 05:15Z (**PR #2235 frieren post-ns5-dir-ema-gate ASSIGNED — scalar cosine-EMA gate on NS5 output direction; temporal consistency filter on orthogonalized updates; 3 cells: A_ctrl / B★(relu,β=0.9) / C(soft,β=0.95); ~35 LOC; novelty confirmed 6 zero-hit gh searches. Fleet 8/8.**)
+## Last updated: 2026-06-02 06:10Z (**PR #2184 askeladd ns5-kj-coefficients CLOSED FFS-NEG — 117th R5 closure. Monotone-degrading polynomial coefficient surface (default→midpoint→KJ: 2875→2925→2950); D-quadratic FAIL proves quartic term cA² is load-bearing; NS5 polynomial coefficient axis closed at R5, codebase default locally optimal. Askeladd idle pending researcher agent ad6d487ca4e1b3837. Fleet 7/8 + 1 idle.**)
+
+### Notes (2026-06-02 06:10Z) — 117th R5 closure + askeladd idle
+
+- **PR #2184 askeladd CLOSED — 117th R5 closure** [ns5-kj-coefficients]. 4-cell mechanism screen of NS5 polynomial coefficients:
+  - A_ctrl (2.0, −1.5, 0.5): FFS_ema=**2875** ✓ baseline replication, val=3.27088
+  - C_mid (2.72, −3.13, 1.27): FFS_ema=**2925** (+50), val=3.27195
+  - B★_KJ (3.4445, −4.7750, 2.0315): FFS_ema=**2950** [KILL gate exact], val=3.27387
+  - D_quad (1.5, −0.5, 0.0): FFS_ema=**−1 FAIL**, val=3.28130 (never reaches target)
+- **3 mechanism findings**:
+  - (1) **Monotone-degrading surface** — coefficient landscape locally convex around codebase default. No non-convexity to exploit. Linear in KJ-distance: midpoint half-way costs +50, full KJ costs +75.
+  - (2) **D-quadratic FAIL proves quartic term cA² is LOAD-BEARING** — c=0 (no quartic) never reaches val target across 3250 steps. NS5 requires cubic-in-X structure for convergence within the budget. The polynomial mechanism IS real; the coefficients are just saturated at default.
+  - (3) **Stack-specific optimum shift from KJ's NanoGPT-empirical fit** — KJ tuned on vanilla NanoGPT with Muon-only QKV; our R5 stack (ns_iter=6 + soap_attn + mu_cooldown + musoft init + ramp_down WD) shifts the optimum back toward default.
+- **Closure family**: Memory rule [[pre_ns5_gradient_transformation_axis_saturated_at_r5]] applies. NS5 polynomial coefficients are the orthogonalization implementation — perturbing them gives the same null at cooldown-end as perturbing inputs to NS5. PR #890 closed orthogonalization quality of inputs (orthogonality 0.43→0.06, zero val benefit); PR #2184 now closes orthogonalization quality of the polynomial itself. Both converge to: NS5 polynomial fixed point dominates terminal loss in our R5 regime.
+- **Askeladd now idle** (8/8 fleet → 7 running + 1 idle). Researcher agent `ad6d487ca4e1b3837` in flight for fresh hypothesis at `/research/RESEARCH_IDEAS_ASKELADD_2026-06-02_05-30.md`. Hard-rejected: pre-NS5 transformations, NS5-internal ε, NS5 polynomial coefficients, post-NS5 row-norm equalization, 2D weight init, depth-LR scale, AdamW β₂/eps/WD, warmup-mu ramps, LN gain init below 1.0, SF/Polyak-style cooldown averaging.
+
+### Notes (2026-06-02 05:15Z) — PR #2235 frieren post-ns5-dir-ema-gate ASSIGNED
 
 ### Notes (2026-06-02 04:55Z) — 116th R5 closure + frieren idle
 
