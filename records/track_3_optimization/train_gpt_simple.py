@@ -84,6 +84,11 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--aux_adam_m_reset_step", type=int, default=-1,
+                        help="Step at which to hard-zero the aux-Adam first-moment (m) buffer. "
+                             "-1 disables (default). Active only when >= 0.")
+    parser.add_argument("--aux_adam_v_reset", action="store_true",
+                        help="If set together with --aux_adam_m_reset_step, ALSO zero the v-buffer.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +770,8 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "aux_adam_m_reset_step": args.aux_adam_m_reset_step,
+            "aux_adam_v_reset": int(args.aux_adam_v_reset),
             "seed": args.seed,
         },
     )
@@ -833,6 +840,11 @@ for trial_idx in range(args.num_trials):
                        console=True)
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
+    if dist.get_rank() == 0:
+        wandb.log({
+            "optim/aux_adam_m_reset_step": args.aux_adam_m_reset_step,
+            "optim/aux_adam_v_reset": int(args.aux_adam_v_reset),
+        }, step=0)
     optimizer2._param_lr_mults = param_lr_mults
 
     optimizers = [optimizer1, optimizer2]
@@ -1073,6 +1085,31 @@ for trial_idx in range(args.num_trials):
                    console=True)
         for opt in optimizers:
             opt.step()
+        # Aux Adam first-moment (m) HARD-ZERO RESET at a single boundary step.
+        # Fires AFTER opt.step() so the m-buffer is zero entering step+1.
+        # Optionally also zeros v-buffer when --aux_adam_v_reset is set.
+        if (args.aux_adam_m_reset_step >= 0
+                and step == args.aux_adam_m_reset_step):
+            n_reset = 0
+            n_v_reset = 0
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, {})
+                    if "exp_avg" in state:
+                        state["exp_avg"].zero_()
+                        n_reset += 1
+                    if args.aux_adam_v_reset and "exp_avg_sq" in state:
+                        state["exp_avg_sq"].zero_()
+                        n_v_reset += 1
+            if dist.get_rank() == 0:
+                print0(f"[step {step}] aux_adam_m_reset: zeroed {n_reset} m-buffers "
+                       f"(v_reset={args.aux_adam_v_reset}, n_v_zeroed={n_v_reset})",
+                       console=True)
+                wandb.log({
+                    "optim/aux_adam_m_reset_executed": 1,
+                    "optim/aux_adam_n_buffers_zeroed": n_reset,
+                    "optim/aux_adam_n_v_buffers_zeroed": n_v_reset,
+                }, step=wandb_step)
         # EMA buffer update on body-Muon matrix params.
         # During warmup: track params live (no averaging) so post-warmup buffer is
         # seeded with stable, non-zero params (handles proj zero-init bias and lets
