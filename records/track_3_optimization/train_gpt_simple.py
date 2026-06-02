@@ -28,6 +28,9 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+NS_A: float = 2.0  # overridden by args.ns_a at module load
+NS_B: float = -1.5  # overridden by args.ns_b at module load
+NS_C: float = 0.5  # overridden by args.ns_c at module load
 
 
 def parse_args():
@@ -68,6 +71,12 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_a", type=float, default=2.0,
+                        help="NS5 polynomial coefficient a. Default 2.0 (current codebase). KJ-optimal: 3.4445.")
+    parser.add_argument("--ns_b", type=float, default=-1.5,
+                        help="NS5 polynomial coefficient b. Default -1.5 (current codebase). KJ-optimal: -4.7750.")
+    parser.add_argument("--ns_c", type=float, default=0.5,
+                        help="NS5 polynomial coefficient c. Default 0.5 (current codebase). KJ-optimal: 2.0315.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -117,6 +126,7 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NS_A, NS_B, NS_C = args.ns_a, args.ns_b, args.ns_c
 
 
 def clean_metric_name(name: str) -> str:
@@ -513,7 +523,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
+    a, b, c = NS_A, NS_B, NS_C
     for _ in range(NS_ITER):
         A = X @ X.mT
         B = b * A + c * A @ A
@@ -780,6 +790,9 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_a": NS_A,
+            "ns_b": NS_B,
+            "ns_c": NS_C,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
