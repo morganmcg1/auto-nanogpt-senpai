@@ -16,6 +16,7 @@ import uuid
 import time
 from pathlib import Path
 
+import numpy as np
 import torch
 from torch import Tensor, nn
 from torch.optim import AdamW
@@ -114,6 +115,22 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H380 Polar Express: minimax-adaptive polar decomposition replacement for NS5.
+    # Amsel, Persson, Musco, Gower (2025), arXiv:2505.16932. Default "ns5" is
+    # bit-identical to baseline (the polar_express path is not entered).
+    parser.add_argument("--polar_express_mode", type=str,
+                        default=os.environ.get("POLAR_EXPRESS_MODE", "ns5"),
+                        choices=["ns5", "polar_express"],
+                        help="Polar decomposition mode: 'ns5'=original fixed-coefficient Newton-Schulz 5 "
+                             "(bit-identical to baseline). 'polar_express'=per-iteration minimax-optimal "
+                             "odd-quintic coefficients with bf16-safe normalization.")
+    parser.add_argument("--polar_express_iters", type=int,
+                        default=int(os.environ.get("POLAR_EXPRESS_ITERS", "12")),
+                        help="Number of Polar Express iterations applied per call (default 12 matches NS5).")
+    parser.add_argument("--polar_express_epsilon", type=float,
+                        default=float(os.environ.get("POLAR_EXPRESS_EPSILON", "1e-7")),
+                        help="Additive normalization guard in Polar Express. Mirrors the +1e-7 add in NS5 "
+                             "(prevents divide-by-zero on near-zero gradient norms).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -568,11 +585,123 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
+
+# ---------------------------------------------------------------------------
+# Polar Express (Amsel, Persson, Musco & Gower 2025, arXiv:2505.16932).
+# Minimax-optimal odd-quintic polynomial coefficients (a_k, b_k, c_k) computed
+# offline via a simplified Remez equioscillation algorithm; applied online as
+# a drop-in replacement for the fixed-coefficient NS5 iteration. Reference impl:
+# https://github.com/NoahAmsel/PolarExpress/blob/main/polar_express.py
+# ---------------------------------------------------------------------------
+
+def _polar_express_optimal_quintic(l, u):
+    """Remez-solved odd-quintic minimizing max |1 - (a*x + b*x^3 + c*x^5)| on [l, u].
+    For near-singular intervals (l/u ~ 1) returns the analytic Chebyshev shortcut.
+    """
+    assert 0 <= l <= u
+    if 1 - 5e-6 <= l / u:
+        return (15.0 / 8.0) / u, (-10.0 / 8.0) / (u ** 3), (3.0 / 8.0) / (u ** 5)
+    q = (3.0 * l + u) / 4.0
+    r = (l + 3.0 * u) / 4.0
+    E, old_E = float("inf"), None
+    for _ in range(64):  # Remez typically converges in <10 iters
+        old_E = E
+        LHS = np.array(
+            [
+                [l, l ** 3, l ** 5, 1.0],
+                [q, q ** 3, q ** 5, -1.0],
+                [r, r ** 3, r ** 5, 1.0],
+                [u, u ** 3, u ** 5, -1.0],
+            ],
+            dtype=np.float64,
+        )
+        a, b, c, E = np.linalg.solve(LHS, np.ones(4))
+        disc = 9.0 * b * b - 20.0 * a * c
+        # Stationary points of p(x): 5c x^4 + 3b x^2 + a = 0 → y = x^2 solves
+        # 5c y^2 + 3b y + a = 0. Two real positive roots are the inner extrema.
+        roots_y = (-3.0 * b + np.array([-1.0, 1.0]) * math.sqrt(disc)) / (10.0 * c)
+        q, r = np.sqrt(roots_y)
+        if old_E is not None and abs(old_E - E) <= 1e-15:
+            break
+    return float(a), float(b), float(c)
+
+
+def _polar_express_optimal_composition(l, num_iters, safety_factor_eps=0.0, cushion=0.0):
+    """Compose num_iters minimax-optimal quintics. Tracks spectral bounds l → p(l)
+    and u → 2 - p(l) per iteration (Amsel et al. 2025 §3-4). Returns list of
+    (a, b, c) Python-float tuples ready for the online iteration.
+    """
+    u = 1.0
+    assert 0 <= l <= u
+    safety_factor = 1.0 + safety_factor_eps
+    coefficients = []
+    for i in range(num_iters):
+        a, b, c = _polar_express_optimal_quintic(max(l, cushion * u), u)
+        if cushion * u > l:
+            pl = a * l + b * l ** 3 + c * l ** 5
+            pu = a * u + b * u ** 3 + c * u ** 5
+            rescaler = 2.0 / (pl + pu)
+            a *= rescaler
+            b *= rescaler
+            c *= rescaler
+        if i < num_iters - 1:
+            a /= safety_factor
+            b /= safety_factor ** 3
+            c /= safety_factor ** 5
+        coefficients.append((float(a), float(b), float(c)))
+        l = a * l + b * l ** 3 + c * l ** 5
+        u = 2.0 - l
+    return coefficients
+
+
+# Precomputed once at module load (cheap, ~10ms of pure-numpy Remez solves).
+# Hyperparameters match the authors' reference implementation defaults: starting
+# lower bound l=1e-3, 1.01× normalization safety factor, cushion floor 0.02·u for
+# bfloat16 stability. 10 iterations match the reference; for iters > 10 the last
+# coefficient is repeated (also matches reference).
+_POLAR_EXPRESS_COEFFS = _polar_express_optimal_composition(
+    l=1e-3, num_iters=10, safety_factor_eps=1e-2, cushion=0.02
+)
+
+
+def zeropower_via_polar_express(G: Tensor, iters: int = 12, eps: float = 1e-7) -> Tensor:
+    """Minimax-adaptive polar decomposition (Polar Express, Amsel et al. 2025).
+    Drop-in for zeropower_via_newtonschulz5: same input/output convention,
+    same odd-quintic update structure X ← a*X + b*(XX^T)X + c*(XX^T)^2 X,
+    but with per-iteration (a_k, b_k, c_k) coefficients precomputed offline.
+    """
+    assert G.ndim >= 2
+    X = G.bfloat16()
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+    # 1.01× multiplicative safety factor + additive eps guard: keeps all singular
+    # values strictly below 1 even in bfloat16 (Amsel et al. Appendix A).
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) * 1.01 + eps)
+    n_precomp = len(_POLAR_EXPRESS_COEFFS)
+    if iters <= n_precomp:
+        coeffs = _POLAR_EXPRESS_COEFFS[:iters]
+    else:
+        coeffs = list(_POLAR_EXPRESS_COEFFS) + [_POLAR_EXPRESS_COEFFS[-1]] * (iters - n_precomp)
+    for a, b, c in coeffs:
+        A = X @ X.mT
+        B = b * A + c * A @ A
+        X = a * X + B @ X
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+    return X
+
+
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True,
+                polar_mode="ns5", polar_iters=12, polar_eps=1e-7):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    # Python-level branch on polar_mode string; torch.compile specializes the
+    # graph per call-site value so the NS5 path stays bit-identical to baseline.
+    if polar_mode == "ns5":
+        update = zeropower_via_newtonschulz5(update)
+    else:
+        update = zeropower_via_polar_express(update, iters=polar_iters, eps=polar_eps)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
@@ -674,12 +803,15 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 polar_mode="ns5", polar_iters=12, polar_eps=1e-7):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
+        assert polar_mode in ("ns5", "polar_express")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        polar_mode=polar_mode, polar_iters=polar_iters, polar_eps=polar_eps)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -699,6 +831,9 @@ class MuonH(torch.optim.Optimizer):
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            polar_mode = group["polar_mode"]
+            polar_iters = group["polar_iters"]
+            polar_eps = group["polar_eps"]
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -707,7 +842,10 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         polar_mode=polar_mode,
+                                         polar_iters=polar_iters,
+                                         polar_eps=polar_eps)
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -939,7 +1077,10 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       polar_mode=args.polar_express_mode,
+                       polar_iters=args.polar_express_iters,
+                       polar_eps=args.polar_express_epsilon)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
