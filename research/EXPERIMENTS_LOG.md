@@ -1,3 +1,53 @@
+## 2026-06-02 09:30 — PR #2224: H381 alphonse Per-Param Outer LR/Momentum (body vs aux differentiated) — CLOSED 237th NULL/NEG (🎯 PER-PARAMETER OUTER ALLOCATION axis CANALIZED at H266 stack with bilateral asymmetric NEG; 12-axis OUTER-LOOP mechanism canalization joint H91-H116 + H379v2 + H381; 5-axis outer-loop mechanism map at H266 stack: SCHEDULE + BLENDING + RESET-on-AUX + FORM-LION + PER-PARAMETER ALLOCATION; 1st quantification of OUTER-CORRECTION OVER-DAMPING on body 2D weights at multiplier 1.4×; asymmetric body vs aux damage profile observed)
+
+- Branch: g1r3-alphonse/h381-per-param-outer-lr-momentum
+- Hypothesis: MuLoCo outer step at lines 1327-1354 applies global `outer_lr=0.7` and `outer_momentum=0.5` uniformly to ALL named parameters. Body 2D weights (MuonH + scale_invariant F-norm preservation + AGC clip ratio 0.05) have fundamentally different geometry from AUX (AdamW unconstrained) — does differentiating outer correction force improve FFS? 4 new CLI flags (`body_outer_lr`, `body_outer_momentum`, `aux_outer_lr`, `aux_outer_momentum`) with sentinel `-1.0` defaults for Pattern A bit-id preservation.
+
+### Results — 3-arm terminal
+
+| Arm | body_outer_lr | aux_outer_lr | W&B | step-0 val | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL | -1 (=0.7) | -1 (=0.7) | `8n2kc6u8` | 10.82583 | **3.26739** | **3000 EXACT** | (ref) | **−0.89σ** (LOW-end CTRL noise) | Pattern A bit-id, 33rd H266 cluster anchor |
+| arm_b BODY_STRONGER | 1.4 | 0.7 | `u2qz41ty` | 10.82583 | **3.37842** | **−1** (FAIL) | +125.6σ | **+124.7σ STRONG NEG** | 🔴 OUTER-CORRECTION OVER-DAMPING on body |
+| arm_c BODY_LIGHTER_AUX_STRONGER | 0.35 | 1.4 | `rtum01o7` | 10.82583 | 3.30647 | **−1** (FAIL) | +44.2σ | **+43.3σ NEG** | 🔴 Asymmetric inverted allocation also NEG |
+| H266 baseline (PR #1669) | — | — | — | 10.82583 | 3.26818 | 3000 EXACT | — | — | (reference) |
+
+### Mechanism interpretation — paper-grade findings
+
+**Finding #1 — PER-PARAMETER OUTER ALLOCATION (body vs aux) axis CANALIZED at H266 stack**: Bilateral asymmetric NEG. Both directions of differentiation (body-heavy OR aux-heavy) damage FFS at tested multipliers [0.35×, 1.4×]. GLOBAL `outer_lr=0.7` symmetric sentinel is in a productive band that CANNOT be improved by per-parameter differentiation at these multipliers. Mechanism-distinct from all prior outer-loop closures (H103 FORM, H289 SCHEDULE, H370 BLENDING, H377 RESET-on-AUX, H379v2 FORM-LION).
+
+**Finding #2 — 1st quantification of "OUTER-CORRECTION OVER-DAMPING" on body 2D weights**: arm_b BODY_STRONGER (body_outer_lr=1.4) produces +124.7σ_H174 STRONG-NEG. MuonH `scale_invariant` mode already preserves Frobenius norm + AGC clips per-step delta to 0.05× param-norm + outer step pulls toward anchor every sync_interval=30 inner steps. Doubling that pull on body manifold FIGHTS inner trajectory rather than smoothing it:
+- Step 125: +0.02 above CTRL (divergence immediate)
+- Step 500: +0.22 above CTRL
+- Step 1000: +0.23 above CTRL (sustained gap)
+- Step 3325 terminal: +0.11 above CTRL (cooldown cannot recover)
+
+This is the 1st observation that body 2D manifold is OVER-PROTECTED from outer correction — H266 stack geometric guards (scale_invariant F-norm + AGC) already supply the regularization budget; additional outer pull produces destructive interference.
+
+**Finding #3 — Asymmetric body vs aux damage profile**: Within-chain ordering arm_b STRONG-NEG (+124.7σ) >> arm_c NEG (+43.3σ). arm_c uses body=0.35 + aux=1.4 (inverted), arm_b uses body=1.4 + aux=0.7. 3× asymmetric damage suggests:
+- Body MORE sensitive to outer-correction perturbation than aux (inner MuonH dynamics tightly regulated by scale_invariant + AGC)
+- Aux can absorb more outer correction force than body (AdamW lacks intrinsic norm control, so outer pull is a legitimate regularizer — but 2× is still too aggressive)
+This is the 2nd within-cycle observation of geometric-dynamics mismatch between body and aux quantified at H266 stack (1st being H328 paper-grade WD-pre-closed finding with embed-RMS growth load-bearing).
+
+**Finding #4 — 12-axis OUTER-LOOP mechanism canalization at H266 stack**: Joint with H91/H99/H100/H101/H103/H108/H111/H113/H116 (pre-H266) + H379v2 LION OUTER + H381 PER-PARAMETER ALLOCATION. MuLoCo Nesterov-SGDM(μ=0.5, outer_lr=0.7, sync_interval=30) is at-optimum across 12 mechanism axes of outer-loop variation at H266 stack. 5-axis post-H266 mechanism map: SCHEDULE (H289) + BLENDING (H370) + RESET-on-AUX (H377) + FORM-LION (H379v2) + PER-PARAMETER ALLOCATION (H381 — NEW). Cleanest remaining UNTESTED outer-loop distinctions: FREQUENCY axis (H384 tanjiro in flight WSD sync_interval cooldown), PROJECTION axis, MEMORY axis variants.
+
+### Programme rollup
+- 237 cumulative NULL/NEG/TIE closures + 1 MERGED WIN (H266) at cycle ~2700
+- 21 HARD-LOAD-BEARING family entries (H381 stays MILDLY-LOAD-BEARING — bilateral NEG quantifies productive band of outer_lr=0.7 but does not extend H266 stack)
+- 33 candidate H266 attractor cluster anchors (arm_a CTRL val=3.26739 FFS=3000 EXACT = 33rd)
+- 5-mechanism-axis OUTER-LOOP family CANALIZED at H266 stack (SCHEDULE + BLENDING + RESET + FORM + ALLOCATION)
+- 12-axis OUTER-LOOP mechanism canalization joint H91-H116 + H379v2 + H381
+
+### Excellent execution notes
+- Clean 3-arm chain with sentinel `−1` Pattern A bit-id preservation verified across all arms
+- Smoke gate caught implementation correctness (smoke_b BODY_STRONGER shows distinct config write-through in W&B before chain launch)
+- Disciplined chain timing (5h 26m sequential, 03:47 → 09:13 UTC)
+- Student's suggested follow-up #2 (per-param outer MOMENTUM at fixed-symmetric LR, body_outer_momentum ∈ {0.3, 0.7}) is a clean orthogonal axis — recording as candidate for future cycle if FREQUENCY axis (H384) also closes
+
+### Decision: CLOSED as 237th NULL/NEG. alphonse becomes idle pending H389 fresh-axis researcher-agent scan post-PER-PARAMETER OUTER ALLOCATION canalization. askeladd assigned H388_v2 Per-Aux-Group Cooldown Fraction Decoupling (PR #2259, lm_head independent schedule per H130 line 9584 explicit future direction).
+
+---
+
 ## 2026-06-02 09:00 — PR #2221: H380 askeladd Polar Express minimax-adaptive NS5 (degree-5 quintic, offline-Remez precomputed coefficients via Amsel et al. arXiv:2505.16932) — CLOSED 236th NULL/TIE (🎯 NS5/orthogonalization axis CANALIZED across STATIC (H88) + ADAPTIVE (H380) polynomial families joint closure + 4th CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class entry + 1st "polar-factor over-purification" observation at H266 stack)
 
 - Branch: g1r3-askeladd/h380-polar-express-ns5
