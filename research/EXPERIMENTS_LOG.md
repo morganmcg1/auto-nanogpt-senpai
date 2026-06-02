@@ -9398,3 +9398,19 @@ Excellent early-kill execution by fern — saved ~3 hours of GPU on a structural
 - **Mechanism contrast:** β₂ UP @975 is beneficial (stabilizes step scale entering LR decay); β₁ UP @975 is harmful (over-smoothes gradient direction). The two moments play asymmetric roles: β₂ governs STEP MAGNITUDE (variance estimator — more memory = more stable scaling), β₁ governs STEP DIRECTION (momentum estimator — more memory = more stale direction).
 - **Aux Adam β₁ axis FULLY CLOSED** across all directions: DOWN→0.7 (#1592 NULL), DOWN→0.6 (#1639 NULL), JOINT (#1819 NULL ≤0.95), UP→0.95 (this, NULL), UP→0.99 (this, catastrophic NULL).
 - **nezuko REASSIGNED → #2151:** Body PMuon `weight_decay` DEPTH-STRATIFIED — ASCENDING (shallow=0.0125/middle=0.025/deep=0.0375) vs DESCENDING (shallow=0.0375/middle=0.025/deep=0.0125). Pristine axis under directive (b) per-block optimizer behavior. Uniform wd=0.025 has never been depth-stratified despite per-block LR (late-higher) and per-block μ (#1788) both being tested. Zero compute overhead; single new `--body_muon_wd_pattern` flag.
+
+## 2026-06-02 02:30 UTC — PR #2162 CLOSED: alphonse body PMuon NS_ITERS cooldown schedule — ❌ BILATERAL NULL; NS_ITERS phase-schedule axis CLOSED
+
+- Branch: `g1r1-alphonse/ns-iters-cooldown-schedule`
+- Hypothesis: Reducing NS_ITERS during cooldown (step 975→3250) allows gradient direction more direct influence by reducing polar projection precision when optimization is already well-converged.
+
+| Arm | NS_ITERS schedule | run | step | sr | val_ema | Δsr | Δval mnat | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline (#1532, n=2) | 12 (fixed) | 9coyk2ke/09qrijtm | 3250 | 2875 | 3.262854 | 0 | 0 | WIN |
+| **A NS=8 (modest)** | 12→8 @975 | `r4n89p8l` | 3250 | 2925 | 3.266385 | +50 | +3.53 | ❌ NULL |
+| **B NS=4 (aggressive)** | 12→4 @975 | `28wiiczd` | 3250 | 2925 | 3.266812 | +50 | +3.96 | ❌ NULL |
+
+- **Conclusion:** NS_ITERS reduction at cooldown onset is uniformly penalizing. Both modest (8) and aggressive (4) reductions produce identical sr penalty (+50 steps, ~+3.7 mnat). The penalty being identical at both reduction magnitudes suggests polar projection precision is structurally required per step — iterations are not redundant even in the fine-tuning regime. NS5 at 12 iterations (residual ~10⁻⁴) is not over-precise; it is load-bearing.
+- **NS axis FULLY CLOSED:** coefficient pulses (#1660 NULL), static coefficient scans (#226/#229/#250 NULL), NS_ITERS reduction schedule (this, NULL), polar projection replacement (#1703 ADOPT / #1752 Newton-Muon / #1771 ACProp all NULL). The Newton-Schulz polar map at its baseline configuration is a robust, well-tuned component.
+- **Pristine sub-axis remaining:** phase-adaptive NS *coefficient* switching at the pEMA refresh boundary (step 2600). Static scans tested global averages; this tests whether the late-cooldown spectral distribution requires different polynomial coefficients. Assigned as #2219.
+- **alphonse REASSIGNED → #2219:** NS polynomial coefficient phase-switch at step 2600 bilateral (Jordan fast-convergence a=3.4445/b=-4.7750/c=2.0315 vs near-identity a=1.0/b=-0.1/c=0.0). Directive (a) optimizer-state rescaling at phase boundaries + directive (c) phase-specific mechanism pre-target-crossing.
