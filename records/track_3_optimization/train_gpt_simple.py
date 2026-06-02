@@ -464,6 +464,15 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# PR #2251: per-depth-half ATTN-SOAP trust-threshold dispatch. When enabled,
+# attention-SOAP params in the front half (layer_idx < ATTN_SOAP_DEPTH_SPLIT)
+# use ATTN_SOAP_TRUST_THRESHOLD_FRONT; back half uses ATTN_SOAP_TRUST_THRESHOLD_BACK.
+# Defaults at 0.85 match the baseline ATTN_SOAP_TRUST_THRESHOLD env-stack value
+# so disabled-check parity is preserved.
+PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD_ENABLED = int(os.environ.get("PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD_ENABLED", "0")) == 1
+ATTN_SOAP_TRUST_THRESHOLD_FRONT = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD_FRONT", "0.85"))
+ATTN_SOAP_TRUST_THRESHOLD_BACK = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD_BACK", "0.85"))
+ATTN_SOAP_DEPTH_SPLIT = int(os.environ.get("ATTN_SOAP_DEPTH_SPLIT", "6"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
@@ -693,6 +702,10 @@ class Muon(torch.optim.Optimizer):
         self.mlp_soap_beta2: dict[int, float] = {}
         self.mlp_soap_depth_half: dict[int, str] = {}  # "front" or "back"
         self.mlp_soap_layer: dict[int, int] = {}
+        # PR #2251 — per-depth-half ATTN-SOAP trust-threshold dispatch lookup tables.
+        self.attn_soap_trust_threshold: dict[int, float] = {}
+        self.attn_soap_depth_half: dict[int, str] = {}  # "front" or "back"
+        self.attn_soap_layer: dict[int, int] = {}
         for n, p in named_params:
             layer_idx: int | None = None
             head = n.split(".", 1)[0]
@@ -709,6 +722,18 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+                if layer_idx is not None:
+                    self.attn_soap_layer[id(p)] = layer_idx
+                    if PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD_ENABLED:
+                        if layer_idx < ATTN_SOAP_DEPTH_SPLIT:
+                            self.attn_soap_trust_threshold[id(p)] = ATTN_SOAP_TRUST_THRESHOLD_FRONT
+                            self.attn_soap_depth_half[id(p)] = "front"
+                        else:
+                            self.attn_soap_trust_threshold[id(p)] = ATTN_SOAP_TRUST_THRESHOLD_BACK
+                            self.attn_soap_depth_half[id(p)] = "back"
+                    else:
+                        self.attn_soap_trust_threshold[id(p)] = ATTN_SOAP_TRUST_THRESHOLD
+                        self.attn_soap_depth_half[id(p)] = "uniform"
             elif p in self.soap_params and layer_idx is not None:
                 self.mlp_soap_layer[id(p)] = layer_idx
                 if MLP_SOAP_PER_DEPTH_HALF_ENABLED:
@@ -791,10 +816,11 @@ class Muon(torch.optim.Optimizer):
                         mlp_beta2 = self.mlp_soap_beta2.get(id(p), SOAP_BETA2)
                         soap_refresh(grad, state, beta2=mlp_beta2)
                     elif use_attn_soap:
+                        attn_threshold = self.attn_soap_trust_threshold.get(id(p), ATTN_SOAP_TRUST_THRESHOLD)
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
                                      use_trust_gate=True,
-                                     trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
+                                     trust_threshold=attn_threshold)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
     def trust_gate_stats(self) -> dict[str, float]:
@@ -968,6 +994,11 @@ if dist.get_rank() == 0:
             "optimizer/aux_reset_partial_factor_lm_head": AUX_RESET_PARTIAL_FACTOR_LM_HEAD,
             "optimizer/per_kind_aux_periodic_reset_embed_enabled": AUX_RESET_EMBED_ENABLED,
             "optimizer/per_kind_aux_periodic_reset_lm_head_enabled": AUX_RESET_LM_HEAD_ENABLED,
+            # PR #2251: per-depth-half ATTN-SOAP trust-threshold dispatch config.
+            "optimizer/per_depth_half_attn_soap_trust_threshold_enabled": int(PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD_ENABLED),
+            "optimizer/attn_soap_trust_threshold_front": ATTN_SOAP_TRUST_THRESHOLD_FRONT,
+            "optimizer/attn_soap_trust_threshold_back": ATTN_SOAP_TRUST_THRESHOLD_BACK,
+            "optimizer/attn_soap_depth_split": ATTN_SOAP_DEPTH_SPLIT,
             "seed": SEED if SEED is not None else -1,
         },
     )
@@ -1052,6 +1083,27 @@ for trial_idx in range(args.num_trials):
             f"FAST={MLP_SOAP_BETA2_FAST} SLOW={MLP_SOAP_BETA2_SLOW}",
             console=True,
         )
+        # PR #2251 — per-depth-half ATTN-SOAP trust-threshold banner (advisor spot-check).
+        _attn_front_layers = sorted({optimizer2.attn_soap_layer[id(p)]
+                                     for p in optimizer2.attn_soap_params
+                                     if optimizer2.attn_soap_depth_half.get(id(p)) == "front"})
+        _attn_back_layers = sorted({optimizer2.attn_soap_layer[id(p)]
+                                    for p in optimizer2.attn_soap_params
+                                    if optimizer2.attn_soap_depth_half.get(id(p)) == "back"})
+        if PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD_ENABLED:
+            print0(
+                f"[PR-THORFINN-DEPTH-TRUST] PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD "
+                f"enabled=1 front={ATTN_SOAP_TRUST_THRESHOLD_FRONT} "
+                f"back={ATTN_SOAP_TRUST_THRESHOLD_BACK} split={ATTN_SOAP_DEPTH_SPLIT} "
+                f"front_layers={_attn_front_layers} back_layers={_attn_back_layers}",
+                console=True,
+            )
+        else:
+            print0(
+                f"[PR-THORFINN-DEPTH-TRUST] PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD "
+                f"enabled=0 uniform_threshold={ATTN_SOAP_TRUST_THRESHOLD}",
+                console=True,
+            )
         # AdamW per-kind β1 per-group verification:
         for _grp in optimizer1.param_groups:
             _name = _grp.get("name", "?")
