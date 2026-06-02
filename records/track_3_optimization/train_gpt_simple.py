@@ -56,6 +56,22 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H381: Per-param outer LR/momentum. Sentinel -1 = use global outer_lr/outer_momentum
+    # (Pattern A bit-id preserving). Body = block 2D weights (MuonH-governed),
+    # Aux = embed/lm_head/scalars (AdamW-governed).
+    parser.add_argument("--body_outer_lr", type=float,
+                        default=float(os.environ.get("BODY_OUTER_LR", "-1.0")),
+                        help="Per-group outer LR for BODY (block 2D weights). -1 = use outer_lr global. "
+                             "Sentinel -1 preserves H266 bit-id.")
+    parser.add_argument("--body_outer_momentum", type=float,
+                        default=float(os.environ.get("BODY_OUTER_MOMENTUM", "-1.0")),
+                        help="Per-group outer momentum for BODY (block 2D weights). -1 = use outer_momentum global.")
+    parser.add_argument("--aux_outer_lr", type=float,
+                        default=float(os.environ.get("AUX_OUTER_LR", "-1.0")),
+                        help="Per-group outer LR for AUX (embed, lm_head, scalars). -1 = use outer_lr global.")
+    parser.add_argument("--aux_outer_momentum", type=float,
+                        default=float(os.environ.get("AUX_OUTER_MOMENTUM", "-1.0")),
+                        help="Per-group outer momentum for AUX (embed, lm_head, scalars). -1 = use outer_momentum global.")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -844,6 +860,10 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "body_outer_lr": args.body_outer_lr,
+            "body_outer_momentum": args.body_outer_momentum,
+            "aux_outer_lr": args.aux_outer_lr,
+            "aux_outer_momentum": args.aux_outer_momentum,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -1058,6 +1078,27 @@ for trial_idx in range(args.num_trials):
         outer_anchor = None
         outer_velocity = None
     outer_applied_steps = 0
+
+    # H381: Build body param name set for per-group outer dispatch.
+    # Body = block 2D weights (MuonH-governed, scale_invariant, AGC-clipped).
+    # Aux  = embed, lm_head, scalars (AdamW-governed).
+    # Sentinel -1.0 on body/aux flags => use global outer_lr/outer_momentum
+    # (Pattern A bit-id preserving on default args).
+    _body_param_names = set()
+    for _n, _p in model.named_parameters():
+        if _p.ndim >= 2 and _n.startswith("blocks."):
+            _body_param_names.add(_n)
+    _h381_body_outer_lr = args.body_outer_lr if args.body_outer_lr > 0 else args.outer_lr
+    _h381_body_outer_mu = args.body_outer_momentum if args.body_outer_momentum > 0 else args.outer_momentum
+    _h381_aux_outer_lr  = args.aux_outer_lr if args.aux_outer_lr > 0 else args.outer_lr
+    _h381_aux_outer_mu  = args.aux_outer_momentum if args.aux_outer_momentum > 0 else args.outer_momentum
+    if dist.get_rank() == 0 and use_outer:
+        n_body = len(_body_param_names)
+        n_total = sum(1 for _ in model.named_parameters())
+        n_aux = n_total - n_body
+        print0(f"H381 per-group outer dispatch: body_lr={_h381_body_outer_lr} body_mu={_h381_body_outer_mu} "
+               f"aux_lr={_h381_aux_outer_lr} aux_mu={_h381_aux_outer_mu} "
+               f"(body_params={n_body} aux_params={n_aux})", console=True)
 
     # H266: Polyak-Ruppert EMA buffer for eval-only weight averaging (Pattern A drift-FREE).
     # When decay == 0.0 the state stays None and all H266 code paths short-circuit, so the
@@ -1330,27 +1371,60 @@ for trial_idx in range(args.num_trials):
                 delta_sq = torch.zeros((), device=device)
                 velocity_sq = torch.zeros((), device=device)
                 total_count = 0
+                body_delta_sq = torch.zeros((), device=device)
+                body_velocity_sq = torch.zeros((), device=device)
+                body_count = 0
+                aux_delta_sq = torch.zeros((), device=device)
+                aux_velocity_sq = torch.zeros((), device=device)
+                aux_count = 0
             with torch.no_grad():
                 for n, p in model.named_parameters():
+                    # H381: per-group dispatch — body vs aux. Sentinel -1 on the
+                    # body/aux flag (resolved above) falls back to global outer_lr/mu,
+                    # so default args are bit-identical to the H266 baseline.
+                    if n in _body_param_names:
+                        _eff_lr = _h381_body_outer_lr
+                        _eff_mu = _h381_body_outer_mu
+                    else:
+                        _eff_lr = _h381_aux_outer_lr
+                        _eff_mu = _h381_aux_outer_mu
                     delta = outer_anchor[n] - p.data
-                    outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
+                    outer_velocity[n].mul_(_eff_mu).add_(delta)
+                    p.data.copy_(outer_anchor[n] - _eff_lr *
+                                 (_eff_mu * outer_velocity[n] + delta))
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
-                        delta_sq = delta_sq + delta.float().square().sum()
-                        velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
+                        d_sq = delta.float().square().sum()
+                        v_sq = outer_velocity[n].float().square().sum()
+                        delta_sq = delta_sq + d_sq
+                        velocity_sq = velocity_sq + v_sq
                         total_count += delta.numel()
+                        if n in _body_param_names:
+                            body_delta_sq = body_delta_sq + d_sq
+                            body_velocity_sq = body_velocity_sq + v_sq
+                            body_count += delta.numel()
+                        else:
+                            aux_delta_sq = aux_delta_sq + d_sq
+                            aux_velocity_sq = aux_velocity_sq + v_sq
+                            aux_count += delta.numel()
             outer_applied_steps += 1
             if log_outer:
                 delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
                 velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
+                body_delta_rms = (body_delta_sq.item() / max(1, body_count)) ** 0.5
+                body_velocity_rms = (body_velocity_sq.item() / max(1, body_count)) ** 0.5
+                aux_delta_rms = (aux_delta_sq.item() / max(1, aux_count)) ** 0.5
+                aux_velocity_rms = (aux_velocity_sq.item() / max(1, aux_count)) ** 0.5
                 wandb.log({
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/muloco/body_delta_rms": body_delta_rms,
+                    "train/muloco/body_velocity_rms": body_velocity_rms,
+                    "train/muloco/aux_delta_rms": aux_delta_rms,
+                    "train/muloco/aux_velocity_rms": aux_velocity_rms,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
