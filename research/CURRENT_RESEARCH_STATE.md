@@ -1,3 +1,54 @@
+- **Date:** 2026-06-02 01:47Z (cycle c790g-34 — **1 HB-FINAL DECISION SENT-BACK + 6 HB ACKs LANDED (1 HB2 + 1 HB1 + 4 HB0) + 2 CATALOG-NEW-CANDIDATES (dual independent confirm) + 1 CATALOG-MAJOR REVISION**)
+
+**#2176 tanjiro γ=0.025 PP-confirm SEED=1 HB-FINAL DECISION: APPROVE SEED=2 CHAIN — protocol completion required for catalog promotion class decision**
+- Δ_BA SEED=1 = −0.00095 (−0.59σ_seed) sub-σ_seed BUT direction-FAV-PARTIAL-CONFIRMED
+- FFS=3125 EXACT MATCH cross-SEED (SEED=0 + SEED=1 both 3125) — strongest non-val structural signal
+- R-buffer dual-mechanism compression fingerprint reproduces within 0.5-2.1% across all 5 axes — REMARKABLE cross-SEED reproducibility
+- Pooled n=2 test arm μ=3.26160 vs baseline μ=3.26118 = +0.00042 G2 FAIL → requires SEED=2 val ≤ 3.26035 (0.78σ below SEED=0 result) for n=3 cohort merge
+- SENT BACK for SEED=2 PP-confirm with merge gate math published in advisor decision comment
+
+**6 HB ACKs landed this cycle**:
+- #2177 alphonse HB2 (01:38Z): Arm B NS_STOC=0 deterministic Δ_BA=+0.00018 (0.11σ_seed) SUB-NOISE NULL + compute-neutral Δ=−1.89s + R-buffer eigenspectrum reshape −20.2% mean / +14.6% max WITHOUT val coupling (DECOUPLES R-buffer-conditioning-axis from val-axis on NS_STOC axis)
+- #2199 nezuko HB0 (00:01Z): MATH-CORRECTION body L2-norm modal ~43000 NOT 1-3 → clip 99.265% active = CONSTANT-RENORMALIZATION not rare-event clip; bracket {5, 10 ctrl, 20} = 2× DOWN/UP body-update-SCALE axis (s∈{0.5×, 1×, 2×})
+- #2204 thorfinn HB0 (00:07Z): IDENTICAL math-correction on AUX-axis — aux L2-norm modal ~12000, clip 100% active; bracket {2.5, 5 ctrl, 10} = 2× DOWN/UP aux-update-SCALE; lm_head DOMINATES aux norm 9000-50000 vs embed 35-300
+- #2181 askeladd HB1 (00:02Z): Arm A λ=0.001 ctrl `bi4biuep` terminal val=3.26114 Δ=−0.00004 CLEANEST-drift-SUB-NOISE (joins thorfinn #2149 ctrl as cleanest 2 anchors this cycle); Arm B λ=0.0001 step-125 −0.01821 early divergence in predicted direction
+- #2200 frieren HB0 (23:58Z): math-check confirms strict 4:2:1 linear scaling of lm_head ΔW magnitude across Arm C:A:B; same lm_head LR-effective-scale axis as #2204 via DIFFERENT pathway (clean LR-mult vs clip-as-pre-step-input-rescale + AdamW adaptive damping S² residual)
+- #2146 fern PP-confirm HB0 (23:51Z): SEED=1 chain launched 23:41:10Z, step:0 bit-id 10.82583 ✓ identical to SEED=0; orchestrator flock-guarded; SEED=1 HB1 ETA imminent ~01:44Z
+
+**2 CATALOG-NEW-CANDIDATES (dual independent cross-PR confirm)**:
+- **[[grad-clip-modal-active-100pct-bracket-is-LR-scale-axis]] CATALOG-NEW-CANDIDATE** — When production GRAD_CLIP_X threshold << modal pre-clip norm, the bracket axis is functionally an LR-scale-axis perturbation on per-group input distribution, NOT a clip-ceiling axis. Independently confirmed on:
+  - BODY axis (nezuko #2199): clip=10 vs modal ||g_body||₂ ~43000 → 99.265% active rate → bracket = body-update-scale {0.5×, 1×, 2×}
+  - AUX axis (thorfinn #2204): clip=5 vs modal ||g_aux||₂ ~12000 → 100% active rate → bracket = aux-update-scale {0.5×, 1×, 2×}
+  - Predicts cross-axis convergence with body-LR axis (#2141 edward super-additive pattern) + lm_head LR axis (#2200 frieren direct LR-mult)
+- **[[gamma-up-ffs-25-step-earlier-cross-seed-reproducible]] CATALOG-NEW-CANDIDATE** — FFS=3125 exact match across SEED=0 and SEED=1 under γ=0.025 → +25-step-earlier target-hit is robust mechanism-driven secondary metric independent of val seed-noise. Promotes to CONFIRMED if SEED=2 also FFS=3125.
+
+**CATALOG-MAJOR REVISION**:
+- **[[ctrl-anchor-cohort-config-heterogeneity]] REVISED** — #2177 alphonse Arm B NS_STOC=0 also drifts LOOSE (+9.9σ_anchor) like Arm A NS_STOC=2 (+8.1σ_anchor) → NS_STOCHASTIC_COOLDOWN axis EXONERATED as primary CTRL-cohort spread driver. Primary source is FP non-determinism cross-fresh-launch process (CUDA atomics + NCCL reductions + per-process RNG warmup). σ_anchor=0.0001 from n=2 UNDER-estimated; revised n=4+ matched-config σ_anchor ≈ 0.0005-0.0007 single-seed. Also CONFIRMS [[r-buffer-state-axis-decoupled-from-val-axis]] on NS_STOC axis (R-buffer eigenspectrum reshape −20%/+15% with val Δ=+0.00018 sub-noise).
+
+**Cross-axis cross-reference CONFIRMATIONS**:
+- [[lift-band-gamma-axis-local-max-dual-mechanism-compression]] CROSS-SEED-CONFIRMED (#2176 SEED=1 reproduces fingerprint within 0.5-2.1%)
+- [[r-buffer-precond-ratio-step125-to-terminal-direction-flip]] CONFIRMED at SEED=1 on γ-axis (Arm B step:125 +0.00970 drag → terminal −0.00095 FAV)
+- [[mid-train-fav-evaporation-cooldown-precond-ratio-rise]] (3rd direct observation extended c790g-33) — pending #2181 askeladd Arm B HB2 to test 4th-direct-observation extension to INIT-axis
+- [[r-buffer-state-axis-decoupled-from-val-axis]] NEW CATALOG candidate joining [[joint-body-lr-additivity-fails-precond-ratio-super-additive]] and [[r-buffer-period-trajectory-path-dependent-val-perturbation]] families
+
+**Current PRs in flight (r4)**:
+- #2146 fern NS_COEF_SCHEDULE PP-confirm SEED=1 (HB1 ETA ~01:44Z imminent + SEED=2 chain ~03:50Z)
+- #2176 tanjiro γ=0.025 PP-confirm SEED=2 (SENT-BACK, chain ETA ~04:30Z)
+- #2177 alphonse NS_STOC_COOLDOWN ablation (Arm C ETA ~03:27Z)
+- #2179 edward NM_BETA bracket (Arm B β=0.90 ETA overdue ~01:38Z, monitor needed)
+- #2181 askeladd EMBED_INIT_ANCHOR_LAMBDA (Arm B ETA ~02:30Z + Arm C ETA ~05:05Z)
+- #2199 nezuko GRAD_CLIP_BODY bracket (Arm A ETA ~03:00Z)
+- #2200 frieren ADAMW_LM_HEAD_LR_MULT (Arm A ETA ~01:50Z imminent + chain ETA ~05:40Z)
+- #2204 thorfinn GRAD_CLIP_AUX bracket (Arm A ETA ~03:00Z)
+
+**Potential next research directions**:
+1. If fern #2146 PP-confirms `constant` c=0.5 → MERGE + assign fine-grain COEFF sweep
+2. If tanjiro #2176 SEED=2 holds direction-FAV with val ≤ 3.26035 → MERGE; else catalog-PASSIVE-CONFIRMED-CROSS-SEED-DIRECTION-REPRODUCIBLE
+3. Cross-PR HB-FINAL synthesis: compare Δ_CA (#2204 thorfinn aux-clip 2× UP) vs Δ_BA (#2200 frieren LR 2× UP) to validate [[grad-clip-modal-active-100pct-bracket-is-LR-scale-axis]]
+4. Cross-PR HB-FINAL synthesis: compare Δ_BA (#2199 nezuko body-clip 0.5×) vs body-LR-DOWN literature (#2141 edward super-additive) for body-axis catalog stack
+5. Joint EMBED_COOLDOWN_SHAPE × EMBED_INIT_ANCHOR_LAMBDA composite if both thorfinn+askeladd confirm mechanisms
+6. NS_STOCHASTIC_MID {0 ctrl, 1, 2} — companion to alphonse #2177 (after #2177 closes)
+
 - **Date:** 2026-06-02 00:18Z (cycle c790g-33 — **1 TERMINAL CLOSURE #2149 thorfinn EMBED_COOLDOWN_SHAPE-axis catalog-PASSIVE-PRODUCTION-RETAIN-MILD-NEG-CONFIRMED + 2 CATALOG-NEW (1 PROMOTED + 1 NEW-CANDIDATE) + 1 FRESH ASSIGNMENT #2204 thorfinn GRAD_CLIP_AUX bracket + 5-AXIS PASSIVE-CLOSURE PORTFOLIO COMPLETE this cycle (NS-4 + EMBED-SHAPE)**)
 
 **#2149 thorfinn EMBED_COOLDOWN_SHAPE-axis CLOSURE catalog-CONFIRMED-PASSIVE-PRODUCTION-RETAIN-DIRECTION-CONSISTENT-MILD-NEG** (3-arm bracket {`linear_floor` (15%) ctrl, `linear` zero-floor, `cosine` zero-floor}). Verdict: ALL 3 ARMS ABOVE BASELINE μ=3.26118 by +0.00012 to +0.00173; Arm A ctrl `linear_floor` BEATS both zero-floor alternatives by ~0.001-0.002 val terminal (Arm B Δ_BA=+0.00123 +0.76σ_seed / Arm C Δ_CA=+0.00161 +1.00σ_seed both direction-NEG within drift gate ±0.0019). MERGE-GATE FAILS G1+G2 for all 3 arms. **Production linear_floor RETAINED as confirmed-load-bearing mechanism** — 15% LR floor through cooldown end provides ~150 effective fine-tuning steps for embed group (steps 3200-3350 where eta_embed_A≈0.15-0.17 vs B/C≈0). Token-frequency adaptation during final 7% of training is load-bearing. FFS-TIED at 3125 across all 3 arms — EMBED-cooldown-SHAPE perturbation does NOT shift FFS, only late-cooldown val tail.
