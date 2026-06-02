@@ -9,7 +9,28 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 00:05Z (**113th R5 closure: nezuko #2138 soap-adaptive-eps-floor FFS-NEG monotone with α; SOAP-post denominator-geometry axis CLOSED; researcher dispatched for fresh nezuko hypothesis; fern #2133 sent back for n=4 D-arm escalation [strong dual-metric departure with monotone-better ema_val at every probe step]**)
+## Last updated: 2026-06-02 00:30Z (**Nezuko researcher mu-warmup-ramp hypothesis REJECTED — warmup-mu axis was already PR #2079 106th R5 closure FFS-NEUTRAL; memory entry [[warmup_mu_ramp_axis_closed_at_r5]] created; fresh researcher dispatched with explicit closed-family list. Fleet 7 running, nezuko idle pending researcher (round 2).**)
+
+### Notes (2026-06-02 00:30Z) — Researcher factual error caught + memory entry created + re-dispatch
+
+- **Nezuko mu-warmup-ramp hypothesis (researcher round 1) REJECTED** before assignment. The researcher proposed `--mu_warmup_init ∈ {0.60, 0.70, 0.80}` ramping over `mu_warmup_frac=0.30` (steps 0-974). Critical error: the researcher's brief claimed PR #2079 (g1r5-nezuko/warmup-mu-ramp) was "never ran". **Actual status: PR #2079 was the 106th R5 closure, FFS-NEUTRAL** with cells A_ctrl/B★(0.70)/C(0.80) all collapsing to canonical attractor {FFS_ema=2875, FFS_trainval=2925}. The closing comment establishes the mechanism: *"NS5 absorbs gradient-history-channel perturbations during the orthogonalization-dominated regime (warmup + main plateau), but releases during cooldown when LR contracts."* The proposed `mu_warmup_frac=0.30` operates EXACTLY in the absorbed regime (progress 0-0.30 = steps 0-975), so even with a wider ramp the axis is closed.
+
+- **New memory entry [[warmup_mu_ramp_axis_closed_at_r5]]** saved at `/root/.claude/projects/-workspace-senpai-target/memory/warmup_mu_ramp_axis_closed_at_r5.md`. Rule: reject any Muon μ schedule firing at progress < 0.30. Acceptable axes: cooldown-mu variants on NEW axes not in the 7-axis cooldown-saturation closure list, OR NS5-bypass mechanisms.
+
+- **Researcher round 2 dispatched** (background) with explicit closed-family list including the new warmup-mu closure. Constraints: ≤25 LOC, must operate at progress ≥ 0.30 OR bypass NS5 entirely OR be a true architectural change. Candidate angles suggested: output-side mechanisms, cooldown-phase attention internals, AdamW state operations (m_2 reinit, β_2 cooldown), loss-side cooldown reweighting, SAM with cooldown-phase-only perturbation, Hessian-vector preconditioning.
+
+### Fleet status snapshot (00:30Z) — 7 running + nezuko idle pending researcher round 2
+
+| PR | Student | Assignment | Notes |
+|---|---|---|---|
+| #2196 | thorfinn | linear-cooldown-shape-n4-revisit | n=4 running ~7h |
+| #2195 | edward | soap-gram-tikhonov-v2 | A_ctrl running |
+| #2184 | askeladd | ns5-kj-coefficients | A_ctrl 91% terminal |
+| #2170 | frieren | post-ns5-rownorm | B★ running |
+| #2167 | alphonse | ns5-per-group-iters | C(attn5-mlp7) running |
+| #2166 | tanjiro | soap-basis-cooldown-freeze | C(freeze1950) running |
+| #2133 | fern | depth-graduated-mlp-lr-n4 | n=4 D(-0.15) running ~7h |
+| — | nezuko | (researcher round 2 dispatched) | idle ~25 min |
 
 ### Notes (2026-06-02 00:05Z) — 113th closure + fern #2133 n=4 escalation + nezuko researcher dispatch
 
