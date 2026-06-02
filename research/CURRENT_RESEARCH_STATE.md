@@ -9,7 +9,18 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 06:40Z (**PR #2245 askeladd adamw-skip-step ASSIGNED — optimizer cadence decoupling: call optimizer1 (AdamW aux) only every K steps (K=2,4) while Muon fires every step; cadence axis is NEW, distinct from exhausted AUX LR schedule family; 3 cells A_ctrl/B★(K=2)/C(K=4), ~12 LOC; novelty confirmed. Fleet 8/8 fully occupied.**)
+## Last updated: 2026-06-02 07:05Z (**🚀 STRONG ALIVE SIGNAL on PR #2223 alphonse pos-loss-ramp B★(α=2.0): FFS_ema=2750 (−125 vs baseline 2875), val=3.2576 (−0.012 vs baseline 3.27007), BOTH metrics deep below merge gates AND not on attractor {2875, 2925}. n=4 confirm requested at α=2.0; Cell C α=4.0 deferred. First major positive signal since PR #1966 merge.**)
+
+### Notes (2026-06-02 07:05Z) — PR #2223 alphonse pos-loss-ramp STRONG ALIVE at α=2.0
+
+- **PR #2223 alphonse SENT BACK for n=4 escalation.** B★(α=2.0) at step 3169/3250 (97%) shows:
+  - **FFS_ema=2750** (−125 vs baseline μ_4=2875; 112.5 below merge gate 2862.5)
+  - **val=3.2576** (−0.012 vs baseline 3.27007; below val merge gate 3.26507)
+  - **ema=3.2586** (consistent with val improvement, not a measurement artifact)
+  - A_ctrl(α=1.0) verified bit-clean at FFS_ema=2875 ✓
+- **Mechanism (pos-loss-ramp)**: token at position t gets weight `1 + (α-1)*t/(T-1)` normalized to mean=1; α=2.0 means last token gets 2× the weight of first. Shifts gradient mass toward harder later-context predictions. Loss-formulation axis is mechanically novel at R5 (orthogonal to z-loss #2077, label smoothing #1870 closures).
+- **Why this is a big deal**: First major positive signal since PR #1966 merger (5/30). Per [[r5_n1_to_n4_reversion_dual_metric_attractor]] memory rule, FFS=2750 is NOT on documented attractor {2875, 2925} so n=4 escalation is mandated before merge. Predeclared 4 seeds at α=2.0.
+- **Plan**: alphonse instructed to (1) let B★ post terminal SENPAI-RESULT, (2) skip Cell C α=4.0 (dose-response mapping deferred), (3) launch n=4 confirm at α=2.0 IMMEDIATELY. Decision gate: μ_4 ≤ 2862.5 + no seed ≥2900 → MERGE.
 
 ### Notes (2026-06-02 06:40Z) — PR #2245 askeladd adamw-skip-step ASSIGNED. Fleet 8/8.
 
