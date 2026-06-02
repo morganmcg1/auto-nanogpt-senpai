@@ -1,3 +1,53 @@
+- **Date:** 2026-06-02 13:13Z (cycle c790g-58 — **1 HB-FINAL TERMINAL CLOSED catalog-PASSIVE-FENCED + 1 PP-HB2 ACK landed CATALOG-PROMOTION-CRITICAL + 3 routine ACKs + 1 NEW ASSIGNMENT: #2236 askeladd HB-FINAL CLOSE-CATALOG-PASSIVE-FENCED (3-arm WARMSTART_K bracket {50, 100 ctrl, 200} all FAIL G1; Arm A K=100 ctrl +2.00σ HOT-CTRL artifact; Arm B/C +1.16/+1.17σ NEG within drift edge; anchor-cohort centered NULL PLATEAU indistinguishable from each other +0.02σ; WARMSTART_K AXIS-FENCED at 2× perturbation magnitude) → CRITICAL MILESTONE: CLOSES LAST UNBRACKETED NM-MECHANISM AXIS COMPLETING c790g-CYCLE NM-PORTFOLIO COVERAGE (TIKHONOV_GAMMA ✓ / BETA ✓ / EPS in-flight / UPDATE_PERIOD ✓ / MAX_D_IN ✓ / LR_SCALE ✓ / WARMSTART_K ✓) + 5 catalog observations promoted at #2236 (record c790g-cycle catalog credit per PR): [[cross-K-warmstart-fire-step-fingerprint]] REFINED-CONFIRMED (2D response NM-step-count vs v_buffer-maturity, sub-√ scaling rejects β-axis prediction), [[r-buffer-compensation-reduction-shared-mechanism-channel]] 4th-axis-EXTENSION (K-axis joins β-DOWN/γ-UP/NS_COEF=constant direction-asymmetric magnitude K-DOWN −8.4% vs K-UP −3.6%), [[embed-axis-decoupled-from-body-muon-precond-ratio]] 4th-axis-CONFIRMED at WARMSTART_K (bit-id 117248 all arms), NEW [[warmstart-k-axis-neg-onset-fav-terminal-symmetric-evaporation]] PROMOTED (direction-symmetric K-axis evaporation mirror to mid-train-fav-evaporation-cooldown-precond-ratio-rise), NEW [[warmstart-k-r-cond-persistent-spread-asymmetric-both-directions]] PROMOTED (terminal R_cond_mean K-DOWN +23.5% / K-UP −12.9% direction-asymmetric monotone) + #2199 nezuko PP-HB2 CATALOG-PROMOTION-CRITICAL: [[pp-collapse-arm-a-ctrl-realization-conflation]] CATALOG-PROMOTED at 3rd direct observation (across-arms confirmation criterion met) — cross-seed Δ_CA paired REVERSED (s0 −2.40σ FAV HOT-CTRL CONFOUNDED → s1 +0.49σ NEG mild within seed envelope = Δ(Δ_CA) +2.89σ_seed cross-seed reversal definitively isolating SEED=0 FAV signal as CTRL-realization artifact); original c790g-46 bracket-FAV at GRAD_CLIP_BODY=20.0 REJECTED + production GRAD_CLIP_BODY=10.0 retained pending HB-FINAL pooled n=2 SEED=2 confirmation; Arm A SEED=2 in flight ETA ~14:59Z, C_s2 ETA ~17:17Z + #2177 alphonse Arm B s2 routine HB step 1635/3350 ETA ~14:05Z + #2204 thorfinn HB2_PP metadata correction (Arm A2 W&B run id 1dqvty4b corrected from 2gsx1y2x) + #2277 fern HB0 chain launched atomic 12:40:57Z banner verified 18 envs bit-id PASS + #2279 askeladd NEW ASSIGNMENT muon-attn-lr-mult-bracket {0.70, 0.80 ctrl, 0.90} probing marginal stability of #579 compound merge (0.80/1.20) under post-NM stack — 8 PRs in flight 0 idle students.**
+
+**#2236 askeladd HB-FINAL CLOSED catalog-PASSIVE-FENCED** (13:02Z):
+- 3-arm WARMSTART_K bracket {50, 100 ctrl, 200} all FAIL G1; no PP-confirm trigger (paired Δ_BA=−0.85σ FAV, Δ_CA=−0.83σ FAV both within ±1.5σ threshold)
+- Arm A K=100 ctrl val=3.26441 = +2.00σ HOT-CTRL artifact inflating paired Δ; under anchor-cohort centering both B/C land at +1.16-1.17σ mild NEG → NULL PLATEAU at this 2× magnitude
+- **CLOSES LAST UNBRACKETED NM-MECHANISM AXIS** — completes c790g-cycle NM portfolio coverage (6 axes bracketed: TIKHONOV_GAMMA, BETA, EPS in-flight, UPDATE_PERIOD, MAX_D_IN, LR_SCALE, WARMSTART_K)
+- 5 catalog observations promoted at single PR (record cycle-PR credit): [[cross-K-warmstart-fire-step-fingerprint]] 2D-response REFINED-CONFIRMED + [[r-buffer-compensation-reduction-shared-mechanism-channel]] 4th-axis + [[embed-axis-decoupled-from-body-muon-precond-ratio]] 4th-axis-CONFIRMED + NEW [[warmstart-k-axis-neg-onset-fav-terminal-symmetric-evaporation]] + NEW [[warmstart-k-r-cond-persistent-spread-asymmetric-both-directions]]
+- Closure with full catalog credit + portfolio routing → AdamW WEIGHT_DECAY proposed as next fern target; ATTN_LR_MULT proposed as next askeladd assignment
+
+**#2199 nezuko PP-HB2 CATALOG-PROMOTION-CRITICAL** (12:45Z):
+- Arm C SEED=1 val=3.26198 FFS=3150; Δ_CA paired REVERSED cross-seed (s0 −2.40σ FAV HOT-CTRL → s1 +0.49σ NEG mild)
+- **[[pp-collapse-arm-a-ctrl-realization-conflation]] CATALOG-PROMOTED at 3rd direct observation** (across-arms confirmation criterion met per c790g-53 advisor criteria)
+- Original c790g-46 bracket-FAV at GRAD_CLIP_BODY=20.0 REJECTED + production GRAD_CLIP_BODY=10.0 retained pending HB-FINAL pooled n=2 SEED=2 confirmation
+- Arm A SEED=2 launched atomic 12:41Z bit-id PASS; ETA terminal ~14:59Z; C_s2 auto-launch ETA ~17:17Z
+- R-buffer cross-seed signature: [[precond-ratio-not-directional-predictor-for-val]] re-confirmed (Arm C s1 R_cond_mean −6.36% LOWER yet precond_ratio_mean +0.43% HIGHER and val +0.49σ NEG)
+- embed/dist_from_init bit-identical {117248, 117248} across arms at SEED=1 → confirms [[embed-axis-decoupled-from-body-muon-precond-ratio]] 4th-direct-observation pending (GRAD_CLIP_BODY axis OBJECTLESS for AdamW aux params)
+
+**#2279 askeladd NEW ASSIGNMENT muon-attn-lr-mult-bracket**:
+- 3-arm bracket: A=0.80 ctrl / B=0.70 (−12.5% more damping) / C=0.90 (+12.5% less damping)
+- Hypothesis: probes marginal stability of #579 compound merge (attn=0.80 + mlp=1.20 paired-pod 3/3 win) — never bracketed independently since #579. Stack composition shifted 9 days through NM merges, embed init-anchor, NS schedule, β2=0.99 — production 0.80 may no longer be marginally optimal
+- High orthogonality: independent of all 7 active PRs (NS_STOC #2177, NM_BETA #2179, GRAD_CLIP #2199/#2204, NM_EPS #2248, NS_ITERS_COOLDOWN #2249, embed_anchor #2277)
+- 4 catalog candidates to verify: [[muon-attn-lr-mult-axis-r-buffer-asymmetric-attn-vs-mlp-balance]] NEW, [[r-buffer-compensation-reduction-shared-mechanism-channel]] 5th-axis-EXTENSION test, [[embed-axis-decoupled-from-body-muon-precond-ratio]] 5th-axis-CONFIRMATION test, [[attn-vs-mlp-lr-mult-direction-asymmetric-marginal-vs-compound]] NEW
+- Methodology matched to #2236 (askeladd's just-completed bracket): N=1 SEED=0, chain-runner flock-guarded, atomic handoff, modern-stack Arm A reference
+- Env var `NANOGPT_MUON_ATTN_LR_MULT` already exists at L578 (default 1.0) — no code change needed
+- Branch `g1r4-askeladd/muon-attn-lr-mult-bracket`, draft PR #2279, ETA ~7h30m chain wall
+
+**Portfolio composition after c790g-58 (8 PRs in flight, 0 idle students)**:
+
+| Axis class | PR | Student | Stage | ETA |
+|---|---|---|---|---|
+| Muon ATTN_LR_MULT | #2279 | askeladd | new draft | HB0 pending |
+| Embed init-anchor | #2277 | fern | wip | HB1 ~14:46Z |
+| NS_STOC cohort | #2177 | alphonse | wip | HB-FINAL-PP ~14:05Z |
+| NM_BETA cohort | #2179 | edward | wip | HB-FINAL ~14:14Z |
+| GRAD_CLIP_BODY ceiling | #2199 | nezuko | wip | HB3 ~14:59Z / HB-FINAL ~17:17Z |
+| GRAD_CLIP_BODY tighten | #2204 | thorfinn | wip | HB-FINAL-PP pending |
+| NM EPS axis | #2248 | tanjiro | wip | HB-FINAL ~14:45Z |
+| NS_ITERS_COOLDOWN | #2249 | frieren | wip | HB-FINAL ~14:46Z |
+
+**Catalog state after c790g-58 (8 PROMOTED + 2 REFUTED across c790g-57 to c790g-58)**:
+
+- **PROMOTED across c790g-57+58**: [[adamw-beta1-axis-r-buffer-mean-decoupled]] (n=3 maturity), [[newton-muon-eps-axis-affects-r-condition-not-r-inv-sqrt-norm]] (3-arm bracket monotone), [[precond-ratio-cooldown-rise-not-ns-iters-driven]] (REFUTATION-derived), [[cross-K-warmstart-fire-step-fingerprint]] (2D-response REFINED), [[r-buffer-compensation-reduction-shared-mechanism-channel]] (4th-axis K extension), [[embed-axis-decoupled-from-body-muon-precond-ratio]] (4th-axis-CONFIRMED), NEW [[warmstart-k-axis-neg-onset-fav-terminal-symmetric-evaporation]], NEW [[warmstart-k-r-cond-persistent-spread-asymmetric-both-directions]], [[pp-collapse-arm-a-ctrl-realization-conflation]] (3rd-direct-observation PROMOTED)
+- **REFUTED across c790g-57+58**: [[newton-muon-eps-saturates-r-inv-sqrt-at-warmstart-fire-step]] (3-arm REFUTATION), [[ns-iters-cooldown-late-peak-step-trajectory-mechanism]] (2-arm REFUTATION)
+- **NM-portfolio coverage COMPLETE**: 6 NM-axes bracketed in c790g cycle (1 in-flight #2248); cross-axis joint-screening identified as next-wave research direction
+- **3 FAV NM axes through [[r-buffer-compensation-reduction-shared-mechanism-channel]]**: γ-UP / β-DOWN / NS_COEF=constant → shared mechanism candidate for joint-axis screening
+
+8 PRs in flight, 0 idle students. HB-wave landings expected sequentially: ~14:05Z alphonse HB-FINAL-PP, ~14:14Z edward HB-FINAL, ~14:45-46Z tanjiro+frieren HB-FINALs, ~14:46Z fern HB1, ~14:59Z nezuko HB3, ~17:17Z nezuko HB-FINAL, ~18:56Z fern HB-FINAL.
+
+---
+
 - **Date:** 2026-06-02 12:37Z (cycle c790g-57 — **1 HB-FINAL TERMINAL CLOSED + 2 HB2 ACKs landed DUAL-CATALOG-EVENT: #2234 fern HB-FINAL CLOSE-CATALOG-PASSIVE-NULL (3-arm β1 bracket {0.7, 0.8 ctrl, 0.9} all within ±1.5σ drift gate; both test arms NEG MONOTONE in |β1-0.8| → β1=0.8 production LOCAL OPTIMUM on N=1; HB0 cooldown-stability prediction REFUTED) + [[adamw-beta1-axis-r-buffer-mean-decoupled]] CATALOG-PROMOTED at n=3 arms (R-buffer central-tendency mean stable ±2.2% across 3× m-EMA range [3.33,10] steps; first AdamW-companion R-buffer-mean-decoupled axis to mature to 3-arm bracket level) + #2248 tanjiro HB2 DUAL-CATALOG: [[newton-muon-eps-saturates-r-inv-sqrt-at-warmstart-fire-step]] REFUTED-AT-3-ARM (predicted R_inv_sqrt step-125 ≈ 1/√eps wrong by ~3× in both extreme arms; v_diag/L853 normalization sets bulk eigenvalues≈1.0 so vals_i >> eps even for eps=1e-3; mechanistic coincidence NOT eps-dominance) + NEW CATALOG-CANDIDATE [[newton-muon-eps-axis-affects-r-condition-not-r-inv-sqrt-norm]] PROMOTED (R_cond_max step-125 MONOTONE with 1/eps: B=22953 / A=15095 / C=6047 = 3.80× span over 100× eps span; eps as spectral-spread/condition-axis NOT amplitude/Frobenius-axis) + #2249 frieren HB2 CATALOG-REFUTATION [[ns-iters-cooldown-late-peak-step-trajectory-mechanism]] NEGATIVE (Arm B DEGENERATE NS=12 flat shows IDENTICAL precond_ratio rise +28% to Arm A NS=20 second-half peak ACTIVE; even HIGHER at step-3000 1.106 vs 1.082) + NEW CATALOG-CANDIDATE [[precond-ratio-cooldown-rise-not-ns-iters-driven]] PROMOTED (cooldown-phase precond_ratio rise NS-iters-magnitude-invariant; driver is LR cooldown / ns_coef linear_ramp_down / embed cooldown interaction) + 8-NS-iter delta verified mid-late-cd yet val tracks within ±0.001 → NS_ITERS_COOLDOWN axis VAL-DECOUPLED + #2277 fern NEW ASSIGNMENT embed-init-anchor-lambda-bracket {0.0005, 0.001 ctrl, 0.002} probing post-NM stack local optimality of embed-anchor mechanism untouched since #847 (9 days through 5 NM merges). 8 PRs in flight 0 idle students.**)
 
 **#2234 fern HB-FINAL CLOSE-CATALOG-PASSIVE-NULL** (12:27Z):
