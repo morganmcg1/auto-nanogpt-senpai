@@ -9,7 +9,33 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 00:30Z (**Nezuko researcher mu-warmup-ramp hypothesis REJECTED — warmup-mu axis was already PR #2079 106th R5 closure FFS-NEUTRAL; memory entry [[warmup_mu_ramp_axis_closed_at_r5]] created; fresh researcher dispatched with explicit closed-family list. Fleet 7 running, nezuko idle pending researcher (round 2).**)
+## Last updated: 2026-06-02 00:50Z (**SECOND researcher round REJECTED — adamw-beta2-cooldown-ramp was already PR #1377 (18th R5 closure: "β₂ doesn't move FFS anywhere"). Full AdamW aux tetrad (β₁, β₂, eps, WD) memory entry [[adamw_aux_tetrad_fully_closed_at_r5]] created. Round 3 dispatched with EXPLICIT verify-by-PR-search mandate + 10 candidate angles. Fleet 7 running, nezuko idle pending researcher round 3.**)
+
+### Notes (2026-06-02 00:50Z) — Second researcher rejection + AdamW tetrad memory + round 3 with stricter mandate
+
+- **Researcher round 2 proposed `adamw-beta2-cooldown-ramp`** (cooldown-phase ramp of AdamW β₂ from 0.95 → {0.98, 0.999, 0.9999}, 5-cell sweep, ~13 LOC). **REJECTED** — direct duplicate of **PR #1377** ("AdamW aux β2 SCHEDULE — cooldown-localized 0.95→0.99 ramp (5-cell)"), the **18th stack-component closure** under FFS-primary directive #1262. Closure verdict: *"AdamW aux β₂ axis is FFS-COSMETIC across value AND schedule. β₁ is ONLY load-bearing axis on matrices; β₂ doesn't move FFS anywhere."* All 5 cells in #1377 (linear/instant/reverse falsifier shapes including 0.95→0.99 cooldown) collapsed to FFS=3025 with val spread ≈ 2.6σ_single = pure seed noise. Compounded by **PR #1321** (β₂ value pruning ablation) and the broader AdamW aux tetrad full closure: β₁ (#1310 narrow-basin matrices-only + #1988 β₁→0 cooldown FFS-NEG), eps (#1955 FFS-NEUTRAL), WD (#2083 FFS-NEG).
+
+- **New memory entry [[adamw_aux_tetrad_fully_closed_at_r5]]** saved. Rule: reject any hypothesis modifying optimizer1.param_groups[i]["betas"], ["eps"], or ["weight_decay"] (value or schedule). Acceptable adjacent angles: AdamW group LR ratios (embed=0.3 / lm_head=1/320 / scalars=0.03 — untouched in R5), AdamW group restructuring, AdamW group-specific gradient clipping.
+
+- **Researcher round 3 dispatched** (agent `a35ade3f8d8d1ffa0`, background) with:
+  1. Exhaustive closed-axis list including all PR numbers
+  2. **MANDATE**: generate 5 candidate hypotheses + run `gh search prs` for keywords on each before finalizing — must report prior-art search results
+  3. 10 candidate angles suggested: AdamW group LR ratio cooldown, lm_head temperature, token-level cooldown reweighting, attention head temperature, RoPE base schedule, cooldown precision promotion, compound winners (#1966 × pending #2196), architecture residual gating, Hessian-based on small subgroups, SAM with cooldown-only perturbation
+
+- **Two consecutive researcher misses** (mu-warmup-ramp + adamw-beta2-cooldown-ramp) suggest the list-experiments tool isn't surfacing older R5 closures (#2079 was 6 days ago, #1377 was 5 days ago). Round 3 prompt forces explicit `gh search prs` verification by keyword. If round 3 also fails, will pivot to direct hypothesis construction by advisor.
+
+### Fleet status snapshot (00:50Z) — 7 running + nezuko idle pending researcher round 3
+
+| PR | Student | Assignment | Notes |
+|---|---|---|---|
+| #2196 | thorfinn | linear-cooldown-shape-n4-revisit | n=4 running ~6.5h remaining |
+| #2195 | edward | soap-gram-tikhonov-v2 | A_ctrl running |
+| #2184 | askeladd | ns5-kj-coefficients | A_ctrl >91% (terminal expected any minute) |
+| #2170 | frieren | post-ns5-rownorm | B★ running |
+| #2167 | alphonse | ns5-per-group-iters | C(attn5-mlp7) running |
+| #2166 | tanjiro | soap-basis-cooldown-freeze | C(freeze1950) running |
+| #2133 | fern | depth-graduated-mlp-lr-n4 | n=4 D(-0.15) running ~6.5h remaining |
+| — | nezuko | (researcher round 3 dispatched) | idle ~45 min |
 
 ### Notes (2026-06-02 00:30Z) — Researcher factual error caught + memory entry created + re-dispatch
 
