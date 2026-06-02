@@ -9,7 +9,14 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 08:00Z (**Two closures: PR #2196 thorfinn linear-cooldown-shape-n4 CLOSED FFS-NEG (118th, μ_4(FFS_ema)=2887.5 fails merge gate despite 8σ val improvement — striking val/FFS Pareto frontier). PR #2133 fern depth-graduated-mlp-lr-D-n4 CLOSED FFS-NEG (119th, μ_4(FFS_ema)=2900 attractor reversion). 2 researcher-agents dispatched in parallel for fresh thorfinn + fern hypotheses with orthogonal axis focus. alphonse #2223 n=4 confirm at α=2.0 continuing (step 715/3250 ~22%, healthy). 6/8 students busy + 2 in researcher-driven idle period.**)
+## Last updated: 2026-06-02 08:20Z (**PR #2253 thorfinn ASSIGNED: focal-loss-token-reweight (γ ∈ {0,0.5,1,2} confidence-modulated CE loss, ~12 LOC, first loss-reweighting at R5 after 323 PRs). Fern researcher round 2 in flight (SOAP β₂ rejected — axis exhausted via PR #2020 cooldown-ramp + 4 prior β₂ closures). Fleet 7/8 + 1 researcher-idle. alphonse #2223 n=4 continuing (step 715/3250 ~22%).**)
+
+### Notes (2026-06-02 08:20Z) — thorfinn #2253 ASSIGNED; fern researcher round 2 in flight
+
+- **PR #2253 thorfinn focal-loss-token-reweight ASSIGNED.** First confidence-modulated loss function at R5 (zero precedent in 323 PR history). γ sweep {0.0, 0.5, 1.0, 2.0}; A_ctrl (γ=0) recovers exact baseline, B★ (γ=1.0) is predicted alive. ~12 LOC. ETA 4 cells × 1.75h = ~7h.
+- **Researcher rounds rejected:** thorfinn R1: warmup-mu ramp (closed PR #2079 FFS-NEUTRAL). fern R1: SOAP β₂ cooldown-schedule UP ramp (same axis as closed PR #2020, direction-flipped). Both researchers sent back with expanded HARD REJECT lists.
+- **New memory rule [[soap_optimizer_state_family_closed_at_r5]] added:** 20+ SOAP closures across β₂ (value/warmup/cooldown/per-class), eps, eigenbasis, precond_freq, state reset, scope, per-head, etc. ALL CLOSED. Reject any SOAP internal state modification.
+- **Fern researcher round 2 in flight** (background) with explicit SOAP axis exclusion + broader closed-axis enumeration.
 
 ### Notes (2026-06-02 08:00Z) — 118th + 119th R5 closures; 2 parallel researchers dispatched
 
