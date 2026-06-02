@@ -68,6 +68,12 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_iter_attn", type=int, default=None,
+                        help="NS5 iterations for attn SOAP groups (q/k/v/proj). "
+                             "Defaults to --ns_iter if not set. Only active with --soap_attn.")
+    parser.add_argument("--ns_iter_mlp", type=int, default=None,
+                        help="NS5 iterations for MLP SOAP groups (fc/proj). "
+                             "Defaults to --ns_iter if not set.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -504,7 +510,7 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, n_iter: int = NS_ITER) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -514,7 +520,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS_ITER):
+    for _ in range(n_iter):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -533,8 +539,8 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
 
 
 @torch.compile
-def soap_ns_step(nesterov_update):
-    update = zeropower_via_newtonschulz5(nesterov_update)
+def soap_ns_step(nesterov_update, n_iter: int = NS_ITER):
+    update = zeropower_via_newtonschulz5(nesterov_update, n_iter=n_iter)
     update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
     return update
 
@@ -627,11 +633,12 @@ class Muon(torch.optim.Optimizer):
                 "lr": g.get("lr", lr),
                 "weight_decay": g.get("weight_decay", weight_decay),
                 "mu": g.get("mu", mu),
+                "ns_iter": g.get("ns_iter", NS_ITER),
             }
             if "name" in g:
                 g_dict["name"] = g["name"]
             param_groups.append(g_dict)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, ns_iter=NS_ITER)
         super().__init__(param_groups, defaults)
 
     @torch.no_grad()
@@ -658,12 +665,13 @@ class Muon(torch.optim.Optimizer):
                             state["q_col"] = None
                             state["soap_step"] = 0
                     if use_soap:
+                        ns_iter_for_group = group.get("ns_iter", NS_ITER)
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
-                        u_soap = soap_ns_step(precond_nesterov)
+                        u_soap = soap_ns_step(precond_nesterov, n_iter=ns_iter_for_group)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            u_muon = soap_ns_step(raw_nesterov, n_iter=ns_iter_for_group)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -780,6 +788,9 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_iter_attn": args.ns_iter_attn if args.ns_iter_attn is not None else args.ns_iter,
+            "ns_iter_mlp": args.ns_iter_mlp if args.ns_iter_mlp is not None else args.ns_iter,
+            "ns_iter_per_group_enabled": (args.ns_iter_attn is not None) or (args.ns_iter_mlp is not None),
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
@@ -876,10 +887,13 @@ for trial_idx in range(args.num_trials):
     attn_named = [(n, p) for n, p in named_blocks
                   if not (n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"))]
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
+    ns_iter_mlp = args.ns_iter_mlp if args.ns_iter_mlp is not None else args.ns_iter
+    ns_iter_attn = args.ns_iter_attn if args.ns_iter_attn is not None else args.ns_iter
+    print0(f"[muon] muon_mlp ns_iter={ns_iter_mlp}, muon_attn ns_iter={ns_iter_attn} (global NS_ITER={NS_ITER})", console=True)
     optimizer2 = Muon(
         [
-            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
-            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
+            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp",  ns_iter=ns_iter_mlp),
+            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn", ns_iter=ns_iter_attn),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
