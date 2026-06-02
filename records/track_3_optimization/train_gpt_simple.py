@@ -470,6 +470,14 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
+# Per-depth-half body-Muon LR dispatch (PR #2238). When enabled, split body-Muon
+# params into front-half (depth < MUON_LR_DEPTH_SPLIT) and back-half groups with
+# independent LRs. Disabled by default — falls through to a single muon_blocks
+# group using MUON_LR, byte-identical to baseline.
+PER_DEPTH_HALF_MUON_LR_ENABLED = int(os.environ.get("PER_DEPTH_HALF_MUON_LR_ENABLED", "0")) == 1
+MUON_LR_FRONT = float(os.environ.get("MUON_LR_FRONT", "0.04"))
+MUON_LR_BACK = float(os.environ.get("MUON_LR_BACK", "0.04"))
+MUON_LR_DEPTH_SPLIT = int(os.environ.get("MUON_LR_DEPTH_SPLIT", "6"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
@@ -961,6 +969,10 @@ if dist.get_rank() == 0:
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
+            "optimizer/per_depth_half_muon_lr_enabled": PER_DEPTH_HALF_MUON_LR_ENABLED,
+            "optimizer/muon_lr_front": MUON_LR_FRONT,
+            "optimizer/muon_lr_back": MUON_LR_BACK,
+            "optimizer/muon_lr_depth_split": MUON_LR_DEPTH_SPLIT,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
@@ -1055,9 +1067,47 @@ for trial_idx in range(args.num_trials):
         _adam_groups[2]["betas"] = (PER_KIND_BETA1_SCALARS, 0.95)
     optimizer1 = AdamW(_adam_groups,
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    body_muon_named = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
+    optimizer2 = Muon(body_muon_named, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+    if PER_DEPTH_HALF_MUON_LR_ENABLED:
+        # Partition body-Muon params by layer depth (depth = leading int in name,
+        # e.g. "0.attn.q.weight" -> depth 0). Front-half lr = MUON_LR_FRONT,
+        # back-half lr = MUON_LR_BACK. Both groups keep name="muon_blocks" so the
+        # mu-cooldown schedule in set_hparams continues to apply.
+        front_ids: set[int] = set()
+        back_ids: set[int] = set()
+        for n, p in body_muon_named:
+            depth = int(n.split(".", 1)[0])
+            if depth < MUON_LR_DEPTH_SPLIT:
+                front_ids.add(id(p))
+            else:
+                back_ids.add(id(p))
+        sorted_params = optimizer2.param_groups[0]["params"]
+        front_params = [p for p in sorted_params if id(p) in front_ids]
+        back_params = [p for p in sorted_params if id(p) in back_ids]
+        assert len(front_params) + len(back_params) == len(sorted_params), \
+            f"depth-split lost params: front={len(front_params)} back={len(back_params)} total={len(sorted_params)}"
+        base_defaults = dict(optimizer2.param_groups[0])
+        front_group = {**base_defaults, "params": front_params, "lr": MUON_LR_FRONT, "name": "muon_blocks"}
+        back_group = {**base_defaults, "params": back_params, "lr": MUON_LR_BACK, "name": "muon_blocks"}
+        optimizer2.param_groups = [front_group, back_group]
+        print0(
+            f"[PR-FERN-DEPTH-MUON] PER_DEPTH_HALF_MUON_LR enabled=1 "
+            f"front_lr={MUON_LR_FRONT} back_lr={MUON_LR_BACK} split={MUON_LR_DEPTH_SPLIT} "
+            f"front_count={len(front_params)} back_count={len(back_params)}",
+            console=True,
+        )
+        muon_front_param_count = len(front_params)
+        muon_back_param_count = len(back_params)
+    else:
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
+        muon_front_param_count = 0
+        muon_back_param_count = 0
+        print0(
+            f"[PR-FERN-DEPTH-MUON] PER_DEPTH_HALF_MUON_LR enabled=0 "
+            f"(single muon_blocks group, lr={MUON_LR})",
+            console=True,
+        )
 
     # PR #2007 step-0 banner: confirm both compound infras are config-operative.
     if dist.get_rank() == 0:
@@ -1117,6 +1167,14 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+    if trial_idx == 0 and dist.get_rank() == 0:
+        wandb.config.update(
+            {
+                "optimizer/muon_front_param_count": muon_front_param_count,
+                "optimizer/muon_back_param_count": muon_back_param_count,
+            },
+            allow_val_change=True,
+        )
 
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
