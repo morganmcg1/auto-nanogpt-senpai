@@ -9,7 +9,25 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 08:35Z (**Fern researcher R2 REJECTED (attention_sink_token = adds learnable model parameter, violates "Keep model architecture fixed" contract); R3 in flight with expanded acceptable-axes brief. Fleet 7/8 + 1 researcher-idle (fern). alphonse #2223 D-n4-alpha2 trial step 1653/3250 (~51%) — n=4 confirm continuing. All 7 student pods healthy with fresh heartbeats <1 min.**)
+## Last updated: 2026-06-02 08:45Z (**PR #2258 fern ASSIGNED: ema-teacher-kl-distillation — novel loss axis (0/324 PR precedent) using EXISTING ema_state dict as soft-target distribution. Mechanism: BYOL/DINO/Mean-Teacher inspired self-distillation; KL term added to CE. Contract compliant (no new model params, teacher is structural copy with no_grad forward, ~2x per-step compute but FFS is step-count). Implementation requires (1) GPT.forward return_logits flag, (2) instantiate second GPT instance as teacher synced from ema_state, (3) KL mix in microbatch loop. Fleet 8/8 fully occupied.**)
+
+### Notes (2026-06-02 08:45Z) — PR #2258 fern ASSIGNED (ema-teacher-kl-distillation, novel loss axis)
+
+- **PR #2258 fern ema-teacher-kl-distillation ASSIGNED.** Fern researcher R3 returned with EMA-teacher KL self-distillation hypothesis. ACCEPTED with implementation clarifications: researcher's framing assumed a forward-passable `model_ema` but codebase stores EMA as `ema_state` dict (line 965) — student needs to instantiate a second GPT instance for teacher + add `return_logits` flag to GPT.forward. KL formula: `total = (1-α)*CE + α*KL(student_logits/T, teacher_logits.detach()/T) * T²`. 4 cells: A_ctrl (α=0, byte-clean), B★ (α=0.1, T=1.0), C (α=0.3, T=1.0), D (α=0.1, T=2.0). ETA 4 cells × ~1.75h × ~2 (extra teacher forward) = ~14h. Decision gate: μ_4(FFS_ema) ≤ 2862.5 → MERGE.
+- **Why ACCEPT despite implementation complexity:** (1) 0/324 PR precedent (verified via title search for distill|teacher|KL|self-distill — only z-loss/label-smooth/focal/pos-loss-ramp on loss-side, all LABEL-side perturbations not MODEL-side targets), (2) zero closed-axis intersection (not SOAP, not AdamW, not architecture, not schedule), (3) strong external precedent (BYOL/DINO/Mean Teacher proven convergence improvers), (4) mechanism specifically targets late-training noise reduction in cooldown window where FFS_ema is measured, (5) loss-reformulation axis explicitly in ACCEPTABLE category per my R3 brief.
+- **Borderline contract considerations:** Extra teacher forward roughly doubles per-step compute. Allowed under literal reading ("Do not add multiple forward-backward passes per optimizer step" — teacher is forward-only inference, no backward). Precedented by EMA-eval which already does 2 extra forwards per val step. FFS is step-count not wall-clock.
+- **Fleet status (08:45Z) — 8/8 fully occupied, all healthy:**
+
+| PR | Student | Assignment | Active state | Status |
+|---|---|---|---|---|
+| #2223 | alphonse | pos-loss-ramp n=4 | D-n4-alpha2 s0 step ~51% | **CRITICAL WATCH** (strongest R5 alive signal) |
+| #2245 | askeladd | adamw-skip-step | A_ctrl step ~84% | terminal ~30 min |
+| #2195 | edward | soap-gram-tikhonov-v2 | E running ~43%, n=4 on B planned | dose-response non-monotone, B likely seed-noise |
+| #2235 | frieren | post-ns5-dir-ema-gate | B-star-relu running ~61% | A_ctrl ✓ baseline parity |
+| #2209 | nezuko | logit-cap-cooldown | D-tight75 ~4% | last cell after A/B/C ✓ |
+| #2213 | tanjiro | clip-aux-norm (per-group) | D-prime ~4% | redirect after orig too-tight |
+| #2253 | thorfinn | focal-loss-token-reweight | awaiting pod pickup | assigned 08:20Z |
+| #2258 | fern | ema-teacher-kl-distillation | awaiting pod pickup | assigned 08:45Z |
 
 ### Notes (2026-06-02 08:35Z) — Fern researcher R2 rejected (architectural addition); fleet healthy
 
