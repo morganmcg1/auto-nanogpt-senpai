@@ -84,6 +84,10 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--pmuon_update_clip_gamma", type=float, default=-1.0,
+                        help="Upper bound on PMuon update Frobenius norm relative to weight norm. "
+                             "If ||update||_F > gamma * ||W||_F, scale update down. "
+                             "-1 (default) disables ceiling (baseline). Applied AFTER u/w floor.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -586,6 +590,7 @@ class Muon(torch.optim.Optimizer):
         TARGET_UW = 0.35
         floor_fired_count = 0
         floor_eligible_count = 0
+        clip_fired_count = 0
         polar_diag: dict = {}
         for group in self.param_groups:
             params = group["params"]
@@ -618,6 +623,12 @@ class Muon(torch.optim.Optimizer):
                         if 0 < ratio < TARGET_UW:
                             floor_fired_count += 1
                             update.mul_(TARGET_UW / ratio)
+                    if args.pmuon_update_clip_gamma > 0 and w_norm > 0:
+                        u_norm = update.norm()
+                        clip_thresh = args.pmuon_update_clip_gamma * w_norm
+                        if u_norm > clip_thresh:
+                            clip_fired_count += 1
+                            update.mul_(clip_thresh / u_norm)
                     lr_eff = group["lr"]
                     param_lr_mults = getattr(self, "_param_lr_mults", None)
                     if param_lr_mults is not None:
@@ -626,6 +637,7 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-lr_eff)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
+        self._clip_diag = {"fired": clip_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
 
 
@@ -765,6 +777,7 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "pmuon_update_clip_gamma": args.pmuon_update_clip_gamma,
             "seed": args.seed,
         },
     )
@@ -805,6 +818,10 @@ for trial_idx in range(args.num_trials):
                       lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     print0(f"body-Muon optimizer: lr={args.muon_lr} weight_decay=0.025 beta_cov=0.95 gamma={PMUON_GAMMA}")
+    print0(f"[step 0] pmuon_update_clip_gamma={args.pmuon_update_clip_gamma}, "
+           f"TARGET_UW (floor)=0.35", console=True)
+    if dist.get_rank() == 0 and wandb.run is not None:
+        wandb.log({"optim/pmuon_update_clip_gamma": args.pmuon_update_clip_gamma}, step=0)
 
     # Per-block Muon LR shape: mean-preserving linear ramp across block index.
     # block_mults sum to NUM_LAYERS × 1.0 exactly, so mean LR is unchanged vs uniform.
@@ -1124,6 +1141,17 @@ for trial_idx in range(args.num_trials):
                     "train/uw_floor/eligible": eligible,
                     "train/uw_floor/fired": fired,
                     "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
+                }, step=wandb_step)
+            clip_diag = getattr(optimizer2, "_clip_diag", None)
+            if clip_diag is not None:
+                clip_eligible = clip_diag.get("eligible", 0)
+                clip_fired = clip_diag.get("fired", 0)
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "optim/pmuon_clip_eligible": clip_eligible,
+                    "optim/pmuon_clip_fired": clip_fired,
+                    "optim/pmuon_clip_fire_rate": (clip_fired / clip_eligible) if clip_eligible > 0 else 0.0,
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
