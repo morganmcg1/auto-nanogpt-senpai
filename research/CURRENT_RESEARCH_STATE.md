@@ -1,3 +1,36 @@
+## 2026-06-02 03:44 UTC — Cycle 71 mid-559 — tanjiro #2201 CLOSED (465th refute / **SUBSTRATE-DECOMPOSITION × MLP-SOAP FRONT=FAST MATRIX FULLY CLOSED — JOINT COUPLING DESTABILIZATION CONFIRMED — 5th SOLO-ONLY** at 25% prior REALIZED; bilateral mean 3.270330 floor-band; Arm A `bx9hpfj1` 3.27068 + Arm B `eg35qk9x` 3.26998; symmetric per-axis penalty ~+0.0024 each but STRONGLY NON-ADDITIVE joint destabilization → critical-coupling phase transition not additive; re-interprets #2192 per nezuko #2214 retraction — MLP-SOAP × CARRIER POD-BLOCK is DIFFERENT mechanism from PROJ-ONLY × DISPATCH POD-BLOCK; tanjiro #2230 MLP-SOAP front=fast × PROJ-ONLY ATTN-SOAP pruning ablation assigned 40/30/20/10 priors). Fleet 8/8 WIP. Cumulative: **465 refuted / 316 mech classes / 288 family closures / 13 axes / 68 RTM precedents / 53 pod-stability observations**.
+
+### tanjiro #2201 CLOSED — 465th refute / 4-CELL SUBSTRATE-DECOMPOSITION MATRIX CLOSED + 5th SOLO-ONLY
+
+**Bilateral terminal — LM_HEAD-ONLY-CARRIER × MLP-SOAP front=fast**:
+- Arm A `bx9hpfj1` SEED=1: 3.27068 @ step 3175, first_step_to_target=3025
+- Arm B `eg35qk9x` SEED=2: 3.26998 @ step 3175, first_step_to_target=3025
+- n=2 mean: **3.270330** (Δ vs baseline = +0.00257, stat margin 0.01368 ≥ 0.004 ✓)
+
+**4-cell substrate-decomposition × MLP-SOAP front=fast CLOSED**:
+| Cell | embed β1 | lm_head β1 | × MLP-SOAP front=fast |
+|---|---|---|---|
+| baseline-no-carrier (#1775) | 0.8 | 0.8 | **3.26789 SUB-FLOOR** |
+| FULL-CARRIER (#2142) | 0.5 | 0.7 | POD-BLOCK |
+| EMBED-ONLY (#2169) | 0.5 | 0.8 | 3.270065 FLOOR-BAND |
+| **LM_HEAD-ONLY (#2201 THIS)** | **0.8** | **0.7** | **3.270330 FLOOR-BAND** |
+
+→ MLP-SOAP × CARRIER requires JOINT embed×lm_head asymmetry to destabilize. Per-axis penalty ~+0.0024 each; STRONGLY NON-ADDITIVE joint (critical-coupling phase transition, not additive).
+
+5th SOLO-ONLY confirmation in cycle 71.
+
+### tanjiro #2230 next — MLP-SOAP front=fast × PROJ-ONLY ATTN-SOAP pruning ablation
+
+Tests whether MLP-SOAP front=fast's sub-floor productivity (#1775 3.26789 with FULL ATTN-SOAP) still holds with PROJ-ONLY ATTN-SOAP (q/k/v excluded, bitfield=7, NO PKB1 dispatch). Priors: 40% floor-band (q/k/v ATTN-SOAP critical) / 30% sub-floor same (q/k/v decorative) / 20% productive-improvement (q/k/v slight drag) / 10% POD-BLOCK. Aligned with Morgan #1259 depth/per-group structural mechanism directive.
+
+### Cycle 71 mid-559 fleet status
+
+Fleet 8/8 WIP. In-flight: alphonse #2215 (n=4 variance), edward #2216 (SCALARS-RESET M=1 F=1.0), frieren #2205 (SCALARS-HIGHER × MLP-SOAP Arm B), askeladd #2217 (MLP-SOAP back=fast), thorfinn #2218 (MLP-SOAP × LM_HEAD M=1 F=1.0 buffering), fern #2227 (MLP-SOAP × EMBED M=3 F=1.0 buffering), nezuko #2222 (MLP-SOAP × DISPATCH × PROJ-ONLY buffering), tanjiro #2230 (PROJ-ONLY ATTN-SOAP pruning ablation).
+
+Cumulative: **465 refuted / 316 mech classes / 288 family closures / 13 axes / 68 RTM precedents / 53 pod-stability observations**.
+
+---
+
 ## 2026-06-02 03:26 UTC — Cycle 71 mid-558 — fern #2220 CLOSED (464th refute / **EMBED M-AXIS NON-MONOTONIC AT F=1.0 — JOINT-DISPATCH-FLAG DESTABILIZATION DISCOVERED — 13th STRUCTURAL AXIS** at 10% prior REALIZED; paradigm-shifting reversal of 90% prior STABLE prediction; NaN cascade begins at step 125 BEFORE first reset fires at step 200 — NOT caused by `.mul_(1.0)` call but by PER_KIND_AUX_PERIODIC_RESET_EMBED dispatch-flag × M=3 JOINT code-path compile-time destab; M=1 STABLE + M=2 STABLE + M=3 POD-BLOCK = NON-MONOTONIC M-axis at F=1.0; MIRRORS nezuko #2214 PER_KIND_AUX_BETA1 dispatch-flag × PROJ-ONLY mechanism; fern #2227 MLP-SOAP × EMBED M=3 F=1.0 cross-mechanism buffering test 50/40/10 priors assigned). Fleet 8/8 WIP. Cumulative: **464 refuted / 315 mech classes / 287 family closures / 13 axes / 67 RTM precedents / 53 pod-stability observations**.
 
 ### fern #2220 CLOSED — 464th refute / JOINT-DISPATCH-FLAG DESTABILIZATION — 13th AXIS
