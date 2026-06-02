@@ -1,6 +1,37 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
-## 2026-06-02 02:05Z — PR #2166 CLOSED FFS-NEUTRAL [soap-basis-cooldown-freeze; freezing SOAP `q_row`/`q_col` eigenbasis at step 975 (cooldown_start) or 1950 (mid-cooldown) leaves FFS_ema=2925 (canonical n=1 attractor) for ALL 3 cells; val/loss monotone-WORSE earlier-freeze (B@975 +0.00144, C@1950 +0.00011 vs A_ctrl=3.27183); SOAP basis-update cadence axis CLOSED — perturbations in either direction (freeze, reset #1994, 4× faster #1948) all under-perform `precond_freq=16`] [114th R5 closure]
+## 2026-06-02 04:55Z — PR #2170 CLOSED FFS-NEUTRAL [post-ns5-rownorm; per-row L2 normalization on NS5 output to mean(row_norm); 4-cell mechanism-rich result: B★(all groups) FFS_ema=2875 (attractor parity), C(mlp only) FFS_ema=2950 (REGRESSION +75), D(attn only) FFS_ema=2875 (parity); row-norm variance IS INFORMATIVE in MLP — equalizing loses signal — while attn rows already near-uniform; first post-NS5 transformation closure at R5] [116th R5 closure]
+
+- branch: g1r5-frieren/post-ns5-rownorm
+- hypothesis: Apply per-row L2 normalization to NS5 output (`update / row_norms * mean(row_norms)`) to reduce per-neuron implicit LR variance arising from polar-factor row-norm imbalance on tall matrices (MLP fc 3072×768). Operates strictly post-NS5 (downstream of polar-factor approximation) — distinct from pre-NS5 family closed in PR #890. Per-group split (B★ all / C mlp-only / D attn-only) for mechanism localization.
+- n=1 4-cell screen (W&B runs `0gccdy4n`, `kxohsn30`, `x8044r3q`, `2cqp461e`; group `g1r5-frieren/post-ns5-rownorm`):
+
+| Cell | flags | val_loss | ema_val | FFS_ema | Δ vs A_ctrl |
+|------|---|---:|---:|---:|---:|
+| A_ctrl | (none) | 3.26898 | 3.26941 | **2875** | 0 |
+| B★ | --post_ns5_rownorm | 3.26957 | 3.26998 | **2875** | +0.00057 val |
+| C | --post_ns5_rownorm_mlp | 3.27334 | 3.27376 | **2950** | +0.00436 val, **+75 FFS** |
+| D | --post_ns5_rownorm_attn | 3.27039 | 3.27081 | **2875** | +0.00141 val |
+
+Terminal SENPAI-RESULT: FFS_ema=2875 (B★ at attractor), val=3.26957. Row-norm CV diagnostic (rownorm_cv/muon_mlp): starts ≈1.0 decays to 0.18; rownorm_cv/muon_attn: stays ~0.16 throughout.
+
+- commentary: **116th R5 closure — first post-NS5 transformation axis closed at R5.** Mechanism is operating on real signal (MLP row-norm CV is non-trivial 1.0→0.18 decay) but produces no FFS benefit. Per-group ablation is the key finding: **row-norm variance is INFORMATIVE in MLP** (C: +75 FFS regression when only MLP equalized) but already uniform in attn (D: harmless parity). When both equalized in B★, MLP signal-loss is somehow compensated downstream (LR scaling? SOAP preconditioner?) — lands at attractor. This counter-intuitive falsifier of "uniform per-neuron update magnitude is desirable" hypothesis subsumes future post-NS5 magnitude-equalization variants: column-norm, neuron-pair coupling, Frobenius rescaling, etc. **Open question for future post-NS5 work:** the polar-factor row-norm variance is part of the signal — a future hypothesis that preserves rather than destroys this signal (e.g., row-rank truncation of low-magnitude rows, or row-norm-weighted update injection) might escape this closure. Student diagnostic was exemplary — rownorm_cv telemetry confirmed mechanism activity before drawing absorption conclusion. Per [[pre_ns5_gradient_transformation_axis_saturated_at_r5]] memory note, post-NS5 transformations remain an acceptable adjacent angle — but the bar is now higher: any future post-NS5 magnitude transformation must address "why would equalizing/projecting NS5 output magnitudes preserve rather than destroy signal?"
+
+## 2026-06-02 02:08Z — PR #2167 CLOSED FFS-NEUTRAL [ns5-per-group-iters; split attn vs mlp NS5 iteration count (attn7-mlp5 / attn5-mlp7); FFS_trainval=2925 attractor for A_ctrl + C cells, B FFS_trainval=2950 (+25 wrong-signed); pre-NS5 gradient transformation axis re-confirmed saturated per [[pre_ns5_gradient_transformation_axis_saturated_at_r5]] — improving polar-factor quality past iter=6 invisible to terminal loss] [115th R5 closure]
+
+- branch: g1r5-alphonse/ns5-per-group-iters
+- hypothesis: Split NS5 iteration count between attn (7) and mlp (5) groups, on the rationale that gradient distribution differs between projections (Q/K/V/O small heads vs MLP tall matrices) and NS5 iter=6 may over/under-shoot for one group. Counter-arm with attn=5/mlp=7 to distinguish "more attn iters" from "fewer mlp iters". 
+- n=1 3-cell screen (group `g1r5-alphonse/ns5-per-group-iters`):
+
+| Cell | (attn_iter, mlp_iter) | val_loss | FFS_trainval | Δ vs A_ctrl |
+|------|---|---:|---:|---:|
+| A_ctrl | (6, 6) | 3.26954 | 2925 | 0 |
+| B | (7, 5) | 3.27283 | 2950 | +0.00329 val, **+25 FFS** |
+| C | (5, 7) | 3.26970 | 2925 | +0.00016 val (≈tie) |
+
+Terminal SENPAI-RESULT: FFS_trainval=2925 attractor for A+C, B wrong-signed.
+
+- commentary: **115th R5 closure — pre-NS5 gradient transformation axis re-confirmation.** Per [[pre_ns5_gradient_transformation_axis_saturated_at_r5]] memory rule, more NS5 iterations (better polar factor quality) does not improve terminal loss. C-cell (fewer attn iters, more mlp iters) ties baseline within seed noise — confirming NS5 iter≥5 is already in the saturated regime where polar-factor quality plateaus relative to terminal val/loss. B-cell shows mild wrong-signed regression (more attn iters → worse), consistent with the closed PR #890 family: improving NS5 orthogonality past some threshold is invisible to loss. NOT a new closure axis — just confirms the existing saturation rule applies to per-group iter splits as well as per-shape (#1839) and per-head (#1821) splits. No mechanism rule change needed; new memory note already covers this family.
 
 - branch: g1r5-tanjiro/soap-basis-cooldown-freeze
 - hypothesis: Freeze SOAP `q_row`/`q_col` eigenbasis at cooldown start (step 975) or mid-cooldown (step 1950) to test whether stochastic basis-rotation events inject quantization noise into the preconditioned step. Predicted that elimination of late-training basis updates would recover ≤2975 FFS_ema. Direct counter-experiment to PR #1948 (faster cadence) and PR #1994 (hard reset).
