@@ -96,6 +96,13 @@ def parse_args():
                         help="Starting value of µ schedule (used by linear and cooldown_ramp modes).")
     parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.98")),
                         help="Ending value of µ schedule (used by linear and cooldown_ramp modes).")
+    parser.add_argument("--body_adan_beta3", type=float,
+                        default=float(os.environ.get("BODY_ADAN_BETA3", "-1.0")),
+                        help="Adan gradient-difference 3rd-moment β₃ for BODY MuonH inner pre-NS5. "
+                             "Default -1.0 (sentinel) = disabled, current Nesterov code (Pattern A bit-id). "
+                             "If >= 0.0, activates Adan 3rd moment with given β₃. "
+                             "Paper recommended: 0.99 (Xie et al., arXiv:2208.06677). "
+                             "β₂ (for 3rd-moment scale coefficient) defaults to 0.999.")
     parser.add_argument("--body_init", type=str, default=os.environ.get("BODY_INIT", "default"),
                         choices=["default", "orthogonal_fnorm_matched", "orthogonal_bottom_damp"],
                         help="Initialization scheme for body MuonH 2D weights (attn.q/k/v, attn.proj, mlp.fc, mlp.proj). "
@@ -569,9 +576,24 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, prev_grad=None,
+                third_moment=None, body_adan_beta3=-1.0, body_adan_beta2=0.999):
+    """Apply BODY pre-NS5 update with optional Adan 3rd-moment term.
+
+    When body_adan_beta3 >= 0.0 and Adan state buffers are provided, mixes a
+    gradient-difference (g_t - g_{t-1})² 3rd-moment EMA into the pre-NS5 update
+    vector (Xie et al., arXiv:2208.06677). Sentinel default preserves Pattern A
+    bit-identity with the original Nesterov code path.
+    """
     momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    if body_adan_beta3 >= 0.0 and prev_grad is not None and third_moment is not None:
+        grad_diff = grad - prev_grad
+        grad_diff_sq = grad_diff.pow(2)
+        third_moment.mul_(body_adan_beta3).add_(grad_diff_sq, alpha=1 - body_adan_beta3)
+        third_moment_signed = third_moment.sqrt() * grad_diff.sign()
+        update = grad.lerp_(momentum, mu) + (1 - body_adan_beta2) * third_moment_signed
+    else:
+        update = grad.lerp_(momentum, mu) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
@@ -674,12 +696,14 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 body_adan_beta3=-1.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        body_adan_beta3=body_adan_beta3)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -707,7 +731,18 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        if group["body_adan_beta3"] >= 0.0:
+                            state["prev_grad"] = torch.zeros_like(p)
+                            state["third_moment"] = torch.zeros_like(p)
+                    beta3 = group["body_adan_beta3"]
+                    if beta3 >= 0.0:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                             prev_grad=state["prev_grad"],
+                                             third_moment=state["third_moment"],
+                                             body_adan_beta3=beta3)
+                        state["prev_grad"].copy_(p.grad)
+                    else:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -855,6 +890,7 @@ if dist.get_rank() == 0:
             "muonh_mu_schedule": args.muonh_mu_schedule,
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
+            "body_adan_beta3": args.body_adan_beta3,
             "polyak_ema_decay": args.polyak_ema_decay,
         },
     )
@@ -939,7 +975,8 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       body_adan_beta3=args.body_adan_beta3)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
