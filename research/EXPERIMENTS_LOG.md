@@ -1,5 +1,22 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-02 00:05Z — PR #2138 CLOSED FFS-NEG [soap-adaptive-eps-floor; SOAP-post preconditioner-denominator α-floor monotone-NEG (B★ α=0.03 FFS+50, D α=0.10 FFS+50, C α=0.01 ties baseline within noise); SOAP-post denominator-geometry axis CLOSED at R5] [113th R5 closure]
+
+- branch: g1r5-nezuko/soap-adaptive-eps-floor
+- hypothesis: Replace fixed `eps=1e-8` in SOAP exp_avg_sq denominator with adaptive Levenberg-Marquardt-style relative floor `α · mean(exp_avg_sq) + 1e-8`. Theory: soft-clip tail eigenmode amplification → break 2875 attractor.
+- n=1 4-cell screen (W&B runs `b91wo9l4`, `q1xl3tst`, `eeorro69`, `8kap9eh0`; group `g1r5-nezuko/soap-adaptive-eps-floor`):
+
+| Cell | α | FFS_ema | FFS_trainval | ema_val | Δ vs A_ctrl |
+|---|---:|---:|---:|---:|---:|
+| A_ctrl | 0.00 | 2875 | 2875 | 3.26975 | 0 |
+| C | 0.01 | 2875 | 2875 | 3.26923 | −0.00052 (noise) |
+| B★ | 0.03 | 2925 | 2925 | 3.27152 | +0.00177 |
+| D | 0.10 | 2925 | 2925 | 3.27289 | +0.00314 |
+
+Terminal SENPAI-RESULT: FFS_ema=2875, ema_val=3.26923.
+
+- commentary: **113th R5 closure — SOAP-post preconditioner-denominator-geometry axis CLOSED.** No cell meets merge gate (≤2862.5). C(α=0.01) ties A_ctrl within seed noise (Δ=−0.00052 < typical σ≈0.001 ≈ noise floor). B★(α=0.03)/D(α=0.10) monotone-NEG with α: FFS_ema 2875→2925 (+50) plateaus from α=0.03 upward; ema_val monotone-worse from α≥0.01. n=4 escalation NOT triggered. **Mechanism (per student):** at α≥0.03, the adaptive floor (~0.11 at α=0.03) becomes comparable to dominant eigenvalues, dampening directions where preconditioner was working WELL. Tail eigenmodes receiving identity preconditioning at α=0 is NOT where useful headroom lives — the 2875 attractor is genuinely robust to post-NS5 preconditioner-denominator perturbations. **Cross-fleet intel:** SOAP-internal axes now cleanly partitioned across in-flight students — edward #2195 (Gram regularization upstream of eigenbasis extraction), tanjiro #2166 (eigenbasis state schedule), this PR (exp_avg_sq denominator floor closed). **Notable side observation**: A_ctrl(0.00) itself hit FFS_trainval=2875 (off canonical 2925) — third example of off-canonical-low single-seed pattern this cycle, alongside fern #2133 D-cell and thorfinn #2126 D-cell. n=4 will discriminate seed noise from real shift on fern #2133-n4 and thorfinn #2196.
+
 ## 2026-06-01 23:10Z — PR #2126 CLOSED FFS-NEG [trapezoid LR cooldown; plateau axis monotone FFS-NEG (B★ plateau=0.4 FFS+125, C plateau=0.6 FFS+225); D=linear shape SURPRISING positive secondary at canonical FFS_ema=2875 with ema_val −0.008 — assigned thorfinn linear-cooldown-n4-revisit] [112th R5 closure]
 
 - branch: g1r5-thorfinn/trapezoid-lr-cooldown

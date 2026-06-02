@@ -9,7 +9,45 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-01 23:10Z (**112th R5 closure: thorfinn #2126 trapezoid-lr-cooldown plateau axis FFS-NEG-monotone; D=linear SURPRISING positive secondary; thorfinn → PR #2196 linear-cooldown-n4-revisit; edward re-assigned via PR #2195 soap-gram-tikhonov-v2 [PR #2193 auto-MERGED due to advisor branch hygiene]**)
+## Last updated: 2026-06-02 00:05Z (**113th R5 closure: nezuko #2138 soap-adaptive-eps-floor FFS-NEG monotone with α; SOAP-post denominator-geometry axis CLOSED; researcher dispatched for fresh nezuko hypothesis; fern #2133 sent back for n=4 D-arm escalation [strong dual-metric departure with monotone-better ema_val at every probe step]**)
+
+### Notes (2026-06-02 00:05Z) — 113th closure + fern #2133 n=4 escalation + nezuko researcher dispatch
+
+- **PR #2138 nezuko CLOSED as 113th R5 FFS-NEG** [soap-adaptive-eps-floor; 4-cell sweep α∈{0.00, 0.01, 0.03, 0.10}]:
+
+  | Cell | α | FFS_ema | ema_val |
+  |---|---:|---:|---:|
+  | A_ctrl | 0.00 | 2875 | 3.26975 (off-canonical-low FFS_trainval=2875 seed) |
+  | C | 0.01 | 2875 | 3.26923 (Δ=−0.00052 noise) |
+  | B★ | 0.03 | 2925 | 3.27152 (Δ=+0.00177) |
+  | D | 0.10 | 2925 | 3.27289 (Δ=+0.00314) |
+
+  **SOAP-post preconditioner-denominator α-floor axis CLOSED.** Monotone-NEG with α for α≥0.03. Tail eigenmodes receiving identity preconditioning at α=0 NOT where useful headroom lives. Cross-fleet partition: edward #2195 = Gram upstream of eigenbasis, tanjiro #2166 = eigenbasis state schedule, this PR = denominator floor closed.
+
+- **PR #2133 fern SENT BACK** [n=4 escalation on D-arm lr_depth_scale=-0.15 INVERSE]. n=1 dual-metric departure: {FFS_ema=2875 canonical, FFS_trainval=2875 OFF-canonical (-50 vs 2925), ema_val=3.26903 (-0.00192) MONOTONE-BETTER at every probe step (1000/1500/2000/2500/3000/3250)}. Cleanest n=1 monotone signal R5 has seen in 30+ closures. Predicted musoft direction (+0.15, B★) HURTS; inverse direction (-0.15, D) HELPS — student's re-interpretation: NS5 already spectral-conditions per-layer, depth factor amplifies through residual stream → deep layers benefit from LARGER LR. n=4 launching with `--lr_depth_scale -0.15`.
+
+- **Off-canonical-low n=1 seed pattern continues** (3rd this cycle):
+  - thorfinn #2126 D-cell (linear cooldown shape) → n=4 launching via #2196
+  - fern #2133 D-cell (inverse depth scaling) → n=4 launching via send-back
+  - nezuko #2138 A_ctrl (closed) — single seed, no escalation
+
+  n=4 results from thorfinn #2196 and fern #2133 will discriminate seed noise from real attractor shift.
+
+- **Nezuko fresh hypothesis dispatched** via researcher-agent (background) — task #179 in progress.
+
+### Fleet status snapshot (00:05Z) — 7/8 RUNNING + 1 idle pending researcher
+
+| PR | Student | Assignment | Notes |
+|---|---|---|---|
+| #2196 | thorfinn | linear-cooldown-shape-n4-revisit | n=4 launching ~7h |
+| #2195 | edward | soap-gram-tikhonov-v2 | A_ctrl launching |
+| #2184 | askeladd | ns5-kj-coefficients | A_ctrl at step 2969/3250 (91%); reached_target=1 |
+| #2170 | frieren | post-ns5-rownorm | B★ running |
+| #2167 | alphonse | ns5-per-group-iters | C(attn5-mlp7) just launched; B=3.2728 vs A=3.2695 |
+| #2166 | tanjiro | soap-basis-cooldown-freeze | C(freeze1950) just launched; B=3.2729 vs A=3.2714 |
+| #2138 | **CLOSED** | soap-adaptive-eps-floor (113th) | FFS-NEG monotone with α |
+| #2133 | fern | depth-graduated-mlp-lr-n4 | n=4 D(-0.15) launching ~7h |
+| — | nezuko | (pending researcher dispatch) | idle ~20 min |
 
 ### Notes (2026-06-01 23:10Z) — 112th closure + linear-cooldown follow-up + edward v2 re-assignment
 
