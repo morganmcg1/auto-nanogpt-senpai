@@ -1,3 +1,39 @@
+## 2026-06-02 ~06:15 UTC — Cycle 71 mid-564 — fern #2232 CLOSED (470th refute / **13th AXIS F-INVARIANT — UNIVERSAL CASCADE ATTRACTOR EXTENDED TO 8 RUNS / 4 MECHANISM FAMILIES** at 60% prior REALIZED; EMBED M=3 F=0.5 BYTE-IDENTICAL to F=0.99 and F=1.0 at ALL sampled steps; 8th observation of step-125=147,984,768 across dispatch×proj, dispatch×qkv, embed-M3-reset F∈{0.5,0.99,1.0}, mlp-soap×embed; DESTAB-CLASS FULLY CHARACTERIZED — STRATEGIC PIVOT TO MERGE-BAR BREAK; fern #2238 PER_DEPTH_HALF_MUON_LR body-Muon depth-axis LR asymmetry assigned 35/40/15/10 priors). Fleet 8/8 WIP. Cumulative: **470 refuted / 321 mech classes / 293 family closures / 14 structural axes / 68 RTM precedents / 53 pod-stability observations**.
+
+### fern #2232 CLOSED — 470th refute / 13th AXIS F-INVARIANT
+
+**Bilateral terminal — EMBED M=3 F=0.5 RESET (F-cliff disambiguation)**:
+- Arm A `l7723lh1` SEED=1: step-125 nonfinite_count = **147,984,768** (byte-identical)
+- Arm B `u3xn9pi3` SEED=2: step-125 nonfinite_count = **147,984,768** (byte-identical)
+- step-25/50/250 also BYTE-IDENTICAL to F=0.99 (#2212) and F=1.0 (#2220)
+
+**EMBED M=3 × F-axis MATRIX CLOSED**: F ∈ {0.5, 0.99, 1.0} ALL POD-BLOCK BYTE-IDENTICAL. F=0.0 (degenerate zero_() branch) remains untested but marginal information value now. The JOINT-DISPATCH compile-time graph trigger is F-INVARIANT: all F>0 values select the same destabilized graph specialization. NaN appears at step 125 BEFORE first reset fires at step 200 — confirms purely dispatch-flag compile-time mechanism, NOT reset-arithmetic.
+
+**CASCADE ATTRACTOR IDENTITY TABLE (8 observations across 4 mechanism families)**:
+- DISPATCH × PROJ-ONLY (nezuko #2214): 147,984,768
+- DISPATCH × QKV-ONLY (nezuko #2231 ×2): 147,984,768
+- EMBED M=3 F=0.99 (fern #2212): 147,984,768
+- EMBED M=3 F=1.0 (fern #2220): 147,984,768
+- EMBED M=3 F=0.5 (fern #2232 ×2): 147,984,768
+- MLP-SOAP × DISPATCH × PROJ-ONLY (nezuko #2222): 147,984,768
+- MLP-SOAP × EMBED M=3 F=1.0 (fern #2227): 147,984,768
+
+POD-BLOCK = 147,984,768 is NETWORK-ARCHITECTURAL FIXED-POINT CASCADE ATTRACTOR. Destab-class story is NOW FULLY CHARACTERIZED. Strategic directive: STOP destab characterization, PIVOT to merge-bar break attempts.
+
+**Stale_wip check (#2215, #2216, #2217)**: All three are normal sequential Arm B progress — alphonse Arm D at 40%, edward Arm B at 46%, askeladd Arm B (mislabeled arm-a re-launch) at 50%. No intervention needed.
+
+### fern #2238 next: PER_DEPTH_HALF_MUON_LR body-Muon depth-axis LR asymmetry
+
+Fresh non-destab-class probe per Morgan #1259 directive (depth × per-group). Split body-Muon LR across depth halves: Arm A front-tight (MUON_LR_FRONT=0.03, MUON_LR_BACK=0.05) vs Arm B back-tight (MUON_LR_FRONT=0.05, MUON_LR_BACK=0.03). Sub-cluster-edge band 4-axis populated by PER-DEPTH-HALF state-phase axes — body-Muon LR is the UNTESTED axis in this family. Priors: 35% front-tight merge break / 40% direction-symmetric null floor-band / 15% back-tight merge break / 10% degradation.
+
+### Cycle 71 mid-564 fleet status
+
+Fleet 8/8 WIP. In-flight: alphonse #2215 (n=4 variance — Arm D 40%), edward #2216 (SCALARS-RESET M=1 F=1.0 — Arm B 46%), askeladd #2217 (MLP-SOAP back=fast — Arm B ~50%), thorfinn #2218 (MLP-SOAP × LM_HEAD M=1 F=1.0 buffering), tanjiro #2230 (PROJ-ONLY ATTN-SOAP pruning ablation), frieren #2233 (SCALARS-RESET M=2 F=1.0 isolated), nezuko #2237 (PKB1=1 × bitfield=15 no-attn-soap edge case), fern #2238 (PER_DEPTH_HALF_MUON_LR body-Muon depth-axis).
+
+Cumulative: **470 refuted / 321 mech classes / 293 family closures / 14 structural axes / 68 RTM precedents / 53 pod-stability observations**.
+
+---
+
 ## 2026-06-02 ~05:30 UTC — Cycle 71 mid-563 — nezuko #2231 CLOSED (469th refute / **14th STRUCTURAL AXIS DECISIVELY CHARACTERIZED — DISPATCH DESTAB IS BITFIELD-INVARIANT — CASCADE ATTRACTOR IS UNIVERSAL NETWORK-ARCHITECTURAL** at 50% prior REALIZED WITH MAXIMUM CERTAINTY; BYTE-IDENTICAL fingerprints across bitfield=7 PROJ-ONLY vs bitfield=8 QKV-ONLY despite ZERO param overlap; cascade identity confirmed cross-mechanism, cross-substrate, cross-bitfield; nezuko #2237 PKB1=1 × bitfield=15 NO-ATTN-SOAP edge-case probe assigned 50/40/10 priors). Fleet 8/8 WIP. Cumulative: **469 refuted / 320 mech classes / 292 family closures / 14 structural axes / 68 RTM precedents / 53 pod-stability observations**.
 
 ### nezuko #2231 CLOSED — 469th refute / 14th AXIS BITFIELD-INVARIANT — UNIVERSAL CASCADE ATTRACTOR
