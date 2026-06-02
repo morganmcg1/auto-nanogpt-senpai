@@ -1,3 +1,81 @@
+## 2026-06-02 09:42 — PR #2228: H382 thorfinn Outer Velocity Reset at Cooldown Entry — CLOSED 239th NULL/TIE (🎯 OUTER-VELOCITY RESET-AT-COOLDOWN-ENTRY axis CANALIZED at H266 stack with TIE-on-FFS at best; 6-mechanism-axis OUTER-LOOP family closure adding TRAJECTORY-RESET-on-OUTER; TRAJECTORY-PRESERVATION dichotomy refinement extended from AUX to OUTER scope; H170 misclassification in PR brief corrected by student)
+
+- Branch: g1r3-thorfinn/h382-outer-velocity-reset-cooldown-entry
+- Hypothesis: Test whether one-shot zero-reset of outer_velocity at cooldown entry produces FFS headroom by clearing stale momentum direction. New flag `outer_reset_at_cooldown` with modes {0=off, 1=all 173 params, 2=body-only 72 params}. Mechanism analogy to H170 AUX v_t reset (student correctly flagged H170 as BILATERAL NULL/NEG, not WIN — informed-NEG prior).
+
+### Results — 3-arm terminal
+
+| Arm | mode | W&B | step-0 val | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL | 0 (no reset) | `0v9kftmx` | 10.82583 | **3.27046** | **3050** | (ref) | +2.58σ NEG | CUDA RNG dispersion |
+| arm_b OUTER_RESET | 1 (all params) | `sa9h52gm` | 10.82583 | **3.26775** | **3000 EXACT TIE** | −3.07σ | **−0.49σ TIE** | TIE-on-FFS, within ±1σ on val |
+| arm_c OUTER_RESET_BODY | 2 (body-only 72) | `eb6bnhje` | 10.82583 | **3.27106** | **3050** | +0.68σ | +3.25σ NEG | mild NEG, body-aux velocity decoupling damages |
+| H266 baseline (PR #1669) | — | — | 10.82583 | 3.26818 | 3000 EXACT | — | — | (reference) |
+
+### Mechanism interpretation — paper-grade findings
+
+**Finding #1 — OUTER-VELOCITY RESET-AT-COOLDOWN-ENTRY axis CANALIZED at H266 stack**: mode=1 (reset all 173 params) TIES H266 FFS=3000 with val within ±1σ noise. The full-zero reset at cooldown entry hits the same regime as continued momentum decay — neither helps nor hurts decisively, suggesting H266 stack's existing outer_momentum=0.5 decay is already approximately at the optimum at cooldown entry point. Mode=2 (body-only reset, preserve aux velocity) NEG +3.25σ — breaking velocity coherence between body and aux at cooldown entry damages, body momentum re-warming fights cooldown LR ramp.
+
+**Finding #2 — Student honestly flagged within-chain CUDA RNG drift contamination**: Student observed "pre-reset val curves already separate by ~0.003 between arms before train_step=2660 — within-chain CTRL vs treatment comparison is NOT controlled; apparent improvement is mostly pre-existing CUDA RNG drift". TIE classification holds: arm_b FFS=3000 = H266 baseline regardless of CUDA RNG drift. Mode=1 reset does NOT extend headroom strictly; merely matches baseline. Per Issue #1260 strict gate, TIE-on-FFS = NO MERGE.
+
+**Finding #3 — 6-mechanism-axis OUTER-LOOP family closure at H266 stack**: H382 OUTER-VELOCITY RESET joins H289 SCHEDULE + H370 BLENDING + H377 RESET-on-AUX + H379v2 FORM-LION + H381 PER-PARAMETER ALLOCATION + H382 RESET-on-OUTER. The TRAJECTORY-PRESERVATION vs TRAJECTORY-RESET dichotomy (established at H377 on AUX scope) holds at OUTER scope as well: H266 stack outer optimizer is TRAJECTORY-PRESERVING; introducing trajectory reset (continuous via Lookahead H377 or single-event via H382 mode=1/2) yields TIE-or-NEG at best.
+
+**Finding #4 — Programme-state correction**: Student correctly flagged two issues in PR brief during smoke gate: (1) H170 AUX v_t reset was BILATERAL NULL/NEG not WIN (corrected); (2) 2663 step number didn't match either cooldown_frac (1.0/0.4) — student resolved to train_steps − int(0.2*train_steps) = 2660 within 3 steps of intent. Both corrections are paper-grade engineering rigor; result vindicates student's H170 informed-NEG reading.
+
+### Execution notes
+- Caught H170 misclassification in PR brief + step-resolution discrepancy during smoke gate (programme-state corrections)
+- Clean 3-arm chain with one-shot reset dispatch + fire-time banners + W&B telemetry
+- Honest within-chain drift observation maintained paper-grade rigor
+- Disciplined timing (5h51m sequential, 03:50 → 09:42 UTC)
+
+### Programme rollup post-H382
+- 239 cumulative NULL/NEG/TIE closures + 1 MERGED WIN (H266) at cycle ~2700
+- 21 HARD-LOAD-BEARING family entries (H382 stays MILDLY-LOAD-BEARING — TIE-on-FFS, no axis extension)
+- 6-mechanism-axis OUTER-LOOP family closure at H266 stack
+- TRAJECTORY-PRESERVATION dichotomy refinement at OUTER scope (was AUX-only at H377)
+
+---
+
+## 2026-06-02 09:36 — PR #2229: H383 edward Per-Shape Polyak-Ruppert EMA decay (blocks vs embed/lm_head/scalars) — CLOSED 238th NULL/NEG (🎯 PER-SHAPE PEMA BLOCKS-DECAY axis CANALIZED at uniform 0.05 with bilateral NULL/NEG; 1st per-shape PEMA decay probe at H266 stack; programme-level link to H378 GC redundancy mechanism — 2× FASTER captures NS5 orthogonalization noise, 2× SLOWER below extraction floor)
+
+- Branch: g1r3-edward/h383-per-shape-polyak-ruppert-ema-decay
+- Hypothesis: H266 hardcodes uniform `polyak_ema_decay=0.05` for all params. Per-shape differentiation may unlock headroom — BLOCKS (2D MuonH body weights, 72 params via H382 telemetry) is the most populated subset. 4 new sentinel CLI flags (`polyak_ema_decay_{blocks,embed,lm_head,scalars}` default `-1.0` → uniform fallback). 3-arm chain directional probe on BLOCKS axis (the highest-leverage first test).
+
+### Results — 3-arm terminal
+
+| Arm | blocks decay | W&B | step-0 val | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL | sentinel −1.0 (=0.05) | `kluk0i6y` | 10.82583 | **3.26926** | **3025** | (ref) | +1.22σ NULL | Pattern A +25, **28th H266 cluster anchor** |
+| arm_b BLOCKS_FASTER | 0.10 (2× faster, 10-step τ½) | `9jzj7xl6` | 10.82583 | **3.27039** | **3050** | +1.28σ | +2.50σ slightly NEG | NS5 noise capture in PEMA buffer |
+| arm_c BLOCKS_SLOWER | 0.025 (2× slower, 40-step τ½) | `uh6vprd9` | 10.82583 | **3.26946** | **3025** | +0.23σ | +1.45σ NULL | INDISTINGUISHABLE from CTRL |
+| H266 baseline (PR #1669) | — | — | 10.82583 | 3.26818 | 3000 EXACT | — | — | (reference) |
+
+### Mechanism interpretation — paper-grade findings
+
+**Finding #1 — BLOCKS-decay per-shape PEMA axis CANALIZED at uniform 0.05**: H383 is the 1st per-shape PEMA decay probe at H266 stack. Both directions of differentiation (BLOCKS_FASTER 2× AND BLOCKS_SLOWER 2×) fail to improve FFS. The 2× FASTER variant produces measurable NEG drift on val (+2.50σ_H174); the 2× SLOWER variant is INDISTINGUISHABLE from CTRL (+0.00020 vs arm_a).
+
+Asymmetric mechanism reading:
+- FASTER decay (10-step half-life) captures noisier per-step NS5 orthogonalization residual → terminal PEMA buffer accumulates orthogonality noise → +0.00221 val cost. Confirms H378 GC closure paper-grade finding that NS5 polar step is the dominant residual-orthogonality consumer at H266 stack.
+- SLOWER decay (40-step half-life) is below the per-step noise extraction floor — slower tracking does not improve terminal val because the NS5/scale_invariant inner pass already provides sufficient F-norm-preserving averaging-like structure.
+
+**Finding #2 — Programme-level link to H266 + H267 + H371_b1 mechanism cluster**: H266 (MERGED WIN, decay=0.05 uniform) + H267 (terminal-eval-only Polyak-Ruppert at decay=0.05) + H371_b1 (AUX adaptive-scaling preconditioner family CANALIZED) together with H383 establish: PEMA decay is a TIGHTLY TUNED scalar at H266 = 0.05; differentiating decay per parameter shape does NOT extend headroom at H266 stack on the BLOCKS axis (the largest non-embed/lm_head/scalars subset). H266 EMA averaging mechanism is TUNED for ALL parameter shapes simultaneously — mechanism-consistent with H378 GC redundancy (NS5+scale_invariant already handles per-shape orthogonality budget). Future per-shape PEMA differentiation may still have headroom on embed/lm_head/scalars sub-axes (untested in H383, sentinels −1.0 fall back to uniform), but BLOCKS subset closure is a strong programme signal that remaining per-shape axes are unlikely to yield WIN.
+
+**Finding #3 — 28th H266 attractor cluster anchor**: arm_a CTRL val=3.26926 FFS=3025 Pattern A +25 = 28th H266 cluster anchor of cycle ~2700.
+
+### Execution notes
+- Clean smoke gate verification of BYPASS sentinel path (banner + step-0 val EXACT)
+- Per-shape decay lookup rewrite preserved Pattern A bit-id across all 3 arms
+- Disciplined chain timing (~5h28m sequential, 04:07 → 09:36 UTC)
+- Student's mechanism reading (FASTER captures NS5 noise, SLOWER below extraction floor) is mechanism-consistent with H378 GC redundancy finding — good cross-axis programme reasoning
+
+### Programme rollup post-H383
+- 238 cumulative NULL/NEG/TIE closures + 1 MERGED WIN (H266) at cycle ~2700
+- 21 HARD-LOAD-BEARING family entries (H383 stays MILDLY-LOAD-BEARING — bilateral NULL/NEG with no axis-extension)
+- PER-SHAPE PEMA DECAY axis 1st explored, BLOCKS subset CANALIZED at uniform 0.05
+- 34 candidate H266 attractor cluster anchors (28 from H383 + H381 arm_a CTRL = 33rd at FFS=3000 EXACT + post-H378/H371_b1 cumulative pattern A bit-id matches)
+
+---
+
 ## 2026-06-02 09:30 — PR #2224: H381 alphonse Per-Param Outer LR/Momentum (body vs aux differentiated) — CLOSED 237th NULL/NEG (🎯 PER-PARAMETER OUTER ALLOCATION axis CANALIZED at H266 stack with bilateral asymmetric NEG; 12-axis OUTER-LOOP mechanism canalization joint H91-H116 + H379v2 + H381; 5-axis outer-loop mechanism map at H266 stack: SCHEDULE + BLENDING + RESET-on-AUX + FORM-LION + PER-PARAMETER ALLOCATION; 1st quantification of OUTER-CORRECTION OVER-DAMPING on body 2D weights at multiplier 1.4×; asymmetric body vs aux damage profile observed)
 
 - Branch: g1r3-alphonse/h381-per-param-outer-lr-momentum
