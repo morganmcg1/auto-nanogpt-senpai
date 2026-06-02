@@ -1,3 +1,34 @@
+## 2026-06-02 ~05:30 UTC — Cycle 71 mid-563 — nezuko #2231 CLOSED (469th refute / **14th STRUCTURAL AXIS DECISIVELY CHARACTERIZED — DISPATCH DESTAB IS BITFIELD-INVARIANT — CASCADE ATTRACTOR IS UNIVERSAL NETWORK-ARCHITECTURAL** at 50% prior REALIZED WITH MAXIMUM CERTAINTY; BYTE-IDENTICAL fingerprints across bitfield=7 PROJ-ONLY vs bitfield=8 QKV-ONLY despite ZERO param overlap; cascade identity confirmed cross-mechanism, cross-substrate, cross-bitfield; nezuko #2237 PKB1=1 × bitfield=15 NO-ATTN-SOAP edge-case probe assigned 50/40/10 priors). Fleet 8/8 WIP. Cumulative: **469 refuted / 320 mech classes / 292 family closures / 14 structural axes / 68 RTM precedents / 53 pod-stability observations**.
+
+### nezuko #2231 CLOSED — 469th refute / 14th AXIS BITFIELD-INVARIANT — UNIVERSAL CASCADE ATTRACTOR
+
+**Bilateral terminal — DISPATCH × QKV-ONLY ATTN-SOAP (bitfield=8, 36 included params)**:
+- Arm A step-125 nonfinite_count: **147,984,768** (byte-identical to #2214 PROJ-ONLY)
+- Arm B step-125 nonfinite_count: **147,984,768** (byte-identical to #2214 PROJ-ONLY)
+- step-25 both arms: **147,758,208** (byte-identical)
+- step-50 both arms: **148,010,880** (byte-identical)
+- step-75 both arms: **147,941,760** (NEW fingerprint — 6th boundary)
+- step-100 both arms: **147,097,728** (NEW fingerprint — 7th boundary)
+
+**CASCADE ATTRACTOR IDENTITY** confirmed across 3 orthogonal mechanisms:
+| Mechanism | bitfield/M | step-25 | step-125 |
+|---|---|---|---|
+| DISPATCH × PROJ-ONLY | 7 (12 params) | 147,758,208 | 147,984,768 |
+| DISPATCH × QKV-ONLY | 8 (36 params) | 147,758,208 | 147,984,768 |
+| EMBED M=3 F=0.99 RESET | fern #2212 | 147,758,208 | 147,984,768 |
+
+POD-BLOCK is NOT a mechanism-specific fingerprint — it is a deterministic NaN-propagation through the network's parametric structure that produces the same nonfinite counts regardless of WHICH params seeded the destabilization. PKB1 dispatch is BITFIELD-INVARIANT — any ATTN-SOAP partition (proj-only, qkv-only, or any subset) paired with PKB1=1 triggers the attractor.
+
+**nezuko #2237 next**: PKB1=1 × bitfield=15 (ALL ATTN-SOAP excluded, NO included params). DECISIVE EDGE-CASE: does PKB1 dispatch fire the cascade attractor with ZERO ATTN-SOAP coverage? 50% POD-BLOCK byte-identical (PKB1 dispatch alone sufficient) / 40% STABLE floor-band (requires at-least-one ATTN-SOAP partition) / 10% mild-drift.
+
+### Cycle 71 mid-563 fleet status
+
+Fleet 8/8 WIP. In-flight: alphonse #2215 (n=4 variance), edward #2216 (SCALARS-RESET M=1 F=1.0), askeladd #2217 (MLP-SOAP back=fast), thorfinn #2218 (MLP-SOAP × LM_HEAD M=1 F=1.0 buffering), tanjiro #2230 (PROJ-ONLY ATTN-SOAP pruning ablation), fern #2232 (EMBED M=3 F=0.5 F-cliff), frieren #2233 (SCALARS-RESET M=2 F=1.0 isolated), nezuko #2237 (PKB1=1 × bitfield=15 no-attn-soap edge case).
+
+Cumulative: **469 refuted / 320 mech classes / 292 family closures / 14 structural axes / 68 RTM precedents / 53 pod-stability observations**.
+
+---
+
 ## 2026-06-02 04:35 UTC — Cycle 71 mid-562 — frieren #2205 CLOSED (468th refute / **6th SOLO-ONLY CONFIRMATION — SUBSTRATE-ORTHOGONAL COMPOUND FLOOR-BAND — SOLO-ONLY MECHANISM-CLASS-UNIVERSAL** at 45% prior REALIZED; bilateral mean 3.271305 floor-band; Adam×Muon-SOAP zero-param-group-overlap compound STILL CANCELS; frieren #2233 SCALARS-RESET M=2 F=1.0 ISOLATED assigned 40/45/10/5 priors — SCALARS substrate M-axis closure complementary to edward #2216 M=1). fern #2227 CLOSED (467th refute / 12th AXIS DOUBLY REFINED — MLP-SOAP DESTAB-CLASS-SPECIFIC ON EMBED SUBSTRATE; fern #2232 EMBED M=3 F=0.5 ISOLATED F-binary-cliff assigned). Fleet 8/8 WIP. Cumulative: **468 refuted / 319 mech classes / 291 family closures / 13 axes (axis 12 doubly refined) / 68 RTM precedents / 53 pod-stability observations**.
 
 ### fern #2227 CLOSED — 467th refute / 12th AXIS DOUBLY REFINED ON EMBED SUBSTRATE
