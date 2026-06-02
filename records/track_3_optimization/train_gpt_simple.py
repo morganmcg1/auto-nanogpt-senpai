@@ -56,6 +56,17 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H382: one-shot MuLoCo outer_velocity buffer reset at cooldown entry. Mode 0
+    # (default) is bit-identical to H266 baseline (no-op). Mode 1 zeros every
+    # entry in outer_velocity once at the resolved cooldown-entry train_step;
+    # mode 2 zeros only the body (model.blocks.*, ndim>=2) entries while leaving
+    # aux velocity intact. Mechanism analog to H170 AUX v_t reset at cooldown
+    # entry, but on the OUTER SGDM momentum buffer instead of the AUX AdamW v.
+    parser.add_argument("--outer_reset_at_cooldown", type=int,
+                        default=int(os.environ.get("OUTER_RESET_AT_COOLDOWN", "0")),
+                        choices=[0, 1, 2],
+                        help="0 = no reset (H266 bit-id), 1 = reset all outer_velocity at cooldown entry, "
+                             "2 = reset only body (block ndim>=2) velocity at cooldown entry.")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -785,6 +796,10 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
 if args.use_outer_optimizer:
     print0(f"MuLoCo outer optimizer ENABLED: outer_lr={args.outer_lr} "
            f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
+    if args.outer_reset_at_cooldown > 0:
+        mode_desc = "ALL params" if args.outer_reset_at_cooldown == 1 else "BODY only (block ndim>=2)"
+        print0(f"H382 outer_reset_at_cooldown mode={args.outer_reset_at_cooldown} "
+               f"({mode_desc}) — fires once at cooldown entry", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
@@ -856,6 +871,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "outer_reset_at_cooldown": args.outer_reset_at_cooldown,
         },
     )
 
@@ -1058,6 +1074,31 @@ for trial_idx in range(args.num_trials):
         outer_anchor = None
         outer_velocity = None
     outer_applied_steps = 0
+
+    # H382: resolve one-shot outer_velocity cooldown-reset trigger.
+    # Cooldown entry follows the PR-defined convention: last 20% of training,
+    # i.e. train_step = train_steps - int(0.2 * train_steps). For train_steps=3325
+    # this resolves to 2660 (PR cites "~2663"); smoke runs (125 steps) never
+    # reach it, so the reset stays gated for smoke even with mode > 0.
+    # Body param names are pre-computed once for mode=2 partial reset.
+    _h382_outer_reset_step = train_steps - int(0.2 * train_steps)
+    _h382_outer_reset_fired = False
+    _h382_outer_body_param_names: set[str] = set()
+    if use_outer and args.outer_reset_at_cooldown == 2:
+        _h382_outer_body_param_names = {
+            n for n, p in model.named_parameters()
+            if p.ndim >= 2 and n.startswith("blocks.")
+        }
+    if use_outer and args.outer_reset_at_cooldown > 0 and trial_idx == 0:
+        print0(
+            f"[H382 outer_reset_at_cooldown={args.outer_reset_at_cooldown}] "
+            f"reset train_step={_h382_outer_reset_step} "
+            f"(body_param_count={len(_h382_outer_body_param_names) if args.outer_reset_at_cooldown == 2 else 'ALL'})",
+            console=True,
+        )
+        if dist.get_rank() == 0 and wandb.run is not None:
+            wandb.run.summary["h382_outer_reset/resolved_step"] = _h382_outer_reset_step
+            wandb.run.summary["h382_outer_reset/mode"] = args.outer_reset_at_cooldown
 
     # H266: Polyak-Ruppert EMA buffer for eval-only weight averaging (Pattern A drift-FREE).
     # When decay == 0.0 the state stays None and all H266 code paths short-circuit, so the
@@ -1314,6 +1355,50 @@ for trial_idx in range(args.num_trials):
                 print0(f"[H148 body_init={args.body_init}] hyperball radii: {radius_sample}",
                        console=True)
         model.zero_grad(set_to_none=True)
+
+        # H382: one-shot outer_velocity reset at cooldown entry. Fires once
+        # when train_step first crosses the resolved cooldown-entry step,
+        # BEFORE the outer sync block so the next sync sees fresh zero velocity.
+        # Mode 0 is gated out so this branch is a no-op (bit-id to baseline).
+        if (use_outer
+                and args.outer_reset_at_cooldown > 0
+                and not _h382_outer_reset_fired
+                and train_step >= _h382_outer_reset_step):
+            _h382_outer_reset_fired = True
+            log_h382_reset = (dist.get_rank() == 0)
+            if log_h382_reset:
+                pre_velocity_sq = torch.zeros((), device=device)
+                pre_velocity_count = 0
+                for vel in outer_velocity.values():
+                    pre_velocity_sq = pre_velocity_sq + vel.float().square().sum()
+                    pre_velocity_count += vel.numel()
+                pre_velocity_rms = (pre_velocity_sq.item() / max(1, pre_velocity_count)) ** 0.5
+            n_zeroed = 0
+            with torch.no_grad():
+                if args.outer_reset_at_cooldown == 1:
+                    for vel in outer_velocity.values():
+                        vel.zero_()
+                        n_zeroed += 1
+                else:  # mode 2: body-only
+                    for n, vel in outer_velocity.items():
+                        if n in _h382_outer_body_param_names:
+                            vel.zero_()
+                            n_zeroed += 1
+            if log_h382_reset:
+                print0(
+                    f"Outer velocity RESET fired at train_step={train_step} "
+                    f"(mode={args.outer_reset_at_cooldown}, n_zeroed={n_zeroed}, "
+                    f"pre_velocity_rms={pre_velocity_rms:.6e})",
+                    console=True,
+                )
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "h382_outer_reset/fired_at_step": train_step,
+                    "h382_outer_reset/n_zeroed": n_zeroed,
+                    "h382_outer_reset/mode": args.outer_reset_at_cooldown,
+                    "h382_outer_reset/pre_velocity_rms": pre_velocity_rms,
+                }, step=wandb_step)
 
         # MuLoCo outer Nesterov step (Algorithm 1, K=1). Fires every sync_interval
         # inner steps, never on the final step (we want the last inner update to
