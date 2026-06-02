@@ -78,6 +78,13 @@ def parse_args():
                         help="If set, run paramEMA refresh at --paramema_refresh_step but "
                              "DISABLE L_cov refresh (lcov_refresh_step treated as -1). "
                              "Ablation flag for isolating paramEMA-only contribution.")
+    parser.add_argument("--paramema_refresh_alpha", type=float, default=1.0,
+                        help="Blend factor for paramEMA refresh at refresh_step: "
+                             "ema := (1-alpha)*ema + alpha*live_params. "
+                             "Default 1.0 = full overwrite of EMA buffer with live params "
+                             "(baseline behavior). alpha=0.5 = half blend (keep half of old EMA "
+                             "history); alpha=1.5 = extrapolate EMA buffer past live params "
+                             "(away from old EMA).")
     parser.add_argument('--aux_b2_pulse_step', type=int, default=975,
                         help='Step at which to switch aux Adam β2 to --aux_b2_pulse_target. '
                              '0 or negative disables. Default: 975 (cooldown onset, canonical WIN).')
@@ -763,6 +770,7 @@ if dist.get_rank() == 0:
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
+            "paramema_refresh_alpha": args.paramema_refresh_alpha,
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
             "seed": args.seed,
@@ -833,6 +841,8 @@ for trial_idx in range(args.num_trials):
                        console=True)
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
+    if dist.get_rank() == 0:
+        wandb.log({"optim/paramema_refresh_alpha": args.paramema_refresh_alpha}, step=0)
     optimizer2._param_lr_mults = param_lr_mults
 
     optimizers = [optimizer1, optimizer2]
@@ -1092,20 +1102,50 @@ for trial_idx in range(args.num_trials):
                 lerp_w = 1.0 - ema_beta_t_now
                 for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
                     ema_p.lerp_(p.detach().float(), lerp_w)
-            # paramEMA refresh: at --paramema_refresh_step, overwrite EMA buffer
-            # with current live params (zeroing the accumulated EMA history).
-            # This runs AFTER the normal lerp update so the refresh is the final
-            # state for the step. Fires once; subsequent steps lerp normally from
-            # the refreshed buffer.
+            # paramEMA refresh: at --paramema_refresh_step, blend EMA buffer toward
+            # current live params with --paramema_refresh_alpha. alpha=1.0 is the
+            # canonical full overwrite (baseline). alpha<1 preserves some pre-refresh
+            # EMA history; alpha>1 extrapolates the EMA buffer past live params (away
+            # from old EMA). This runs AFTER the normal lerp update so the refresh
+            # is the final state for the step. Fires once.
             if (args.paramema_refresh_step > 0
                     and step == args.paramema_refresh_step):
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
-                    ema_p.copy_(p.detach().float())
+                alpha = args.paramema_refresh_alpha
+                refresh_norm_before_sq = 0.0
+                for ema_p in ema_params:
+                    refresh_norm_before_sq += float(ema_p.float().pow(2).sum().item())
+                if alpha == 1.0:
+                    for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                        ema_p.copy_(p.detach().float())
+                else:
+                    for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                        ema_p.mul_(1.0 - alpha).add_(p.detach().float(), alpha=alpha)
+                refresh_norm_after_sq = 0.0
+                for ema_p in ema_params:
+                    refresh_norm_after_sq += float(ema_p.float().pow(2).sum().item())
+                refresh_norm_live_sq = 0.0
+                for p in optimizer2.param_groups[0]["params"]:
+                    refresh_norm_live_sq += float(p.detach().float().pow(2).sum().item())
+                refresh_norm_before = refresh_norm_before_sq ** 0.5
+                refresh_norm_after = refresh_norm_after_sq ** 0.5
+                refresh_norm_live = refresh_norm_live_sq ** 0.5
                 ema_refresh_fired_total = 1
                 ema_refresh_step_logged = step
                 if dist.get_rank() == 0:
                     print0(f"paramEMA refresh fired at step={step} "
-                           f"(buffer reset to live params)", console=True)
+                           f"alpha={alpha:.4f} "
+                           f"ema_norm_before={refresh_norm_before:.4f} "
+                           f"ema_norm_after={refresh_norm_after:.4f} "
+                           f"live_params_norm={refresh_norm_live:.4f}",
+                           console=True)
+                    wandb.log({
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "optim/paramema_refresh_alpha": alpha,
+                        "optim/paramema_refresh_norm_before": refresh_norm_before,
+                        "optim/paramema_refresh_norm_after": refresh_norm_after,
+                        "optim/paramema_refresh_norm_live": refresh_norm_live,
+                    }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
