@@ -45,7 +45,10 @@ def parse_args():
     parser.add_argument("--muonh_budget_mult", type=float, default=float(os.environ.get("MUONH_BUDGET_MULT", "1.0")))
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
-    parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
+    parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt", "cosine_squared"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
+    parser.add_argument("--muonh_cooldown_frac", type=float,
+        default=float(os.environ.get("MUONH_COOLDOWN_FRAC", "1.0")),
+        help="MuonH groups cooldown fraction (1.0 = full training as cooldown, H266 baseline).")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
@@ -956,7 +959,7 @@ for trial_idx in range(args.num_trials):
     # Per-group cooldown_frac: MuonH groups use full linear cooldown from step 0
     # (h_cooldown_frac=1.0); AdamW aux groups use a shorter cooldown so the
     # embed / head keep learning for the first ~60% of training.
-    h_cooldown_frac = 1.0
+    h_cooldown_frac = args.muonh_cooldown_frac
     aux_cooldown_frac = 0.4
     for group in optimizer1.param_groups:
         group["cooldown_frac"] = aux_cooldown_frac
@@ -991,6 +994,8 @@ for trial_idx in range(args.num_trials):
                         eta = 0.5 * (1.0 - math.cos(math.pi * c))
                     elif shape == "sqrt":
                         eta = math.sqrt(max(0.0, c))
+                    elif shape == "cosine_squared":
+                        eta = (0.5 * (1.0 - math.cos(math.pi * c))) ** 2
                     else:
                         raise ValueError(f"unknown cooldown_shape: {shape}")
                 if opt is optimizer2:
