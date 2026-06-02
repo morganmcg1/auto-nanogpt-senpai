@@ -9,7 +9,28 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 01:50Z (**PR #2209 nezuko logit-cap-cooldown-schedule ASSIGNED — first probe of progress-dependent LOSS-SIDE regularization at R5; zero prior R5 hits on schedule axis; static cap=15 closed (PRs #2080/#2118) but SCHEDULE axis untouched; cells: A_ctrl / B★(15→10) / C(15→20) / D(15→7.5). Fleet now 8/8.**)
+## Last updated: 2026-06-02 02:05Z (**PR #2166 tanjiro soap-basis-cooldown-freeze CLOSED FFS-NEUTRAL — 114th R5 closure. All 3 cells at canonical FFS_ema=2925 single-trial attractor; val/loss wrong-signed (earlier-freeze monotonically worse). Triangulates against #1948 (cadence faster) + #1994 (hard reset) — SOAP basis-cadence axis CLOSED in both directions. PR #2167 alphonse ns5-per-group-iters ALL 3 ARMS TERMINAL per W&B (A_ctrl=2925/3.270, B(7/5)=2950/3.273, C(5/7)=2925/3.270); nudged for SENPAI-RESULT post. Researcher dispatched for tanjiro fresh hypothesis (a991dbb7ed1bc3a4c). Fleet 7 running + tanjiro idle pending researcher.**)
+
+### Notes (2026-06-02 02:05Z) — 114th R5 closure + alphonse arms terminal
+
+- **PR #2166 tanjiro CLOSED — 114th R5 closure** [soap-basis-cooldown-freeze]. All 3 cells unanimous at FFS_ema=2925 (canonical single-trial attractor); n=4 escalation correctly rejected per dual-metric protocol. Val/loss wrong-signed: earlier-freeze monotonically worse (B@975 +0.00144, C@1950 +0.00011 vs A_ctrl=3.27183). Together with PR #1948 (faster cadence) and PR #1994 (hard reset), **SOAP basis-update cadence axis is fully closed in both directions** — precond_freq=16 is robust against perturbations of any sign.
+
+- **PR #2167 alphonse ALL 3 ARMS TERMINAL** per W&B (A_ctrl val=3.2695 FFS_trainval=2925, B(attn7-mlp5) val=3.2728 FFS_trainval=2950, C(attn5-mlp7) val=3.2697 FFS_trainval=2925). All runs FINISHED ~30 min ago, no chain script active. Student silent past 30 min; ADVISOR comment posted nudging for SENPAI-RESULT marker. Expected to close FFS-NEUTRAL with wrong-signed direction (more attention NS iter → worse, fewer attention NS iter → tied).
+
+- **Tanjiro idle** post-#2166 closure — researcher round dispatched (background `a991dbb7ed1bc3a4c`) with strict constraints listing all 114 closed axes + zero-hit gh-search requirement for novelty. Round 4 of recent researcher attempts: round 1+2 produced duplicates of warmup-mu + adamw-beta2; round 3 thrashed on autocompact; nezuko was direct-constructed by advisor as logit-cap-cooldown-schedule. Researcher returning ETA ~15 min; will direct-construct tanjiro backup if it fails again.
+
+- **Fleet status snapshot (02:05Z) — 7 running + tanjiro idle:**
+
+| PR | Student | Assignment | Notes |
+|---|---|---|---|
+| #2209 | nezuko | logit-cap-cooldown-schedule | A_ctrl/cells in progress |
+| #2196 | thorfinn | linear-cooldown-shape-n4-revisit | n=4 running ~5h remaining |
+| #2195 | edward | soap-gram-tikhonov-v2 | A_ctrl done; C★ running |
+| #2184 | askeladd | ns5-kj-coefficients | B★ ~91.5% trending val=3.2799 (worse than A=3.2709) |
+| #2170 | frieren | post-ns5-rownorm | C+D launching |
+| #2167 | alphonse | ns5-per-group-iters | 3 arms terminal, awaiting SENPAI-RESULT post |
+| #2133 | fern | depth-graduated-mlp-lr-n4 | n=4 D(-0.15) running ~5h |
+| — | tanjiro | (idle; researcher in flight) | idle <5 min |
 
 ### Notes (2026-06-02 01:50Z) — Nezuko #2209 assignment (logit-cap-cooldown-schedule)
 

@@ -1,5 +1,21 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-02 02:05Z — PR #2166 CLOSED FFS-NEUTRAL [soap-basis-cooldown-freeze; freezing SOAP `q_row`/`q_col` eigenbasis at step 975 (cooldown_start) or 1950 (mid-cooldown) leaves FFS_ema=2925 (canonical n=1 attractor) for ALL 3 cells; val/loss monotone-WORSE earlier-freeze (B@975 +0.00144, C@1950 +0.00011 vs A_ctrl=3.27183); SOAP basis-update cadence axis CLOSED — perturbations in either direction (freeze, reset #1994, 4× faster #1948) all under-perform `precond_freq=16`] [114th R5 closure]
+
+- branch: g1r5-tanjiro/soap-basis-cooldown-freeze
+- hypothesis: Freeze SOAP `q_row`/`q_col` eigenbasis at cooldown start (step 975) or mid-cooldown (step 1950) to test whether stochastic basis-rotation events inject quantization noise into the preconditioned step. Predicted that elimination of late-training basis updates would recover ≤2975 FFS_ema. Direct counter-experiment to PR #1948 (faster cadence) and PR #1994 (hard reset).
+- n=1 3-cell screen (W&B runs `if2n5rob`, `duxrffyv`, `z6baeoxo`; group `g1r5-tanjiro/soap-basis-cooldown-freeze`):
+
+| Cell | freeze_step | FFS_ema | ema_corr_val_loss | Δ vs A_ctrl |
+|------|---:|---:|---:|---:|
+| A_ctrl | None | **2925** | 3.27183 | 0 |
+| B★ | 975 | **2925** | 3.27327 | +0.00144 (worse) |
+| C | 1950 | **2925** | 3.27194 | +0.00011 (≈tie) |
+
+Terminal SENPAI-RESULT: FFS_ema=2925 (3-cell unanimous), val=3.27285. Mid-training EMA-val probe shows B starts losing ground around step 2000 and never recovers; C diverges only after step 2500.
+
+- commentary: **114th R5 closure — SOAP basis-cadence axis CLOSED in BOTH directions.** All 3 cells unanimous at canonical FFS_ema=2925 single-trial attractor — dual-metric protocol [[r5_n1_to_n4_reversion_dual_metric_attractor]] correctly rejected n=4 escalation. **Mechanism is wrong-signed on val/loss:** earlier freeze monotonically worse (Δval@B=+0.00144, Δval@C=+0.00011 — roughly 2× more frozen rotations at B maps to >10× larger val penalty). Triangulates cleanly against #1948 (precond_freq 16→4 cooldown faster: failed) and #1994 (hard reset at cooldown_start: failed) — three orthogonal perturbations to the basis-update cadence ALL under-perform the existing `precond_freq=16`. Student's suggested follow-up worth noting: SOFT basis mixing α(step) interpolating between previous and freshly-QR'd basis with cooldown-ramp α — different mechanism than freeze (soft vs. discrete cadence perturbation). NOT assigning that now — moving tanjiro to fresh axis per researcher round. **Memory note:** SOAP-state cadence family is fully closed; future SOAP-internal hypotheses must operate on different DOF than precond_freq cadence (eigenvalue floor closed #2138; QR basis cadence closed here + #1948 + #1994; Tikhonov upstream of QR pending edward #2195).
+
 ## 2026-06-02 00:05Z — PR #2138 CLOSED FFS-NEG [soap-adaptive-eps-floor; SOAP-post preconditioner-denominator α-floor monotone-NEG (B★ α=0.03 FFS+50, D α=0.10 FFS+50, C α=0.01 ties baseline within noise); SOAP-post denominator-geometry axis CLOSED at R5] [113th R5 closure]
 
 - branch: g1r5-nezuko/soap-adaptive-eps-floor
