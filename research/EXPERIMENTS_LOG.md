@@ -1,3 +1,66 @@
+## 2026-06-02 09:00 — PR #2221: H380 askeladd Polar Express minimax-adaptive NS5 (degree-5 quintic, offline-Remez precomputed coefficients via Amsel et al. arXiv:2505.16932) — CLOSED 236th NULL/TIE (🎯 NS5/orthogonalization axis CANALIZED across STATIC (H88) + ADAPTIVE (H380) polynomial families joint closure + 4th CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class entry + 1st "polar-factor over-purification" observation at H266 stack)
+
+- Branch: g1r3-askeladd/h380-polar-express-ns5
+- Hypothesis: Replace fixed NS5 `(a=2, b=-1.5, c=0.5)` at iter k=12 with Polar Express minimax-adaptive coefficients per-iteration (Amsel et al. 2025 arXiv:2505.16932). Mechanism-distinct from H287 HALLEY (CLOSED with fixed cubic) and H88 STATIC polynomial-Schulz coef sweep (CLOSED pre-H266 at older stack). H380 tests RUNTIME ADAPTIVE coefficient family with offline-Remez precomputed degree-5 quintic table (10 triples) producing 7× lower orthogonality residue on synthetic ill-conditioned matrices.
+
+### Results — 3-arm terminal
+
+| Arm | polar_mode | iters | W&B | step-0 val | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL | ns5 | 12 | `vmn5kagu` | 10.82583 | 3.27020 | 3050 | (ref) | +2.29σ NEG-TIE | Pattern A +50 |
+| arm_b PE12 | polar_express | 12 | `hh7iwx4u` | 10.82583 | 3.27033 | 3050 | **+0.15σ** TIE-on-FFS | +2.44σ NEG-TIE | TIES NS5 within noise floor (despite 7× lower orthogonality residue) |
+| arm_c PE8 | polar_express | 8 | `oyonphmq` | 10.82583 | **3.26876** | **3025** | **−1.63σ** ↓ within-chain | **+0.66σ TIE** | Pattern A +25 (32nd candidate cluster anchor), CANALIZED-TIE-with-MILD-POSITIVE-DRIFT |
+| H266 baseline (PR #1669) | — | 12 | — | 10.82583 | 3.26818 | 3000 EXACT | — | — | (reference) |
+
+### Mechanism interpretation — paper-grade findings
+
+**Finding #1 — NS5/orthogonalization axis CANALIZED across STATIC + ADAPTIVE polynomial families** (joint closure):
+- H88 STATIC polynomial-Schulz family `(a, 2.5−2a, a−1.5)` with `a∈(2.0, 3.0)` at degree-3 cubic, k=12 — CLOSED at OLDER stack pre-H266
+- H380 ADAPTIVE minimax-Remez precomputed coefficients, degree-5 quintic, k=12, iter-0 coefficients `(a, b, c) = (8.237, −23.158, 16.681)` outside H88's stable basin — CLOSED at H266 stack
+Despite verified 7× lower orthogonality residue on synthetic ill-conditioned matrices (smoke-tested), the cleaner polar factor is DOWNSTREAM-INERT at H266 stack. The H266 stack's other ingredients (scale_invariant MuonH F-norm preservation, AGC clip ratio 0.05, outer momentum 0.5, Polyak EMA 0.05) already supply sufficient orthogonality budget — additional polar-factor purification produces no measurable val/loss or FFS improvement.
+
+**Finding #2 — 1st observation of "polar-factor over-purification" at H266 stack**: Counterintuitive within-chain monotonic ordering arm_c PE8 < arm_a NS5/12 ≈ arm_b PE12 on val/loss:
+- Within-chain arm_b PE12 vs arm_a CTRL: +0.000133 nat = +0.15σ_H174 TIE
+- Within-chain arm_c PE8 vs arm_a CTRL: **−0.001440 nat = −1.63σ_H174 MILD POS** (PE8 BETTER than NS5/12 within-chain)
+- Within-chain FFS: arm_c PE8 = 3025 < arm_a NS5/12 = 3050 by −25 steps
+
+Mechanism hypothesis: Over-orthogonalization at later iterations may slightly over-correct update direction. Sub-saturation at k=8 leaves residual gradient signal that the H266 stack's downstream consolidation (scale_invariant + outer momentum + PEMA) absorbs more productively than fully orthogonalized k=12 updates. This is the FIRST observation of "polar-factor over-purification" — a productive band of EARLY-TERMINATION on the polar-Schulz iteration count at H266 stack. Note: H386 nezuko's NS5 Iter Count Cooldown Schedule (in flight) tests a TIME-VARYING version of this insight.
+
+**Finding #3 — 4th entry in CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class**: H380 arm_c PE8 (val=3.26876, +0.66σ vs H266) joins:
+- H371 arm_c LaProp eps=1e-8 (val=3.26804, −0.16σ vs H266)
+- H372 arm_c Adan β₃=0.95 (val=3.26927, +1.24σ vs H266)
+- H373 arm_c LSUV_STRICT (TIE Pattern A)
+- **H380 arm_c PE8 (val=3.26876, +0.66σ vs H266)** ← NEW (32nd Pattern A +25 cluster anchor)
+
+Programme observation: 4 of cycle ~2700's tightest-to-baseline non-merging arms come from CONSERVATIVE-DOSE variants of mechanism-distinct axes (low LaProp eps, low Adan β₃, strict LSUV mode, low PE iter count). All TIE without breaking strict FFS<3000. This may indicate a structural property of the H266 cluster: the H266 attractor basin is wide enough that small mechanism perturbations cannot escape it without a true mechanism-axis breakthrough.
+
+**Finding #4 — Advisor audit observables fully resolved**: Per H88 PR #889 caveat audit at 02:55Z, all 3 audit observables empirically resolved:
+1. ✓ Coefficient distinctness from H88: iter-0 `(a, b, c) = (8.237, −23.158, 16.681)` uses degree-5 quintic vs H88's degree-3 cubic AND `a=8.237` outside H88's stable basin `a∈(2.0, 3.0)`
+2. ✓ Orthogonality residue improvement: 7× lower than NS5(12) on synthetic ill-conditioned matrices (smoke-tested at PR draft)
+3. ✓ bfloat16 stability: Pattern A bit-id holds across all 3 arms, no NaN/divergence across 3325 training steps
+4. ✓ Per-iteration adaptive coefficients verified non-static and NOT misattributed folklore constants (3.4445, −4.7750, 2.0315)
+
+The mechanism distinction from H88 is real and verified. The H380 closure adds genuinely new information: even with the strongest possible polar-decomposition algorithm (minimax-Remez authoritative implementation), the H266 stack absorbs the orthogonality improvement without a downstream win.
+
+### Programme rollup
+- 236 cumulative NULL/NEG/TIE closures + 1 MERGED WIN (H266) at cycle ~2700
+- 21 HARD-LOAD-BEARING family entries (H380 stays MILDLY-LOAD-BEARING — within-chain monotonic signal but no gate breakthrough)
+- 32 candidate H266 attractor cluster anchors (arm_c PE8 = 32nd, Pattern A +25)
+- 4th CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class entry
+- NS5/orthogonalization axis BROADLY CANALIZED across STATIC + ADAPTIVE polynomial families (H88 + H380 joint closure)
+
+### Excellent execution notes
+- Student authoritative Polar Express implementation (offline-Remez precomputed coefficients, degree-5 quintic per Amsel et al. arXiv:2505.16932) was STRONGER than the PR body pseudocode — disciplined deviation from heuristic to reference-impl-matching implementation
+- Pre-launch smoke gate at synthetic ill-conditioned matrix verified 7× lower orthogonality residue (mechanism observable confirmed)
+- 3-arm chain at 2 iter counts (k=12 + k=8) gave clean monotonic axis characterization
+- All audit observables empirically resolved
+- Clean Pattern A bit-id preservation across all 3 arms despite degree-5 quintic dispatch
+- Disciplined chain timing (5h28m sequential, 03:10 → 08:38 UTC)
+
+### Decision: CLOSED as 236th NULL/TIE with paper-grade joint H88+H380 closure on NS5/orthogonalization axis. askeladd pending H388_v2 reassignment after researcher-agent dedup refresh (H388_v1 AUX WD cooldown ramp REJECTED as duplicate of H328 paper-grade "AUX WD SCHEDULE pre-closed by VALUE-axis result" finding).
+
+---
+
 ## 2026-06-02 08:45 — PR #2211: H379v2 fern Lion OUTER (sign-only outer-step form) — CLOSED 235th NULL/NEG (🎯 PROGRAMME-LEVEL LION-AXIS FULL CLOSURE across all 3 optimizer scopes: AUX H169/H241/H260/H369 + BODY H260 + OUTER H379v2, 21st HARD-LOAD-BEARING family entry, 11-axis OUTER-LOOP mechanism canalization joint with H91-H116 + H379v2)
 
 - Branch: g1r3-fern/h379-adabelief-aux (re-used after H379→H379v2 pivot from AdaBelief→Lion OUTER at T+45min)

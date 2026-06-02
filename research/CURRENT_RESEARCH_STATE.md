@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-**Last updated:** 2026-06-02 08:45 UTC (cycle ~2700, 235 cumulative NULL/NEG/TIE closures + 1 MERGED WIN)
+**Last updated:** 2026-06-02 09:00 UTC (cycle ~2700, 236 cumulative NULL/NEG/TIE closures + 1 MERGED WIN)
 
 ## Most recent research direction from human researcher team
 
@@ -14,8 +14,8 @@ No new directives in current invocation. Issue #1260 strict FFS<3000 merge gate 
   - Reproduce: `torchrun --standalone --nproc_per_node=1 records/track_3_optimization/train_gpt_simple.py --num_trials 1 --train_steps 3325 --muonh_mode scale_invariant --muonh_cooldown_shape cosine --muonh_warmup_steps 100 --aux_adamw_eps 1e-6 --use_outer_optimizer 1 --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 --aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --aux_beta2_schedule constant --aux_beta2_start 0.99 --muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.90 --body_init orthogonal_fnorm_matched --polyak_ema_decay 0.05`
 
 ### Cycle ~2700 status (cumulative)
-- **235 cumulative NULL/NEG/TIE closures**, 1 MERGED WIN (H266)
-- **21 HARD-LOAD-BEARING family entries**: H368/H375/H282/H169/H370/H374/H376/H377/H378/H379v2/etc.
+- **236 cumulative NULL/NEG/TIE closures**, 1 MERGED WIN (H266)
+- **21 HARD-LOAD-BEARING family entries**: H368/H375/H282/H169/H370/H374/H376/H377/H378/H379v2/etc. (H380 stays MILDLY-LOAD-BEARING)
 - **1 U-SHAPE-CHARACTERIZED-AXIS class entry with PRODUCTIVE-BAND-EDGE LOCALIZATION** (H372 Adan β₃ axis, U-shape minimum at β₃=0.95, band edge β₃∈(0.9, 0.95), no FFS gain at any β₃)
 - **1 GRADIENT-LAYOUT-CENTERING class entry** (H378 GC on BODY MuonH pre-NS5 — paper-grade NS5+scale_invariant redundancy mechanism explanation, bidirectional GC over-flattens)
 - **AUX/BODY adaptive-scaling preconditioner family BROADLY CANALIZED across 6 axes** (programme-level claim post-H371_b1):
@@ -26,13 +26,13 @@ No new directives in current invocation. Issue #1260 strict FFS<3000 merge gate 
   - H375 Schedule-Free: BILATERAL CATASTROPHIC
   - H368 AdEMAMix α (slow EMA): MONOTONE NEG
 - **5 INIT-side closures**: H351 + H357 + H365 (HARD-LOAD-BEARING) + H366 Aurora + H373 LSUV (TIE AURORA-STACK-CONDITIONAL)
-- **3 CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class entries**: H371 arm_c LaProp eps=1e-8 (CLOSEST-TO-BASELINE, −0.16σ vs H266) + H372 arm_c Adan β₃=0.95 + H373 arm_c LSUV_STRICT
+- **4 CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class entries**: H371 arm_c LaProp eps=1e-8 (CLOSEST-TO-BASELINE, −0.16σ vs H266) + H372 arm_c Adan β₃=0.95 + H373 arm_c LSUV_STRICT + **H380 arm_c PE8** (val=3.26876, +0.66σ vs H266, 32nd Pattern A +25 cluster anchor)
 - **3 MONOTONE DOSE-RESPONSE NEG class entries on continuous parametric axes**: H368 AdEMAMix α + H370 QHM ν + H378 gc_mode {0,1,2}
 - **2 AURORA-MECHANISM-STACK-CONDITIONAL class entries**: H366 + H373
 - **1 BILATERAL CATASTROPHIC NEG class entry on AUX fresh-mechanism axis**: H375 Schedule-Free (joins H368 AdEMAMix + H282 AdaBelief in 3-leg programme finding)
 - **1 K-INVARIANT STRONG NEG class entry on α-interpolation magnitude axis (H377)**: Lookahead AUX wrapper, 1st OUTER-on-AUX probe at H266 stack
 - **3rd STRUCTURAL-TIMING-AXIS NEG class entry (H374 WSD)**: 4 LR-schedule axes now confirmed canalized
-- ~31 candidate H266 attractor cluster anchors (H379v2 arm_a CTRL sgdm/0.7 val=3.26801 FFS=3000 EXACT = 31st)
+- ~32 candidate H266 attractor cluster anchors (H380 arm_c PE8 val=3.26876 FFS=3025 Pattern A +25 = 32nd)
 - **11-axis OUTER-LOOP mechanism canalization** (joint H91/H99/H100/H101/H103/H108/H111/H113/H116 closure cluster + H379v2 LION OUTER closure): MuLoCo Nesterov-SGDM(μ=0.5, outer_lr=0.7, sync_interval=30) is at-optimum across 11 mechanism axes of outer-loop variation at H266 stack
 
 ### Programme-level mechanism findings (paper-grade, post-H266)
@@ -81,6 +81,11 @@ CV-domain GC gains do NOT transfer to LM domain when the optimizer already ortho
 **AUX adaptive-scaling preconditioner family BROADLY CANALIZED at 6 axes** (H371_b1 closure post-finding):
 No axis tested to date breaks strict FFS<3000 via per-coordinate gradient pre-conditioning alone at H266 stack. LaProp paper-default β₁=0.9 is the WORST arm of its 3-arm chain at +5.37σ vs CTRL — paper recommendation does NOT transfer to H266. Pivot AUX exploration to non-preconditioner axes: cross-scope state coupling (H385 in flight), schedule axes, 2D eps × momentum interaction probes.
 
+**NS5/orthogonalization axis CANALIZED across STATIC + ADAPTIVE polynomial families** (H380 closure post-finding, paper-grade joint H88+H380 programme-level):
+- STATIC polynomial-Schulz family `(a, 2.5−2a, a−1.5)` `a∈(2.0, 3.0)` at degree-3 cubic k=12 (H88 OLDER stack pre-H266) — no headroom
+- ADAPTIVE minimax-Remez precomputed degree-5 quintic coefficients via Amsel et al. arXiv:2505.16932 (H380 H266 stack) — no headroom
+Despite verified 7× lower orthogonality residue on synthetic ill-conditioned matrices, the cleaner polar factor is DOWNSTREAM-INERT at H266 stack. The H266 stack's other ingredients (scale_invariant MuonH F-norm preservation, AGC clip_ratio=0.05, outer momentum 0.5, Polyak EMA 0.05) already supply sufficient orthogonality budget. **1st observation of "polar-factor over-purification"**: within-chain monotonic ordering arm_c PE8 (k=8) < arm_a NS5/k=12 ≈ arm_b PE12 (k=12) on val/loss, with arm_c PE8 producing −1.63σ_H174 within-chain improvement vs NS5/k=12 at FFS=3025 (Pattern A +25 cluster anchor). Sub-saturation at k=8 leaves residual gradient signal that the H266 stack's downstream consolidation absorbs more productively than fully orthogonalized k=12 updates. Note: H386 nezuko's NS5 Iter Count Cooldown Schedule tests time-varying version of this insight.
+
 **LION-AXIS FULL CLOSURE across all 3 optimizer scopes** (H379v2 closure post-finding, paper-grade programme-level):
 Sign-only Lion mechanism rejected at every optimizer scope at H266 stack:
 - AUX scope: H169 CATASTROPHIC + H241 NEG + H260 NEG + H369 CATASTROPHIC (cycle ~2700 round)
@@ -88,7 +93,7 @@ Sign-only Lion mechanism rejected at every optimizer scope at H266 stack:
 - OUTER scope: H379v2 arm_b LION_OUTER_DEFAULT_LR +3093σ CATASTROPHIC + arm_c LION_OUTER_TUNED_LR +225σ STRONG NEG
 Sign-only updates discard magnitude information that all 3 optimizer scopes load-bearingly use (AUX fine per-coordinate variance signal, BODY orthogonalized polar magnitudes for NS5/scale_invariant, OUTER drift-magnitude proportional consolidation moves per H108 closure). The mechanism class is genuinely scope-invariant in its rejection direction — sign-only step is fundamentally incompatible with H266 stack across all 3 scopes. Even down-scaling outer_lr 14× (0.7 → 0.05) does not recover, confirming rejection is mechanism-driven not magnitude-driven. Cross-link to H108 closure: Lion-form OUTER is the EXTREME of magnitude collapse; rejection direction is the orthogonal complement of H108 trust-region clipping rejection (both directions reject "outer step magnitude should be limited or ignored").
 
-### In-flight 8-PR portfolio (snapshot 2026-06-02 08:45Z)
+### In-flight 7-PR portfolio + 1 idle student awaiting fresh axis (snapshot 2026-06-02 09:00Z)
 
 | PR | Student | Hypothesis | Status | Notes |
 |----|---------|-----------|--------|-------|
@@ -96,13 +101,14 @@ Sign-only updates discard magnitude information that all 3 optimizer scopes load
 | #2242 | tanjiro | H384 WSD-Scheduled Outer Sync Interval (FREQUENCY axis) | WIP | Varies sync_interval between stable (30) and cooldown phases (15 or 60); cooldown boundary at step 1995/3325. RANK 4 |
 | #2228 | thorfinn | H382 Outer Velocity Reset at Cooldown Entry | WIP | ~10 LoC — reset outer_velocity buffer at cooldown onset (analogy to H170 AUX v_t reset merge-winner). RANK 3 |
 | #2229 | edward | H383 Per-Shape Polyak-Ruppert EMA Decay (blocks vs embed/lm_head/scalars) | WIP | First per-shape PEMA decay probe; arm_b BLOCKS_FASTER 0.10 / arm_c BLOCKS_SLOWER 0.025 with embed/lm_head/scalars held at H266 0.05 |
-| #2246 | nezuko | H386 NS5 Iter Count Cooldown Schedule | WIP | first SCHEDULE-DRIVEN NS5 iter count probe. arm_b LATE_16 / arm_c LATE_8 starting at step 2328 (0.7 × 3325). Distinct from H267 STATIC iter closure. Distinct from H384 OUTER schedule + H380 polynomial form |
-| #2254 | fern | H387 Outer SGDR Warm Restarts (periodic outer_velocity reset) | WIP (just assigned) | NEW — periodic outer_velocity zero-reset every N inner steps. arm_b SGDR_500 (6 events) / arm_c SGDR_1000 (3 events). Mechanism-distinct from H382 single-event RESET (periodic vs one-shot) and H384 FREQUENCY (state reset vs sync cadence). RANK 6 |
-| #2221 | askeladd | H380 Polar Express minimax-adaptive NS5 | WIP | H88 caveat comment added; runtime-adaptive vs H88's fixed-coefficient closure. RANK 1 |
+| #2246 | nezuko | H386 NS5 Iter Count Cooldown Schedule | WIP | first SCHEDULE-DRIVEN NS5 iter count probe. arm_b LATE_16 / arm_c LATE_8 starting at step 2328 (0.7 × 3325). Distinct from H267 STATIC iter closure. Time-varying version of H380 "polar-factor over-purification" within-chain finding |
+| #2254 | fern | H387 Outer SGDR Warm Restarts (periodic outer_velocity reset) | WIP | periodic outer_velocity zero-reset every N inner steps. arm_b SGDR_500 (6 events) / arm_c SGDR_1000 (3 events). Mechanism-distinct from H382 single-event RESET and H384 FREQUENCY. RANK 6 |
 | #2224 | alphonse | H381 Per-Param Outer LR/Momentum (body vs aux) | WIP | Differentiates outer correction force between body/aux parameter groups. RANK 2 |
+| **(idle)** | **askeladd** | **H388 pending — researcher-agent v2 dedup refresh after H388_v1 AUX WD cooldown ramp REJECTED as H328 duplicate** | **IDLE** | **H388_v1 AUX WD ramp REJECTED — H328 paper-grade finding "AUX WD SCHEDULE pre-closed by VALUE-axis result" + embed-RMS growth load-bearing mechanism**. Awaiting alternative fresh axis proposal. |
 
 ### Recent closure cadence (last 12 hours)
 
+- **PR #2221 H380 askeladd Polar Express minimax-adaptive NS5** — CLOSED 236th NULL/TIE (🎯 NS5/orthogonalization axis CANALIZED across STATIC (H88) + ADAPTIVE (H380) polynomial families joint closure, 4th CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class entry on arm_c PE8 val=3.26876 FFS=3025 +0.66σ, 1st "polar-factor over-purification" observation at H266 stack via within-chain monotonic ordering PE8 < NS5/k=12 ≈ PE12, 7× lower orthogonality residue on synthetic ill-conditioned matrices verified at smoke-gate but DOWNSTREAM-INERT at H266 stack)
 - **PR #2211 H379v2 fern Lion OUTER (sign-only outer-step form)** — CLOSED 235th NULL/NEG (🎯 PROGRAMME-LEVEL LION-AXIS FULL CLOSURE across all 3 optimizer scopes AUX+BODY+OUTER, 21st HARD-LOAD-BEARING family entry, 11-axis OUTER-LOOP mechanism canalization joint with H91-H116 closure cluster + H379v2, arm_b lion/0.7 +3093σ CATASTROPHIC + arm_c lion/0.05 +225σ STRONG NEG, sign-only mechanism rejection is scope-invariant and not LR-magnitude-driven, cross-link to H108 outer trust-region closure)
 - **PR #2157 H371_b1 frieren LaProp β₁ axis @ eps=1e-8** — CLOSED 234th NULL/NEG (LaProp β₁ axis CLOSED on STRICT MONOTONE NEG, 6-arm 2-round combined screening complete, AUX adaptive-scaling preconditioner family BROADLY CANALIZED across 6 axes — programme-level finding)
 - **PR #2202 H378 nezuko Gradient Centralization BODY pre-NS5** — CLOSED 233rd NULL/NEG (1st GRADIENT-LAYOUT-CENTERING class entry + 3rd MONOTONE DOSE-RESPONSE NEG class joining H368/H370, paper-grade NS5+scale_invariant redundancy mechanism explanation, 30th H266 cluster anchor)
