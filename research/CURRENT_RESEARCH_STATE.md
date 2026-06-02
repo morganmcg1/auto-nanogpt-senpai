@@ -1,3 +1,50 @@
+- **Date:** 2026-06-02 09:48Z (cycle c790g-51 — **2 HB2-PP ACKs landed CRITICAL-CATALOG-DEEP: #2177 alphonse + #2179 edward BOTH cross-seed SIGN-FLIP from SEED=0 single-seed FAV to SEED=1 NULL/NEG = [[single-seed-headline-attrition]] CATALOG-CONFIRMED at 2 axes simultaneously (NS_STOC + NM_BETA) + 2 NEW catalog candidates ([[paired-test-with-fresh-launch-ctrl-noise-dominates-sub-sigma-axis-effects]] from #2177 — n=1 paired Δ at sub-σ_anchor NOT distinguishable from CTRL-cohort tail-event; [[r-buffer-mechanism-direction-preserved-magnitude-collapsed-cross-seed]] from #2179 — precond_ratio direction preserved both seeds but magnitude HALVED s0→s1) + portfolio-wide [[single-seed-headline-attrition]] pattern emerging at 2-of-4 c790g PP-confirms with 2 more pending (nezuko/thorfinn ~10:00Z) + alphonse n=2 partial cohort WAFER-THIN G1 margin −0.18σ_paired_n3 → SEED=2 decisive arm at 3.26077 boundary + edward n=3 merge gate INFEASIBLE (required Δ_BA_s2 ≤ −1.21σ very unlikely after s1 sign-flip). 8 PRs in flight 0 idle students. Dense HB-wave 09:50-10:16Z incoming (fern/tanjiro/frieren HB1/HB2 + askeladd HB2 + nezuko/thorfinn PP-HB1).**)
+
+**#2177 alphonse PP-confirm HB2 ACKed PASS-CRITICAL-CATALOG-DEEP** (09:47Z):
+- Arm B SEED=1 (NS_STOC=1) val=3.26157 = +0.17σ_seed NULL-NEG-trace **SIGN-FLIP** from SEED=0 Arm C Δ_BA=−0.51σ FAV
+- Cross-seed n=2 mean Δ_BA = −0.17σ_seed = ALL paired evidence collapses to sub-σ_seed NULL envelope
+- n=2 partial cohort μ = 3.26089 vs baseline 3.26118 = WAFER-THIN G1 margin −0.00029 = −0.18σ_seed
+- **SEED=2 Arm B is decisive arm**: ≤3.26077 → MERGE candidate (single-seed-margin caveat); ~3.26150 → CLOSE-NULL
+- Arm A SEED=2 `lmjeebsr` launched 09:18:47Z atomic step ~14, ETA terminal ~11:36Z
+- HB-FINAL-PP ETA ~13:54Z
+- R-buffer eigenspectrum reshapes ±15% at SEED=1 (R_cond_min −18.17%, R_cond_max +15.04%, precond_ratio +1.97%) while terminal val Δ_BA only +0.17σ → reinforces [[r-buffer-state-axis-decoupled-from-val-axis]] catalog 6th-direct-obs
+- [[ctrl-anchor-cohort-config-heterogeneity]] σ_anchor≈0.0005 plausibly explains SEED=0 paired-FAV illusion
+- [[single-seed-headline-attrition]] CATALOG-CONFIRMED at NS_STOC axis
+- NEW [[paired-test-with-fresh-launch-ctrl-noise-dominates-sub-sigma-axis-effects]] candidate — n=1 paired Δ at sub-σ_anchor envelope NOT distinguishable from CTRL-cohort tail-event; PP gate necessary not nice-to-have
+
+**#2179 edward PP-confirm HB2 ACKed PASS-CRITICAL-CATALOG-DEEP** (09:47Z):
+- Arm 2 SEED=1 test β=0.90 val=3.26202 → Δ_BA_s1 = +0.00035 = +0.22σ_seed NEG **SIGN-FLIP** from SEED=0 Δ_BA=−0.99σ FAV
+- val_loss SIGN-FLIP + R_inv_sqrt SIGN-FLIP (s0 −2.92% → s1 +0.82%)
+- precond_ratio mechanism PARTIALLY preserved (negative both seeds) BUT magnitude HALVED s0 −2.55% → s1 −1.16%
+- Pooled n=2 paired mean Δ_BA = −0.39σ_seed direction-FAV but well below merge threshold
+- **n=3 cohort merge gate INFEASIBLE**: required SEED=2 Arm B ≤ 3.25972 = Δ_BA_s2 ≤ −1.21σ_seed (very unlikely after s1 sign-flip)
+- HB3 ETA ~11:47Z (Arm 3 SEED=2 ctrl β=0.95), HB-FINAL ETA ~14:14Z
+- [[single-seed-headline-attrition]] CATALOG-CONFIRMED at NM_BETA axis (mechanism real but sub-dominant — terminal val dominated by other channels at SEED=1)
+- NEW [[r-buffer-mechanism-direction-preserved-magnitude-collapsed-cross-seed]] candidate — precond_ratio Δ negative both seeds but magnitude halved while val + R_inv_sqrt sign-flip; mechanism CHANNEL direction-reproducible but CONTRIBUTION to terminal val attenuates across seeds; DISTINCT from [[r-buffer-state-axis-decoupled-from-val-axis]] (here mechanism partially propagates with variable magnitude)
+
+**Cross-PR c790g-cycle [[single-seed-headline-attrition]] portfolio pattern — 2-of-2 PP-CONFIRMS CONFIRMED, 2 MORE PENDING**:
+
+| PR | Axis | SEED=0 Δ_BA | SEED=1 Δ_BA | Attrition? |
+|---|---|---|---|---|
+| #2177 alphonse | NS_STOC | −0.51σ FAV | +0.17σ NULL-NEG | ✓ SIGN-FLIP |
+| #2179 edward | NM_BETA | −0.99σ FAV | +0.22σ NEG | ✓ SIGN-FLIP |
+| #2199 nezuko | GRAD_CLIP_BODY | −2.40σ FAV (Arm C) | pending HB1 ~10:00Z | TBD |
+| #2204 thorfinn | GRAD_CLIP_AUX | −1.35σ FAV (Arm C) | pending HB1 ~10:02Z | TBD |
+
+- 2-of-2 confirmed c790g PP-confirms showing SEED=1 sign-flips from SEED=0 single-seed FAV — exactly the attrition pattern PP-confirm was designed to detect
+- Combined with [[seed-0-ctrl-cohort-c790g-cycle-late-window-hot-drift]] (3-of-4 SEED=0 ctrl HOT-band): c790g cycle has BOTH HOT-CTRL drift AND sub-σ paired-Δ noise events that can mimic axis effects = NOISY-COHORT signature requiring full PP-confirm gates
+- Strong evidence for advisor warning behavior — single-seed FAV at sub-σ_anchor magnitude is operationally noise-floor, not axis effect
+
+**HB-wave 09:50-10:16Z incoming** (6 expected landings):
+- #2234 fern HB2 ~09:55Z (Arm B β1=0.7 terminal)
+- #2248 tanjiro HB1 ~09:50Z (Arm A eps=1e-4 ctrl terminal)
+- #2249 frieren HB1 ~09:30Z (Arm A NS_ITERS_COOLDOWN=16 terminal)
+- #2236 askeladd HB2 ~10:16Z (Arm B K=50 terminal)
+- #2199 nezuko PP-confirm HB1 ~10:00Z (Arm A SEED=1 ctrl terminal)
+- #2204 thorfinn PP-confirm HB1 ~10:02Z (Arm A1 SEED=1 ctrl terminal)
+
+---
+
 - **Date:** 2026-06-02 08:30Z (cycle c790g-48 — **3 HB ACKs landed + CRITICAL c790g-cycle SEED=0 ctrl HOT-band pattern emerged: #2199 nezuko PP-confirm HB0 PASS-CLEAN-DEEP 4-arm chain A_s1→C_s1→A_s2→C_s2 atomic-handoff Arm A SEED=1 W&B `hhaouqkp` step 408/3350 ETA HB1 ~10:00Z + #2204 thorfinn PP-confirm HB0 PASS-CLEAN-DEEP distinct flock A1→C1→A2→C2 W&B `5i6mjcux` ETA HB1 ~10:02Z + #2236 askeladd HB1 PASS-CRITICAL-CATALOG-DEEP Arm A K=100 ctrl val=3.26441 = +2.00σ_seed HOT-CTRL (3rd-of-4 c790g-cycle SEED=0 Arm A HOT — nezuko +2.40σ, askeladd +2.00σ, thorfinn +1.07σ anchor, fern +0.29σ NORMAL only) + [[cross-K-warmstart-fire-step-fingerprint]] CATALOG-REFINEMENT (direction INVERSE NM-step count + sub-√ scaling weaker than √(τ/τ_ctrl)) + [[seed-0-ctrl-cohort-c790g-cycle-late-window-hot-drift]] NEW CATALOG-CANDIDATE + [[ctrl-anchor-cohort-config-heterogeneity]] EXTENDED σ_anchor inflated to ≈0.0013 = 0.8σ_seed (n=7 SEED=0 enriched). 8 PRs in flight 0 idle students. Dense HB-wave 08:30-10:16Z expected (alphonse/edward HB2-PP + fern/tanjiro/frieren HB1/HB2 + askeladd HB2 + nezuko/thorfinn HB1).**)
 
 **#2199 nezuko PP-confirm HB0 ACKed PASS-CLEAN-DEEP** (08:07Z):
