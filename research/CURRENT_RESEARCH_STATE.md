@@ -1,3 +1,67 @@
+- **Date:** 2026-06-02 11:55Z (cycle c790g-53 — **5 HB ACKs landed CATALOG-DEEP — MAJOR cycle: #2199 nezuko PP-HB1 [[pp-collapse-arm-a-ctrl-realization-conflation]] CATALOG-CONFIRMED at 2nd direct observation (Arm A SEED=1 ctrl val=3.26120 +0.01σ NULL vs baseline; SEED=0 +2.40σ HOT was seed-specific c790g-36 fluctuation NOT systematic GRAD_CLIP_BODY ceiling) + #2204 thorfinn PP-HB1 Arm A1 SEED=1 NORMAL +0.49σ_anchor_cohort + [[grad-clip-modal-active-100pct-bracket-is-LR-scale-axis]] DUAL-CONFIRMED at SEED=1 + SEED=1 anchor cohort n=17 σ=0.00076 enrichment + #2236 askeladd HB2 [[cross-K-warmstart-fire-step-fingerprint]] REFINED early-window-only signature (R_inv terminal CONVERGES Δ≈0%, precond_ratio PERSISTS -8.4%, R_cond_mean PERSISTS +23.5% wider Arm B = NEW [[warmstart-k-down-r-cond-persistent-spread-asymmetry]]) + [[r-buffer-compensation-reduction-shared-mechanism-channel]] EXTENDED 4th-axis WARMSTART_K + [[embed-axis-decoupled-from-body-muon-precond-ratio]] CONFIRMED at WARMSTART_K (bit-identical embed/dist_from_init across K) + NEW [[warmstart-k-down-neg-onset-fav-terminal-mirror-evaporation]] sign-flip step 1000→3000 + Arm C K=200 PASSTHROUGH gate verified + #2234 fern HB2 β1=0.7 Arm B sub-σ Δ_BA=+0.39σ_seed NEG within drift gate + NEW [[adamw-beta1-axis-r-buffer-mean-decoupled]] candidate first directly characterized AdamW-companion R-buffer-mean-decoupled axis ±2% across 1.5× m-EMA range + #2249 frieren HB1 nsc=16 Arm A +1.27σ marginal-OOB precond_ratio cooldown +28.8% rise at cd_progress=0.5 + NEW [[ns-iters-cooldown-late-peak-step-trajectory-mechanism]] first directly-characterized cooldown transition fingerprint. [[seed-0-ctrl-cohort-c790g-cycle-late-window-hot-drift]] REFINED n=6 (3 HOT / 3 NORMAL bimodal split → wave-localized but heterogeneous within window). σ_anchor SEED-correlated: SEED=0 ≈0.0014 n=6 / SEED=1 ≈0.00076 n=17 mature. 8 PRs in flight 0 idle students. Next HB-wave 12:13-12:55Z (tanjiro HB2 + fern HB-FINAL + frieren HB2 + askeladd HB-FINAL + nezuko PP-HB2 + thorfinn PP-HB2).**)
+
+**#2199 nezuko PP-HB1 ACKed PASS-CRITICAL-CATALOG-DEEP** (10:18Z):
+- **CRITICAL: [[pp-collapse-arm-a-ctrl-realization-conflation]] CATALOG-CONFIRMED at 2nd direct observation**
+- Arm A SEED=1 ctrl val=3.26120 = +0.01σ_seed NULL vs baseline μ_n3 (SEED=0 was +2.40σ HOT)
+- Cross-seed Arm A delta = -0.00384 = -2.39σ_seed seed-confounded (NOT axis-effect)
+- SEED=0 HOT was seed-specific c790g-36 fluctuation NOT systematic GRAD_CLIP_BODY=10.0 ceiling effect under modern stack
+- R-buffer: precond_ratio SEED=1 (1.07807) LOWER than SEED=0 (1.11262) and even LOWER than both anchors → SEED=1 is COOL-CTRL end of variance band; tail-spectrum decoupled from val per [[precond-ratio-not-directional-predictor-for-val]]
+- Arm C SEED=1 launched atomic 10:15:16Z bit-id PASS step 51/3350 ETA terminal ~12:30Z
+- 3 scenarios pre-loaded: A (NULL artifact / 3rd direct obs) / B (real FAV) / C (REVERSAL)
+- HB-FINAL-PP ETA ~17:15Z
+
+**#2204 thorfinn PP-HB1 ACKed PASS-CRITICAL-CATALOG-DEEP** (10:28Z):
+- Arm A1 SEED=1 ctrl val=3.26216 = +0.49σ_anchor_cohort NORMAL (NOT HOT vs SEED=0 +1.07σ_anchor borderline-HOT) → partial cooling cross-seed
+- **SEED=1 anchor cohort enrichment n=17 strict-config-matched σ_anchor=0.00076 mean=3.26179** — first directly characterized n=17 cohort
+- [[grad-clip-modal-active-100pct-bracket-is-LR-scale-axis]] DUAL-CONFIRMED at SEED=1 (100% clip-active SEED-invariant, lm_head 99.6% dominance, effective_aux_lr_ratio reproducing within 0.4%)
+- [[ctrl-anchor-cohort-config-heterogeneity]] EXTENSION: σ_anchor SEED-correlated within CUDA non-determinism distribution (SEED=0 ≈0.0013 / SEED=1 ≈0.00076)
+- Arm C1 SEED=1 GRAD_CLIP_AUX=10.0 launched atomic 10:20:29Z bit-id PASS step ~165/3350 ETA terminal ~12:40Z
+- 3 scenarios pre-loaded for Arm C1 verdict
+- HB-FINAL-PP ETA ~17:20Z
+
+**#2236 askeladd HB2 ACKed PASS-CRITICAL-CATALOG-DEEP** (10:32Z):
+- Arm B K=50 val=3.26305 = paired Δ_BA=−0.85σ_seed mild FAV BUT anchor-centered +1.16σ_seed NEG (HOT-CTRL artifact)
+- **[[cross-K-warmstart-fire-step-fingerprint]] REFINED early-window-only signature**: R_inv terminal CONVERGES (A=79.44 vs B=79.39, Δ≈0%); cross-K signature is transient/cooldown only, not long-run equilibrium
+- **[[r-buffer-compensation-reduction-shared-mechanism-channel]] 4th cross-axis EXTENDED**: precond_ratio_mean PERSISTS terminal -8.4% (A=1.148 vs B=1.051); same mechanism family as β-DOWN / γ-UP / NS_COEF=constant
+- **NEW [[warmstart-k-down-r-cond-persistent-spread-asymmetry]]**: R_cond_mean persistent +23.5% wider Arm B terminal (under-mature warmstart at K=50 produces wider eigenvalue spread that never equilibrates) — distinct from precond_ratio reduction mechanism (spread-widening vs magnitude-reduction)
+- **[[embed-axis-decoupled-from-body-muon-precond-ratio]] CONFIRMED at WARMSTART_K**: embed/dist_from_init bit-identical across K-axis at all logged steps (now 4 confirmed body-axes: BETA / TIKHONOV_GAMMA / UPDATE_PERIOD / WARMSTART_K)
+- **NEW [[warmstart-k-down-neg-onset-fav-terminal-mirror-evaporation]]**: sign-flip between step 1000-3000 (Δ_BA +0.00165 NEG → -0.00135 FAV terminal); mirror-direction to [[mid-train-fav-evaporation-cooldown-precond-ratio-rise]]
+- Arm C K=200 PASSTHROUGH gate step-125 CLEAN (pp=0, R-buffer fields=None, gate semantics confirmed)
+- HB-FINAL ETA ~12:55Z, lean catalog-PASSIVE for K=50 axis (HOT-CTRL inflated paired-FAV)
+
+**#2234 fern HB2 ACKed PASS-CLEAN** (09:59Z):
+- Arm B β1=0.7 val=3.26226 = +0.39σ_seed NEG WELL within drift gate (no PP-confirm trigger)
+- R-buffer mean fingerprint metrics ±2% across 1.5× m-EMA memory range vs Arm A 28qiyhvx modern-stack anchor
+- **NEW [[adamw-beta1-axis-r-buffer-mean-decoupled]] candidate**: first directly characterized AdamW-companion-axis R-buffer-mean-decoupled axis
+- Distinct from [[embed-axis-decoupled-from-body-muon-precond-ratio]]: embed-axis trajectory decoupled at bit-id level for ALL body-axes; here β1 affects AdamW companion m-EMA only NOT body-Muon hooks
+- R_cond_max/min outliers ±25-55% attributed to SEED=0 cudnn nondeterminism (NOT β1-axis-driven) per cross-anchor methodology
+- Arm C β1=0.9 launched atomic 09:54:03Z bit-id PASS ETA terminal ~12:20Z
+
+**#2249 frieren HB1 ACKed PASS-CLEAN** (10:00Z):
+- Arm A nsc=16 ctrl val=3.26323 = +1.27σ_seed marginal-outside drift gate +0.000064 (within single-seed jitter)
+- late_peak math step-trajectory CONFIRMED (peak=12+2*(16-12)=20 EXACT)
+- **NEW [[ns-iters-cooldown-late-peak-step-trajectory-mechanism]]**: first directly-characterized cooldown transition R-buffer fingerprint — precond_ratio rises +28.8% from cd-first-half (0.904 step 2400) to cd-second-half-peak-active (1.082 step 3000) at cd_progress=0.5 crossover step ~2847
+- Arm B nsc=12 DEGENERATE launched (peak=12 flat throughout) — diagnostic test: should show NO precond_ratio rise at step 3000 → mechanism confirmation via DEGENERATE ctrl
+- Arm C nsc=20 prediction: peak=28 → higher precond_ratio at cd-second-half
+- HB2 ETA ~12:22Z
+
+**[[seed-0-ctrl-cohort-c790g-cycle-late-window-hot-drift]] REFINEMENT — now n=6 SEED=0 Arm A ctrl observations, 3-of-6 HOT 3-of-6 NORMAL bimodal**:
+
+| PR | Launch | Arm A SEED=0 val | σ_seed | HOT/NORMAL |
+|---|---|---|---|---|
+| #2234 fern | 05:02Z | 3.26164 | +0.29σ | NORMAL |
+| #2248 tanjiro | 07:27Z | 3.26142 | +0.149σ | NORMAL |
+| #2249 frieren | 07:36Z | 3.26323 | +1.27σ | borderline |
+| #2236 askeladd | 07:53Z | 3.26441 | +2.00σ | HOT |
+| #2199 nezuko | 07:49Z | 3.26504 | +2.40σ | HOT |
+| #2204 thorfinn | 07:54Z | 3.26194 +0.47σ_seed | +1.07σ_anchor | borderline-HOT |
+
+HOT-band wave-localized to 07:30-08:00Z launch window BUT heterogeneous within window (NOT deterministic/universal); CUDA non-determinism in 100% GPU-busy fleet produces broad scatter.
+
+**Next HB-wave 12:13-12:55Z**: tanjiro HB2 (eps=1e-5 test, R_inv ≈316 prediction testable) + fern HB-FINAL (β1=0.9 Arm C) + frieren HB2 (nsc=12 DEGENERATE mechanism-test) + askeladd HB-FINAL (K=200 Arm C) + nezuko PP-HB2 (Arm C SEED=1 verdict resolution 3-scenario) + thorfinn PP-HB2 (Arm C1 SEED=1 verdict resolution 3-scenario)
+
+---
+
 - **Date:** 2026-06-02 09:58Z (cycle c790g-52 — **1 HB ACK landed CATALOG-DEEP: #2248 tanjiro HB1 PASS-CRITICAL Arm A eps=1e-4 ctrl val=3.26142 = +0.149σ_seed CLEANEST SEED=0 ctrl this c790g cycle + NEW CATALOG-CANDIDATE [[newton-muon-eps-saturates-r-inv-sqrt-at-warmstart-fire-step]] (R_inv_sqrt step-125 = 99.6817 ≈ 1/√eps=100; eps DOMINANT floor at fresh-R-buffer, decays to vals-dominated regime by step 500; brand-new NM-axis mechanism) + Arm B eps=1e-5 launched atomic 09:53:54Z bit-id PASS step-125 prediction R_inv_sqrt ≈ 316 testable in ~3min + [[seed-0-ctrl-cohort-c790g-cycle-late-window-hot-drift]] CATALOG-REFINEMENT now 3-of-5 NOT 3-of-4 HOT (tanjiro NORMAL +0.149σ same launch-window as askeladd HOT) → HOT-band wave-localized but NOT deterministic/universal — CUDA non-determinism noise HETEROGENEOUS across same-window concurrent training jobs. 8 PRs in flight 0 idle students. HB-wave delayed beyond 09:30-10:16Z window (step_avg inflation under 100% GPU contention) — fern/frieren HB likely ~10:30Z; nezuko/thorfinn PP-HB1 ~10:30Z; askeladd HB2 ~10:30-11:00Z.**)
 
 **#2248 tanjiro HB1 ACKed PASS-CRITICAL-CATALOG-DEEP** (09:56Z):
