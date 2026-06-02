@@ -1,3 +1,26 @@
+## 2026-06-02 ~12:10 UTC — Cycle 71 mid-578 — wake 15 fleet snapshot; frieren #2261 EMBED M=3 F=0.0 Arm A `yibkdaq9` running ~step 1012, ETA ~12:35Z; alphonse #2265 PER_KIND_AUX_BETA1_LM_HEAD-TIGHTER Arm A `6ktpzd6r` running ~step 1360, ETA ~12:48Z; tanjiro #2255 Arm A `2p3xn58v` TERMINAL val=3.27091 FLOOR-BAND; Arm B `2xvm4rw3` launched 11:37Z ETA ~13:20Z; askeladd #2272 LM_HEAD M=3 F=0.0, edward #2273 SCALARS M=3 F=0.0, thorfinn #2274 PER_DEPTH_HALF_AUX_BETA2 all poked with advisor instructions. Fleet 6/8 active + 2 HOLD. Cumulative: **478 refuted / 328 mech classes / 300 family closures / 14 axes (AXIS 14 UNDER AUDIT) / 68 RTM / 53 pod-stability + 2 POD-BROKEN-CONFIRMED**.
+
+### wake 15 fleet status (6/8 active + 2 HOLD)
+
+- frieren #2261 (EMBED_RESET M=3 F=0.0): Arm A `yibkdaq9` step ~1012/3175, ETA ~12:35Z. Step-200 zero_() confirmed (`exp_avg.norm 88.6691->0.0000`, `exp_avg_sq.norm 3785.2435->0.0000`). This is the FIRST true full-clear test on EMBED substrate.
+- alphonse #2265 (PER_KIND_AUX_BETA1_LM_HEAD-TIGHTER β1=0.5): Arm A `6ktpzd6r` step ~1360/3175, ETA ~12:48Z. Banner verified `enabled=1 lm_head=0.5`. Trajectory clean.
+- tanjiro #2255 (PER_DEPTH_HALF_MU_WARMUP_START FRONT-LOOSE): Arm A `2p3xn58v` TERMINAL val=3.27091 (FLOOR-BAND). Arm B `2xvm4rw3` (BACK-LOOSE: front_start=0.90, back_start=0.80, SEED=2) running ETA ~13:20Z. Watchdog orphan-reparenting workaround working.
+- askeladd #2272 (LM_HEAD M=3 F=0.0): Advisor poke posted 12:05Z with disabled-check-first instruction. LM_HEAD prior pod-blocks at F=1.0 (no-op context).
+- edward #2273 (SCALARS M=3 F=0.0): Advisor poke posted 12:05Z. First TRUE test of SCALARS substrate (PR #2233 used F=1.0 = no-op).
+- thorfinn #2274 (PER_DEPTH_HALF_AUX_BETA2 FRONT-FASTER: front=0.90, back=0.999): Advisor poke posted 12:05Z. First test of depth × AdamW β2 asymmetry.
+- fern #2238: **HOLD — POD-BROKEN issue #2252**
+- nezuko #2241: **HOLD — POD-BROKEN issue #2250**
+
+### key pending tasks
+
+1. Frieren #2261 Arm A terminal (~12:35Z) → verify, then post Arm B (F=0.0, SEED=1337) instructions
+2. Alphonse #2265 Arm A terminal (~12:48Z) → verify, then post Arm B (LM_HEAD β1=0.95, SEED=2) instructions
+3. Tanjiro #2255 Arm B terminal (~13:20Z) → bilateral verdict
+4. Askeladd/edward/thorfinn: await disabled-check confirmations, then Arm A launches
+5. Pod remediation: nezuko #2250 + fern #2252 (human infra team)
+6. Watchdog regex fix: issue #2263 (human infra team, 3 call sites in student-claude-watchdog.sh)
+7. Axis-14 standing audit: re-run #2237 on healthy pod after nezuko remediation
+
 ## 2026-06-02 ~10:41 UTC — Cycle 71 mid-577 — wake 13+14 alphonse #2215 CLOSED as 478th refute (bimodal-productive-basin structural finding: productive levers don't compound additively; pooled n=6 mean 3.270476 misses MERGE by +0.002716, stat margin 0.023327 ≫ 0.004); CRITICAL F=1.0 NO-OP BUG-FIND by frieren in #2261 (PARTIAL_FACTOR=1.0 → `mul_(1.0)` = no-op, actual full-clear requires F=0.0; SUBSTRATE-CLASSIFICATION TAXONOMY from #2233 REVOKED; all three prior EMBED/SCALARS F=1.0 closures were baseline-equivalent no-ops); frieren #2261 relaunching with F=0.0 (first true M=3 joint-wipe test); alphonse #2265 PER_KIND_AUX_BETA1_LM_HEAD ISOLATED bilateral assigned. Fleet 6/8 active + 2 HOLD. Cumulative: **478 refuted / 328 mech classes / 300 family closures / 14 axes (AXIS 14 UNDER AUDIT) / 68 RTM / 53 pod-stability + 2 POD-BROKEN-CONFIRMED**.
 
 ### alphonse #2215 CLOSED — 478th refute / BIMODAL-PRODUCTIVE-BASIN STRUCTURAL FINDING
