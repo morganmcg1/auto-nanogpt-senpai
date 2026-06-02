@@ -107,6 +107,15 @@ def parse_args():
                              "of training). Default=0.80 (winning value, PR #1966). "
                              "Set to None or 0.95 to disable the ramp. "
                              "Affects all muon_* param groups.")
+    parser.add_argument(
+        "--adamw_skip_freq",
+        type=int,
+        default=1,
+        help="Call optimizer1 (AdamW aux: embed/lm_head/scalars) only every K steps. "
+             "K=1 means every step (default, matches baseline). K=2 means every other step. "
+             "Muon (optimizer2) always fires every step. Gradients are always zeroed at end "
+             "of loop regardless of skip, so no gradient accumulation across skipped steps.",
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -794,6 +803,7 @@ if dist.get_rank() == 0:
             "ema_eval_enabled": args.ema_eval_decay is not None,
             "mu_cooldown_target": args.mu_cooldown_target,
             "mu_cooldown_enabled": args.mu_cooldown_target is not None,
+            "adamw_skip_freq": int(args.adamw_skip_freq),
         },
     )
 
@@ -1198,8 +1208,9 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
-        for opt in optimizers:
-            opt.step()
+        optimizer2.step()
+        if step % args.adamw_skip_freq == 0:
+            optimizer1.step()
 
         # EMA-eval update: parallel param trajectory, no gradients/momentum.
         # Performed after the optimizer step so EMA tracks the post-update params.
