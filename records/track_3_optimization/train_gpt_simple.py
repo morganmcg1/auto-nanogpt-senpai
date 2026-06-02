@@ -56,6 +56,16 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    parser.add_argument("--sync_interval_cooldown", type=int,
+                        default=int(os.environ.get("SYNC_INTERVAL_COOLDOWN", "-1")),
+                        help="H384: Effective outer sync interval during cooldown phase (step >= train_steps * sync_interval_cooldown_start_frac). "
+                             "-1 sentinel = use --sync_interval uniformly throughout (safe-default bypass, Pattern A bit-id). "
+                             "Active only when this value > 0.")
+    parser.add_argument("--sync_interval_cooldown_start_frac", type=float,
+                        default=float(os.environ.get("SYNC_INTERVAL_COOLDOWN_START_FRAC", "0.6")),
+                        help="H384: Fractional training step at which cooldown-phase sync_interval takes over. "
+                             "Default 0.6 matches AdamW AUX aux_cooldown_frac=0.4 -> AUX cooldown begins at step (1-0.4)*train_steps. "
+                             "Effective when --sync_interval_cooldown > 0.")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -844,6 +854,8 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "sync_interval_cooldown": args.sync_interval_cooldown,
+            "sync_interval_cooldown_start_frac": args.sync_interval_cooldown_start_frac,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -1058,6 +1070,19 @@ for trial_idx in range(args.num_trials):
         outer_anchor = None
         outer_velocity = None
     outer_applied_steps = 0
+
+    # H384: WSD-scheduled outer sync interval. Sentinel -1 = constant args.sync_interval
+    # throughout (Pattern A bit-id with H266 baseline). When > 0, a different effective
+    # sync interval takes over at step >= train_steps * sync_interval_cooldown_start_frac.
+    sync_interval_cooldown_active = args.sync_interval_cooldown > 0
+    sync_interval_cooldown_start_step = int(args.train_steps * args.sync_interval_cooldown_start_frac)
+    if dist.get_rank() == 0:
+        if sync_interval_cooldown_active:
+            print0(f"H384 WSD sync_interval schedule ENABLED: "
+                   f"stable_interval={args.sync_interval} (steps 0-{sync_interval_cooldown_start_step-1}), "
+                   f"cooldown_interval={args.sync_interval_cooldown} (steps {sync_interval_cooldown_start_step}-{args.train_steps-1})", console=True)
+        else:
+            print0(f"H384 WSD sync_interval BYPASS (sentinel -1): constant interval={args.sync_interval} throughout", console=True)
 
     # H266: Polyak-Ruppert EMA buffer for eval-only weight averaging (Pattern A drift-FREE).
     # When decay == 0.0 the state stays None and all H266 code paths short-circuit, so the
@@ -1324,7 +1349,11 @@ for trial_idx in range(args.num_trials):
         # initial-Frobenius sphere; the next MuonH-SI inner step reads
         # ``param.norm()`` at that step and preserves the new norm. Acceptable
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
-        if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
+        # H384: Phase-aware effective sync interval. Default (sentinel -1) = constant args.sync_interval.
+        _effective_sync_interval = (args.sync_interval_cooldown
+                                    if (sync_interval_cooldown_active and train_step >= sync_interval_cooldown_start_step)
+                                    else args.sync_interval)
+        if use_outer and train_step % _effective_sync_interval == 0 and train_step < train_steps:
             log_outer = (dist.get_rank() == 0)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
@@ -1351,6 +1380,7 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/muloco/effective_sync_interval": _effective_sync_interval,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
