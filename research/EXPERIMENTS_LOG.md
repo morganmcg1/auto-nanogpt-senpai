@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-06-02 01:35 UTC — PR #2151 nezuko: Body PMuon wd depth-stratified ASCENDING vs DESCENDING — ❌ BILATERAL NULL; wd depth-gradient axis CLOSED; nezuko REASSIGNED → #2210 lmhead-b2-repulse-2600
+
+- Branch: `g1r1-nezuko/body-muon-wd-depth-strat`
+- Hypothesis: Linear depth-stratified weight decay across 12 transformer blocks in two orderings: ASCENDING (shallow→deep: wd=0.0125/0.025/0.0375) vs DESCENDING (shallow→deep: wd=0.0375/0.025/0.0125). Tests if body PMuon benefits from aligned or counter-aligned wd gradient relative to the `late-higher` block-LR pattern.
+- W&B runs: `fdl593t3` (Arm A ASCENDING), `ouvlrizt` (Arm B DESCENDING)
+
+| Metric | Baseline #1532 | Arm A ASCENDING | Arm B DESCENDING |
+|---|---|---|---|
+| `speedrun/first_step_to_target` | **2875** | **2925** (+50) | **2925** (+50) |
+| `val/loss_ema` (final) | **3.262854** | **3.26433** (+1.47 mnat) | **3.26546** (+2.61 mnat) |
+| Merge gate | — | ❌ FAIL | ❌ FAIL |
+
+Mechanism diagnostics: Arm A sentinel confirmed 3 wd buckets at step 0 (`body_muon_wd_shallow=0.0125`, `body_muon_wd_middle=0.025`, `body_muon_wd_deep=0.0375`). ASCENDING marginally better than DESCENDING (+1.14 mnat difference) — late-layer regularization coherent with `late-higher` block-LR pattern is slightly preferable, but neither arm approaches merge gate. Both sr=2925 (+50 steps).
+
+**Conclusion:** Body PMuon depth-stratified weight-decay axis CLOSED. The gradient of wd across blocks is not a load-bearing mechanism for target-crossing speed. Combined with prior body-PMuon pre-target scalar closures (γ #1680, μ #1686, β₁ #1592/#1639, β_cov #1666, Nesterov #1898, schedule-free, LR-UP #1637, LR-DOWN #1697, NS-coefs #1660, wd-pulse #1693, cAdam cov-decay, wd depth-strat #2151): all body Muon pre-target scalar axes exhausted. **nezuko REASSIGNED → #2210: lm_head SECOND aux Adam β₂ pulse @ step 2600 bilateral (β₂=0.99 vs β₂=0.999)** — frontier refinement of confirmed WIN #1532, targeting pEMA refresh boundary as second phase-boundary for lm_head v-state recalibration. Researcher priority-2. Directive (a)+(b)+(c).
+
+---
+
 ## 2026-06-02 00:55 UTC — PR #2148 askeladd: Cautious Adam (cAdam) applied to aux Adam group — ❌ BILATERAL NULL; cAdam axis EXHAUSTED on aux Adam stack; askeladd REASSIGNED → #2207 post-NS update EMA
 
 - Branch: `g1r1-askeladd/caut-adam-aux`
