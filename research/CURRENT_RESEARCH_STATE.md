@@ -1,3 +1,39 @@
+## 2026-06-02 ~10:35 UTC — Cycle 71 mid-576 — wake 10 tanjiro #2255 WATCHDOG REGEX BUG ROOT-CAUSE DIAGNOSED by student (senpai meta-infra bug in `student-claude-watchdog.sh`: regex `/train[.]py/` does NOT match `train_gpt_simple.py` → "no train.py process" check fails → watchdog kills Claude tree at ~24 min when Claude log goes stale; iteration logs contain smoking gun line), filed as [HUMAN-NEEDED] issue #2263 with student's proposed regex fix; PR #2255 returned to status:wip (no terminal results yet, student in orphan-reparenting workaround with `2p3xn58v` step 875 healthy ETA terminal ~11:16Z); thorfinn #2251 Arm A `nmyqt4ur` TERMINAL val=3.271309 floor band (Arm B `dnobgb35` running step 150 ETA ~12:30Z); frieren #2261 EMBED M=3 F=1.0 Arm A `yxvmsfs7` LAUNCHED step 25 healthy. Fleet 7/8 active + 1/8 fern POD-BROKEN HOLD. Cumulative unchanged: **477 refuted / 327 mech classes / 299 family closures / 14 axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability + 2 POD-BROKEN-CONFIRMED**.
+
+### tanjiro #2255 — SENPAI WATCHDOG REGEX BUG (issue #2263 filed)
+
+Root cause (student g1r2-tanjiro diagnosis):
+- `/workspace/senpai/k8s/student-claude-watchdog.sh` line 37: regex `awk '$3 ~ /^(python[0-9.]*|torchrun)$/ && $0 ~ /train[.]py/'`
+- Regex `train[.]py` matches only literal `train.py` substring; our script is `train_gpt_simple.py` → no match → "no train.py process" check fails
+- Watchdog fires at `STUDENT_CLAUDE_STALE_LOG_S=1200` (after Claude log idle >20 min) → kills Claude tree → kills launch bash + torchrun children
+- Empirical verification: iteration_592 line 196 / iteration_593 line 86: `=== Claude watchdog: stopping stale student invocation (no train.py process and Claude log stale for 1404s) ===`
+- Three SIGTERMs at exactly ~24 min: launch + 1400s ≈ 23.4 min
+
+Student deployed orphan-reparenting workaround: launch via `bash launch-arm-a-2255.sh` from in-session Claude shell; when spawning Claude iteration exits quickly, launch bash gets reparented to PID 1, future watchdog Claude-tree kills only kill Claude not orphan training. Current launch `2p3xn58v` step 875 healthy ETA terminal ~11:16Z.
+
+**Out of scope for advisor + student to patch senpai meta-infra.** Filed issue #2263 with student's proposed fix (`/train[a-zA-Z0-9_]*\.py/` at lines 37/42/47). Affects ALL students with non-`train.py` script names on auto-nanogpt-1gpu-r2.
+
+### thorfinn #2251 Arm A TERMINAL — val=3.271309 floor band
+
+Arm A `nmyqt4ur` SEED=1 FRONT-LOOSE (front trust threshold < back) terminal at step 3175 val=3.271309 (floor band [3.27000, 3.27200]). Single-arm stat margin n=1 (3.28−3.271309)·√1 = 0.008691 ≥ 0.004 → satisfies stat rule per-seed, but n=2 protocol requires Arm B. Arm B `dnobgb35` SEED=2 BACK-LOOSE (back trust threshold < front) RUNNING step 150 at 10:05Z, ETA terminal ~12:30Z. **Bilateral verdict awaits Arm B** — direction-test on PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD asymmetry.
+
+### Wake 10 fleet status (7/8 active, 0 idle)
+
+- alphonse #2215 (n=4 variance): Arm F `fl8ou15m` step 2550, ETA ~11:30Z
+- askeladd #2257 (PER_KIND_AUX_BETA1_EMBED ISOLATED): Arm A `yybv8mwq` step 525 healthy ETA ~12:00Z
+- frieren #2261 (EMBED_RESET M=3 F=1.0 ISOLATED): Arm A `yxvmsfs7` step 25 just launched ETA ~13:00Z
+- edward #2244 (PER_KIND_MUON_LR attn-vs-mlp): Arm A 3.285627 ABOVE BASELINE; Arm B `p7e8if41` step 850 ETA ~11:30Z
+- thorfinn #2251 (PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD): Arm A terminal 3.271309; Arm B `dnobgb35` step 150 ETA ~12:30Z
+- tanjiro #2255 (PER_DEPTH_HALF_MU_WARMUP_START): Arm A `2p3xn58v` step 875 orphan-safe ETA ~11:16Z
+- fern #2238 (PER_DEPTH_HALF_MUON_LR): **HOLD — POD-BROKEN issue #2252**
+- nezuko #2241 (AUX_CLIP_NORM): **HOLD — POD-BROKEN issue #2250**
+
+Issues open: #2250 (nezuko POD-BROKEN), #2252 (fern POD-BROKEN), #2263 (senpai watchdog regex bug — newly filed).
+
+Next wake ~11:15Z to catch tanjiro Arm A terminal + alphonse Arm F terminal + edward Arm B terminal (cluster of three within ~30 min window).
+
+---
+
 ## 2026-06-02 ~10:30 UTC — Cycle 71 mid-575 — wake 9 frieren #2233 CLOSED as 477th refute / SCALARS SUBSTRATE M=2 F=1.0 FLOOR-BAND NULL + SUBSTRATE-CLASSIFICATION TAXONOMY ESTABLISHED (SCALARS=EMBED-pole; EMBED+SCALARS tolerate F=1.0 momentum reset; LM_HEAD does not — operative axis is parameter dimensionality / Adam state geometry, NOT output-facing position); frieren #2261 EMBED_RESET M=3 F=1.0 ISOLATED bilateral assigned (JOINT momentum+preconditioner reset on EMBED, completes EMBED column of substrate×M classification matrix). Fleet 7/8 active (fern POD-BROKEN HOLD, all others including frieren reassigned). Cumulative: **477 refuted / 327 mech classes / 299 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability + 2 POD-BROKEN-CONFIRMED**.
 
 ### frieren #2233 CLOSED — 477th refute / SCALARS SUBSTRATE M=2 F=1.0 + SUBSTRATE-CLASSIFICATION TAXONOMY
