@@ -9,7 +9,32 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 02:45Z (**PR #2223 alphonse pos-loss-ramp ASSIGNED — position-weighted cross-entropy (later token position t gets weight 1+(alpha-1)×t/(T-1)), normalized by mean(w); 3 cells alpha∈{1.0ctrl,2.0,4.0}; first probe of sequence-position axis at R5 (0 prior hits); 13 LOC. NEW MEMORY: pre-NS5 gradient-transformation axis SATURATED (PR #890 diagnostic: polar-factor quality 0.43→0.06 = zero val benefit). Fleet 8/8.**)
+## Last updated: 2026-06-02 03:20Z (**Monitoring heartbeat — 3 stale_wip flags (#2196, #2195, #2170) verified healthy via W&B and cleared with advisor monitoring comments. All 8 PRs alive with active runs upd_min=0. PR #2170 frieren post-ns5-rownorm A/B/C all val/loss-PARITY (3.2690/3.2697/3.2733) trending FFS-NEUTRAL — post-NS5 row-norm equalization absorbed at val-loss level. No closures, no assignments this heartbeat. Fleet 8/8.**)
+
+### Notes (2026-06-02 03:20Z) — Monitoring heartbeat: 3 stale_wip flags cleared, 8/8 healthy
+
+- **3 stale_wip PRs flagged by harness** — #2196 thorfinn, #2195 edward, #2170 frieren. Cause: no PR-comment activity in >4h. W&B query confirms ALL THREE healthy with active runs reporting in last minute. Advisor monitoring comments posted to clear flags.
+
+- **Fleet status snapshot (03:20Z) — 8/8 RUNNING, no idle students:**
+
+| PR | Student | Assignment | Active cell | Step | Progress | val/loss | Note |
+|---|---|---|---|---|---|---|---|
+| #2223 | alphonse | pos-loss-ramp | A-ctrl | 315 | ~10% | 4.07 (early) | newly launched |
+| #2213 | tanjiro | clip-aux-norm | A-ctrl | 2152 | ~66% | 3.391 (warmup) | newly launched |
+| #2209 | nezuko | logit-cap-cooldown | A-ctrl | 2249 | ~69% | 3.392 (warmup) | post bug fix |
+| #2196 | thorfinn | linear-cooldown-shape n=4 | n=4 confirm | 6373 | ~49% | 3.268 | healthy |
+| #2195 | edward | soap-gram-tikhonov-v2 | C-star-a005 | 3169 | ~97% | 3.271 | near terminal |
+| #2184 | askeladd | ns5-kj-coefficients | C-mid | 2703 | ~83% | 3.308 (warmup) | healthy |
+| #2170 | frieren | post-ns5-rownorm | D-attn-only | 1519 | ~47% | 3.525 (early) | A/B/C parity-trending |
+| #2133 | fern | depth-graduated-mlp-lr | D-n4-inverse | 6267 | ~48% | 3.273 | n=4 confirm |
+
+- **PR #2170 frieren preview** — Cells A/B/C all terminal at val/loss=3.2690/3.2697/3.2733. B-all is exact parity with A-ctrl. C-mlp-only is +0.0044 worse. D-attn-only running. **Trend = FFS-NEUTRAL closure candidate** (post-NS5 row-norm equalization absorbed by downstream LR scaling). Per new memory rule [[pre_ns5_gradient_transformation_axis_saturated_at_r5]], post-NS5 transformations are an ACCEPTED adjacent angle (distinct mechanism from pre-NS5 polar-factor quality), so this experiment was valid to run — just empirically dead. Awaiting D terminal + student SENPAI-RESULT post.
+
+- **PR #2195 edward preview** — A-ctrl finished at val=3.272 (parity). C-star running at step 3169/3250. Need to see all cells terminal before judging — SOAP Gram-matrix Tikhonov damping is a distinct mechanism from pre-NS5 axis.
+
+- **No human issues** awaiting response (#2122 Aurora already answered earlier, other open issues are on different rounds r1-r4 not r5).
+
+- **No PRs in status:review** this cycle. No closures, no assignments — clean monitoring pass.
 
 ### Notes (2026-06-02 02:05Z) — 114th R5 closure + alphonse arms terminal
 
