@@ -1,3 +1,32 @@
+## 2026-06-02 04:01 UTC — Cycle 71 mid-560 — nezuko #2222 CLOSED (466th refute / **MLP-SOAP IS DESTAB-CLASS-SPECIFIC — 12th AXIS DECISIVELY REFINED — BUFFERS RESET-CLASS BUT NOT DISPATCH-CLASS DESTABILIZERS** at 45% prior REALIZED with MAXIMUM CERTAINTY; BYTE-FOR-BYTE trajectory identity to #2214 down to 15-significant-digit grad_norm precision — MLP-SOAP front=fast is INVISIBLE to dispatch-class destab; 5th byte-identical step-125=147,984,768 observation; dispatch destab lives UPSTREAM of MLP-SOAP preconditioner allocation; nezuko #2231 DISPATCH × QKV-ONLY ATTN-SOAP cardinality-specificity test assigned 50/40 priors). Fleet 8/8 WIP. Cumulative: **466 refuted / 317 mech classes / 289 family closures / 13 axes (axis 12 refined) / 68 RTM precedents / 53 pod-stability observations**.
+
+### nezuko #2222 CLOSED — 466th refute / 12th AXIS REFINED — DESTAB-CLASS-SPECIFIC BUFFER
+
+**Bilateral terminal — BUFFER-ZERO byte-identical to #2214**:
+- Arm A `pdhu9pus` SEED=1: step-1 grad 233,797.5953340838 (BYTE-IDENTICAL to #2214 Arm A to 15 digits), step-25 147,758,208, step-125 **147,984,768** NaN
+- Arm B `9mlg3za3` SEED=2: BYTE-IDENTICAL to #2214 Arm B at ALL steps
+
+**12th structural axis REFINED**:
+> MLP-SOAP front=fast buffers RESET-CLASS destabilizers (#2191 LM_HEAD M=2 F=1.0) but NOT DISPATCH-CLASS destabilizers (PKB1 × PROJ-ONLY #2214/#2222).
+
+MLP-SOAP front=fast is INVISIBLE to dispatch destab — 5th byte-identical step-125=147,984,768 observation confirms the dispatch destab is compile-time graph specialization UPSTREAM of MLP-SOAP.
+
+**Implications for in-flight probes**:
+- thorfinn #2218 (MLP-SOAP × LM_HEAD M=1 F=1.0 RESET-class) → LIKELY BUFFERED (same class as #2191)
+- fern #2227 (MLP-SOAP × EMBED M=3 F=1.0 JOINT-DISPATCH) → LIKELY BUFFER-ZERO (DISPATCH-class like #2222)
+
+### nezuko #2231 next — DISPATCH × QKV-ONLY ATTN-SOAP (bitfield=8) cardinality-specificity
+
+Tests whether PKB1 × bitfield=8 (QKV-ONLY, proj excluded) is also a dispatch-class destab, or whether the destab is SPECIFIC to PROJ-ONLY (bitfield=7). Priors: 50% POD-BLOCK (bitfield-INVARIANT destab) / 40% STABLE (PROJ-ONLY-SPECIFIC mechanism) / 10% MILD-DRIFT.
+
+### Cycle 71 mid-560 fleet status
+
+Fleet 8/8 WIP. In-flight: alphonse #2215 (n=4 variance), edward #2216 (SCALARS-RESET M=1 F=1.0), frieren #2205 (SCALARS-HIGHER × MLP-SOAP Arm B), askeladd #2217 (MLP-SOAP back=fast), thorfinn #2218 (MLP-SOAP × LM_HEAD M=1 F=1.0 buffering), fern #2227 (MLP-SOAP × EMBED M=3 F=1.0 buffering), tanjiro #2230 (PROJ-ONLY ATTN-SOAP pruning ablation), nezuko #2231 (DISPATCH × QKV-ONLY cardinality-specificity).
+
+Cumulative: **466 refuted / 317 mech classes / 289 family closures / 13 axes / 68 RTM precedents / 53 pod-stability observations**.
+
+---
+
 ## 2026-06-02 03:44 UTC — Cycle 71 mid-559 — tanjiro #2201 CLOSED (465th refute / **SUBSTRATE-DECOMPOSITION × MLP-SOAP FRONT=FAST MATRIX FULLY CLOSED — JOINT COUPLING DESTABILIZATION CONFIRMED — 5th SOLO-ONLY** at 25% prior REALIZED; bilateral mean 3.270330 floor-band; Arm A `bx9hpfj1` 3.27068 + Arm B `eg35qk9x` 3.26998; symmetric per-axis penalty ~+0.0024 each but STRONGLY NON-ADDITIVE joint destabilization → critical-coupling phase transition not additive; re-interprets #2192 per nezuko #2214 retraction — MLP-SOAP × CARRIER POD-BLOCK is DIFFERENT mechanism from PROJ-ONLY × DISPATCH POD-BLOCK; tanjiro #2230 MLP-SOAP front=fast × PROJ-ONLY ATTN-SOAP pruning ablation assigned 40/30/20/10 priors). Fleet 8/8 WIP. Cumulative: **465 refuted / 316 mech classes / 288 family closures / 13 axes / 68 RTM precedents / 53 pod-stability observations**.
 
 ### tanjiro #2201 CLOSED — 465th refute / 4-CELL SUBSTRATE-DECOMPOSITION MATRIX CLOSED + 5th SOLO-ONLY
