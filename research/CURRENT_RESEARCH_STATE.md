@@ -9,7 +9,31 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 07:05Z (**🚀 STRONG ALIVE SIGNAL on PR #2223 alphonse pos-loss-ramp B★(α=2.0): FFS_ema=2750 (−125 vs baseline 2875), val=3.2576 (−0.012 vs baseline 3.27007), BOTH metrics deep below merge gates AND not on attractor {2875, 2925}. n=4 confirm requested at α=2.0; Cell C α=4.0 deferred. First major positive signal since PR #1966 merge.**)
+## Last updated: 2026-06-02 07:45Z (**PR #2223 alphonse n=4 confirm LAUNCHED at α=2.0 (running step 226/3250, healthy). B★ terminal CONFIRMED FFS_ema=2750, val=3.25734, ema_val=3.25776. Decision in ~7h. Fleet 8/8 fully occupied; no review-ready or stale_wip PRs.**)
+
+### Notes (2026-06-02 07:45Z) — alphonse n=4 LAUNCHED + fleet status snapshot
+
+- **PR #2223 alphonse B★ terminal CONFIRMED + n=4 LAUNCHED.** Student posted SENPAI-RESULT (terminal=false, pending_arms=true) at 07:33Z:
+  - A_ctrl (α=1.0, run `bxlz0uqz`): FFS_ema=2875 ✓ baseline parity, val=3.26925, ema=3.26966 (Δ=−0.00041 vs baseline 3.27007 = bit-clean)
+  - **B★ (α=2.0, run `uk3ghac0`): FFS_ema=2750 ✓ confirms 07:05Z signal, FFS_trainval=2750, val=3.25734 (Δ=−0.01191 vs A_ctrl), ema_val=3.25776 (Δ=−0.01190)**
+  - Probe-step Δ at every step ≥3000 monotone-better (−0.01191 at step 3200, 3225, 3250). No crossover or noise pattern.
+- **n=4 confirm LAUNCHED** as `alphonse/pos-loss-ramp-D-n4-alpha2-{s0,s1,s2,s3}` on group `alphonse/pos-loss-ramp-n4-confirm` (running step 226/3250, warmup, hb=0min, healthy). Per advisor instructions Cell C α=4.0 SKIPPED. ETA ~7h total (4 × ~1.75h sequential on 1 GPU). Decision gate: μ_4(FFS_ema) ≤ 2862.5 AND no seed ≥2900 → MERGE.
+- **Fleet status (07:45Z) — 8/8 fully occupied, all healthy:**
+
+| PR | Student | Assignment | Active state | Status |
+|---|---|---|---|---|
+| #2223 | alphonse | pos-loss-ramp | n=4 confirm step 226/3250 (warmup) | **CRITICAL WATCH** |
+| #2196 | thorfinn | linear-cooldown-shape n=4 | step 9576/13000 (~74%) | n=4 in progress |
+| #2195 | edward | soap-gram-tikhonov-v2 | D running, E queued | B hit attractor → n=4 planned |
+| #2213 | tanjiro | clip-aux-norm | Cprime-embed350 step 2137/3250 (~66%) | running |
+| #2209 | nezuko | logit-cap-cooldown | B-tight10 step 2171/3250 (~67%) | A_ctrl ✓, chain → 09:42Z |
+| #2235 | frieren | post-ns5-dir-ema-gate | B-star-relu-b0 step 553 (warmup) | A_ctrl ✓ FFS=2875 |
+| #2245 | askeladd | adamw-skip-step | A_ctrl-n1 step 1288/3250 (~40%) | warmup-clean |
+| #2133 | fern | depth-graduated-mlp-lr n=4 | trial 3 step 509/3250 (~16%) | 3-trial μ_3 reverting to canonical {2875, 2925} attractor (looking FFS-NEUTRAL) |
+
+- **fern #2133 trial 3 ETA ~07:30Z** (already overdue, finishing imminently). 3-trial running mean: FFS_ema=2891.67, FFS_trainval=2908.33, val_loss=3.27001, ema_corr=3.27042 — ema_corr is ABOVE baseline μ_4(val)=3.27007 = **trial pattern confirms [[r5_n1_to_n4_reversion_dual_metric_attractor]] reversion**. Trial 0 cleanly reverted; trials 1+2 mixed dual-attractor splits.
+- **edward #2195** — B (α=0.01) hit dual attractor {FFS_ema=2875, FFS_trainval=2925}; student plans n=4 escalation after D+E finish (chain ETA ~09:08Z).
+- **No human researcher gh issues for r5** (last: #1262 5/26 FFS-PRIMARY directive). No PRs in status:review, no status:stale_wip.
 
 ### Notes (2026-06-02 07:05Z) — PR #2223 alphonse pos-loss-ramp STRONG ALIVE at α=2.0
 
