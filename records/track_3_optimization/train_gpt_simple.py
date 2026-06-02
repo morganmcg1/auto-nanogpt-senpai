@@ -114,6 +114,12 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    parser.add_argument("--body_gc_mode", type=int, default=int(os.environ.get("BODY_GC_MODE", "0")),
+                        help="Apply Gradient Centralization to BODY MuonH gradients before NS5 polar step "
+                             "(Yong et al. 2020, arXiv:2004.01461). "
+                             "0 = no GC (safe-default, preserves Pattern A bit-id). "
+                             "1 = center per-output row along input dim (paper standard, dim=-1 for nn.Linear). "
+                             "2 = center along BOTH input dim AND output dim (aggressive bidirectional GC).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -569,7 +575,17 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, gc_mode=0):
+    # H378 Gradient Centralization (Yong et al. 2020, arXiv:2004.01461):
+    # gc_mode=0 safe-default (no GC, bit-id with prior code path);
+    # gc_mode=1 centers along input dim (dim=-1) — paper-standard for FC layers;
+    # gc_mode=2 also centers along output dim (dim=0) — aggressive bidirectional.
+    # New tensor (`grad = grad - ...`) leaves p.grad untouched for downstream consumers.
+    if gc_mode == 1:
+        grad = grad - grad.mean(dim=-1, keepdim=True)
+    elif gc_mode == 2:
+        grad = grad - grad.mean(dim=-1, keepdim=True)
+        grad = grad - grad.mean(dim=0, keepdim=True)
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
@@ -674,12 +690,13 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip", gc_mode=0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
+        assert gc_mode in (0, 1, 2)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode, gc_mode=gc_mode)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -707,7 +724,8 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                          gc_mode=group.get("gc_mode", 0))
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -856,6 +874,7 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "body_gc_mode": args.body_gc_mode,
         },
     )
 
@@ -939,7 +958,7 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode, gc_mode=args.body_gc_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
