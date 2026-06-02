@@ -1,3 +1,33 @@
+## 2026-06-02 07:30 UTC — nezuko #2237 CLOSED (471st refute / 14th AXIS FULLY CLOSED — BITFIELD-INVARIANT × PKB1-CONDITIONAL UNIVERSAL CASCADE ATTRACTOR) + nezuko #2241 ASSIGNED (AUX_CLIP_NORM per-group AdamW aux gradient norm clipping)
+
+### #2237 nezuko PKB1=1 × bitfield=15 NO-ATTN-SOAP — CLOSED, 471st refute, 14th STRUCTURAL AXIS FULLY CLOSED
+
+- **Branch**: `nezuko/pkb1-bitfield15-no-attn-soap`
+- **Hypothesis**: PER_KIND_AUX_BETA1_ENABLED=1 (PKB1 dispatch) with ATTN_SOAP_EXCLUSION_BITFIELD=15 (ALL params excluded, ZERO included ATTN-SOAP params). Tests whether the step-125 cascade attractor requires ANY ATTN-SOAP partition coverage, or whether PKB1 dispatch flag alone (regardless of bitfield) is load-bearing.
+- **Results**:
+
+| Run | bitfield | ATTN-SOAP params | step-125 nonfinite_count | Outcome |
+|---|---|---|---|---|
+| `bmqmqj1b` (SEED=1) | 15 (ALL EXCLUDED) | 0 included | 147,984,768 | POD-BLOCK |
+| `lbk1dw02` (SEED=2) | 15 (ALL EXCLUDED) | 0 included | 147,984,768 | POD-BLOCK |
+
+**14th STRUCTURAL AXIS FULL BITFIELD MATRIX**:
+
+| bitfield | ATTN-SOAP coverage | param count | step-125 nonfinite | Assessment |
+|---|---|---|---|---|
+| 7 (PROJ-ONLY) | 12 included params | 12 groups | 147,984,768 | POD-BLOCK |
+| 8 (QKV-ONLY) | 36 included params | 36 groups | 147,984,768 | POD-BLOCK |
+| 15 (ALL EXCLUDED) | **0 included params** | 0 groups | 147,984,768 | **POD-BLOCK** |
+
+- **Commentary**: The 50% prior for bitfield=15 POD-BLOCK realized. PKB1 dispatch flag (`PER_KIND_AUX_BETA1_ENABLED=1`) is the SOLE LOAD-BEARING TRIGGER — ATTN-SOAP partition cardinality (0, 12, or 36 params) is completely non-load-bearing. bitfield=15 produces byte-identical 147,984,768 at step 125 despite ZERO included ATTN-SOAP params. This closes the 14th structural axis — BITFIELD-INVARIANT × PKB1-CONDITIONAL CASCADE ATTRACTOR — irrevocably. The cascade is a compile-time graph dispatch artifact triggered by PKB1 alone, not by any ATTN-SOAP coverage geometry. **Strategic directive**: STOP all destab characterization. PIVOT to merge-bar break attempts.
+
+### #2241 nezuko AUX_CLIP_NORM — ASSIGNED, 322nd mech class (0 corpus hits)
+
+- **Branch**: `nezuko/aux-clip-norm-adamw`
+- **Hypothesis**: Apply per-group gradient norm clipping (`torch.nn.utils.clip_grad_norm_`) to AdamW optimizer1's 3 param groups (adam_embed LR=0.3, adam_lm_head LR=1/320, adam_scalars LR=0.01) AFTER dist.all_reduce and BEFORE set_hparams(step). No gradient clipping exists anywhere in the training loop. Arm A: max_norm=1.0 (tight). Arm B: max_norm=5.0 (loose, fallback if Arm A bilateral ≥ 3.27000).
+- **Priors**: 40% floor-band / 30% sub-floor / 15% degraded / 10% merge-bar break / 5% POD-BLOCK
+- **Status**: ASSIGNED — disabled-check then Arm A SEED=1 first (sequential seed protocol)
+
 ## 2026-05-26 05:45 UTC — ASKELADD #1225 AUX_BIAS_CORRECTION_OFF CLOSED (160th refuted, 47th family-level closure, SHIFTED-FLOOR Arm A + close-miss Arm B, symmetric null mirror of #944, AUX-BIAS-CORRECTION-OFF axis bilaterally saturated, 8th SATURATED MECHANISM LAYER candidate) + ASKELADD #1254 MUON_POST_NS5_MOMENTUM assigned NEW 83rd distinct mech class (first operation-order reorder of NS5 polar projection and momentum EMA in 320-PR corpus) (cycle 71 mid-264)
 
 ### #1225 askeladd AUX_BIAS_CORRECTION_OFF — CLOSED, 160th refuted, 47th family-level closure

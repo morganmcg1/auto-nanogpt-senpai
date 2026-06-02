@@ -1,3 +1,46 @@
+## 2026-06-02 ~07:00 UTC — Cycle 71 mid-565 — nezuko #2237 CLOSED (471st refute / **14th AXIS FULLY CLOSED — BITFIELD-INVARIANT × PKB1-CONDITIONAL UNIVERSAL CASCADE ATTRACTOR — PKB1 DISPATCH ALONE (bitfield=15, ZERO included ATTN-SOAP params) triggers byte-identical 147,984,768 at step 125** at 50% prior REALIZED; axis 14 is completely and irrevocably closed: bitfield ∈ {7, 8, 15} ALL byte-identical POD-BLOCK; ATTN-SOAP partition cardinality is NON-LOAD-BEARING; PKB1 dispatch flag is the SOLE LOAD-BEARING TRIGGER; fern #2238 PER_DEPTH_HALF_MUON_LR BUG INTERVENTION — disabled-check NaN + empty param groups (muon_front_param_count=0, muon_back_param_count=0) + zero commits on branch; student must fix guard and recommit). Fleet 7/8 WIP (nezuko pod free). Cumulative: **471 refuted / 321 mech classes / 293 family closures / 14 structural axes FULLY CLOSED / 68 RTM precedents / 53 pod-stability observations**.
+
+### nezuko #2237 CLOSED — 471st refute / 14th AXIS FULLY CLOSED — BITFIELD-INVARIANT × PKB1-CONDITIONAL
+
+**Terminal — PKB1=1 × bitfield=15 NO-ATTN-SOAP (ALL excluded, ZERO included params)**:
+- Run `bmqmqj1b` (SEED=1): step-125 nonfinite_count = **147,984,768** (byte-identical)
+- Run `lbk1dw02` (SEED=2): step-125 nonfinite_count = **147,984,768** (byte-identical)
+
+**14th STRUCTURAL AXIS NOW FULLY CLOSED — BITFIELD-INVARIANT × PKB1-CONDITIONAL**:
+| bitfield | ATTN-SOAP coverage | param count | step-125 nonfinite | Assessment |
+|---|---|---|---|---|
+| 7 (PROJ-ONLY) | 12 included params | 12 groups | 147,984,768 | POD-BLOCK |
+| 8 (QKV-ONLY) | 36 included params | 36 groups | 147,984,768 | POD-BLOCK |
+| 15 (ALL EXCLUDED) | **0 included params** | 0 groups | 147,984,768 | **POD-BLOCK** |
+
+PKB1 dispatch (`PER_KIND_AUX_BETA1_ENABLED=1`) is the SOLE LOAD-BEARING TRIGGER. ATTN-SOAP partition cardinality (0, 12, or 36 params) is completely non-load-bearing. The cascade attractor is PKB1-conditional, not ATTN-SOAP-partition-conditional. No further destab characterization needed on this axis.
+
+**Strategic directive**: 14th axis is permanently closed. STOP all destab characterization. PIVOT to merge-bar break attempts. Nezuko freed for fresh non-destab hypothesis.
+
+### fern #2238 BUG INTERVENTION — PER_DEPTH_HALF_MUON_LR empty param groups
+
+**Run `1b23jq2o` (disabled-check)**: `optimizer/muon_front_param_count=0`, `optimizer/muon_back_param_count=0`, NaN at step 125. Two root causes identified:
+1. Implementation not committed — branch shows additions=0, deletions=0 vs advisor HEAD
+2. Even if committed, the param-split code must be inside `if PER_DEPTH_HALF_MUON_LR_ENABLED:` guard; unconditional split empties the global Muon param list even in disabled path
+
+Student instructed to: (1) verify code committed; (2) fix guard structure; (3) re-run disabled-check expecting val@200 ∈ [4.075, 4.090], no NaN; (4) only then launch Arm A SEED=1.
+
+### Cycle 71 mid-565 fleet status
+
+Fleet 7/8 WIP. nezuko pod free (PR #2237 closed).
+- alphonse #2215 (n=4 variance): Arm C finished 3.269156 sub-floor; Arm D running ~step 2400 seed=4
+- edward #2216 (SCALARS-RESET M=1 F=1.0): Arm A finished 3.270945 floor-band; Arm B running ~step 2605 seed=2
+- askeladd #2217 (MLP-SOAP back=fast): Arm A finished 3.273056 floor-band; SEED=1 RERUN (protocol deviation) running ~step 2675
+- tanjiro #2230 (PROJ-ONLY ATTN-SOAP pruning ablation): Arm A finished 3.268956 SUB-FLOOR; Arm B running ~step 200 seed=2
+- thorfinn #2218 (MLP-SOAP × LM_HEAD M=1 F=1.0 buffering): Arm A finished 3.271155 floor-band upper; Arm B running ~step 2700
+- frieren #2233 (SCALARS-RESET M=2 F=1.0 isolated): running ~step 325 healthy descent
+- fern #2238 (PER_DEPTH_HALF_MUON_LR): BUG INTERVENTION — waiting on student fix
+- nezuko #2241 (AUX_CLIP_NORM — per-group AdamW aux gradient norm clipping): ASSIGNED — Arm A (tight clip max_norm=1.0) SEED=1 first
+
+Cumulative: **471 refuted / 321 mech classes / 293 family closures / 14 structural axes / 68 RTM precedents / 53 pod-stability observations**.
+
+---
+
 ## 2026-06-02 ~06:15 UTC — Cycle 71 mid-564 — fern #2232 CLOSED (470th refute / **13th AXIS F-INVARIANT — UNIVERSAL CASCADE ATTRACTOR EXTENDED TO 8 RUNS / 4 MECHANISM FAMILIES** at 60% prior REALIZED; EMBED M=3 F=0.5 BYTE-IDENTICAL to F=0.99 and F=1.0 at ALL sampled steps; 8th observation of step-125=147,984,768 across dispatch×proj, dispatch×qkv, embed-M3-reset F∈{0.5,0.99,1.0}, mlp-soap×embed; DESTAB-CLASS FULLY CHARACTERIZED — STRATEGIC PIVOT TO MERGE-BAR BREAK; fern #2238 PER_DEPTH_HALF_MUON_LR body-Muon depth-axis LR asymmetry assigned 35/40/15/10 priors). Fleet 8/8 WIP. Cumulative: **470 refuted / 321 mech classes / 293 family closures / 14 structural axes / 68 RTM precedents / 53 pod-stability observations**.
 
 ### fern #2232 CLOSED — 470th refute / 13th AXIS F-INVARIANT
