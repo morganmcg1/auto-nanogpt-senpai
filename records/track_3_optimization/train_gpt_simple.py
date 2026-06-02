@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -61,6 +62,15 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--ema_beta_ramp_shape", type=str, default="lr_coupled",
+                        choices=["lr_coupled", "linear", "cosine"],
+                        help="Shape of paramEMA beta schedule from --ema_beta to "
+                             "--ema_beta_target. \"lr_coupled\" (default) preserves the baseline "
+                             "LR-coupled ramp computed by compute_ema_beta_t (β_t = β + "
+                             "(target - β)·(1 - lr_mult_t)). \"linear\" and \"cosine\" "
+                             "interpolate from β to target over the window "
+                             "[ema_warmup_steps, train_steps]; before the window β=ema_beta, "
+                             "after the window β=ema_beta_target.")
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
@@ -760,6 +770,7 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "ema_beta_ramp_shape": args.ema_beta_ramp_shape,
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
@@ -873,17 +884,35 @@ for trial_idx in range(args.num_trials):
         return w ** COOLDOWN_POWER
 
     def compute_ema_beta_t(step):
-        """Dynamic β_t = β_base + (β_target - β_base) × (1 - lr_mult_t).
-        Returns β_base when β_target unset; clamped to [β_base, β_target]."""
+        """β_t schedule.
+        - 'lr_coupled' (baseline): β_t = β_base + (β_target - β_base) × (1 - lr_mult_t).
+        - 'linear': β_t interpolates linearly from β_base to β_target over
+          [ema_warmup_steps, train_steps]; β_base before / β_target after.
+        - 'cosine': same window, half-cosine interpolation (β = β_base at start,
+          β_target at end, smoothly accelerating mid-window).
+        Returns β_base when β_target unset; clamped to [β_base, β_target] for 'lr_coupled'."""
         if args.ema_beta <= 0:
             return 1.0  # EMA disabled; sentinel
         if args.ema_beta_target is None:
             return args.ema_beta
-        lr_mult = compute_lr_mult(step)
-        beta_t = args.ema_beta + (args.ema_beta_target - args.ema_beta) * (1.0 - lr_mult)
-        lo = min(args.ema_beta, args.ema_beta_target)
-        hi = max(args.ema_beta, args.ema_beta_target)
-        return max(lo, min(hi, beta_t))
+        if args.ema_beta_ramp_shape == "lr_coupled":
+            lr_mult = compute_lr_mult(step)
+            beta_t = args.ema_beta + (args.ema_beta_target - args.ema_beta) * (1.0 - lr_mult)
+            lo = min(args.ema_beta, args.ema_beta_target)
+            hi = max(args.ema_beta, args.ema_beta_target)
+            return max(lo, min(hi, beta_t))
+        ramp_start = args.ema_warmup_steps
+        ramp_end = train_steps
+        if step < ramp_start:
+            return args.ema_beta
+        if step >= ramp_end:
+            return args.ema_beta_target
+        t = (step - ramp_start) / (ramp_end - ramp_start)
+        if args.ema_beta_ramp_shape == "linear":
+            return args.ema_beta + (args.ema_beta_target - args.ema_beta) * t
+        if args.ema_beta_ramp_shape == "cosine":
+            return args.ema_beta + (args.ema_beta_target - args.ema_beta) * (1 - math.cos(math.pi * t)) / 2
+        raise ValueError(f"Unknown ema_beta_ramp_shape: {args.ema_beta_ramp_shape}")
 
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
@@ -1089,6 +1118,12 @@ for trial_idx in range(args.num_trials):
             else:
                 ema_lr_mult_now = compute_lr_mult(step)
                 ema_beta_t_now = compute_ema_beta_t(step)
+                if step == args.ema_warmup_steps and dist.get_rank() == 0:
+                    print0(f"[step {step}] ema_beta_ramp_shape={args.ema_beta_ramp_shape}: "
+                           f"beta_at_start={ema_beta_t_now:.5f}", console=True)
+                    wandb.log({"optim/ema_beta_at_ramp_start": ema_beta_t_now,
+                               "optim/ema_beta_current": ema_beta_t_now},
+                              step=wandb_step)
                 lerp_w = 1.0 - ema_beta_t_now
                 for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
                     ema_p.lerp_(p.detach().float(), lerp_w)
@@ -1169,6 +1204,7 @@ for trial_idx in range(args.num_trials):
                     "ema/warmup_steps": args.ema_warmup_steps,
                     "ema/active_train": int(step >= args.ema_warmup_steps),
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
+                    "optim/ema_beta_current": ema_beta_t_now,
                 }, step=wandb_step)
             # paramEMA refresh + L_cov refresh diagnostics. ema_refresh/fired
             # latches to 1 at and after --paramema_refresh_step; lcov_refresh/fired
