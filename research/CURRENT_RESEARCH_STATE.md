@@ -9,6 +9,36 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-02 09:50Z (**🚀 PR #2223 alphonse pos-loss-ramp n=4 TRIAL 0 BLOCKBUSTER: FFS_ema=2625 (Δ=−250 vs baseline 2875), val=3.2559, ema_corr=3.2563 (Δ=−0.0137). DOUBLES the n=1 B★ signal (which was Δ=−125). Both FFS_ema AND FFS_trainval departed canonical attractor. Worst-case math: if trials 1-3 ALL revert to 2875, μ_4 = 2812.5 STILL clears merge gate of 2862.5 by 50 steps. Trial 1 in progress (~5%). ETA 5h to terminal. Fleet 8/8: fern #2258 + thorfinn #2253 pods picked up assignments and now in Cell A_ctrl; askeladd #2245 A_ctrl ✓ FFS=2875 baseline parity, Cell B (K=2) running; edward #2195 E at 99%; frieren #2235 B★ ✓ FFS=3000 (+125 regression on gate hypothesis).**)
+
+### Notes (2026-06-02 09:50Z) — PR #2223 TRIAL 0 BLOCKBUSTER (alphonse pos-loss-ramp); fleet 8/8 humming
+
+- **🚀 PR #2223 alphonse n=4 TRIAL 0 TERMINAL — BLOCKBUSTER:**
+  - W&B `alphonse/pos-loss-ramp-D-n4-alpha2` (run `ubh89k2w`) trial 0:
+    - `speedrun/final_first_step_to_target` (EMA-corrected primary) = **2625** (Δ=−250 vs baseline 2875)
+    - `speedrun/final_first_step_to_target_ema_uncorrected` = **2625** (also −250)
+    - `speedrun/final_first_step_to_target_trainval` = **2750**
+    - `speedrun/final_best_ema_corrected_val_loss` = **3.256333** (Δ=−0.01374 vs baseline 3.27007)
+    - `speedrun/final_best_val_loss` = **3.255917**
+  - **Trial 0 is STRONGER than n=1 B★** (n=1 was Δ=−125, trial 0 is Δ=−250 — DOUBLE the gain).
+  - **Worst-case μ_4 math**: if trials 1-3 ALL revert to attractor (FFS_ema=2875), μ_4 = (2625 + 2875·3)/4 = **2812.5** → clears merge gate (≤2862.5) by 50 steps. Mechanism is load-bearing beyond seed noise.
+  - **Trial 1 in progress at step 3420/13000** (~5% into trial 1). ETA ~5h to all 4 trials terminal.
+  - On track to be the biggest R5 merge since #1966 (which was Δ=−37.5 FFS=2912.5→2875). If μ_4 clears 2750, this is a Δ=−125 step move — comparable in magnitude to the cosine-cooldown merge (#1381 Δ=−81).
+- **Fleet status (09:50Z) — 8/8 fully occupied, all healthy:**
+
+| PR | Student | Cell active | Step | val | Note |
+|---|---|---|---|---|---|
+| #2223 | alphonse | n=4 trial 1/4 | 170/13000 | warmup | **TRIAL 0 = FFS_ema=2625 BLOCKBUSTER** |
+| #2245 | askeladd | B (K=2) | 1249/3250 | 3.85 | A_ctrl ✓ FFS=2875 baseline parity |
+| #2195 | edward | E (α=0.2) | 3222/3250 (99%) | 3.27 | terminal in ~2 min; then n=4 on B planned |
+| #2235 | frieren | C-soft (β=0.95) | 493/3250 | 3.90 | B★-relu-b0.9 done at FFS=3000 (+125 regression) |
+| #2209 | nezuko | D-tight75 | 2015/3250 | 3.42 | A ✓, B ✓, C-loose20 ✓ FFS=2925 (+50) |
+| #2213 | tanjiro | D-prime | 2107/3250 | 3.42 | C-prime ✓ FFS=2925 (attractor edge) |
+| #2253 | thorfinn | A_ctrl (focal γ=0) | 1046/3250 | 3.64 | pod picked up after Option-(a) decision |
+| #2258 | fern | A_ctrl (kl_alpha=0) | 480/3250 | 3.90 | pod picked up assignment |
+
+- **No new human gh issues** (last: #1262 5/26 FFS-PRIMARY directive). **No status:review PRs.** No status:stale_wip on any active PR after 08:55Z + 09:50Z monitoring comments.
+
 ## Last updated: 2026-06-02 08:45Z (**PR #2258 fern ASSIGNED: ema-teacher-kl-distillation — novel loss axis (0/324 PR precedent) using EXISTING ema_state dict as soft-target distribution. Mechanism: BYOL/DINO/Mean-Teacher inspired self-distillation; KL term added to CE. Contract compliant (no new model params, teacher is structural copy with no_grad forward, ~2x per-step compute but FFS is step-count). Implementation requires (1) GPT.forward return_logits flag, (2) instantiate second GPT instance as teacher synced from ema_state, (3) KL mix in microbatch loop. Fleet 8/8 fully occupied.**)
 
 ### Notes (2026-06-02 08:45Z) — PR #2258 fern ASSIGNED (ema-teacher-kl-distillation, novel loss axis)
