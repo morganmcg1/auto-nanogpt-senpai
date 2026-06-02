@@ -1,5 +1,40 @@
 # SENPAI Research Results
 
+## 2026-06-02 11:42 UTC — PR #2226 frieren: PMuon update Frobenius ceiling by weight norm (γ=0.5 LOOSE vs γ=0.3 TIGHT) — ❌ BILATERAL NULL; Frobenius ceiling axis CLOSED; frieren REASSIGNED → #TBA ns5-coef-attn-mlp-split
+
+- Branch: `g1r1-frieren/pmuon-update-clip-wnorm`
+- Hypothesis: Weight-norm-relative Frobenius upper bound on body-PMuon updates. Arm A LOOSE γ=0.5 clips only extreme outliers (above existing TARGET_UW=0.35 floor). Arm B TIGHT γ=0.3 forces constant-magnitude updates (below floor; floor+ceiling sandwich → exact 0.3·||W|| every step).
+- W&B runs: `c4jenl2b` (Arm A LOOSE), `g0oieeky` (Arm B TIGHT)
+
+| Metric | Baseline #1532 | Arm A (LOOSE γ=0.5) | Arm B (TIGHT γ=0.3) |
+|---|---|---|---|
+| `speedrun/first_step_to_target` | **2875** | **3125** (+250) | **NEVER REACHED** |
+| `ema/val_loss_ema` | **3.262854** | **3.276481** (+13.6 mnat) | **3.286966** (+24.1 mnat) |
+| `optim/pmuon_clip_fire_rate` | — | — | **1.0** (all 72 body params clipped every step) |
+| Merge gate | — | FAIL | FAIL (model regressed) |
+
+- Arm A LOOSE: clean NULL +13.6 mnat. The Frobenius ceiling at γ=0.5 fires often enough to perturb descent without providing benefit.
+- Arm B TIGHT: catastrophic regression — model never reached val=3.28 by step 3250. Confirms that removing natural NS5/whitening update-magnitude variability destroys descent rate. Fire rate=1.0 confirmed (every step every body param clipped).
+- **Conclusion:** Frobenius ceiling axis CLOSED. The existing u/w-floor already captures the magnitude-control benefit; adding a ceiling either does nothing useful (LOOSE) or destroys descent (TIGHT). Combined with prior γ closures (cooldown ramp #760, pre-target pulse #1680, block-strat #1935, attn-vs-mlp #736, depth-split etc.), the body PMuon magnitude clipping family is FULLY EXHAUSTED.
+- **Frieren reassigned → NS5 coefficient ATTN vs MLP role-split bilateral** — directive (b)+(d), pristine vs all prior NS5 role-split work (which tested iter count or coverage, never polynomial shape per role).
+
+## 2026-06-02 11:42 UTC — PR #2225 fern: aux Adam lm_head per-group β₁ split (FAST 0.5 vs SLOW 0.95) — ❌ BILATERAL NULL; per-group β₁ split axis CLOSED; fern REASSIGNED → #TBA body-muon-interblock-neighbor-mom
+
+- Branch: `g1r1-fern/lm-head-b1-permanent-split`
+- Hypothesis: Override aux Adam β₁ for lm_head group only (from global 0.8). Arm A FAST 0.5 (faster m-state, ~2-step window) vs Arm B SLOW 0.95 (slower m-state, ~20-step window). Tests whether lm_head's distinct gradient regime benefits from per-group β₁ asymmetry.
+- W&B runs: `21ei4mc2` (Arm A FAST), `o1tjorcy` (Arm B SLOW)
+
+| Metric | Baseline #1532 | Arm A (FAST 0.5) | Arm B (SLOW 0.95) |
+|---|---|---|---|
+| `speedrun/first_step_to_target` | **2875** | **2925** (+50) | **2950** (+75) |
+| `ema/val_loss_ema` | **3.262854** | **3.263988** (+1.13 mnat) | **3.268445** (+5.59 mnat) |
+| Merge gate | — | FAIL | FAIL |
+
+- Both deviations from global β₁=0.8 hurt; the SLOW side hurts ~5× more. Symmetric regression confirms global β₁=0.8 is near-optimal for lm_head — neither faster nor slower local-gradient trust helps.
+- Step 0 sentinel verified: `adam_lm_head: betas=(0.5, 0.95)` for Arm A. β₂ pulse @975 preserved per-group β₁ as designed.
+- **Conclusion:** Per-group β₁ split axis (lm_head granularity) CLOSED. Combined with all-group β₁ closures (#318, #796, #1482, #1592) and β₂ split closures, the aux Adam β₁/β₂ per-group asymmetry family is exhausted. Distinct in mechanism from in-flight per-group ε (askeladd #2260) and per-group α-EMA pre-filter (alphonse #2269).
+- **Fern reassigned → body-Muon inter-block NEIGHBOR MOMENTUM averaging bilateral (α=0.05 vs α=0.15)** — directive (b)+(d), pristine: `m_i ← (1-α)·m_i + (α/2)·m_{i-1} + (α/2)·m_{i+1}`. Distinct from thorfinn's in-flight β₁ block-strat (#2256 scalar per-block) — this is state-mixing per-block, never tested.
+
 ## 2026-06-02 11:05 UTC — PR #2219 alphonse: NS polynomial coeff phase-switch @2600 (Jordan vs near-identity) — ❌ BILATERAL NULL; NS coeff phase-switch axis CLOSED; alphonse REASSIGNED → #2269 aux-pre-grad-ema
 
 - Branch: `g1r1-alphonse/ns-coef-phase-switch`
