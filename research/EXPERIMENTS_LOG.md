@@ -1,5 +1,41 @@
 # SENPAI Research Results
 
+## 2026-06-02 03:05 UTC — PR #2163 frieren: paramEMA β-ramp SHAPE (LR-decoupled linear vs cosine) — ❌ BILATERAL NULL; LR-coupling of β schedule load-bearing; frieren REASSIGNED → #2226 pmuon-update-clip-wnorm
+
+- Branch: `g1r1-frieren/paramema-beta-ramp-shape`
+- Hypothesis: Replace baseline LR-coupled power-law β schedule with LR-decoupled linear or cosine ramp over [1750, 3250]. Student corrected advisor's wrong "step function" framing — actual baseline is LR-coupled smooth ramp via `compute_ema_beta_t`. Arms test linear and cosine shapes as decoupled alternatives.
+- W&B runs: `41h18yo8` (Arm A linear), `madoclfz` (Arm B cosine)
+
+| Metric | Baseline #1532 | Arm A (linear) | Arm B (cosine) |
+|---|---|---|---|
+| `speedrun/first_step_to_target` | **2875** | **2925** (+50) | **2925** (+50) |
+| `val/loss_ema` (final) | **3.262854** | **3.265555** (+2.70 mnat) | **3.263857** (+1.00 mnat) |
+| Merge gate | — | ❌ FAIL | ❌ FAIL |
+
+Cosine is +1.70 mnat closer to baseline than linear, confirming the LR-coupled S-curve shape is genuinely favorable — but neither LR-decoupled variant beats the gate.
+
+**Conclusion:** LR-coupled β schedule is LOAD-BEARING. The implicit coupling of β_t to `1 - lr_mult` (power-law shape, COOLDOWN_POWER=1.4) provides a structural advantage over linear/cosine LR-decoupled ramps. The β-ramp SHAPE axis is closed at LR-decoupled linear/cosine level. Combined with prior paramEMA closures (#2105 ema_warmup TIMING, #2102 refresh-step TIMING, #2159 refresh α-blend OPERATOR): ALL paramEMA shape/timing/operator axes exhausted in the immediate neighborhood. **frieren REASSIGNED → #2226: PMuon update Frobenius-norm CEILING relative to weight norm bilateral (γ=0.5 vs γ=0.3)** — complementary to existing u/w floor, directive (a)+(e).
+
+---
+
+## 2026-06-02 03:05 UTC — PR #2159 fern: paramEMA refresh OPERATOR α-blend (0.5 vs 1.5) — ❌ BILATERAL NULL; α=1.0 robust local optimum; fern REASSIGNED → #2225 lm-head-b1-permanent-split
+
+- Branch: `g1r1-fern/paramema-refresh-alpha-blend`
+- Hypothesis: The paramEMA refresh at step 2600 performs full-overwrite (`ema := live_params`, α=1.0). Test whether a half-blend (α=0.5, preserves EMA history) or over-inject (α=1.5, extrapolates EMA past live params) improves late-phase convergence.
+- W&B runs: `ps5hfym5` (Arm A α=0.5), `jkxsu2jx` (Arm B α=1.5)
+
+| Metric | Baseline #1532 | Arm A (α=0.5) | Arm B (α=1.5) |
+|---|---|---|---|
+| `speedrun/first_step_to_target` | **2875** | **2925** (+50) | **2925** (+50) |
+| `val/loss_ema` (final) | **3.262854** | **3.265179** (+2.32 mnat) | **3.264398** (+1.54 mnat) |
+| Merge gate | — | ❌ FAIL | ❌ FAIL |
+
+ASYMMETRIC NULL: Arm B (over-inject α=1.5) is +0.78 mnat closer to baseline. Overshooting live params (away from old EMA) is less damaging than preserving old EMA history — but neither beats the gate. Sentinel confirmed operator semantics correct (α=1.5 norm 5848.35, extrapolated past live 5840.89 by +7.46).
+
+**Conclusion:** paramEMA refresh operator α=1.0 is a robust local optimum within ±0.5. Combined with all other paramEMA closures: ALL paramEMA axes exhausted. **fern REASSIGNED → #2225: aux Adam per-group β₁ split for lm_head bilateral (FAST 0.5 vs SLOW 0.95)** — tier shift away from paramEMA into aux Adam structural configuration, directive (b)+(d).
+
+---
+
 ## 2026-06-02 01:35 UTC — PR #2151 nezuko: Body PMuon wd depth-stratified ASCENDING vs DESCENDING — ❌ BILATERAL NULL; wd depth-gradient axis CLOSED; nezuko REASSIGNED → #2210 lmhead-b2-repulse-2600
 
 - Branch: `g1r1-nezuko/body-muon-wd-depth-strat`
