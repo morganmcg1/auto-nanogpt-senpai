@@ -1,3 +1,59 @@
+- **Date:** 2026-06-02 05:45Z (cycle c790g-40 — **3 HB2 ACKs + 2 HB0 ACKs landed + #2177 stale_wip flag investigated FALSE-ALARM (alphonse actively training iter 3470 at 06:22Z) + 4 CATALOG-NEW promotions from same-cycle HB2 cluster including [[body-update-scale-axis-r-buffer-accumulation-timing-asymmetry-clip-vs-lr]] NEW + [[clip-spectral-concentration-r-condition-rise]] NEW + [[lm-head-lr-mult-couples-to-body-muon-r-buffer]] PROMOTION-QUALIFIED refuting embed-axis-decoupling generalization to lm_head + [[embed-axis-decoupled-from-body-muon-precond-ratio]] CATALOG-CONFIRMED at 3rd-axis (AUX-clip extension) + [[mid-train-fav-evaporation-cooldown-precond-ratio-rise]] 5th-direct-observation via AUX-axis + dense HB-FINAL wave 07:00Z-07:15Z bringing 3 Arm Cs + tanjiro #2176 closure + alphonse #2177 PP-confirm HBs. 8 PRs in flight 0 idle students.**)
+
+**#2199 nezuko HB2 Arm B BODY=5 (0.5× scale) Δ_BA=−0.00233 = −1.45σ_seed FAV** (04:53Z):
+- WITHIN drift gate ±0.0019 at edge; FAV-DIRECTION single-arm paired (4th in c790g cycle joining fern + tanjiro + edward)
+- Single-arm absolute G1 FAIL (val 3.26271 = +0.95σ above baseline) but Arm A is HOT-CTRL (+2.4σ_seed above broader baseline per [[ctrl-anchor-cohort-config-heterogeneity]]) → per [[pp-collapse-arm-a-ctrl-realization-conflation]] warrants PP-confirm send-back consideration at HB-FINAL
+- **3 CATALOG-NEW candidates promoted from single HB2**:
+  - [[body-update-scale-axis-r-buffer-accumulation-timing-asymmetry-clip-vs-lr]] NEW CANDIDATE — body-clip ≠ body-LR despite both being "100% active body-update-scale": clip applies BEFORE _make_newton_input_hook reads activations → R-buffer accumulates CLIPPED gg^T; LR applies AT param update → R-buffer accumulates UNCLIPPED gg^T. Body-CLIP-DOWN PRESERVES cooldown FAV; body-LR-DOWN EVAPORATES
+  - [[clip-spectral-concentration-r-condition-rise]] NEW CANDIDATE — counter-intuitive R_cond_mean UP +3.89% direction (R MORE ill-conditioned under tighter clip) while R_inv_sqrt DOWN −6.47% direction-correct. Clip-rescaling concentrates spectral mass in dominant modes
+  - [[grad-clip-modal-active-100pct-bracket-is-LR-scale-axis]] CATALOG-CONFIRMED-AT-2x-DOWN math-corrected: clip_scale_factor_body Arm B = 0.000137 = **5/36545 EXACT** ✓
+- Trajectory shape: body-CLIP-DOWN is FIRST direct observation of body-update-scale axis that PRESERVES cooldown-window FAV (mid-train peak −0.00244 step 3000 → terminal −0.00233 stable) — distinct from [[mid-train-fav-evaporation-cooldown-precond-ratio-rise]] 4-direct-observation set
+
+**#2204 thorfinn HB2 Arm B AUX=2.5 (0.5× aux-scale) Δ_BA=+0.00045 = +0.28σ_seed NULL** (04:48Z):
+- FFS=3150 EXACT MATCH ctrl + math-check EXACTLY CONFIRMED: clip_scale_factor_aux = 2.5/10872.7 = 2.30e-4 = HALF of Arm A's 4.51e-4
+- **[[embed-axis-decoupled-from-body-muon-precond-ratio]] CATALOG-CONFIRMED at 3rd-axis-direct-observation** — now spanning EMBED_COOLDOWN_SHAPE (#2149) + INIT (#2181) + AUX-clip (this PR) — generalization: AUX-side axes (aux-clip, embed-LR, embed-cooldown-shape, embed-init-anchor) decoupled from body-Muon R-buffer
+- **[[mid-train-fav-evaporation-cooldown-precond-ratio-rise]] 5th direct observation at AUX-axis** — step 125 Δ_BA = −0.00944 (−5.9σ_seed early-transient FAV) → step 3350 NULL terminal
+- **CRITICAL REFUTATION at lm_head-axis** (cross-PR same-cycle #2200): aux-side decoupling holds at embed/aux-axes BUT BREAKS at lm_head-axis specifically — softmax-CE chain rule couples lm_head LR-mult to body-Muon R-buffer
+
+**#2200 frieren HB2 Arm B LM_HEAD_LR_MULT=0.5 (2× TIGHTER) Δ_BA=+0.00189 = +1.17σ_seed BORDERLINE NEG** (04:43Z):
+- Edge of drift gate (NEG direction); single-arm absolute G1 FAIL (val 3.26324 = +0.00206 above baseline); Arm A is CLEANEST contemporary modern-stack CTRL (per c790g-36 ACK) → +1.17σ_seed gap is genuine LR-mult mechanism not CTRL drift conflation
+- **3 mechanism tests at HB2**:
+  - ✓ Step-direction RMS-invariance: ratio 0.987 confirmed (no breakdown)
+  - ✓ Cumulative ΔW path scales LINEAR with LR: weight_param/proj/weight/norm Arm B/A = 849.84 / 450.01 = **0.530 ≈ 0.5 EXACT linear-in-LR**
+  - ✗ body-Muon R-buffer decoupling REFUTED — precond_ratio_mean Δ_BA = **−12.2%** (predicted ≈ 0 by [[embed-axis-decoupled-from-body-muon-precond-ratio]] generalization)
+- **[[lm-head-lr-mult-couples-to-body-muon-r-buffer]] NEW CATALOG PROMOTION-QUALIFIED** — mechanism: lm_head weight magnitudes diverge (|proj.weight| Arm B = 0.530 × Arm A) → forward logits different → softmax-CE gradient w.r.t. body activations different → body-Muon receives differently-scaled gradients → R-buffer accumulates different (gg^T) statistics. Legitimate gradient-coupling pathway not FP noise
+- Trajectory shape: step 125 Δ_BA=+0.06815 large early divergence → monotone shrink-and-stabilize at +0.002 stable floor through cooldown. DIFFERENT from [[mid-train-fav-evaporation]] catalog (early-FAV→terminal-NEG); this is early-NEG→terminal-NEG monotone shrink-and-stabilize
+
+**Cross-PR mechanism distinction at HB-FINAL window (~07:00-07:15Z)** — 3 same-cycle Arm-C closures bring triangulation:
+
+| Axis | Arm B Δ_BA | Trajectory | R-buffer Δ |
+|---|---|---|---|
+| nezuko #2199 BODY-clip | −0.00233 FAV preserved | mid-train peak + cooldown-stable | precond_ratio −6.27% |
+| thorfinn #2204 AUX-clip | +0.00045 NULL | step-125 transient + cooldown-NULL | precond_ratio +0.0012 within scatter |
+| frieren #2200 LM_HEAD-LR-mult | +0.00189 NEG borderline | step-125 large + monotone shrink-and-stable | precond_ratio −12.2% LARGE |
+
+Three distinct mechanism classes despite all 3 being "2× DOWN aux-scale axes" — dynamic-vs-constant scaling timing differentiates cooldown-window outcomes.
+
+**#2234 fern HB0 PASS-CLEAN** (05:11Z) — AdamW β1 bracket chain launched 05:02:59Z + 4 code-change steps verbatim (env var parse L574, banner L1026-1027, wandb config L1148, AdamW constructor L1213) + banner `ADAMW_BETA1: 0.8 (effective m-EMA memory ~5 steps)` ✓ + bit-id step:0 val_loss=10.82583 EXACT + production stack 19 env vars VERBATIM + flock-guarded chain runner pid 3232885. Cross-axis sanity check at HB1: predicted ZERO body-Muon Δ at step-125 (R-buffer-decoupled β1 axis affects AdamW only). Arm A HB1 ETA ~07:00Z.
+
+**#2236 askeladd HB0 PASS-CLEAN-DEEP** (05:23Z) — WARMSTART_K bracket chain launched 05:22:23Z + 20 prod env vars + bit-id step:0=10.82583 EXACT + extreme-value gate semantics verified at K=50/100/200 boundary steps + **IMPORTANT v-buffer-source correction acknowledged**: warmstart reads Muon optimizer's OWN second-moment EMA at β2=0.999 (not AdamW v at β2=0.99 as advisor PR body incorrectly stated) → corrected bias-correction factors at K=50/100/200 are 0.049/0.095/0.181 (much less mature than predicted). K-axis still mechanism-active via (a) shape stabilization (b) NM-active step count remaining after step K. 7-line-precise code path inspection (L611→L758→L804→L847→L939→L1040→L1163→L1232) verified. Arm A K=100 ctrl ETA HB1 ~07:40Z. Longer total chain ETA 12h (vs initial ~7h estimate) per student wall-time math.
+
+**#2177 alphonse stale_wip FALSE ALARM** (06:22Z) — FleetView flag triggered but kubectl logs show alphonse pod actively training: GPU 100% util, 43GiB VRAM, iter 3470 progressing. Student has launched chain but skipped HB0 GitHub post — operational gap not pod failure. HB1 ETA ~06:53Z, HB-FINAL ETA ~07:30Z. NO advisor action required.
+
+**Current PRs in flight (r4)** (8 active, 0 idle):
+- **#2176 tanjiro γ=0.025** PP-confirm SEED=2 (HB-FINAL ~07:00Z, P<15%)
+- **#2177 alphonse NS_STOC=1** PP-confirm SEED={1,2} chain (HB ~07:30Z+)
+- **#2179 edward β=0.90** PP-confirm SEED={1,2} chain (HB1 ~06:53Z, HB-FINAL ~14:14Z)
+- **#2199 nezuko** GRAD_CLIP_BODY bracket Arm C (~07:00Z)
+- **#2200 frieren** ADAMW_LM_HEAD_LR_MULT bracket Arm C (~07:10Z)
+- **#2204 thorfinn** GRAD_CLIP_AUX bracket Arm C (~07:00Z)
+- **#2234 fern** AdamW β1 bracket Arm A HB1 (~07:00Z)
+- **#2236 askeladd** WARMSTART_K bracket Arm A K=100 HB1 (~07:40Z)
+
+**Dense HB-FINAL wave 07:00Z-07:15Z** (5 expected landings within 15-min window): tanjiro PP-confirm closure + 3 Arm Cs (nezuko/frieren/thorfinn) + alphonse PP-confirm HB1.
+
+---
+
 - **Date:** 2026-06-02 05:18Z (cycle c790g-39 — **#2181 askeladd EMBED_INIT_ANCHOR_LAMBDA bracket CLOSED NULL-AXIS-FENCED at 10× DOWN/UP + 5 CATALOG-NEW promoted including [[mid-train-fav-evaporation-cooldown-precond-ratio-rise]] CATALOG-CONFIRMED at 4-direct-observation threshold + askeladd reassigned NEWTON_MUON_R_ADAMW_WARMSTART_K bracket {50, 100 ctrl, 200} (LAST UNBRACKETED NM-mechanism axis). 8 PRs in flight 0 idle students. Dense PP-confirm HB wave converging ~07:00Z-07:30Z.**)
 
 **#2181 askeladd EMBED_INIT_ANCHOR_LAMBDA HB-FINAL VERDICT CLOSED NULL-AXIS-FENCED** (c790g-39 05:06Z → 05:15Z):
