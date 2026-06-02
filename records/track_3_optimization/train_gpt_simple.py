@@ -114,6 +114,18 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H377: Lookahead AUX wrapper (Zhang, Lucas, Ba, Hinton NeurIPS 2019, arXiv:1907.08610).
+    # K-step inner AdamW + α-interpolation outer-iterate averaging. Default off so the
+    # safe-default flag introduction is bit-identical to the H266 baseline.
+    parser.add_argument("--aux_lookahead", type=int, default=int(os.environ.get("AUX_LOOKAHEAD", "0")),
+                        choices=[0, 1],
+                        help="Enable Lookahead wrapper on AUX (AdamW) optimizer. 0 = disabled (H266 bit-id). "
+                             "1 = inner AdamW for K steps, then slow_weights += α·(fast - slow), reset fast ← slow.")
+    parser.add_argument("--aux_lookahead_k", type=int, default=int(os.environ.get("AUX_LOOKAHEAD_K", "10")),
+                        help="Lookahead K (inner steps between outer sync). Paper-default 5; H377 uses 10 to "
+                             "avoid sync-clash with μLoCo BODY K=30.")
+    parser.add_argument("--aux_lookahead_alpha", type=float, default=float(os.environ.get("AUX_LOOKAHEAD_ALPHA", "0.5")),
+                        help="Lookahead α (interpolation weight). Paper-default 0.5 = equal-weight averaging.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -752,6 +764,72 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class LookaheadWrapper:
+    """H377: Lookahead optimizer wrapper (Zhang, Lucas, Ba, Hinton NeurIPS 2019, arXiv:1907.08610).
+
+    Wraps an inner optimizer (AdamW here). Maintains slow weights θ_s per param.
+
+    Algorithm:
+      - For K inner steps: inner_optimizer.step()  (fast weights θ_f update normally)
+      - Every K-th step (after inner.step):
+          drift = θ_f - θ_s
+          θ_s += α · drift
+          θ_f ← θ_s  (RESET fast weights to slow)
+
+    Effect: inner optimizer explores forward K steps, then slow weights interpolate
+    toward the explored region and fast weights reset to the interpolated point.
+    The slow weights act as a "trust region" anchor that fast weights pull toward.
+
+    Telemetry exposed (read by training loop on telemetry events):
+      - outer_step_count: number of times the outer sync has fired
+      - last_drift_rms:   RMS of (fast - slow) at the last outer sync (BEFORE interpolation)
+    """
+
+    def __init__(self, inner_optimizer, k: int = 10, alpha: float = 0.5):
+        self.inner = inner_optimizer
+        self.k = k
+        self.alpha = alpha
+        self.step_count = 0
+        self.outer_step_count = 0
+        self.last_drift_rms = 0.0
+        self.slow_weights = []
+        for group in self.inner.param_groups:
+            slow_group = [p.data.clone() for p in group["params"]]
+            self.slow_weights.append(slow_group)
+
+    def step(self, *args, **kwargs):
+        result = self.inner.step(*args, **kwargs)
+        self.step_count += 1
+        if self.step_count % self.k == 0:
+            with torch.no_grad():
+                first_param = self.slow_weights[0][0]
+                drift_sq_sum = torch.zeros((), device=first_param.device, dtype=torch.float32)
+                total_count = 0
+                for group, slow_group in zip(self.inner.param_groups, self.slow_weights):
+                    for p, slow in zip(group["params"], slow_group):
+                        delta = p.data - slow
+                        drift_sq_sum += delta.float().square().sum()
+                        total_count += delta.numel()
+                        slow.add_(delta, alpha=self.alpha)
+                        p.data.copy_(slow)
+                self.last_drift_rms = float(
+                    (drift_sq_sum.item() / max(1, total_count)) ** 0.5
+                )
+                self.outer_step_count += 1
+        return result
+
+    def zero_grad(self, *args, **kwargs):
+        return self.inner.zero_grad(*args, **kwargs)
+
+    @property
+    def param_groups(self):
+        return self.inner.param_groups
+
+    @property
+    def state(self):
+        return self.inner.state
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -856,6 +934,9 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            "aux_lookahead": args.aux_lookahead,
+            "aux_lookahead_k": args.aux_lookahead_k,
+            "aux_lookahead_alpha": args.aux_lookahead_alpha,
         },
     )
 
@@ -941,6 +1022,19 @@ for trial_idx in range(args.num_trials):
                        hyperball=True, budget_mult=args.muonh_budget_mult,
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # H377: Wrap AUX (AdamW) optimizer in Lookahead if enabled. The wrapper's
+    # param_groups / state / zero_grad proxy to the inner AdamW so the LR
+    # schedule, β2 schedule, and AGC paths are unchanged. When aux_lookahead=0
+    # (safe-default) optimizer1 stays the bare AdamW — bit-identical to H266.
+    if args.aux_lookahead == 1:
+        optimizer1 = LookaheadWrapper(
+            optimizer1, k=args.aux_lookahead_k, alpha=args.aux_lookahead_alpha,
+        )
+        print0(
+            f"H377 Lookahead AUX wrapper ENABLED "
+            f"(K={args.aux_lookahead_k}, alpha={args.aux_lookahead_alpha})",
+            console=True,
+        )
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1258,6 +1352,12 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            # H377: Lookahead AUX outer-sync telemetry. Only logged when wrapper is active.
+            if args.aux_lookahead == 1 and isinstance(optimizer1, LookaheadWrapper):
+                muonh_metrics["train/lookahead/outer_step_count"] = optimizer1.outer_step_count
+                muonh_metrics["train/lookahead/last_drift_rms"] = optimizer1.last_drift_rms
+                muonh_metrics["train/lookahead/k"] = optimizer1.k
+                muonh_metrics["train/lookahead/alpha"] = optimizer1.alpha
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
