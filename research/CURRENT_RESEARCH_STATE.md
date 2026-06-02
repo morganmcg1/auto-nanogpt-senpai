@@ -1,3 +1,29 @@
+- **Date:** 2026-06-02 04:22Z (cycle c790g-37 — **2 HB-FINAL DECISIONS SENT-BACK FOR PP-CONFIRM n=3 SEED={1,2}: #2179 edward β=0.90 verdict β-DOWN-DOMINANT-FAV-ASYMMETRIC + #2177 alphonse NS_STOC=1 non-monotone-local-max single-seed-FAV-baseline-coincident — 4 PP-confirms now in flight on [[r-buffer-compensation-reduction-shared-mechanism-channel]] axes — P(MERGE-CANDIDATE) ordering: alphonse #2177 (60-65%) > fern #2146 (50%) > edward #2179 (30%) > tanjiro #2176 (<15%)**)
+
+**#2179 edward HB-FINAL VERDICT** (04:13Z): **β-DOWN-DOMINANT-FAV ASYMMETRIC** verdict CONFIRMED. Arm B β=0.90 Δ_BA=−0.00159 = **−0.99σ_seed direction-FAV-paired** (persistent from step 500 onward). Arm C β=0.98 Δ_CA=+0.00024 = +0.15σ_seed NULL (PLATEAU-NULL on β-UP side). β-axis is **asymmetric monotone-DOWN-favoring** — only the β-DOWN faster-EMA arm delivers terminal FAV. R-buffer precond_ratio_mean compression −2.55% confirms [[r-buffer-compensation-reduction-shared-mechanism-channel]] 3-axis convergence (β-DOWN faster EMA wash + γ-UP pre-decomp regularization + NS_COEF=constant). [[cross-K-warmstart-fire-step-fingerprint]] CONFIRMED at HB-FINAL — step-125 R_inv_sqrt ordering C(115.7) > A(99.8) > B(92.4) precisely matches √(τ/τ_ctrl) prediction. Single-seed Arm B val=3.26180 above baseline +0.00062 → required SEED={1,2} mean ≤ 3.26087 for n=3 cohort merge. **SENT BACK for PP-confirm n=3 SEED={1,2} chain** ETA closure ~07:30Z+. P(MERGE-CANDIDATE)≈30%.
+
+**#2177 alphonse HB-FINAL VERDICT** (04:17Z): **NON-MONOTONE LOCAL-MAX at NS_STOC spread=1** identified. 3-arm bracket: A spread=2 ctrl (3.26102) MID, B spread=0 det (3.26120) WORST, C spread=1 light (**3.26020**) BEST. Δ_CA=−0.00082 = −0.51σ_seed direction-FAV-paired. **Single-seed Arm C val=3.26020 ≤ baseline 3.26118** ✓ G1 satisfied at n=1. G2 (3.28−3.26020)×√1 = 0.0198 ≥ 0.004 ✓. **BUT** Arm C lands TIGHT-COINCIDENT with [[ctrl-anchor-cohort-config-heterogeneity]] 2-anchor μ=3.26021 (−0.01σ_anchor) → plausibly CTRL-cohort-FP-noise rather than NS_STOC=1 axis-effect. Per cycle protocol (matching fern + tanjiro + edward PP-confirms), single-seed sub-σ FAV requires n=3 PP-confirm before MERGE. R-buffer signature non-monotone: Arm C has TIGHTEST R_cond_max AND R_cond_min while landing intermediate on R_cond_mean. CATALOG-NEW-CANDIDATE [[ns-stochastic-cooldown-axis-non-monotone-local-max-at-spread-1]] (provisional, single-seed). **SENT BACK for PP-confirm n=3 SEED={1,2} chain** ETA closure ~07:30Z+. **HIGHEST P(MERGE-CANDIDATE)≈60-65%** in c790g cycle (only needs SEED={1,2} mean ≤ 3.26167 = +0.49σ_seed LOOSE gate).
+
+**4 PP-confirm portfolio now in flight on [[r-buffer-compensation-reduction-shared-mechanism-channel]] axes**:
+- alphonse #2177 NS_STOC=1 — **HIGHEST P(MERGE)≈60-65%** required SEED={1,2} mean ≤ 3.26167 LOOSE
+- fern #2146 NS_COEF=constant — partial n=2 μ=3.26086 −0.20σ FAV, SEED=2 in flight ETA ~04:33Z, P(MERGE)≈50%
+- edward #2179 β=0.90 — fresh PP-confirm, required SEED={1,2} mean ≤ 3.26087, P(MERGE)≈30%
+- tanjiro #2176 γ=0.025 — SEED=2 in flight ETA ~04:23Z, required SEED=2 ≤ 3.26035 TIGHT, P(MERGE)<15%
+
+**If MULTIPLE PP-confirms succeed at MERGE**, this would be a CATALOG-MAJOR finding — the [[r-buffer-compensation-reduction-shared-mechanism-channel]] mechanism produces multiple INDEPENDENT axes that pass merge gate at production stack via shared R-buffer compensation reduction pathway. Would unlock joint-axis screening for compounded improvements.
+
+**Current PRs in flight (r4)** (all 8 active, 0 idle):
+- #2146 fern PP-confirm SEED=2 (HB2 + 3-seed merge synthesis ETA ~04:38Z)
+- #2176 tanjiro γ=0.025 PP-confirm SEED=2 (HB1 ~04:23Z, HB-FINAL ~07:00Z)
+- #2177 alphonse NS_STOC=1 PP-confirm SEED={1,2} (launching post-send-back ETA ~07:30Z+)
+- #2179 edward β=0.90 PP-confirm SEED={1,2} (launching post-send-back ETA ~07:30Z+)
+- #2181 askeladd EMBED_INIT_ANCHOR_LAMBDA (Arm C λ=0.01 HB-FINAL ~04:50Z)
+- #2199 nezuko GRAD_CLIP_BODY (Arm B HB2 ~04:25Z, Arm C ~07:00Z)
+- #2200 frieren ADAMW_LM_HEAD_LR_MULT (Arm B HB2 ~04:43Z, Arm C ~07:15Z)
+- #2204 thorfinn GRAD_CLIP_AUX (Arm B HB2 ~04:21Z, Arm C ~06:10Z)
+
+**Dense HB wave continuing 04:23Z-07:30Z**: 8+ HB landings expected in 3h window including 4 PP-confirm closures.
+
 - **Date:** 2026-06-02 03:55Z (cycle c790g-36 — **5 HB ACKs LANDED (1 PP-HB1 + 1 HB2 + 3 HB1) + HEADLINE-CANDIDATE STRENGTHENING fern #2146 PP n=2 pooled μ=3.26086 = −0.20σ_seed FAV-direction + HOT-CTRL ANOMALY nezuko #2199 Arm A +2.4σ_seed OUTSIDE drift gate + [[mid-train-fav-evaporation-cooldown-precond-ratio-rise]] EXTENDED to INIT-axis 4th-direct-observation = CATALOG-CONFIRMED-PROMOTION-QUALIFIED + EXTREME-VALUE math-check EXACTLY CONFIRMED at terminal on BOTH BODY (#2199) and AUX (#2204) axes DUAL-AXIS dual-confirmation of [[grad-clip-modal-active-100pct-bracket-is-LR-scale-axis]] CATALOG-CONFIRMED-PROMOTION-QUALIFIED + simultaneous-cycle CTRL HETEROGENEITY (nezuko +2.4σ vs frieren +0.11σ vs thorfinn +1.07σ in same wave) supports [[ctrl-anchor-cohort-config-heterogeneity]] tail-event extension**)
 
 **#2146 fern PP-confirm HB1** (02:13Z): **Arm B `constant` SEED=1 terminal val=3.26120 + FFS=3125 EXACT MATCH SEED=0** = strongest non-val structural signal at PP-confirm. **Partial n=2 cohort μ=3.26086** = **−0.20σ_seed sub-σ FAV** direction-consistent with SEED=0 single-seed FAV. **Required SEED=2 val ≤ 3.26183 for n=3 merge** = GENEROUS threshold (vs tanjiro #2176 SEED=2 tight required −0.78σ). R-buffer fingerprint reproduces within seed-noise (precond_ratio Δ=−0.0034). SEED=2 currently step 125 ETA terminal ~04:33Z. **STRENGTHENING HEADLINE-CANDIDATE** — highest-probability MERGE-at-n=3 outcome in c790g cycle (P(MERGE-CANDIDATE)≈50%, ahead of tanjiro #2176 and edward #2179). HB2 + 3-seed merge synthesis at chain close ~04:38Z.
