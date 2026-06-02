@@ -454,6 +454,19 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 # entirely and exactly reproduces the prior cooldown-only schedule.
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
+# PR #2255 PER_DEPTH_HALF_MU_WARMUP_START dispatch — depth-half asymmetric body-Muon
+# momentum warmup-start. ENABLED splits body-Muon param groups by depth at
+# MU_WARMUP_DEPTH_SPLIT (front = depth < split, back = depth >= split) and applies
+# per-half warmup-start values only during the first MU_WARMUP_STEPS optimizer steps.
+# Post-warmup, both halves follow the uniform MU_COOLDOWN_START -> MU_COOLDOWN_END
+# schedule (asymmetry is warmup-window only).
+PER_DEPTH_HALF_MU_WARMUP_START_ENABLED = int(os.environ.get("PER_DEPTH_HALF_MU_WARMUP_START_ENABLED", "0")) == 1
+MU_WARMUP_START_FRONT = float(os.environ.get("MU_WARMUP_START_FRONT", "0.85"))
+MU_WARMUP_START_BACK = float(os.environ.get("MU_WARMUP_START_BACK", "0.85"))
+MU_WARMUP_DEPTH_SPLIT = int(os.environ.get("MU_WARMUP_DEPTH_SPLIT", "6"))
+# Optional explicit RNG seed for n=2 verification protocol (PR #1806 lineage).
+SEED_ENV = os.environ.get("SEED")
+SEED = int(SEED_ENV) if SEED_ENV is not None else None
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
@@ -855,6 +868,11 @@ if dist.get_rank() == 0:
             "optimizer/mu_cooldown_end": MU_COOLDOWN_END,
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
+            "optimizer/per_depth_half_mu_warmup_start_enabled": PER_DEPTH_HALF_MU_WARMUP_START_ENABLED,
+            "optimizer/mu_warmup_start_front": MU_WARMUP_START_FRONT,
+            "optimizer/mu_warmup_start_back": MU_WARMUP_START_BACK,
+            "optimizer/mu_warmup_depth_split": MU_WARMUP_DEPTH_SPLIT,
+            "seed": SEED if SEED is not None else -1,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
@@ -869,6 +887,11 @@ if dist.get_rank() == 0:
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
+
+# PR #2255: explicit RNG seeding for n=2 bilateral verification (Arm A SEED=1, Arm B SEED=2).
+if SEED is not None:
+    torch.manual_seed(SEED)
+    torch.cuda.manual_seed_all(SEED)
 
 for trial_idx in range(args.num_trials):
 
@@ -902,9 +925,46 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    body_muon_named = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
+    optimizer2 = Muon(body_muon_named, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+    if PER_DEPTH_HALF_MU_WARMUP_START_ENABLED:
+        # PR #2255: split body-Muon into front/back depth halves. Asymmetry applies
+        # only during the MU_WARMUP_STEPS warmup window; post-warmup both groups
+        # follow the uniform MU_COOLDOWN_START -> MU_COOLDOWN_END schedule.
+        def _depth(name: str) -> int:
+            # model.blocks.named_parameters() emits names like "0.attn.q.weight".
+            return int(name.split(".", 1)[0])
+        front_named = [(n, p) for n, p in body_muon_named if _depth(n) < MU_WARMUP_DEPTH_SPLIT]
+        back_named = [(n, p) for n, p in body_muon_named if _depth(n) >= MU_WARMUP_DEPTH_SPLIT]
+        front_params = sorted([p for _, p in front_named], key=lambda x: x.size(), reverse=True)
+        back_params = sorted([p for _, p in back_named], key=lambda x: x.size(), reverse=True)
+        assert len(front_params) > 0 and len(back_params) > 0, (
+            f"empty depth-half group (split={MU_WARMUP_DEPTH_SPLIT}, "
+            f"front_n={len(front_params)}, back_n={len(back_params)})"
+        )
+        optimizer2.param_groups = []
+        optimizer2.add_param_group(dict(params=front_params, lr=MUON_LR,
+                                        weight_decay=MUON_WEIGHT_DECAY, mu=MU,
+                                        name="muon_front"))
+        optimizer2.add_param_group(dict(params=back_params, lr=MUON_LR,
+                                        weight_decay=MUON_WEIGHT_DECAY, mu=MU,
+                                        name="muon_back"))
+        if (not dist.is_initialized()) or dist.get_rank() == 0:
+            print(
+                f"[PR-TANJIRO-DEPTH-WARMUP] PER_DEPTH_HALF_MU_WARMUP_START enabled=1 "
+                f"front_start={MU_WARMUP_START_FRONT} back_start={MU_WARMUP_START_BACK} "
+                f"split={MU_WARMUP_DEPTH_SPLIT} front_count={len(front_params)} "
+                f"back_count={len(back_params)}",
+                flush=True,
+            )
+    else:
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
+        if (not dist.is_initialized()) or dist.get_rank() == 0:
+            print(
+                f"[PR-TANJIRO-DEPTH-WARMUP] PER_DEPTH_HALF_MU_WARMUP_START enabled=0 "
+                f"uniform_start={MU_WARMUP_START}",
+                flush=True,
+            )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -931,11 +991,27 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        # PR #2255: depth-half warmup-start asymmetry applies ONLY during the
+        # warmup window (steps 0..MU_WARMUP_STEPS) when MU_COOLDOWN_ENABLED and
+        # PER_DEPTH_HALF_MU_WARMUP_START_ENABLED. Post-warmup, both halves use
+        # the uniform cur_mu schedule above.
+        depth_half_active = (
+            PER_DEPTH_HALF_MU_WARMUP_START_ENABLED
+            and MU_COOLDOWN_ENABLED
+            and step < MU_WARMUP_STEPS
+        )
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-                if group.get("name") == "muon_blocks":
-                    group["mu"] = cur_mu
+                name = group.get("name", "")
+                if name in ("muon_blocks", "muon_front", "muon_back"):
+                    if depth_half_active and name in ("muon_front", "muon_back"):
+                        warmup_start = (MU_WARMUP_START_FRONT if name == "muon_front"
+                                        else MU_WARMUP_START_BACK)
+                        w = step / MU_WARMUP_STEPS
+                        group["mu"] = warmup_start + (MU_COOLDOWN_START - warmup_start) * w
+                    else:
+                        group["mu"] = cur_mu
 
 
     ########################################
