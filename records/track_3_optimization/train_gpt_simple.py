@@ -114,6 +114,33 @@ def parse_args():
                         help="Polyak-Ruppert EMA decay for eval-only weight averaging. "
                              "0.0 = disabled (drift-FREE CTRL). Typical: 0.05 (fast, ~20-step half-life) / "
                              "0.005 (slow, ~200-step half-life). Higher decay = faster EMA tracking.")
+    # H376: AUX optimizer choice. 'adamw' (default) = current bit-identical baseline.
+    # 'sophia_h' = Sophia-H 2nd-order via Hutchinson HVP estimator (Liu et al. 2024 ICLR,
+    # arXiv:2305.14342). Hooks below dispatch the optimizer construction + Hessian update.
+    parser.add_argument("--aux_optimizer", type=str,
+                        default=os.environ.get("AUX_OPTIMIZER", "adamw"),
+                        choices=["adamw", "sophia_h"],
+                        help="AUX optimizer choice. 'adamw' = baseline H266 bit-identical. "
+                             "'sophia_h' = Sophia-H 2nd-order via Hutchinson HVP estimator (Liu et al. 2024).")
+    parser.add_argument("--sophia_rho", type=float,
+                        default=float(os.environ.get("SOPHIA_RHO", "0.01")),
+                        help="Sophia clip ratio rho. Update = clip(m / max(rho*h, eps), -1, 1). Paper-default 0.01.")
+    parser.add_argument("--sophia_hess_update_freq", type=int,
+                        default=int(os.environ.get("SOPHIA_HESS_UPDATE_FREQ", "10")),
+                        help="Sophia Hessian update frequency k. h_t updated every k steps via Hutchinson HVP. Paper-default 10.")
+    parser.add_argument("--sophia_beta1", type=float,
+                        default=float(os.environ.get("SOPHIA_BETA1", "0.96")),
+                        help="Sophia beta1 momentum decay. Paper-default 0.96.")
+    parser.add_argument("--sophia_beta2", type=float,
+                        default=float(os.environ.get("SOPHIA_BETA2", "0.99")),
+                        help="Sophia beta2 Hessian EMA decay. Paper-default 0.99.")
+    parser.add_argument("--sophia_hvp_mbs", type=int,
+                        default=int(os.environ.get("SOPHIA_HVP_MBS", "4")),
+                        help="Microbatch size (sequences) for the Sophia HVP forward+2nd-backward. "
+                             "Default 4 = 1/16 of the regular mbs=64 to keep the create_graph=True "
+                             "graph (MATH attention scores + retained 1st-backward graph) within "
+                             "the 96 GB H100. Hutchinson is unbiased at any batch size; the EMA "
+                             "over k=10 steps absorbs the extra sample variance.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -752,6 +779,150 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class SophiaH(torch.optim.Optimizer):
+    """Sophia-H: Stochastic Second-order Optimizer with Hutchinson Hessian estimator.
+
+    Liu et al. 2024 ICLR (arXiv:2305.14342). Drop-in replacement for AdamW with
+    diagonal Hessian preconditioning instead of g^2 1st-order adaptive scaling.
+
+    Mechanism per step:
+      m_t   = beta1 * m + (1 - beta1) * g                        (first moment, like AdamW)
+      h_t   = beta2 * h + (1 - beta2) * HVP(L, v, p)  every k steps  (diagonal Hessian via Hutchinson)
+      ratio = clip(m_t / max(rho * h_t, eps), -1, 1)             (clipped per-param update magnitude)
+      p     <- (1 - lr * wd) * p   then   p -= lr * ratio        (decoupled WD like AdamW)
+
+    The HVP (Hessian-Vector-Product) is computed externally via a 2nd backward pass
+    on a Hutchinson sample v ~ N(0, 1); see update_sophia_hessian() in the training
+    loop. Hessian update fires every k steps (k=10 default) to amortize HVP cost.
+
+    Tracks per-step clip-frequency telemetry on each .step() call so the training
+    loop can log the fraction of updates that hit the +/-1 clip bound.
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.96, 0.99), rho=0.01, eps=1e-12,
+                 weight_decay=0.0, hess_update_freq=10):
+        defaults = dict(lr=lr, betas=betas, rho=rho, eps=eps,
+                        weight_decay=weight_decay, hess_update_freq=hess_update_freq)
+        super().__init__(params, defaults)
+        self._last_clip_frac = 0.0
+        self._last_h_rms = 0.0
+
+    @torch.no_grad()
+    def step(self):
+        total_elems = 0
+        clipped_elems = 0
+        h_sq_sum = 0.0
+        h_n = 0
+        for group in self.param_groups:
+            beta1, _ = group["betas"]
+            lr = group["lr"]
+            rho = group["rho"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p)
+                    state["h"] = torch.zeros_like(p)
+                state["step"] += 1
+                m, h = state["m"], state["h"]
+                # 1st moment EMA
+                m.mul_(beta1).add_(p.grad, alpha=1 - beta1)
+                # Decoupled weight decay (AdamW-style)
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                # Clipped per-param update: ratio = clip(m / max(rho*h, eps), -1, 1)
+                denom = torch.clamp(rho * h, min=eps)
+                ratio = m / denom
+                # Track clip statistics before clamp
+                with torch.no_grad():
+                    abs_ratio = ratio.abs()
+                    total_elems += ratio.numel()
+                    clipped_elems += int((abs_ratio >= 1.0).sum().item())
+                    h_sq_sum += float(h.square().sum().item())
+                    h_n += h.numel()
+                ratio.clamp_(-1.0, 1.0)
+                p.add_(ratio, alpha=-lr)
+        self._last_clip_frac = (clipped_elems / total_elems) if total_elems > 0 else 0.0
+        self._last_h_rms = (h_sq_sum / h_n) ** 0.5 if h_n > 0 else 0.0
+
+    @torch.no_grad()
+    def update_hessian(self, params_hvps):
+        """Update Hessian EMA buffer h_t given (param, hvp) pairs.
+
+        params_hvps: iterable of (param, hvp_tensor) pairs. hvp_tensor is the
+        Hutchinson elementwise diagonal Hessian estimate HVP(L,v,p) * v, already
+        clamped non-negative.
+        """
+        for group in self.param_groups:
+            _, beta2 = group["betas"]
+            for p in group["params"]:
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p)
+                    state["h"] = torch.zeros_like(p)
+                for pp, hvp in params_hvps:
+                    if pp is p and hvp is not None:
+                        state["h"].mul_(beta2).add_(hvp, alpha=1 - beta2)
+                        break
+
+
+@torch.enable_grad()
+def update_sophia_hessian(model, aux_params, sophia_optimizer, inputs_mb, targets_mb):
+    """One extra forward+2nd-backward to compute Hutchinson HVP on AUX params, then
+    push it through sophia_optimizer.update_hessian(). Restricted to AUX params via
+    torch.autograd.grad(.., aux_params, ..). Bypasses the compiled forward (calls
+    model.forward directly) because torch.compile does not yet support create_graph=True.
+
+    inputs_mb, targets_mb: a single microbatch (mbs x seq_len) consistent with the
+    main training inputs at this step.
+
+    SDPA backend pinned to MATH inside the HVP path: Flash Attention's backward
+    does not implement double-backward (create_graph=True raises a RuntimeError
+    "derivative for aten::_scaled_dot_product_flash_attention_backward is not
+    implemented"), and mem-efficient attention has the same limitation. The MATH
+    kernel materializes the full attention scores but supports double-backward.
+    Memory is held in check by the small hvp microbatch (--sophia_hvp_mbs default 4).
+    """
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+    with sdpa_kernel([SDPBackend.MATH]):
+        loss_hvp = model.forward(inputs_mb, targets_mb)
+        # First gradient w.r.t. AUX params only, retain graph for the 2nd backward.
+        grads = torch.autograd.grad(loss_hvp, aux_params, create_graph=True, allow_unused=True)
+        vs = []
+        for p in aux_params:
+            vs.append(torch.randn_like(p))
+        # Build the scalar (sum over aux params of g_i . v_i) and backprop once more.
+        g_dot_v = None
+        for g, v in zip(grads, vs):
+            if g is None:
+                continue
+            term = (g * v).sum()
+            g_dot_v = term if g_dot_v is None else g_dot_v + term
+        if g_dot_v is None:
+            return  # nothing to update
+        hvps = torch.autograd.grad(g_dot_v, aux_params, retain_graph=False, allow_unused=True)
+    # All-reduce HVPs across ranks (no-op when world_size==1), matching the SUM
+    # reduction used for the main-pass gradients.
+    if dist.get_world_size() > 1:
+        for hvp in hvps:
+            if hvp is not None:
+                dist.all_reduce(hvp, op=dist.ReduceOp.SUM)
+    h_diags = []
+    for p, v, hvp in zip(aux_params, vs, hvps):
+        if hvp is None:
+            h_diags.append((p, None))
+        else:
+            # Hutchinson elementwise diagonal Hessian estimate; clamp to non-negative
+            # because we use h as a denominator and the paper assumes h >= 0 in expectation.
+            h_diags.append((p, (hvp * v).clamp_(min=0)))
+    sophia_optimizer.update_hessian(h_diags)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -796,6 +967,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_optimizer == "sophia_h":
+    print0(f"H376 Sophia-H AUX optimizer ENABLED: rho={args.sophia_rho} hess_update_freq={args.sophia_hess_update_freq} "
+           f"beta1={args.sophia_beta1} beta2={args.sophia_beta2} hvp_mbs={args.sophia_hvp_mbs}", console=True)
+else:
+    print0(f"AUX optimizer = AdamW (baseline) — aux_optimizer={args.aux_optimizer}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -856,6 +1032,13 @@ if dist.get_rank() == 0:
             "muonh_mu_start": args.muonh_mu_start,
             "muonh_mu_end": args.muonh_mu_end,
             "polyak_ema_decay": args.polyak_ema_decay,
+            # H376 Sophia-H AUX optimizer probe
+            "aux_optimizer": args.aux_optimizer,
+            "sophia_rho": args.sophia_rho,
+            "sophia_hess_update_freq": args.sophia_hess_update_freq,
+            "sophia_beta1": args.sophia_beta1,
+            "sophia_beta2": args.sophia_beta2,
+            "sophia_hvp_mbs": args.sophia_hvp_mbs,
         },
     )
 
@@ -932,10 +1115,25 @@ for trial_idx in range(args.num_trials):
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
     _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    # H376: AUX optimizer dispatch. Same param groups + per-group lr for both AdamW
+    # and SophiaH so the only mechanism difference is the update rule (1st-order
+    # m/sqrt(v) vs 2nd-order clipped m/(rho*h)).
+    _aux_param_groups = [
+        dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars"),
+    ]
+    if args.aux_optimizer == "sophia_h":
+        optimizer1 = SophiaH(_aux_param_groups,
+                             lr=1.0,  # placeholder — per-group lr in _aux_param_groups overrides
+                             betas=(args.sophia_beta1, args.sophia_beta2),
+                             rho=args.sophia_rho, eps=1e-12,
+                             weight_decay=0,
+                             hess_update_freq=args.sophia_hess_update_freq)
+    else:
+        optimizer1 = AdamW(_aux_param_groups,
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps,
+                           weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1008,8 +1206,13 @@ for trial_idx in range(args.num_trials):
                 b2 = args.aux_beta2_start + prog * (args.aux_beta2_end - args.aux_beta2_start)
         else:
             b2 = args.aux_beta2_start
-        for g in optimizer1.param_groups:
-            g["betas"] = (g["betas"][0], b2)
+        # The aux β2 schedule only owns optimizer1's betas when it is AdamW. For
+        # non-AdamW AUX (e.g. sophia_h) we keep that optimizer's own betas
+        # untouched so its independent β2 (e.g. Sophia's Hessian-EMA decay)
+        # survives the per-step mutation.
+        if args.aux_optimizer == "adamw":
+            for g in optimizer1.param_groups:
+                g["betas"] = (g["betas"][0], b2)
         # MuonH µ schedule (H109): 'off' is a no-op — mu stays at the MuonH
         # default 0.95 and we skip the param_group write so arm_a is bit-identical
         # to baseline. 'linear' ramps mu_start → mu_end across all train_steps.
@@ -1212,6 +1415,18 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H376 Sophia-H: refresh diagonal Hessian EMA buffer every k steps via an
+        # extra forward + 2nd backward (Hutchinson estimator). Fires BEFORE the
+        # main opt.step() so the very first SophiaH step already uses meaningful
+        # h_t, matching Algorithm 1 of Liu et al. 2024 ICLR. The HVP path uses
+        # torch.autograd.grad and does not mutate p.grad, so the main-pass
+        # gradients survive intact for the regular opt.step() below.
+        sophia_hess_fired = False
+        if args.aux_optimizer == "sophia_h" and step % args.sophia_hess_update_freq == 0:
+            hvp_mbs = max(1, min(args.sophia_hvp_mbs, mbs))
+            update_sophia_hessian(model, aux_params_for_agc, optimizer1,
+                                  inputs[:hvp_mbs], targets[:hvp_mbs])
+            sophia_hess_fired = True
         for opt in optimizers:
             opt.step()
         # H266: Polyak-Ruppert EMA update — runs after the live inner-optimizer step.
@@ -1242,6 +1457,12 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                # H376: Sophia-H clip-frequency + Hessian-EMA buffer RMS telemetry.
+                # Logged at telemetry_due cadence only.
+                if isinstance(opt, SophiaH) and telemetry_due:
+                    muonh_metrics["train/sophia/clip_frac"] = opt._last_clip_frac
+                    muonh_metrics["train/sophia/h_rms"] = opt._last_h_rms
+                    muonh_metrics["train/sophia/hess_fired"] = int(sophia_hess_fired)
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
