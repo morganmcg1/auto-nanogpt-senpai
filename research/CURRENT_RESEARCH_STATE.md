@@ -9,6 +9,31 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-02 10:05Z (**Heartbeat: edward #2195 E (α=0.2) TERMINAL at parity (FFS=2925/2925); student auto-launched n=4 confirm on B(α=0.01) — W&B `zbni38qw` trial 0/4 at step 71. Dose-response cleanly monotone across α∈{0,0.01,0.05,0.1,0.2}, B is singular minimum. Alphonse #2223 trial 1 at step 3591/13000 (~10.5% into trial 1). Fleet 8/8 still occupied: fern #2258 A_ctrl at step 624 (val=3.81, healthy); thorfinn #2253 A_ctrl at step 1194 (val=3.62, healthy). No review-ready PRs, no idle students, no human issues.**)
+
+### Notes (2026-06-02 10:05Z) — Edward #2195 D+E terminal + B-n4 LAUNCHED; alphonse trial 1 progressing; fleet 8/8 healthy
+
+- **PR #2195 edward soap-gram-tikhonov-v2 n=1 sweep COMPLETE:**
+
+| Cell | α | val | ema_corr | FFS_ema | FFS_trainval | Status |
+|------|-----|---------|----------|---------|--------------|--------|
+| A_ctrl | 0.0 | 3.27199 | 3.27241 | 2925 | 2925 | ✓ |
+| **B** | **0.01** | **3.26962** | **3.27004** | **2875** | **2925** | **ATTRACTOR** |
+| C★ | 0.05 | 3.27113 | 3.27153 | 2925 | 2925 | ✓ |
+| D | 0.1 | 3.27133 | 3.27175 | 2925 | 2925 | ✓ |
+| **E** | **0.2** | **3.27135** | **3.27178** | **2925** | **2925** | **PARITY** |
+
+  - Clean monotone return to A_ctrl parity for α ≥ 0.05 — rules out noise-attractor everywhere. B is singular minimum.
+  - **Student auto-launched B n=4 confirm at 09:48Z** — W&B `zbni38qw` (group `g1r5-edward/soap-gram-tikhonov-v2-n4`) trial 0/4 at step 71. ETA terminal ~16:40Z. Decision gate: μ_4(FFS_ema) ≤ 2862.5 AND no seed ≥ 2925.
+  - Per [[r5_n1_to_n4_reversion_dual_metric_attractor]] reversion is the prior; second potentially-merge-eligible PR after alphonse #2223.
+- **PR #2223 alphonse trial 1 progressing** — W&B `ubh89k2w` at _step 3591 (341 into trial 1 of 3250 steps). best_val so far = 3.255917 (trial 0). ETA trial 1 terminal ~11:18Z, trial 2 ~13:00Z, trial 3 ~14:43Z. Final SENPAI-RESULT ~14:45-15:00Z.
+- **PR #2258 fern KL-EMA A_ctrl PICKED UP** — W&B `79v4jrq3` at step 624/3250 (~19%), val=3.81. GPU 100% utilized, 37GB used. A_ctrl gate: FFS_ema in {2875, 2925} confirms byte-clean implementation. Student deviated from suggested wandb_group → uses `g1r5-fern/ema-teacher-kl-distillation` (PR-name based, better grouping). ETA A_ctrl terminal ~13:00Z.
+- **PR #2253 thorfinn focal-loss A_ctrl PROGRESSING** — W&B `n3bxmv76` at step 1194/3250 (~37%), val=3.62. Healthy.
+- **No review-ready PRs, no idle students, no human issues** (last human directive: #1262 5/26 FFS-PRIMARY).
+- **Next critical events:** alphonse trial 1 terminal ~11:18Z (intermediate signal), askeladd #2245 Cell B(K=2) terminal ~11:00Z, fern #2258 + thorfinn #2253 A_ctrl terminals ~12:30-13:30Z.
+
+---
+
 ## Last updated: 2026-06-02 09:50Z (**🚀 PR #2223 alphonse pos-loss-ramp n=4 TRIAL 0 BLOCKBUSTER: FFS_ema=2625 (Δ=−250 vs baseline 2875), val=3.2559, ema_corr=3.2563 (Δ=−0.0137). DOUBLES the n=1 B★ signal (which was Δ=−125). Both FFS_ema AND FFS_trainval departed canonical attractor. Worst-case math: if trials 1-3 ALL revert to 2875, μ_4 = 2812.5 STILL clears merge gate of 2862.5 by 50 steps. Trial 1 in progress (~5%). ETA 5h to terminal. Fleet 8/8: fern #2258 + thorfinn #2253 pods picked up assignments and now in Cell A_ctrl; askeladd #2245 A_ctrl ✓ FFS=2875 baseline parity, Cell B (K=2) running; edward #2195 E at 99%; frieren #2235 B★ ✓ FFS=3000 (+125 regression on gate hypothesis).**)
 
 ### Notes (2026-06-02 09:50Z) — PR #2223 TRIAL 0 BLOCKBUSTER (alphonse pos-loss-ramp); fleet 8/8 humming
