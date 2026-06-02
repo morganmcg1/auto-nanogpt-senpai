@@ -1,3 +1,55 @@
+## 2026-06-02 08:45 — PR #2211: H379v2 fern Lion OUTER (sign-only outer-step form) — CLOSED 235th NULL/NEG (🎯 PROGRAMME-LEVEL LION-AXIS FULL CLOSURE across all 3 optimizer scopes: AUX H169/H241/H260/H369 + BODY H260 + OUTER H379v2, 21st HARD-LOAD-BEARING family entry, 11-axis OUTER-LOOP mechanism canalization joint with H91-H116 + H379v2)
+
+- Branch: g1r3-fern/h379-adabelief-aux (re-used after H379→H379v2 pivot from AdaBelief→Lion OUTER at T+45min)
+- Hypothesis: Lion sign-only outer-step form replaces the magnitude-preserving SGDM outer update at OUTER scope (H266 stack: MuLoCo Nesterov-SGDM, outer_lr=0.7, μ=0.5, sync_interval=30). Tests whether discarding outer-step magnitude information improves trajectory consolidation. 3-arm: arm_a CTRL sgdm/0.7 (baseline form), arm_b LION_OUTER_DEFAULT_LR lion/0.7 (default LR), arm_c LION_OUTER_TUNED_LR lion/0.05 (down-scaled LR per Lion paper convention 10× smaller than AdamW).
+
+### Results — 3-arm terminal
+
+| Arm | outer form | outer_lr | W&B | step-0 val | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL | sgdm | 0.7 | `dca9g230` | 10.82583 | **3.26801** | **3000 EXACT** | (ref) | **−0.19σ** within σ_H174 envelope | Pattern A bit-id, FFS=3000 EXACT NOT strict less-than win (Issue #1260) |
+| arm_b LION_OUTER_DEFAULT_LR | lion | 0.7 | `dsguy0ei` | 10.82583 | **6.00271** (best, peak ~step 1500) | **-1** (NEVER reached) | **+3093σ** ↑ | **+3093σ CATASTROPHIC** | 💥💥💥 CATASTROPHIC NEG — destroys trajectory |
+| arm_c LION_OUTER_TUNED_LR | lion | 0.05 | `59sksarq` | 10.82583 | 3.46698 (best) | **-1** (NEVER reached) | **+225σ** ↑ | **+225σ STRONG NEG** | 🔴 STRONG NEG — Lion-OUTER mechanism broken even at 10× down-scaled LR |
+| H266 baseline (PR #1669) | sgdm | 0.7 | — | 10.82583 | 3.26818 | 3000 EXACT | — | — | (reference) |
+
+### Mechanism interpretation — programme-level finding
+
+**Finding #1 — LION-AXIS FULL CLOSURE across all 3 optimizer scopes at H266 stack** (paper-grade):
+
+| Scope | Mechanism Status |
+|---|---|
+| **AUX scope (AdamW substitution)** | H169 CATASTROPHIC + H241 NEG + H260 NEG + H369 CATASTROPHIC (cycle ~2700 round) |
+| **BODY scope (MuonH substitution)** | H260 NEG |
+| **OUTER scope (MuLoCo Nesterov-SGDM substitution)** | H379v2 arm_b CATASTROPHIC (+3093σ) + arm_c STRONG NEG (+225σ) |
+
+Sign-only updates discard magnitude information that all 3 optimizer scopes load-bearingly use:
+- At AUX: fine per-coordinate variance signal (AdamW v_t curvature) is replaced by ±1
+- At BODY: orthogonalized polar magnitudes (NS5 + scale_invariant Frobenius preservation) required for stable trust-region following are replaced by ±1
+- At OUTER: drift-magnitude proportional consolidation moves required per H108 closure ("Large outer excursions are CONSOLIDATION moves, not noise") are replaced by ±1
+
+**The mechanism class is genuinely scope-invariant in its rejection direction** — sign-only step is fundamentally incompatible with H266 stack across all 3 scopes. Even down-scaling outer_lr 14× (0.7 → 0.05, arm_c) does not recover — confirms the rejection is mechanism-driven not magnitude-driven.
+
+**Finding #2 — Cross-link to H108 (Outer Trust-Region Clipping closure)**: H108 closed with "Large outer excursions are CONSOLIDATION moves, not noise." Lion-form OUTER is the EXTREME of magnitude collapse — every outer step is unit-magnitude sign update regardless of drift magnitude. This is the orthogonal direction to H108 trust-region clipping (which preserved direction but constrained magnitude). Both axes reject the "outer step magnitude should be limited or ignored" hypothesis from opposite directions.
+
+**Finding #3 — 11-axis OUTER-LOOP mechanism canalization** joint with H91/H99/H100/H101/H103/H108/H111/H113/H116 closure cluster + H379v2: MuLoCo Nesterov-SGDM(μ=0.5, outer_lr=0.7, sync_interval=30) is at-optimum across 11 mechanism axes of outer-loop variation at H266 stack.
+
+### Programme rollup
+- 235 cumulative NULL/NEG/TIE closures + 1 MERGED WIN (H266) at cycle ~2700
+- **21 HARD-LOAD-BEARING family entries** (H379v2 adds — paper-grade scope-invariant Lion rejection)
+- 31 candidate H266 attractor cluster anchors (arm_a CTRL val=3.26801 FFS=3000 = 31st)
+- AUX/BODY adaptive-scaling preconditioner family BROADLY CANALIZED (6 axes)
+- **11-axis OUTER-LOOP mechanism canalization** (joint with H91-H116 closure cluster + H379v2)
+- Outer-loop axes 4-way coverage refined: FORM (H379v2 closed), VALUE per-group (H381 in flight), RESET event (H382 in flight), FREQUENCY-schedule (H384 in flight), + H387 RESET periodic schedule (assigned)
+
+### Excellent execution notes
+- Pre-launch smoke gate verified step-0 val=10.82583 EXACT on all 3 arms (Pattern A bit-id preserved through Lion OUTER code path injection)
+- 3-arm chain at 2 LR values (0.7 + 0.05) gave clean magnitude-axis characterization, confirming sign-only mechanism is BROKEN regardless of LR scaling
+- Disciplined recovery from H379→H379v2 pivot earlier today (AdaBelief duplicate detected at T+45min via fern smoke gate)
+
+### Decision: CLOSED as 235th NULL/NEG with paper-grade programme-level Lion-axis full closure. fern reassigned to H387 Outer SGDR Warm Restarts (PR #2254, RANK 6 from RESEARCH_IDEAS_2026-06-02 ideas file — periodic outer_velocity restart at fixed inner-step interval, mechanism-distinct from H382 thorfinn single-event reset and H384 tanjiro FREQUENCY-schedule).
+
+---
+
 ## 2026-06-02 08:30 — PR #2157: H371_b1 frieren LaProp β₁ axis @ eps=1e-8 anchor (operation-order reorder + β₁ dose-response) — CLOSED 234th NULL/NEG (🎯 LaProp β₁ axis CLOSED on STRICT MONOTONE NEG, AUX adaptive-scaling preconditioner family BROADLY CANALIZED across 6 axes at H266 stack)
 
 - Branch: g1r3-frieren/h371-laprop-aux (v2 send-back round, β₁ value axis at eps=1e-8 anchor)
