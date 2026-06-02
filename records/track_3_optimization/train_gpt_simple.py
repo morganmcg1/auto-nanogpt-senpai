@@ -107,6 +107,10 @@ def parse_args():
                              "of training). Default=0.80 (winning value, PR #1966). "
                              "Set to None or 0.95 to disable the ramp. "
                              "Affects all muon_* param groups.")
+    parser.add_argument("--logit_cap_cooldown_target", type=float, default=None,
+                        help="If set, linearly ramp logit softcap from 15.0 to this value across "
+                             "the cooldown phase (same window as LR cooldown, progress [0.3, 1.0]). "
+                             "None = constant cap=15 (default). Example: 10 = tighten; 20 = loosen.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -490,13 +494,17 @@ class GPT(nn.Module):
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        # logit softcap; 0-d buffer so torch.compile (dynamic=False) doesn't recompile
+        # on value change. Updated in-place by set_hparams via cap.fill_().
+        self.register_buffer("cap", torch.tensor(15.0, dtype=torch.float32))
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
-        logits = 15 * logits * (logits.square() + 15**2).rsqrt()
+        cap = self.cap
+        logits = cap * logits * (logits.square() + cap * cap).rsqrt()
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
 
 
@@ -794,6 +802,8 @@ if dist.get_rank() == 0:
             "ema_eval_enabled": args.ema_eval_decay is not None,
             "mu_cooldown_target": args.mu_cooldown_target,
             "mu_cooldown_enabled": args.mu_cooldown_target is not None,
+            "logit_cap_cooldown_target": args.logit_cap_cooldown_target,
+            "logit_cap_cooldown_enabled": args.logit_cap_cooldown_target is not None,
         },
     )
 
@@ -946,6 +956,12 @@ for trial_idx in range(args.num_trials):
                 for group in opt.param_groups:
                     if group.get("name", "").startswith("muon_"):
                         group["mu"] = mu_sched
+        if args.logit_cap_cooldown_target is not None:
+            if progress < 1 - cooldown_frac:
+                model.cap.fill_(15.0)
+            else:
+                x_cap = (progress - (1 - cooldown_frac)) / cooldown_frac
+                model.cap.fill_(15.0 + (args.logit_cap_cooldown_target - 15.0) * x_cap)
         return eta
 
 
@@ -1256,6 +1272,8 @@ for trial_idx in range(args.num_trials):
                 for group in optimizer2.param_groups:
                     gname = group.get("name", "muon")
                     per_group_metrics[f"train/mu/{gname}"] = float(group["mu"])
+                if args.logit_cap_cooldown_target is not None:
+                    per_group_metrics["train/logit_cap"] = float(model.cap)
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
