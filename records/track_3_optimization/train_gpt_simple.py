@@ -86,6 +86,10 @@ def parse_args():
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
+    parser.add_argument("--ns_iters_shallow", type=int, default=NS_ITERS,
+                        help="NS_ITERS for body-Muon shallow blocks (0-5). Default=12.")
+    parser.add_argument("--ns_iters_deep", type=int, default=NS_ITERS,
+                        help="NS_ITERS for body-Muon deep blocks (6-11). Default=12.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -536,6 +540,7 @@ def pmuon_update(
     ns_b: float = NS_B,
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
+    iters_override: int | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
@@ -549,7 +554,8 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    iters = iters_override if iters_override is not None else NS_ITERS
+    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c, iters=iters)
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
     # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
     if polar_diag is not None and "residual" not in polar_diag:
@@ -598,6 +604,9 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    param_ns_iters = getattr(self, "_param_ns_iters", None)
+                    iters_override = (param_ns_iters.get(id(p), None)
+                                      if param_ns_iters is not None else None)
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
@@ -610,6 +619,7 @@ class Muon(torch.optim.Optimizer):
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
+                        iters_override=iters_override,
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -834,6 +844,27 @@ for trial_idx in range(args.num_trials):
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
     optimizer2._param_lr_mults = param_lr_mults
+
+    # Per-param NS_ITERS for block-stratified polar precision.
+    # Shallow blocks (0-5) use --ns_iters_shallow; deep blocks (6-11) use --ns_iters_deep.
+    # Only populated when at least one side differs from NS_ITERS default.
+    param_ns_iters = None
+    if args.ns_iters_shallow != NS_ITERS or args.ns_iters_deep != NS_ITERS:
+        param_ns_iters = {}
+        for name, p in model.named_parameters():
+            if p.ndim >= 2 and name.startswith("blocks."):
+                idx = int(name.split(".")[1])
+                ns_for_block = args.ns_iters_shallow if idx < 6 else args.ns_iters_deep
+                param_ns_iters[id(p)] = ns_for_block
+        if dist.get_rank() == 0:
+            print0(f"per-block NS_ITERS: shallow(0-5)={args.ns_iters_shallow} "
+                   f"deep(6-11)={args.ns_iters_deep}", console=True)
+    optimizer2._param_ns_iters = param_ns_iters
+    if dist.get_rank() == 0:
+        wandb.log({
+            "optim/ns_iters_shallow": args.ns_iters_shallow,
+            "optim/ns_iters_deep": args.ns_iters_deep,
+        }, step=0)
 
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
