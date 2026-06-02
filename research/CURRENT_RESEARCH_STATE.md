@@ -1,3 +1,59 @@
+## 2026-06-02 ~08:30 UTC — Cycle 71 mid-567 — thorfinn #2218 CLOSED (472nd refute / **12th STRUCTURAL AXIS FULLY CLOSED — MLP-SOAP IS M-INVARIANT BUFFER ON LM_HEAD F=1.0 DESTAB CLASS** at 60% prior REALIZED; MLP-SOAP front=fast buffers BOTH M=1 exp_avg_sq reset AND M=2 exp_avg reset of LM_HEAD F=1.0; M-INVARIANT buffer established; edward #2216 CLOSED (473rd refute / **BINARY SUBSTRATE-CLASS F=1.0 STABILITY AXIS ESTABLISHED — {EMBED, SCALARS} STABLE vs {LM_HEAD} POD-BLOCK**); thorfinn #2243 MLP-SOAP×PKB1_LM_HEAD COMPOUND merge-bar break assigned; edward #2244 PER_KIND_MUON_LR attn-vs-mlp body-Muon kind-axis assigned). Fleet 8/8 WIP. Cumulative: **473 refuted / 323 mech classes / 295 family closures / 14 structural axes / 68 RTM precedents / 53 pod-stability observations**.
+
+### thorfinn #2218 CLOSED — 472nd refute / 12th STRUCTURAL AXIS FULLY CLOSED — MLP-SOAP M-INVARIANT BUFFER
+
+**Bilateral terminal — MLP-SOAP × LM_HEAD M=1 F=1.0 (BUFFERED FLOOR-BAND)**:
+- Arm A `lx4qqf39` SEED=1: val=3.27116 (floor band)
+- Arm B `uzcc3t7b` SEED=2: val=3.26921 (sub-floor)
+- val_mean=3.27019 — IN floor band [3.27000, 3.27200]
+- MERGE bar: 3.27019 vs 3.26776 → MISSES BY Δ=+0.00243
+
+**12th STRUCTURAL AXIS FULLY CLOSED — MLP-SOAP IS M-INVARIANT BUFFER on LM_HEAD F=1.0**:
+| Probe | M | Step-1 grad | Floor band? |
+|---|---|---|---|
+| #2145 LM_HEAD M=1 F=1.0 ISOLATED | M=1 | 234k explosion | POD-BLOCK |
+| #2160 LM_HEAD M=2 F=1.0 ISOLATED | M=2 | 234,624 explosion | POD-BLOCK |
+| #2191 MLP-SOAP × M=2 F=1.0 | M=2 | CLEARED | mean ~3.27040 ✓ |
+| #2218 MLP-SOAP × M=1 F=1.0 | M=1 | CLEARED | mean 3.27019 ✓ |
+
+MLP-SOAP front=fast buffers BOTH M=1 (exp_avg_sq reset) AND M=2 (exp_avg reset) destabilization. Buffer is M-INVARIANT — symmetric across the M-axis.
+
+### edward #2216 CLOSED — 473rd refute / BINARY SUBSTRATE-CLASS F=1.0 STABILITY AXIS
+
+**Bilateral terminal — SCALARS-RESET M=1 F=1.0 ISOLATED**:
+- val_mean=3.270235 — IN floor band [3.27000, 3.27200]
+- MERGE bar: 3.270235 vs 3.26776 → MISSES BY Δ=+0.00248
+
+**BINARY SUBSTRATE-CLASS F=1.0 STABILITY AXIS ESTABLISHED**:
+| Substrate | F=1.0 outcome | Class |
+|---|---|---|
+| LM_HEAD | #2145 + #2160 POD-BLOCK | DESTAB |
+| EMBED | #2206 + #2212 + #2220 + #2232 STABLE | STABLE |
+| SCALARS | #2216 STABLE (3.270235) | STABLE |
+
+Destabilization is substrate-class-specific: LM_HEAD (output-projection) is destab-class; {EMBED, SCALARS} (input/per-tensor) are stable-class.
+
+### Cycle 71 mid-567 new assignments
+
+- **thorfinn #2243**: MLP-SOAP × PER_KIND_AUX_BETA1_LM_HEAD=0.7 COMPOUND merge-bar break. First explicit MLP-SOAP buffer × per-kind-β1 compound. PER_KIND_AUX_BETA1 is cluster-edge (#1577 best 3.26992 sub-cluster-edge); compound tests if orthogonal mechanisms add. Priors: 35% sub-cluster-edge / 40% floor-band / 15% merge-break / 10% above-floor. Requires PR2153 cherry-pick (commit 4130c311).
+- **edward #2244**: PER_KIND_MUON_LR attn-vs-mlp body-Muon KIND-axis probe. Arm A mlp-tight (MUON_LR_ATTN=0.05, MUON_LR_MLP=0.03), Arm B attn-tight (reversed). Novel infra ~30 LOC. Distinct from PER_DEPTH_HALF (spatial/depth axis); this is a kind-axis decomposition. Priors: 35% mlp-tight merge break / 40% direction-symmetric null / 15% attn-tight / 10% degradation. Requires PR2153 cherry-pick for SEED hook.
+
+### Cycle 71 mid-567 fleet status
+
+Fleet 8/8 WIP.
+- alphonse #2215 (n=4 variance): Arm D near-terminal
+- askeladd #2217 (MLP-SOAP back=fast): Arm B near-terminal
+- tanjiro #2230 (PROJ-ONLY ATTN-SOAP pruning ablation): Arm B in-flight
+- frieren #2233 (SCALARS-RESET M=2 F=1.0): in-flight early steps
+- fern #2238 (PER_DEPTH_HALF_MUON_LR): unblocked with Option A (cherry-pick 4130c311 approved), expect disabled-check + impl + arms
+- nezuko #2241 (AUX_CLIP_NORM per-group AdamW aux grad clip): awaiting student pickup
+- thorfinn #2243 (MLP-SOAP × PKB1_LM_HEAD=0.7 COMPOUND): ASSIGNED — pending cherry-pick + disabled-check + bilateral n=2
+- edward #2244 (PER_KIND_MUON_LR attn-vs-mlp): ASSIGNED — novel infra required
+
+Cumulative: **473 refuted / 323 mech classes / 295 family closures / 14 structural axes / 68 RTM precedents / 53 pod-stability observations**.
+
+---
+
 ## 2026-06-02 ~07:00 UTC — Cycle 71 mid-565 — nezuko #2237 CLOSED (471st refute / **14th AXIS FULLY CLOSED — BITFIELD-INVARIANT × PKB1-CONDITIONAL UNIVERSAL CASCADE ATTRACTOR — PKB1 DISPATCH ALONE (bitfield=15, ZERO included ATTN-SOAP params) triggers byte-identical 147,984,768 at step 125** at 50% prior REALIZED; axis 14 is completely and irrevocably closed: bitfield ∈ {7, 8, 15} ALL byte-identical POD-BLOCK; ATTN-SOAP partition cardinality is NON-LOAD-BEARING; PKB1 dispatch flag is the SOLE LOAD-BEARING TRIGGER; fern #2238 PER_DEPTH_HALF_MUON_LR BUG INTERVENTION — disabled-check NaN + empty param groups (muon_front_param_count=0, muon_back_param_count=0) + zero commits on branch; student must fix guard and recommit). Fleet 7/8 WIP (nezuko pod free). Cumulative: **471 refuted / 321 mech classes / 293 family closures / 14 structural axes FULLY CLOSED / 68 RTM precedents / 53 pod-stability observations**.
 
 ### nezuko #2237 CLOSED — 471st refute / 14th AXIS FULLY CLOSED — BITFIELD-INVARIANT × PKB1-CONDITIONAL
