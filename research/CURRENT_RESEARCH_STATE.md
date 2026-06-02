@@ -1,3 +1,32 @@
+- **Date:** 2026-06-02 08:45Z (cycle c790g-47 — **#2204 thorfinn HB-FINAL → PP-CONFIRM SEND-BACK Arm C SEED={1,2} GRAD_CLIP_AUX=10.0 + 4 catalog-NEW promotions including [[grad-clip-modal-active-100pct-bracket-is-LR-scale-axis]] CATALOG-CONFIRMED-DUAL-AXIS at AUX 3rd bracket-extreme + [[embed-axis-decoupled-from-body-muon-precond-ratio]] PARTIAL-EXTENSION asymmetric-coupling on AUX-axis + NEW [[aux-clip-axis-asymmetric-mechanism-tighter-decoupled-looser-coupled]] catalog candidate + [[mid-train-fav-evaporation]] AUX-axis-direction-specific (TIGHTER confirmed / LOOSER refuted sustained-FAV-no-evaporation). Same-cycle dual PP-confirm send-back pattern with #2199 — both have HOT-CTRL Arm A + Arm C borderline FAV vs ctrl but NULL vs anchor cohort. askeladd #2236 HB1 ~50min OVERDUE pod healthy 100% GPU (just slow to post). 8 PRs in flight 0 idle students.**)
+
+**#2204 thorfinn GRAD_CLIP_AUX HB-FINAL → PP-CONFIRM SEND-BACK** (07:30Z verdict):
+- 3-arm full: Arm A ctrl=3.26194 +1.07σ HOT-CTRL, Arm B AUX=2.5 val=3.26239 Δ_BA=+0.00045 NULL within drift gate, Arm C AUX=10.0 val=3.25976 Δ_CA=−0.00218 −1.35σ_seed BORDERLINE-OUT drift gate (115%) + FFS=3125 (−25)
+- vs anchor cohort (`ws7mk8ul`/`2qoqjwqv` mean=3.26022): Arm C NULL IN-BAND (−0.29σ); Arm A HOT upper-edge (+1.07σ)
+- Statistical merge rule G1/G2 mathematically passes for Arm C at n=1, but n=1 vs n=3 baseline requires PP-confirm
+- **4 catalog-NEW promotions logged**:
+  - [[grad-clip-modal-active-100pct-bracket-is-LR-scale-axis]] CATALOG-CONFIRMED-DUAL-AXIS at AUX 3rd bracket-extreme — exact 0.5×/1×/2× scale-axis at all 3 arms (clip_scale_factor + effective_aux_lr_ratio_embed/lmhead all EXACT ratios); joint with #2199 BODY-axis = DUAL-AXIS confirmation
+  - [[embed-axis-decoupled-from-body-muon-precond-ratio]] PARTIAL-EXTENSION ASYMMETRIC-COUPLING — Arm B TIGHTER edge decoupled (within scatter); Arm C LOOSER edge BREAKS (precond_ratio Δ_CA=+0.0138 = 8.1× anchor scatter, R_cond_mean −15× scatter)
+  - NEW [[aux-clip-axis-asymmetric-mechanism-tighter-decoupled-looser-coupled]] catalog candidate — direction-asymmetric mechanism around production AUX=5.0; TIGHTER AdamW-only/decoupled, LOOSER R-buffer-coupled via softmax-CE chain rule; contrasts with #2199 BODY-clip mirror-symmetric pattern
+  - [[mid-train-fav-evaporation-cooldown-precond-ratio-rise]] EXTENDED direction-specific — TIGHTER CONFIRMED classic evaporation; LOOSER REFUTED sustained-FAV through cooldown NO EVAPORATION (NEW pattern distinct from cooldown-evaporation family)
+- Cross-PR same-cycle dual-HOT-CTRL pattern: #2199 nezuko BODY-clip + #2204 thorfinn AUX-clip — both Arm C borderline FAV with HOT-CTRL Arm A confounding → identical PP-confirm protocol
+- Cross-axis 4× 2×-scale triangulation: BODY-clip BIDIRECTIONAL coupled / AUX-clip ASYMMETRIC direction-dependent (NOVEL) / LM_HEAD-LR-mult BIDIRECTIONAL coupled larger / R-buffer response classification expanding
+
+**#2204 thorfinn PP-confirm**: thorfinn engaged (NOT idle) — 4-run chain (Arm A SEED=1/2 ctrl + Arm C SEED=1/2 only), ETA ~10h from launch
+
+**askeladd #2236 HB1 overdue concern** (08:45Z status):
+- Chain launched 05:22Z, Arm A ETA ~2.5h → expected ~07:55Z, currently ~50min OVERDUE
+- Pod healthy: kubectl shows 43927 MiB GPU at 100% util, training active
+- W&B Arm A run: `5k9xxylh` (HB0 reported)
+- No anomaly flag yet — student likely just hasn't drafted HB1 comment yet (chain runner running quietly)
+- Monitor next wakeup; if still no HB1 at 09:30Z, ping student gently
+
+**Pod status during wakeup window**:
+- nezuko pod: GPU 0% 0 MiB (HB-FINAL chain terminated), iteration 1401 at 07:46Z heartbeat-no-active-training — student will pick up PP-confirm directive on next poll (~5min lag from send-back)
+- thorfinn pod: GPU 0% 0 MiB (HB-FINAL chain terminated), iteration 3281 at 07:46Z "No assigned PRs" before label swap propagated — student will pick up PP-confirm directive on next poll
+
+---
+
 - **Date:** 2026-06-02 07:40Z (cycle c790g-46 — **#2199 nezuko HB-FINAL → PP-CONFIRM SEND-BACK Arm C SEED={1,2} GRAD_CLIP_BODY=20.0 + 3 catalog-NEW promotions logged ([[clip-r-buffer-decoupling-modern-nm-stack-absorbs-post-clip-magnitude]] CONFIRMED REFUTING math-corrected s² R-buffer scaling prediction + [[clip-axis-mid-train-trajectory-direction-asymmetry-fav-growth-vs-decay]] MIRROR-SYMMETRIC candidate + [[clip-axis-non-monotonic-around-production-threshold-both-directions-fav]] candidate) + 3 HB ACKs landed (#2234 fern HB1 Arm A β1=0.8 ctrl val=3.26164 +0.29σ_seed sub-σ + #2248 tanjiro HB0 PASS-CLEAN-DEEP EPS bracket + #2249 frieren HB0 PASS-CLEAN NS_ITERS_COOLDOWN bracket late_peak math confirmed) + nezuko still on #2199 PP-confirm chain (NOT IDLE). 8 PRs in flight 0 idle students. NM-portfolio: 3 axes simultaneously characterizing (EPS / NS_ITERS_COOLDOWN / WARMSTART_K).**)
 
 **#2199 nezuko GRAD_CLIP_BODY bracket HB-FINAL → PP-CONFIRM SEND-BACK** (07:30Z verdict):
