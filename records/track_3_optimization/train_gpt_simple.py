@@ -70,6 +70,16 @@ def parse_args():
                              "late-higher=0.9 (block 0) → 1.1 (block 11), "
                              "late-lower=1.1 (block 0) → 0.9 (block 11). "
                              "Mean LR preserved across blocks.")
+    parser.add_argument("--muon_block_b1_pattern", type=str, default="uniform",
+                        choices=["uniform", "late-higher", "late-lower"],
+                        help="Per-block body-Muon momentum β₁ shape (centered on 0.95): "
+                             "uniform=all blocks share β₁=0.95, "
+                             "late-higher=shallow blocks lower / deep blocks higher β₁, "
+                             "late-lower=shallow blocks higher / deep blocks lower β₁. "
+                             "Mean β₁ preserved across blocks.")
+    parser.add_argument("--muon_block_b1_spread", type=float, default=0.05,
+                        help="Peak-to-peak spread of per-block β₁ around 0.95. "
+                             "Default 0.05 → late-higher: block 0=0.925, block 11=0.975.")
     parser.add_argument("--paramema_refresh_step", type=int, default=-1,
                         help="If >0, refresh paramEMA buffer to live params at this step "
                              "(resets accumulated EMA history). -1=disabled. Requires "
@@ -598,12 +608,16 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    mu_eff = group["mu"]
+                    param_b1_values = getattr(self, "_param_b1_values", None)
+                    if param_b1_values is not None:
+                        mu_eff = param_b1_values.get(id(p), mu_eff)
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
                         state["L"],
                         state["R"],
-                        mu=group["mu"],
+                        mu=mu_eff,
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
                         ns_a=group["ns_a"],
@@ -761,6 +775,8 @@ if dist.get_rank() == 0:
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
             "muon_block_lr_pattern": args.muon_block_lr_pattern,
+            "muon_block_b1_pattern": args.muon_block_b1_pattern,
+            "muon_block_b1_spread": args.muon_block_b1_spread,
             "paramema_refresh_step": args.paramema_refresh_step,
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
@@ -834,6 +850,46 @@ for trial_idx in range(args.num_trials):
             wandb.log({f"muon_block_lr_mult/block_{i}": m for i, m in enumerate(block_mults)},
                       step=0)
     optimizer2._param_lr_mults = param_lr_mults
+
+    # Per-block body-Muon momentum β₁ shape: mean-preserving linear ramp across block
+    # index centered on the canonical Muon β₁ default (0.95). Spread is peak-to-peak;
+    # late-higher → block 0 = 0.95 − spread/2, block 11 = 0.95 + spread/2 (deep blocks
+    # slower momentum). late-lower mirrors. Mirrors per-block LR convention.
+    MUON_B1_DEFAULT = 0.95
+    param_b1_values = None
+    block_b1_values = None
+    b0_b1 = MUON_B1_DEFAULT
+    b11_b1 = MUON_B1_DEFAULT
+    if args.muon_block_b1_pattern != "uniform":
+        half = args.muon_block_b1_spread / 2.0
+        if args.muon_block_b1_pattern == "late-higher":
+            lo_b1, hi_b1 = MUON_B1_DEFAULT - half, MUON_B1_DEFAULT + half
+        elif args.muon_block_b1_pattern == "late-lower":
+            lo_b1, hi_b1 = MUON_B1_DEFAULT + half, MUON_B1_DEFAULT - half
+        block_b1_values = [lo_b1 + (hi_b1 - lo_b1) * (i / (NUM_LAYERS - 1))
+                           for i in range(NUM_LAYERS)]
+        param_b1_values = {}
+        for name, p in model.named_parameters():
+            if p.ndim >= 2 and name.startswith("blocks."):
+                idx = int(name.split(".")[1])
+                param_b1_values[id(p)] = block_b1_values[idx]
+        b0_b1 = block_b1_values[0]
+        b11_b1 = block_b1_values[NUM_LAYERS - 1]
+        if dist.get_rank() == 0:
+            print0(f"per-block Muon β₁ pattern: {args.muon_block_b1_pattern} "
+                   f"spread={args.muon_block_b1_spread}", console=True)
+            for i, b in enumerate(block_b1_values):
+                print0(f"  block {i}: muon_b1={b:.5f}", console=True)
+            wandb.log({f"muon_block_b1/block_{i}": b
+                       for i, b in enumerate(block_b1_values)}, step=0)
+    optimizer2._param_b1_values = param_b1_values
+    if dist.get_rank() == 0:
+        wandb.log({
+            "optim/muon_block_b1_pattern": args.muon_block_b1_pattern,
+            "optim/muon_block_b1_spread": args.muon_block_b1_spread,
+            "optim/muon_block_0_b1": b0_b1,
+            "optim/muon_block_11_b1": b11_b1,
+        }, step=0)
 
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1154,6 +1210,14 @@ for trial_idx in range(args.num_trials):
                     "muon_block_lr/effective_block_11": muon_group_lr * b11_lr_mult,
                     "muon_block_lr/group_lr": muon_group_lr,
                     "muon_block_lr/ratio_b11_over_b0": b11_lr_mult / b0_lr_mult,
+                }, step=wandb_step)
+            if param_b1_values is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "muon_block_b1/effective_block_0": b0_b1,
+                    "muon_block_b1/effective_block_11": b11_b1,
+                    "muon_block_b1/ratio_b11_over_b0": b11_b1 / b0_b1,
                 }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
