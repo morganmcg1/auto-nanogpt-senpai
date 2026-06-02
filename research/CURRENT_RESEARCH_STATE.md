@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-**Last updated:** 2026-06-02 05:40 UTC (cycle ~2700, 229 cumulative NULL/NEG/TIE closures + 1 MERGED WIN)
+**Last updated:** 2026-06-02 04:10 UTC (cycle ~2700, 230 cumulative NULL/NEG/TIE closures + 1 MERGED WIN)
 
 ## Most recent research direction from human researcher team
 
@@ -14,8 +14,8 @@ No new directives in current invocation. Issue #1260 strict FFS<3000 merge gate 
   - Reproduce: `torchrun --standalone --nproc_per_node=1 records/track_3_optimization/train_gpt_simple.py --num_trials 1 --train_steps 3325 --muonh_mode scale_invariant --muonh_cooldown_shape cosine --muonh_warmup_steps 100 --aux_adamw_eps 1e-6 --use_outer_optimizer 1 --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 --aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --aux_beta2_schedule constant --aux_beta2_start 0.99 --muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.90 --body_init orthogonal_fnorm_matched --polyak_ema_decay 0.05`
 
 ### Cycle ~2700 status (cumulative)
-- **229 cumulative NULL/NEG/TIE closures**, 1 MERGED WIN (H266)
-- **18 HARD-LOAD-BEARING family entries**: H368/H375/H282/H169/H370/H374/etc.
+- **230 cumulative NULL/NEG/TIE closures**, 1 MERGED WIN (H266)
+- **19 HARD-LOAD-BEARING family entries**: H368/H375/H282/H169/H370/H374/H376/etc.
 - **5 INIT-side closures**: H351 + H357 + H365 (HARD-LOAD-BEARING) + H366 Aurora + H373 LSUV (TIE AURORA-STACK-CONDITIONAL)
 - **3 CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class entries**: H371 arm_c LaProp eps=1e-8 (CLOSEST-TO-BASELINE, −0.16σ vs H266) + H372 arm_c Adan β₃=0.95 + H373 arm_c LSUV_STRICT
 - **2 AURORA-MECHANISM-STACK-CONDITIONAL class entries**: H366 + H373
@@ -47,6 +47,12 @@ H266's averaging stack (Polyak-Ruppert EMA + AUX β₁ EMA + outer momentum SGDM
 
 **LaProp eps=1e-8 anchor = CLOSEST-TO-BASELINE arm of cycle ~2700** (H371 arm_c, val=3.26804 = −0.16σ vs H266). Sent back for β₁ axis follow-up at LaProp eps=1e-8 anchor.
 
+**3-point monotone AUX adaptive-scaling axis gradient** (H369+H376):
+- Lion CATASTROPHIC (no per-param scaling): H369
+- Sophia-H STRONG NEG +16-29σ (Hessian-diag per-param): H376
+- AdamW BASELINE (g²-diag per-param): H266
+Finding: H266 AUX path specifically requires gradient-variance (g²-diag) per-param scaling — Hessian-diag is nearest cousin and still fails +16σ.
+
 **4 LR-schedule structural-timing axes fully canalized** (H352+H362+H363+H374):
 All 4 tested structural-timing axes of the H266 LR schedule are canalized: cooldown SHAPE (H352 cosine optimum), warmup DURATION (H362 bilateral asymmetric NEG), μ_start TIMING (H363 bilateral asymmetric NEG), cooldown DURATION (H374 monotonic-asymmetric NEG). WSD (Warmup-Stable-Decay), even at MiniCPM canonical 70/30 ratio, is catastrophically NEG at 3325-step short-budget. Further LR-schedule probes are unlikely to yield WIN candidates.
 
@@ -56,7 +62,7 @@ All 4 tested structural-timing axes of the H266 LR schedule are canalized: coold
 |----|---------|-----------|--------|-------|
 | #2157 | frieren | H371 LaProp β₁-axis at eps=1e-8 (send-back) | WIP | β₁ ∈ {0.8, 0.85, 0.9} at CLOSEST-TO-BASELINE LaProp eps=1e-8 anchor |
 | #2158 | tanjiro | H372 Adan β₃<0.95 dose-response (send-back) | WIP | β₃ ∈ {-1 sentinel, 0.9, 0.5} |
-| #2182 | thorfinn | H376 Sophia-H AUX | WIP | 2nd-order Hessian-diag AUX preconditioner probe |
+| #2228 | thorfinn | H382 Outer Velocity Reset at Cooldown Entry | WIP (just assigned) | ~10 LoC — reset outer_velocity buffer at cooldown onset (analogy to H170 AUX v_t reset merge-winner) |
 | #2187 | edward | H377 Lookahead AUX wrapper | WIP | k-step outer-iterate averaging on AUX optimizer |
 | #2202 | nezuko | H378 Gradient Centralization BODY pre-NS5 | WIP | Mean-subtraction on BODY grads before polar projection |
 | #2211 | fern | H379v2 Lion-form OUTER step at MuLoCo sync boundary | WIP | First test of Lion sign-only form at OUTER LOOP scope (pivot from H379 AdaBelief duplicate) |
@@ -65,6 +71,7 @@ All 4 tested structural-timing axes of the H266 LR schedule are canalized: coold
 
 ### Recent closure cadence (last 12 hours)
 
+- **PR #2182 H376 thorfinn Sophia-H AUX** — CLOSED 230th NULL/NEG (19th HARD-LOAD-BEARING family entry, 2nd-order Hessian-diag preconditioner axis closed, 3-point monotone gradient on AUX adaptive-scaling axis: Lion CATASTROPHIC → Sophia STRONG NEG +16-29σ → AdamW BASELINE)
 - **PR #2172 H374 alphonse WSD BODY MuonH** — CLOSED 229th NULL/NEG (18th HARD-LOAD-BEARING family entry, 3rd STRUCTURAL-TIMING-AXIS NEG, 4th LR-schedule axis canalized, arm_a CTRL = 28th H266 cluster anchor)
 - **PR #2173 H375 askeladd Schedule-Free AUX** — CLOSED 228th NULL/NEG (paper-grade 1st BILATERAL CATASTROPHIC NEG class entry on AUX fresh-mechanism axis)
 - **PR #2165 H373 fern LSUV BODY init** — CLOSED 227th NULL/TIE (2nd AURORA-MECHANISM-STACK-CONDITIONAL class entry)

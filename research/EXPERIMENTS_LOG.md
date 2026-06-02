@@ -16556,3 +16556,33 @@ Rationale: Although FFS<3000 merge probability is LOW (val gain is post-cooldown
 - **Mechanism distinction (keeping PR #2221 active):** H88 tested STATIC FIXED coefficients (Chebyshev-optimal quintic, family (a, 2.5-2a, a-1.5) with a∈(2.0,3.0)). H380 (Amsel et al. 2025, arXiv:2505.16932) tests RUNTIME MINIMAX-ADAPTIVE coefficients computed per-iteration from spectral interval [l,u]. Runtime adaptation is a genuinely different axis dimension from design-time coefficient sweep.
 - H88 was at OLDER stack (pre-H266). Per dedup memory: re-test at H266 stack IS permissible. Added follow-up comment to PR #2221 with H88 context + 3 smoke gate additions (coefficient sequence audit, bfloat16 safety, spectral interval tracking).
 - Additional H88 finding noted: "Original Polar Express coefs (3.4445, −4.7750, 2.0315) are MISATTRIBUTED in optimizer-paper folklore — violate p(1)=1, belong to Halley/Padé family, NOT pure Schulz." Added to PR comment to prevent inadvertent reproduction of misattributed coefficients.
+
+## 2026-06-02 04:00 — PR #2182: H376 thorfinn Sophia-H AUX optimizer probe
+
+- g1r3-thorfinn/h376-sophia-h-aux-optimizer
+- Hypothesis: Replace AdamW AUX optimizer with Sophia-H (2nd-order Hessian-diag adaptive preconditioner, Liu et al. ICLR 2024). Sophia uses Hutchinson HVP estimate of diagonal Hessian `h_t` and clips updates `m / max(ρ·h, eps)`. Tests whether 2nd-order curvature information in the AUX preconditioner benefits the H266 stack.
+- Results:
+
+| Arm | W&B run | `aux_optimizer` | `sophia_rho` | step-0 val | val/loss | FFS | Δ vs CTRL (σ_H174) |
+|-----|---------|-----------------|--------------|------------|----------|-----|---------------------|
+| arm_a CTRL | `5fqx7nha` | adamw ✓ | (inert) | 10.82583 EXACT ✓ | 3.27013 | 3050 | 0.00σ |
+| arm_b SOPHIA | `b3n17th3` | sophia_h ✓ | 0.01 (paper-faithful) | 10.82583 EXACT ✓ | 3.28435 | −1 | **+16.1σ STRONG NEG** |
+| arm_c SOPHIA_LOW_RHO | `bpd12fhq` | sophia_h ✓ | 0.05 (5× relaxed) | 10.82583 EXACT ✓ | 3.29549 | −1 | **+28.7σ MORE NEG** |
+
+σ_H174=0.000884. Pattern A bit-id verified EXACT all 3 arms. arm_a CTRL FFS=3050 → 30th candidate H266 cluster anchor.
+
+- Commentary: **CLOSED NULL/NEG — 230th cumulative cycle ~2700 closure. 19th HARD-LOAD-BEARING family entry. 2nd-order Hessian-diag preconditioner mechanism class CLOSED.**
+
+  **Bilateral clip-ratio probe**: arm_b ρ=0.01 (paper-default) and arm_c ρ=0.05 (5× relaxed) both fail FFS=−1. Monotonic: higher ρ is WORSE (+28.7σ vs +16.1σ). Bilateral failure mode with distinct mechanisms:
+  - low-ρ: clip-saturation (mean clip_frac=0.953, terminal 0.984) → sign-like behavior (loses gradient-magnitude info, regresses toward H369 Lion failure mode; Sophia momentum softens from CATASTROPHIC to STRONG NEG)
+  - high-ρ: under-training → ratio too small to drive embed/lm_head/scalars at H266's effective AUX LR
+
+  **H269 Lion CATASTROPHIC + H376 Sophia STRONG NEG 3-point monotone gradient** on AUX adaptive-scaling axis:
+  1. Lion sign-only (no per-param scaling): CATASTROPHIC (H369)
+  2. Sophia-H Hessian-diag (curvature-derived per-param): STRONG NEG +16-29σ (H376)
+  3. AdamW g²-diag (gradient-variance-derived per-param): BASELINE (H266)
+  Finding: H266 AUX path specifically requires **gradient-variance (g²-diag) per-param scaling** — Hessian-diag is the closest mechanism-cousin and still produces 16σ+ degradation.
+
+  **Wall-time overhead**: ~2× CTRL (~107 min) due to Hutchinson HVP at hvp_mbs=4 + MATH SDPA backend. Implementation gotchas: Flash Attention double-backward not supported → MATH SDPA context; mbs=64 OOM at HVP fire → hvp_mbs=4.
+
+  **Post-closure action:** Assigned thorfinn H382 (Outer Velocity Reset at Cooldown Entry, RANK 3 from RESEARCH_IDEAS_2026-06-02 ideas file, PR #2228). ~10 LoC, strong analogy to H170 AUX v_t reset merge-winner but at outer-loop scope.
