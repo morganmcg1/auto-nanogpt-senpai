@@ -84,6 +84,10 @@ def parse_args():
     parser.add_argument('--aux_b2_pulse_target', type=float, default=0.99,
                         help='New aux Adam β2 value to set at --aux_b2_pulse_step. '
                              '0 or negative disables. Default: 0.99 (canonical WIN).')
+    parser.add_argument("--lm_head_b1", type=float, default=-1.0,
+                        help="Per-group β₁ override for the adam_lm_head group. "
+                             "-1 (default) = use global β₁=0.8 (baseline behavior). "
+                             "0.5 = fast first-moment decay; 0.95 = slow first-moment decay.")
     parser.add_argument("--seed", type=int, default=1,
                         help="Random seed for torch/numpy/python. Default 1 matches baseline seed.")
     args = parser.parse_args()
@@ -765,6 +769,7 @@ if dist.get_rank() == 0:
             "paramema_refresh_only": int(args.paramema_refresh_only),
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_target": args.aux_b2_pulse_target,
+            "lm_head_b1": args.lm_head_b1,
             "seed": args.seed,
         },
     )
@@ -797,10 +802,19 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
+    # Per-group β₁ override for adam_lm_head (PR #2225). -1 falls through to global β₁=0.8.
+    _lm_head_b1 = args.lm_head_b1 if args.lm_head_b1 > 0 else 0.8
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head",
+                             betas=(_lm_head_b1, 0.95)),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if dist.get_rank() == 0:
+        for group in optimizer1.param_groups:
+            print0(f"[trial {trial_idx} step 0] aux Adam {group.get('name','?')}: "
+                   f"lr={group['lr']:.6f}, betas={group['betas']}", console=True)
+        if wandb.run:
+            wandb.log({"optim/lm_head_b1": _lm_head_b1}, step=0)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=args.muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1066,9 +1080,8 @@ for trial_idx in range(args.num_trials):
                 and args.aux_b2_pulse_target > 0.0
                 and step == args.aux_b2_pulse_step):
             old_b2 = optimizer1.param_groups[0]["betas"][1]
-            new_betas = (optimizer1.param_groups[0]["betas"][0], args.aux_b2_pulse_target)
             for group in optimizer1.param_groups:
-                group["betas"] = new_betas
+                group["betas"] = (group["betas"][0], args.aux_b2_pulse_target)
             print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}",
                    console=True)
         for opt in optimizers:
