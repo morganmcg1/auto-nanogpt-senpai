@@ -107,6 +107,22 @@ def parse_args():
                              "of training). Default=0.80 (winning value, PR #1966). "
                              "Set to None or 0.95 to disable the ramp. "
                              "Affects all muon_* param groups.")
+    parser.add_argument("--clip_aux_norm", type=float, default=None,
+                        help="Uniform gradient L2 norm clip threshold for all AdamW aux groups "
+                             "(adam_embed, adam_lm_head, adam_scalars). None=disabled. "
+                             "Applied per group independently before optimizer1.step(). "
+                             "Muon body weights are NOT clipped (NS5 normalizes them). "
+                             "Per-group overrides: --clip_aux_embed_norm / --clip_aux_lm_head_norm "
+                             "/ --clip_aux_scalars_norm.")
+    parser.add_argument("--clip_aux_embed_norm", type=float, default=None,
+                        help="L2 grad clip for adam_embed group only. "
+                             "Overrides --clip_aux_norm for this group. None=fall back to --clip_aux_norm.")
+    parser.add_argument("--clip_aux_lm_head_norm", type=float, default=None,
+                        help="L2 grad clip for adam_lm_head group only. "
+                             "Overrides --clip_aux_norm for this group. None=fall back to --clip_aux_norm.")
+    parser.add_argument("--clip_aux_scalars_norm", type=float, default=None,
+                        help="L2 grad clip for adam_scalars group only. "
+                             "Overrides --clip_aux_norm for this group. None=fall back to --clip_aux_norm.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1198,6 +1214,32 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Per-aux-group gradient norm clipping (optimizer1 only; Muon/optimizer2 untouched).
+        # Per-group flag overrides --clip_aux_norm; None for a group means no clip there.
+        aux_clip_map = {
+            "adam_embed": args.clip_aux_embed_norm if args.clip_aux_embed_norm is not None else args.clip_aux_norm,
+            "adam_lm_head": args.clip_aux_lm_head_norm if args.clip_aux_lm_head_norm is not None else args.clip_aux_norm,
+            "adam_scalars": args.clip_aux_scalars_norm if args.clip_aux_scalars_norm is not None else args.clip_aux_norm,
+        }
+        if any(v is not None for v in aux_clip_map.values()):
+            clip_aux_pre_norms = {}
+            for group in optimizer1.param_groups:
+                gname = group.get("name", "aux")
+                thr = aux_clip_map.get(gname)
+                if thr is None:
+                    continue
+                pre_norm = torch.nn.utils.clip_grad_norm_(group["params"], thr)
+                clip_aux_pre_norms[gname] = float(pre_norm.item())
+            if dist.get_rank() == 0 and telemetry_due:
+                clip_metrics = {"trial": trial_idx, "train/step": train_step}
+                for gname, thr in aux_clip_map.items():
+                    if thr is not None:
+                        clip_metrics[f"train/clip_aux/{gname}/threshold"] = thr
+                for gname, pn in clip_aux_pre_norms.items():
+                    thr = aux_clip_map[gname]
+                    clip_metrics[f"train/clip_aux/{gname}/pre_clip_norm"] = pn
+                    clip_metrics[f"train/clip_aux/{gname}/fired"] = float(pn > thr)
+                wandb.log(clip_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
 
