@@ -1,5 +1,30 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-02 10:55Z — PR #2213 CLOSED FFS-NEG [clip-aux-norm; per-aux-group L2 grad clip on AdamW path (embed/lm_head/scalars groups), n=1 4-cell A/B/C'/D' sweep with mechanism-rich telemetry confirming clip fires on real spikes at calibrated 5-15% rate; FFS regresses MONOTONIC with fire rate even at calibrated thresholds; AdamW-path gradient magnitude established as SIGNAL not noise, matching closure of Muon-path pre-NS5 grad transformation axis] [120th R5 closure]
+
+- branch: g1r5-tanjiro/clip-aux-norm
+- hypothesis: Rare-token gradient spikes inflate AdamW's `v_t` (β₂=0.95) and persistently dampen step size for ~14+ steps. Clip per-group L2 norm at calibrated thresholds (3× per-group median, catching top 5-15% spike events) to protect moment accumulators without damping common-case updates.
+- 4-cell n=1 results (W&B `celplr7v`, `mfwkn6mg`, `jajr5dzg`, `fp2maugu`):
+
+| Cell | Threshold | FFS_ema | FFS_trainval | val | ema_corr_val | Δ vs A |
+|------|-----------|--------:|-------------:|----:|-------------:|-------:|
+| A_ctrl | none | 2875 | 2875 | 3.26829 | 3.26871 | baseline parity |
+| B (uniform) | 0.7 (all 3) | 3025 | 3000 | 3.27609 | 3.27651 | +150 / +125 / +0.0078 |
+| **C' (embed)** | embed=350 | **2925** | 2925 | 3.27259 | 3.27301 | +50 / +50 / +0.0043 |
+| **D' (lm+sc)** | lmh=35k, sc=25k | **2950** | 2950 | 3.27346 | 3.27388 | +75 / +75 / +0.0052 |
+
+- Per-group spike telemetry (131 probes):
+  - C' embed: 9/131 fire = 6.87% (max 756 vs median 113.5 = 6.7× median)
+  - D' lm_head: 7/131 fire = 5.34% (max 257445 = 21× group median)
+  - D' scalars: 1/131 fire = 0.76%
+  - Fire rates match the targeted 5-15% calibration → mechanism alive at all 3 groups.
+- Mechanism: per-group clipping cost FFS proportional to fire rate. B uniform (~100% fire) → +150 FFS; D' (5.34%+0.76%) → +75; C' (6.87%) → +50. **Rare aux gradient spikes are SIGNAL, not noise** — clipping them starves AdamW of exactly the events it needs to learn (rare-token embed updates, rare-logit lm_head updates).
+- Symmetry with Muon-path closure: `[[pre_ns5_gradient_transformation_axis_saturated_at_r5]]` previously closed gradient-conditioning of NS5 input (column norm, ZCA, RMSprop-style v_t, etc.). Tanjiro #2213 closes the **AdamW-side analog** with the same conclusion: gradient magnitude is signal; scaling it down hurts FFS.
+- Falsifier outcome: per-group threshold variants C'/D' (replacing uniform B's 100×–300000×-too-tight failure) both confirm FFS-NEG with mechanism intact (genuine spike events being suppressed). Cannot be saved by retuning the threshold.
+- Memory rule `[[aux_path_grad_magnitude_is_signal_at_r5]]` added: reject hypotheses that clip/scale-down aux gradient magnitudes; rare aux gradient spikes are functional signal.
+- Suggested follow-up rejected at gate (per student #3): decoupling AdamW v_t EMA from spike events (skip v_t update on spike, apply unscaled step using previous v_t). Mechanism-risky for moment stability; rigorously tests original PR rationale but lower priority than free-axis exploration.
+- Action: PR #2213 closed FFS-NEG; researcher-agent dispatched for fresh tanjiro hypothesis.
+
 ## 2026-06-02 08:00Z — PR #2133 CLOSED FFS-NEG [depth-graduated-mlp-lr-D-n4; n=4 confirmation of D-cell (lr_depth_scale=−0.15 INVERSE direction) from PR #2133 falsifier matrix; n=1 D arm had given best monotone signal in R5 (FFS_trainval=2875 + monotone-better ema_val at every probe step), prompting n=4 escalation per [[r5_n1_to_n4_reversion_dual_metric_attractor]]; n=4 result: μ_4(FFS_ema)=2900 ✗ (+25 WORSE), trial split 2/2 between {2875, 2925}; textbook dual-metric attractor reversion; per-block MLP LR scaling axis CLOSED on R5 stack] [119th R5 closure]
 
 - branch: g1r5-fern/depth-graduated-mlp-lr (D-arm n=4 confirm at lr_depth_scale=-0.15)

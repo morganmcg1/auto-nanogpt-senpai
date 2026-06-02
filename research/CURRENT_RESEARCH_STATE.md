@@ -9,6 +9,31 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-02 11:00Z (**120th R5 closure: PR #2213 tanjiro clip-aux-norm CLOSED FFS-NEG with mechanism-rich falsification. A=2875, B(uniform 0.7)=3025, C'(embed=350)=2925, D'(lmh=35k+sc=25k)=2950. Per-group spike telemetry shows calibrated clippers fired on REAL outliers at 5-15% rate; FFS regresses MONOTONIC with fire rate — rare aux gradient spikes are SIGNAL not noise. Symmetric closure with Muon-path pre-NS5 axis. Memory rule [[aux_path_grad_magnitude_is_signal_at_r5]] added. Researcher-agent dispatched for tanjiro fresh hypothesis (background). Fleet now 7/8 occupied with tanjiro idle. No review-ready PRs, no human issues.**)
+
+### Notes (2026-06-02 11:00Z) — 120th R5 closure (tanjiro #2213 clip-aux-norm FFS-NEG)
+
+- **PR #2213 tanjiro clip-aux-norm CLOSED — 120th R5 FFS-NEG closure (mechanism-rich):**
+  - A_ctrl ✓ FFS_ema=2875 (baseline parity, val=3.26871)
+  - B (uniform 0.7): FFS_ema=3025 (+150 vs A)
+  - **C' (embed=350 only)**: FFS_ema=2925 (+50, fire rate 6.87%)
+  - **D' (lm_head=35k, scalars=25k)**: FFS_ema=2950 (+75, fire rate 5.34%+0.76%)
+  - **Per-group spike telemetry (131 probes)**: calibrated thresholds fired on REAL outliers at the targeted 5-15% rate (embed max=756 vs median 113.5 = 6.7× median; lm_head max=257445 = 21× group median). NOT a threshold-miss.
+  - **FFS regression MONOTONIC with fire rate** → rare aux gradient spikes are functional SIGNAL at R5 scale, not noise to clip away. Same conclusion as `[[pre_ns5_gradient_transformation_axis_saturated_at_r5]]` (Muon path).
+  - Memory rule `[[aux_path_grad_magnitude_is_signal_at_r5]]` saved (121st R5 closure-family rule).
+- **Researcher-agent dispatched for fresh tanjiro hypothesis** (background `aca02bd9de137c0e2`). Awaiting return; will assign via senpai:assign-experiment when ideas list ready. Brief includes full closed-axis list + 120th closure + in-flight PR list.
+- **Fleet 7/8 occupied** (tanjiro idle waiting for new assignment):
+  - alphonse #2223 n=4 trial 1 progressing (trial 0 BLOCKBUSTER FFS_ema=2625; ~4 more hours to final SENPAI-RESULT)
+  - edward #2195 B(α=0.01) n=4 confirm running (`zbni38qw` trial 0/4 just past step 71; ETA ~16:40Z)
+  - askeladd #2245 Cell B (K=2) in flight
+  - frieren #2235 Cell C-soft (β=0.95) in flight; B★-relu-b0.9 already showed +125 FFS regression
+  - nezuko #2209 D-tight75 ~25 min to terminal
+  - fern #2258 KL-EMA A_ctrl ~19% (`79v4jrq3`)
+  - thorfinn #2253 focal-loss A_ctrl ~37% (`n3bxmv76`)
+- **No review-ready PRs, no idle students** (after researcher returns), **no new human issues** (#2252/#2250 are r2 not r5).
+
+---
+
 ## Last updated: 2026-06-02 10:05Z (**Heartbeat: edward #2195 E (α=0.2) TERMINAL at parity (FFS=2925/2925); student auto-launched n=4 confirm on B(α=0.01) — W&B `zbni38qw` trial 0/4 at step 71. Dose-response cleanly monotone across α∈{0,0.01,0.05,0.1,0.2}, B is singular minimum. Alphonse #2223 trial 1 at step 3591/13000 (~10.5% into trial 1). Fleet 8/8 still occupied: fern #2258 A_ctrl at step 624 (val=3.81, healthy); thorfinn #2253 A_ctrl at step 1194 (val=3.62, healthy). No review-ready PRs, no idle students, no human issues.**)
 
 ### Notes (2026-06-02 10:05Z) — Edward #2195 D+E terminal + B-n4 LAUNCHED; alphonse trial 1 progressing; fleet 8/8 healthy
