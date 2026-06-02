@@ -84,20 +84,24 @@ With `--lm_head_b2_pulse_step -1` (default), behavior must be bit-identical to t
 
 **Arm A (target=0.99, match @975 semantics):**
 ```bash
-torchrun --nproc-per-node=1 records/track_3_optimization/train_gpt_simple.py \
-  --muon_lr 0.025 --muon_block_lr_pattern late-higher \
-  --aux_b2_pulse_step 975 --aux_b2_warmup 250 --aux_b2_target 0.99 --aux_b2_init 0.95 \
-  --paramema_refresh_step 2600 --paramema_refresh_alpha 1.0 \
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+  --muon_lr 0.040 --ema_beta 0.97 --ema_warmup_steps 1750 --ema_beta_target 0.99 \
+  --muon_block_lr_pattern late-higher \
+  --paramema_refresh_only --paramema_refresh_step 2600 \
+  --aux_b2_pulse_step 975 --aux_b2_pulse_target 0.99 \
   --lm_head_b2_pulse_step 2600 --lm_head_b2_pulse_target 0.99 \
   --wandb_group g1r1-nezuko-lmhead-b2-repulse-2600
 ```
 
 **Arm B (target=0.999, aggressive late-phase v-state):**
 ```bash
-torchrun --nproc-per-node=1 records/track_3_optimization/train_gpt_simple.py \
-  --muon_lr 0.025 --muon_block_lr_pattern late-higher \
-  --aux_b2_pulse_step 975 --aux_b2_warmup 250 --aux_b2_target 0.99 --aux_b2_init 0.95 \
-  --paramema_refresh_step 2600 --paramema_refresh_alpha 1.0 \
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+  --muon_lr 0.040 --ema_beta 0.97 --ema_warmup_steps 1750 --ema_beta_target 0.99 \
+  --muon_block_lr_pattern late-higher \
+  --paramema_refresh_only --paramema_refresh_step 2600 \
+  --aux_b2_pulse_step 975 --aux_b2_pulse_target 0.99 \
   --lm_head_b2_pulse_step 2600 --lm_head_b2_pulse_target 0.999 \
   --wandb_group g1r1-nezuko-lmhead-b2-repulse-2600
 ```
