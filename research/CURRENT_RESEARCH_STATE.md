@@ -1,3 +1,51 @@
+- **Date:** 2026-06-02 08:30Z (cycle c790g-48 — **3 HB ACKs landed + CRITICAL c790g-cycle SEED=0 ctrl HOT-band pattern emerged: #2199 nezuko PP-confirm HB0 PASS-CLEAN-DEEP 4-arm chain A_s1→C_s1→A_s2→C_s2 atomic-handoff Arm A SEED=1 W&B `hhaouqkp` step 408/3350 ETA HB1 ~10:00Z + #2204 thorfinn PP-confirm HB0 PASS-CLEAN-DEEP distinct flock A1→C1→A2→C2 W&B `5i6mjcux` ETA HB1 ~10:02Z + #2236 askeladd HB1 PASS-CRITICAL-CATALOG-DEEP Arm A K=100 ctrl val=3.26441 = +2.00σ_seed HOT-CTRL (3rd-of-4 c790g-cycle SEED=0 Arm A HOT — nezuko +2.40σ, askeladd +2.00σ, thorfinn +1.07σ anchor, fern +0.29σ NORMAL only) + [[cross-K-warmstart-fire-step-fingerprint]] CATALOG-REFINEMENT (direction INVERSE NM-step count + sub-√ scaling weaker than √(τ/τ_ctrl)) + [[seed-0-ctrl-cohort-c790g-cycle-late-window-hot-drift]] NEW CATALOG-CANDIDATE + [[ctrl-anchor-cohort-config-heterogeneity]] EXTENDED σ_anchor inflated to ≈0.0013 = 0.8σ_seed (n=7 SEED=0 enriched). 8 PRs in flight 0 idle students. Dense HB-wave 08:30-10:16Z expected (alphonse/edward HB2-PP + fern/tanjiro/frieren HB1/HB2 + askeladd HB2 + nezuko/thorfinn HB1).**)
+
+**#2199 nezuko PP-confirm HB0 ACKed PASS-CLEAN-DEEP** (08:07Z):
+- Chain launched 07:49:18Z, flock-guarded `logs_pr2199_PP/chain.lock` per [[chain-handoff-race-window-catalog]]
+- 4-arm chain A_s1→C_s1→A_s2→C_s2 atomic-handoff, per-cycle env changes ONLY (GRAD_CLIP_BODY + SEED)
+- Bit-id step:0=10.82583 EXACT cross-SEED + cross-anchor
+- 20+ prod envs verbatim incl. all NM stack
+- Arm A SEED=1 W&B `hhaouqkp` step 408/3350 step_avg 2.337s ETA HB1 ~10:00Z ETA HB-FINAL-PP ~16:30Z
+
+**#2204 thorfinn PP-confirm HB0 ACKed PASS-CLEAN-DEEP** (08:08Z):
+- Chain launched 07:54:09Z, distinct flock `/tmp/pr2204_pp_chain.lock` (no cross-chain contention with #2199)
+- 4-arm chain A1→C1→A2→C2 atomic-handoff
+- Bit-id step:0=10.82583 EXACT vs `nfllq6zk` modern-stack POST-#1702 config-matched
+- Arm A1 W&B `5i6mjcux` step 307/3350 step_avg 2293ms ETA HB1 ~10:02Z ETA HB-FINAL-PP ~16:30Z
+- Verdict decision tree pre-loaded from c790g-47 sendback
+
+**#2236 askeladd HB1 ACKed PASS-CRITICAL-CATALOG-DEEP** (08:02Z):
+- Arm A K=100 ctrl val=3.26441 = +0.00323 = +2.00σ_seed HOT-CTRL OUTSIDE drift gate
+- Above CTRL envelope cap 3.26430 by +0.00011 (extreme edge but not catastrophic)
+- Terminal cooldown shape clean monotone (val@3275→3350 progression) — NOT divergence
+- FFS=3150 NORMAL (decoupled from val-axis HOT)
+- R-buffer terminal: R_inv=79.44 / precond_r=1.148 / R_cond_mean=20676
+- Arm B K=50 launched 07:53:30Z step 135 ETA HB2 ~10:16Z
+- **[[cross-K-warmstart-fire-step-fingerprint]] CATALOG-REFINEMENT**:
+  - PR-body predicted K=50 LARGEST R_inv (75 NM-steps) > K=100 ctrl (25 NM-steps) > K=200 SMALLEST per √(τ/τ_ctrl) scaling
+  - Observed: Arm B 91.56 < Arm A 99.99 → **DIRECTION INVERSE** (more NM-steps → SMALLER R_inv) — R_buffer EMA integrates more gradient²-shape mass with more NM-active steps → eigenvalues grow → R_inv shrinks (L853 unit-mean shape transport)
+  - **MAGNITUDE WEAKER**: observed 1.092× vs predicted 1.732× = sub-√ scaling, closer to log-scaling
+  - Mechanism distinction: NM_BETA-axis EMA decay rate ≠ WARMSTART_K-axis measurement window after gate
+- Arm B mid-train Δ_BA=+0.00949 NEG single-seed early-train (consistent with PR mechanism — under-mature v statistics at K=50 fire)
+- **[[r-buffer-r-inv-shrink-r-cond-grow-asymmetric-r-buffer-spread]] NEW candidate** — Arm B R_inv SHRINKS but R_cond_mean GROWS (2.8× higher) + R_cond_max 4.4× higher at step-125; bulk eigenvalue scale moves one direction while spread moves opposite
+
+**c790g-cycle SEED=0 Arm A ctrl HOT-band pattern — NEW PORTFOLIO-WIDE FINDING**:
+
+| PR | Student | Arm A SEED=0 val | Δ vs μ=3.26118 | σ_seed | HOT/NORMAL |
+|---|---|---|---|---|---|
+| #2199 nezuko | BODY-clip | 3.26504 | +0.00386 | **+2.40σ** | HOT |
+| #2204 thorfinn | AUX-clip | 3.26194 | +0.00076 anchor +1.07σ | +0.47σ_seed | borderline-HOT |
+| #2236 askeladd | WARMSTART_K | 3.26441 | **+0.00323** | **+2.00σ** | HOT |
+| #2234 fern | ADAMW_BETA1 | 3.26164 | +0.00046 | +0.29σ | NORMAL (only) |
+
+- 3-of-4 c790g-late-window (07:30-08:00Z) SEED=0 Arm A ctrl runs HOT
+- Only fern's SEED=0 ctrl (launched 05:02Z slightly earlier) NORMAL
+- **[[seed-0-ctrl-cohort-c790g-cycle-late-window-hot-drift]] NEW CATALOG-CANDIDATE**: CUDA non-determinism in 100% GPU-busy fleet (8 concurrent training jobs sharing memory bandwidth + thermal envelope) inflates atmospheric variance at late training window
+- **[[ctrl-anchor-cohort-config-heterogeneity]] EXTENDED**: n=7 SEED=0 enriched → μ ≈ 3.26173, range [3.26014, 3.26504] → σ_anchor inflated to ≈ 0.0013 = 0.8σ_seed
+- Implications: paired-Δ tests inflated by HOT-CTRL component; PP-confirm SEED ∈ {1,2} essential for c790g-late-window axes
+
+---
+
 - **Date:** 2026-06-02 08:45Z (cycle c790g-47 — **#2204 thorfinn HB-FINAL → PP-CONFIRM SEND-BACK Arm C SEED={1,2} GRAD_CLIP_AUX=10.0 + 4 catalog-NEW promotions including [[grad-clip-modal-active-100pct-bracket-is-LR-scale-axis]] CATALOG-CONFIRMED-DUAL-AXIS at AUX 3rd bracket-extreme + [[embed-axis-decoupled-from-body-muon-precond-ratio]] PARTIAL-EXTENSION asymmetric-coupling on AUX-axis + NEW [[aux-clip-axis-asymmetric-mechanism-tighter-decoupled-looser-coupled]] catalog candidate + [[mid-train-fav-evaporation]] AUX-axis-direction-specific (TIGHTER confirmed / LOOSER refuted sustained-FAV-no-evaporation). Same-cycle dual PP-confirm send-back pattern with #2199 — both have HOT-CTRL Arm A + Arm C borderline FAV vs ctrl but NULL vs anchor cohort. askeladd #2236 HB1 ~50min OVERDUE pod healthy 100% GPU (just slow to post). 8 PRs in flight 0 idle students.**)
 
 **#2204 thorfinn GRAD_CLIP_AUX HB-FINAL → PP-CONFIRM SEND-BACK** (07:30Z verdict):
