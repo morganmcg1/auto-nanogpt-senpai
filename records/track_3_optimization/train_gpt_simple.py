@@ -56,6 +56,12 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H387: SGDR-style periodic outer_velocity restart (Loshchilov & Hutter 2017 applied to
+    # MuLoCo OUTER trajectory momentum). Default period=0 disables → bit-id with H266 baseline.
+    parser.add_argument("--outer_restart_period", type=int, default=int(os.environ.get("OUTER_RESTART_PERIOD", "0")),
+                        help="H387: SGDR-style outer_velocity restart every N inner steps. 0 disables (H266 baseline).")
+    parser.add_argument("--outer_restart_decay", type=float, default=float(os.environ.get("OUTER_RESTART_DECAY", "0.0")),
+                        help="H387: velocity multiplier at restart. 0.0 = full reset, 1.0 = no reset (sentinel-safe).")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -1058,6 +1064,9 @@ for trial_idx in range(args.num_trials):
         outer_anchor = None
         outer_velocity = None
     outer_applied_steps = 0
+    # H387: SGDR-style outer_velocity restart tracking. period<=0 disables (sentinel).
+    next_outer_restart_step = args.outer_restart_period if args.outer_restart_period > 0 else -1
+    outer_restart_count = 0
 
     # H266: Polyak-Ruppert EMA buffer for eval-only weight averaging (Pattern A drift-FREE).
     # When decay == 0.0 the state stays None and all H266 code paths short-circuit, so the
@@ -1325,6 +1334,22 @@ for trial_idx in range(args.num_trials):
         # ``param.norm()`` at that step and preserves the new norm. Acceptable
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
         if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
+            # H387: SGDR outer velocity restart (apply BEFORE this step's velocity update).
+            # Period=0 (sentinel) leaves this branch unentered → bit-id with H266 baseline.
+            if args.outer_restart_period > 0 and train_step >= next_outer_restart_step and train_step > 0:
+                with torch.no_grad():
+                    for n_v in outer_velocity:
+                        outer_velocity[n_v].mul_(args.outer_restart_decay)
+                next_outer_restart_step += args.outer_restart_period
+                outer_restart_count += 1
+                if dist.get_rank() == 0:
+                    wandb.log({
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "train/muloco/restart_event": 1,
+                        "train/muloco/restart_count": outer_restart_count,
+                        "train/muloco/restart_decay": args.outer_restart_decay,
+                    }, step=wandb_step)
             log_outer = (dist.get_rank() == 0)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
