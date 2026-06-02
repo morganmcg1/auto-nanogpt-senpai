@@ -1,5 +1,68 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-02 08:00Z — PR #2133 CLOSED FFS-NEG [depth-graduated-mlp-lr-D-n4; n=4 confirmation of D-cell (lr_depth_scale=−0.15 INVERSE direction) from PR #2133 falsifier matrix; n=1 D arm had given best monotone signal in R5 (FFS_trainval=2875 + monotone-better ema_val at every probe step), prompting n=4 escalation per [[r5_n1_to_n4_reversion_dual_metric_attractor]]; n=4 result: μ_4(FFS_ema)=2900 ✗ (+25 WORSE), trial split 2/2 between {2875, 2925}; textbook dual-metric attractor reversion; per-block MLP LR scaling axis CLOSED on R5 stack] [119th R5 closure]
+
+- branch: g1r5-fern/depth-graduated-mlp-lr (D-arm n=4 confirm at lr_depth_scale=-0.15)
+- hypothesis: musoft init makes deep MLP weight norms smaller; deep MLP LR should match — D-arm (α=−0.15 INVERSE: early-low/late-high) was the falsifier branch that paradoxically won at n=1. Test if n=1 D signal survives n=4 disambiguation.
+- n=1 prior result (4 cells): A_ctrl FFS_ema=2875 ✓; B★(α=+0.15) FFS_ema=2925 (+50) HURT; C(α=+0.30) FFS_ema=2925 (+50) HURT (monotone); D(α=−0.15 INVERSE) FFS_ema=2875 + FFS_trainval=2875 + ema_val=3.26903 — n=1 dual-metric attractor split favored the FFS_trainval-low branch
+- n=4 confirm (run `8guujhdy`, single torchrun --num_trials 4):
+
+| Trial | FFS_ema | FFS_trainval | val/best_loss | ema_corr_val |
+|---|---:|---:|---:|---:|
+| 0 | **2925** | 2925 | 3.27131 | 3.27172 |
+| 1 | **2875** | 2875 | 3.26905 | 3.26947 |
+| 2 | **2875** | 2925 | 3.26967 | 3.27008 |
+| 3 | **2925** | 2925 | 3.27146 | 3.27188 |
+| **μ_4** | **2900.0** (σ=25.0) | 2912.5 (σ=21.7) | 3.27037 (σ=0.00104) | **3.27079** (σ=0.00104) |
+
+- Baseline (PR #1966): μ_4(FFS_ema)=2875.0 (σ=0), val=3.27007. Merge gate ≤2862.5.
+- Verdict: **FFS-NEG**. μ_4(FFS_ema)=2900 = +25 over canonical → fails merge gate by 37.5 steps. μ_4(ema_corr_val)=3.27079 = +0.00072 → slightly WORSE on val too. Trial 0 reverted cleanly to canonical {2875, 2925}; trial 1 reproduced n=1 dual signal; trials 2+3 are split/canonical. Clean 2/2 attractor split confirming the n=1 signal was a single-trial lucky split.
+- Mechanism: NS5 already does per-layer spectral-norm conditioning; depth_init_mode=musoft already calibrates per-layer norm balance. Per-block MLP LR scaling on top **over-specifies the per-layer geometry**:
+  - musoft-aligned direction (B★ α=+0.15, C α=+0.30): double-counts with musoft → monotone-degrading FFS regression
+  - INVERSE direction (D α=−0.15): fights NS5+musoft → reverts to canonical attractor under n=4
+- Falsifier outcome: BOTH predicted direction AND inverse falsifier confirm FFS-NEG. The per-block MLP LR axis is closed on R5 stack via dual-direction confirmation.
+- Memory rule [[per_layer_mlp_lr_scaling_axis_closed_at_r5]] added: reject per-block/per-depth/per-quartile MLP LR proposals.
+- Suggested follow-ups (noted, NOT promising):
+  - Per-layer attention LR scaling — same NS5+musoft over-specification expected.
+  - Cross with mu_cooldown_target — already closed.
+  - Quartile/per-block split (4-group) — same axis, redundant.
+- Action: PR #2133 closed FFS-NEG. Fresh hypothesis researcher dispatched for fern (parallel with thorfinn researcher).
+
+## 2026-06-02 07:55Z — PR #2196 CLOSED FFS-NEG [linear-cooldown-shape-n4-revisit; n=4 confirmation of --lr_cooldown_shape linear with PR #1966 (mu_cooldown_target=0.80) + #1533 (EMA decay 0.99) recoupling; n=1 D-cell from #2126 had given positive secondary signal (FFS=2875 + ema_val=3.26217); n=4 result: μ_4(FFS_ema)=2887.5 ✗ (3/4 at 2875, 1/4 at 2925), μ_4(ema_corr_val)=3.26272 = **8σ val improvement** vs baseline 3.27007; striking val/FFS Pareto frontier divergence — cosine wins FFS, linear wins val; per FFS-PRIMARY directive closed FFS-NEG; cooldown shape axis now DOUBLY CLOSED] [118th R5 closure]
+
+- branch: g1r5-thorfinn/linear-cooldown-shape-n4-revisit
+- hypothesis: PR #1966 (mu_cooldown_target=0.80) and #1533 (EMA decay 0.99) re-coupled `--lr_cooldown_shape linear` with the rest of the R5 stack; positive n=1 D-cell signal from PR #2126 (FFS=2875 + ema_val=3.26217) suggested merge candidate; n=4 confirmation needed per [[r5_n1_to_n4_reversion_dual_metric_attractor]].
+- n=4 confirm (run `3k1p9dl3`, single torchrun --num_trials 4):
+
+| Trial | FFS_ema | FFS_trainval | best_val_loss | ema_corr_val |
+|---|---:|---:|---:|---:|
+| 0 | **2875** | 3000 | 3.26170 | 3.26239 |
+| 1 | **2875** | 2975 | 3.26101 | 3.26171 |
+| 2 | **2925** | 3000 | 3.26320 | 3.26390 |
+| 3 | **2875** | 3000 | 3.26218 | 3.26286 |
+| **μ_4** | **2887.5** (σ=25.0) | 2993.75 (σ=12.5) | **3.26202** (σ≈0.00092) | **3.26272** (σ≈0.00092) |
+
+- Baseline (cosine cooldown): μ_4(FFS_ema)=2875.0 (σ=0), val=3.27007.
+- **Comparison gates:**
+
+| Gate | Threshold | n=4 Result | Trigger? |
+|---|---|---:|---|
+| FFS merge | μ_4(FFS_ema) ≤ 2862.5 | **2887.5** | NO (+25 over gate) |
+| Val merge at canonical FFS | FFS=2875 exact AND val≤3.26507 | FFS=2887.5 ≠ 2875 | NO (FFS doesn't meet) |
+| CLOSE band | μ_4(FFS_ema) > 2875 OR val > 3.27007 | FFS=2887.5 > 2875 | **YES** |
+
+- Verdict: **FFS-NEG** by strict FFS-PRIMARY directive AND pre-declared decision criteria. 3/4 trials at canonical FFS_ema=2875, trial 2 slipped to 2925 → mean reverts to canonical attractor pattern on FFS dimension.
+- **Striking val-side signal (noted for record, not actionable):** μ_4(ema_corr_val)=3.26272 vs baseline 3.27007 = Δ=−0.00735 ≈ **8σ improvement**. ALL 4 trials below baseline val (σ_4=0.00092). Linear cooldown produces models that converge to a deeper final val plateau. This is the largest val improvement seen at R5.
+- Mechanism interpretation: linear cooldown's steeper late-phase LR descent over-shoots the FFS=3.28 crossing (12.5 steps later) but converges to a deeper final val plateau (8σ better). Cosine's gentler late-phase keeps FFS crossing tight but plateaus higher. This is a genuine FFS-vs-val Pareto frontier on the same R5 stack.
+- Why no n=8 extension: even if FFS distribution under linear is {p(2875)=0.75, p(2925)=0.25}, asymptotic μ stays at 2887.5 — can't reach merge gate 2862.5 at any n. n=8 doesn't unblock merge.
+- Memory rule [[lr_cooldown_shape_doubly_closed_at_r5]] added: cooldown shape axis is now doubly-closed (first closure PR #1989 exhaustion sweep across linear/cosine/concave/convex/step; this PR confirms n=4 attractor reversion + Pareto frontier finding). Reject all cooldown shape variants including plateau, trapezoid, hybrid shapes.
+- Suggested follow-ups (noted, NOT promising):
+  - n=8 extension: rejected (asymptotic mean can't reach merge gate).
+  - Plateau-at-zero / trapezoid variant: REJECTED (same closed axis).
+  - Hybrid cosine-then-linear: REJECTED (same closed axis).
+  - Investigating WHY linear improves val: an interesting research question but not a fresh PR axis for the speedrun benchmark.
+- Action: PR #2196 closed FFS-NEG. Fresh hypothesis researcher dispatched for thorfinn (parallel with fern researcher).
+
 ## 2026-06-02 06:10Z — PR #2184 CLOSED FFS-NEG [ns5-kj-coefficients; Keller Jordan's NanoGPT-empirical NS5 polynomial coefficients (3.4445, −4.7750, 2.0315) vs codebase default (2.0, −1.5, 0.5); 4-cell mechanism-rich result: A_ctrl FFS_ema=2875 (baseline replication ✓), C_mid (2.72, −3.13, 1.27) FFS_ema=2925 (+50), B★_KJ FFS_ema=2950 (+75, KILL gate exactly), D_quad (1.5, −0.5, 0.0) FAIL (never reaches target); monotone-degrading surface confirms local convexity around codebase default; D-quadratic FAIL proves quartic term cA² is LOAD-BEARING for NS5 convergence within 3250-step budget] [117th R5 closure]
 
 - branch: g1r5-askeladd/ns5-kj-coefficients

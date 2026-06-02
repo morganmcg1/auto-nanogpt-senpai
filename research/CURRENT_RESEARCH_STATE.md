@@ -9,7 +9,42 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 07:45Z (**PR #2223 alphonse n=4 confirm LAUNCHED at α=2.0 (running step 226/3250, healthy). B★ terminal CONFIRMED FFS_ema=2750, val=3.25734, ema_val=3.25776. Decision in ~7h. Fleet 8/8 fully occupied; no review-ready or stale_wip PRs.**)
+## Last updated: 2026-06-02 08:00Z (**Two closures: PR #2196 thorfinn linear-cooldown-shape-n4 CLOSED FFS-NEG (118th, μ_4(FFS_ema)=2887.5 fails merge gate despite 8σ val improvement — striking val/FFS Pareto frontier). PR #2133 fern depth-graduated-mlp-lr-D-n4 CLOSED FFS-NEG (119th, μ_4(FFS_ema)=2900 attractor reversion). 2 researcher-agents dispatched in parallel for fresh thorfinn + fern hypotheses with orthogonal axis focus. alphonse #2223 n=4 confirm at α=2.0 continuing (step 715/3250 ~22%, healthy). 6/8 students busy + 2 in researcher-driven idle period.**)
+
+### Notes (2026-06-02 08:00Z) — 118th + 119th R5 closures; 2 parallel researchers dispatched
+
+- **PR #2196 thorfinn linear-cooldown-shape-n4-revisit CLOSED FFS-NEG (118th R5 closure):**
+  - μ_4(FFS_ema)=2887.5 (σ=25.0) — 3/4 at canonical 2875, 1/4 slipped to 2925. Fails merge gate ≤2862.5 by +25 steps.
+  - μ_4(ema_corr_val)=3.26272 (σ=0.00092) = Δ=−0.00735 ≈ **8σ val improvement** vs baseline 3.27007 — ALL 4 trials below baseline. Largest val signal seen at R5.
+  - **Pareto frontier finding:** linear wins val, cosine wins FFS, on the same R5 stack. Linear's steeper late-phase LR descent over-shoots FFS=3.28 crossing but converges to deeper final val plateau.
+  - Per FFS-PRIMARY directive #1262 and pre-declared CLOSE band → closed FFS-NEG. No n=8 extension (asymptotic μ can't reach 2862.5).
+  - Memory rule [[lr_cooldown_shape_doubly_closed_at_r5]] added. Cooldown shape axis doubly-closed: first via PR #1989 sweep (linear/cosine/concave/convex/step neutral), now via #2196 n=4 confirming cosine wins FFS even when linear shows striking val improvement.
+- **PR #2133 fern depth-graduated-mlp-lr-D-n4-inverse CLOSED FFS-NEG (119th R5 closure):**
+  - n=4 confirm of D-cell (lr_depth_scale=−0.15 INVERSE) following n=1 dual-metric attractor split signal.
+  - μ_4(FFS_ema)=2900.0 (σ=25.0) — 2/2 split between {2875, 2925}. μ_4(ema_corr_val)=3.27079 (+0.00072 WORSE).
+  - Textbook [[r5_n1_to_n4_reversion_dual_metric_attractor]] reversion. n=1 D signal was single-trial lucky split favoring FFS_trainval-low branch.
+  - BOTH musoft-aligned (B★+0.15, C+0.30 monotone-degrading at n=1) AND inverse falsifier (D-n4) confirm FFS-NEG → per-block MLP LR axis doubly-falsified.
+  - Mechanism: NS5 already does per-layer spectral conditioning; depth_init_mode=musoft already calibrates per-layer norm balance. Per-block MLP LR scaling on top over-specifies — aligns with musoft → double-counts → hurts; opposes musoft → fights stack → reverts to canonical attractor.
+  - Memory rule [[per_layer_mlp_lr_scaling_axis_closed_at_r5]] added.
+- **Closure cumulative count:** 119 R5 closures. Cooldown shape axis closed (doubly). Per-block MLP LR scaling axis closed (dual-direction falsified). NS5 polynomial coefficients closed (#2184 117th). AdamW aux tetrad fully closed.
+- **2 parallel researcher-agents dispatched** (background) with orthogonal axis focus:
+  - Thorfinn researcher: loss function variants, activation/normalization, token-level mechanisms, numerical precision, init at scale
+  - Fern researcher: attention mechanism, Muon iteration count, cross-layer mechanisms, frequency/spectrum mechanisms
+  - Both told to avoid the in-flight 6 PRs + the 13-item HARD REJECT list.
+- **Fleet status (08:00Z) — 6/8 active + 2 researcher-driven idle:**
+
+| PR | Student | Assignment | Active state | Status |
+|---|---|---|---|---|
+| #2223 | alphonse | pos-loss-ramp n=4 | n=4 confirm step 715/3250 (~22%) | **CRITICAL WATCH** |
+| #2245 | askeladd | adamw-skip-step | A_ctrl-n1 step 1288/3250 (~40%) | running |
+| #2195 | edward | soap-gram-tikhonov-v2 | D running, E queued | B hit attractor → n=4 planned |
+| #2235 | frieren | post-ns5-dir-ema-gate | B-star-relu-b0 step 553 (warmup) | A_ctrl ✓ FFS=2875 |
+| #2209 | nezuko | logit-cap-cooldown | C-loose20 step 2639/3250 (~81%) | healthy chain → D queued |
+| #2213 | tanjiro | clip-aux-norm | Cprime-embed350 step 2137/3250 (~66%) | running |
+| — | thorfinn | researcher-driven idle | awaiting fresh hypothesis | researcher dispatched |
+| — | fern | researcher-driven idle | awaiting fresh hypothesis | researcher dispatched |
+
+- No new human gh issues for r5 (last: #1262 5/26 FFS-PRIMARY directive). No PRs in status:review.
 
 ### Notes (2026-06-02 07:45Z) — alphonse n=4 LAUNCHED + fleet status snapshot
 
