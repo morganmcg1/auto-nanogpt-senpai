@@ -1,3 +1,34 @@
+## 2026-06-02 04:35 UTC — Cycle 71 mid-562 — frieren #2205 CLOSED (468th refute / **6th SOLO-ONLY CONFIRMATION — SUBSTRATE-ORTHOGONAL COMPOUND FLOOR-BAND — SOLO-ONLY MECHANISM-CLASS-UNIVERSAL** at 45% prior REALIZED; bilateral mean 3.271305 floor-band; Adam×Muon-SOAP zero-param-group-overlap compound STILL CANCELS; frieren #2233 SCALARS-RESET M=2 F=1.0 ISOLATED assigned 40/45/10/5 priors — SCALARS substrate M-axis closure complementary to edward #2216 M=1). fern #2227 CLOSED (467th refute / 12th AXIS DOUBLY REFINED — MLP-SOAP DESTAB-CLASS-SPECIFIC ON EMBED SUBSTRATE; fern #2232 EMBED M=3 F=0.5 ISOLATED F-binary-cliff assigned). Fleet 8/8 WIP. Cumulative: **468 refuted / 319 mech classes / 291 family closures / 13 axes (axis 12 doubly refined) / 68 RTM precedents / 53 pod-stability observations**.
+
+### fern #2227 CLOSED — 467th refute / 12th AXIS DOUBLY REFINED ON EMBED SUBSTRATE
+
+**Bilateral terminal — EMBED substrate POD-BLOCK (MLP-SOAP invisible)**:
+- Arm A `tp5bmhwc` SEED=1: val@125=NaN, killed step 531
+- Arm B `l7ts5tbn` SEED=2: val@125=NaN, killed step ~476
+
+12th axis DOUBLY confirmed: LM_HEAD M=2 F=1.0 RESET → BUFFERED (#2191); EMBED M=3 F=1.0 JOINT-DISPATCH → POD-BLOCK (this PR); PROJ-ONLY × PKB1 DISPATCH → POD-BLOCK (#2222). DESTAB-CLASS-SPECIFIC confirmed cross-substrate.
+
+**fern #2232 next**: EMBED M=3 F=0.5 ISOLATED — 13th-axis F-binary-cliff. F=0.99 and F=1.0 both POD-BLOCK byte-identical. Does F=0.5 also destabilize? Priors: 60% POD-BLOCK F-INVARIANT / 30% STABLE / 10% MILD-DRIFT.
+
+### frieren #2205 CLOSED — 468th refute / 6th SOLO-ONLY (SUBSTRATE-ORTHOGONAL COMPOUND)
+
+**Bilateral terminal — SCALARS-HIGHER β1=0.9 × MLP-SOAP front=fast**:
+- Arm A `eenpf6yl` SEED=1: 3.27204 @ step 3175, first_step_to_target=3050
+- Arm B `eipfgnxh` SEED=2: 3.27057 @ step 3175, first_step_to_target=3025
+- n=2 mean: **3.271305** (Δ vs baseline = +0.00354, stat margin 0.01230 ≥ 0.004 ✓)
+
+6th SOLO-ONLY — MECHANISM-CLASS-UNIVERSAL: substrate-orthogonal (Adam × Muon-SOAP, zero param-group overlap) STILL cancels. SOLO-ONLY structural, not optimizer-state artifact. MERGE-bar break requires new mechanism family beyond stacking.
+
+**frieren #2233 next**: SCALARS-RESET M=2 F=1.0 ISOLATED — complementary to edward #2216 M=1. Closes SCALARS substrate × {M=1, M=2} × F=1.0 stability matrix. Priors: 40% POD-BLOCK (LM_HEAD-like) / 45% STABLE (EMBED-like) / 10% sub-floor / 5% independent.
+
+### Cycle 71 mid-562 fleet status
+
+Fleet 8/8 WIP. In-flight: alphonse #2215 (n=4 variance), edward #2216 (SCALARS-RESET M=1 F=1.0), askeladd #2217 (MLP-SOAP back=fast), thorfinn #2218 (MLP-SOAP × LM_HEAD M=1 F=1.0 buffering), tanjiro #2230 (PROJ-ONLY ATTN-SOAP pruning ablation), nezuko #2231 (DISPATCH × QKV-ONLY cardinality-specificity), fern #2232 (EMBED M=3 F=0.5 F-cliff), frieren #2233 (SCALARS-RESET M=2 F=1.0 isolated).
+
+Cumulative: **468 refuted / 319 mech classes / 291 family closures / 13 axes (axis 12 doubly refined) / 68 RTM precedents / 53 pod-stability observations**.
+
+---
+
 ## 2026-06-02 04:01 UTC — Cycle 71 mid-560 — nezuko #2222 CLOSED (466th refute / **MLP-SOAP IS DESTAB-CLASS-SPECIFIC — 12th AXIS DECISIVELY REFINED — BUFFERS RESET-CLASS BUT NOT DISPATCH-CLASS DESTABILIZERS** at 45% prior REALIZED with MAXIMUM CERTAINTY; BYTE-FOR-BYTE trajectory identity to #2214 down to 15-significant-digit grad_norm precision — MLP-SOAP front=fast is INVISIBLE to dispatch-class destab; 5th byte-identical step-125=147,984,768 observation; dispatch destab lives UPSTREAM of MLP-SOAP preconditioner allocation; nezuko #2231 DISPATCH × QKV-ONLY ATTN-SOAP cardinality-specificity test assigned 50/40 priors). Fleet 8/8 WIP. Cumulative: **466 refuted / 317 mech classes / 289 family closures / 13 axes (axis 12 refined) / 68 RTM precedents / 53 pod-stability observations**.
 
 ### nezuko #2222 CLOSED — 466th refute / 12th AXIS REFINED — DESTAB-CLASS-SPECIFIC BUFFER
