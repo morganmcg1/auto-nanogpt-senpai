@@ -1,3 +1,40 @@
+- **Date:** 2026-06-02 09:58Z (cycle c790g-52 — **1 HB ACK landed CATALOG-DEEP: #2248 tanjiro HB1 PASS-CRITICAL Arm A eps=1e-4 ctrl val=3.26142 = +0.149σ_seed CLEANEST SEED=0 ctrl this c790g cycle + NEW CATALOG-CANDIDATE [[newton-muon-eps-saturates-r-inv-sqrt-at-warmstart-fire-step]] (R_inv_sqrt step-125 = 99.6817 ≈ 1/√eps=100; eps DOMINANT floor at fresh-R-buffer, decays to vals-dominated regime by step 500; brand-new NM-axis mechanism) + Arm B eps=1e-5 launched atomic 09:53:54Z bit-id PASS step-125 prediction R_inv_sqrt ≈ 316 testable in ~3min + [[seed-0-ctrl-cohort-c790g-cycle-late-window-hot-drift]] CATALOG-REFINEMENT now 3-of-5 NOT 3-of-4 HOT (tanjiro NORMAL +0.149σ same launch-window as askeladd HOT) → HOT-band wave-localized but NOT deterministic/universal — CUDA non-determinism noise HETEROGENEOUS across same-window concurrent training jobs. 8 PRs in flight 0 idle students. HB-wave delayed beyond 09:30-10:16Z window (step_avg inflation under 100% GPU contention) — fern/frieren HB likely ~10:30Z; nezuko/thorfinn PP-HB1 ~10:30Z; askeladd HB2 ~10:30-11:00Z.**)
+
+**#2248 tanjiro HB1 ACKed PASS-CRITICAL-CATALOG-DEEP** (09:56Z):
+- Arm A eps=1e-4 ctrl val=3.26142 = +0.149σ_seed WITHIN drift gate ±0.0019
+- FFS=3125 (−8.33 below baseline 3133.33, FAV-direction)
+- **CLEANEST SEED=0 ctrl tracking this c790g cycle** (vs fern 0.29σ, thorfinn 0.47σ, askeladd 2.00σ HOT, nezuko 2.40σ HOT)
+- Step-125 R_inv_sqrt_norm_mean = **99.6817 ≈ 100 = 1/√(eps=1e-4)** — basically saturated
+- Step-500 R_inv_sqrt = 70.80 → eigenvalues grown enough that vals_i + eps ≈ vals_i; eps influence fades
+- Arm B eps=1e-5 launched atomic 09:53:54Z, W&B `o0550l5q`, banner+bit-id PASS, ETA terminal ~12:13Z
+- **NEW CATALOG-CANDIDATE [[newton-muon-eps-saturates-r-inv-sqrt-at-warmstart-fire-step]]**: At step 125 (post-K=100 warmstart fire + 25 NM updates), R-buffer dominated by Muon²-EMA producing eigenvalues vals_i ≤ eps for most params → 1/√(vals_i+eps) ≈ 1/√eps. EPS is the DOMINANT floor at fresh-R-buffer, NOT a numerical-safety vestige. Decays to vals-dominated regime by step 500 = TRANSIENT warmstart-step amplifier. Distinct from existing NM catalog candidates: vs [[grad-clip-modal-active-100pct-bracket-is-LR-scale-axis]] (clip is LR-scale), vs [[cross-K-warmstart-fire-step-fingerprint]] (K-axis is fire-step measurement window not amplitude saturation level), vs [[clip-r-buffer-decoupling-modern-nm-stack-absorbs-post-clip-magnitude]] (clip absorbed by NM stack; eps NOT absorbed at fresh-buffer).
+- **Testable HB2 predictions**: Arm B step-125 R_inv_sqrt ≈ 316 (10× larger); Arm C ≈ 31.6 (3× smaller). HB2 at ~12:13Z.
+
+**[[seed-0-ctrl-cohort-c790g-cycle-late-window-hot-drift]] CATALOG-REFINEMENT** — now n=5 SEED=0 Arm A ctrl observations:
+
+| PR | Launch time | Arm A SEED=0 val | Δ vs μ | σ_seed | HOT/NORMAL |
+|---|---|---|---|---|---|
+| #2234 fern | 05:02Z | 3.26164 | +0.00046 | +0.29σ | NORMAL |
+| **#2248 tanjiro** | **07:27Z** | **3.26142** | **+0.00024** | **+0.149σ** | **NORMAL (cleanest)** |
+| #2236 askeladd | 07:53Z | 3.26441 | +0.00323 | +2.00σ | HOT |
+| #2199 nezuko | 07:49Z | 3.26504 | +0.00386 | +2.40σ | HOT |
+| #2204 thorfinn | 07:54Z anchor | 3.26194 +1.07σ_anchor | +0.00076 | +0.47σ | borderline-HOT |
+
+- **3-of-5 HOT NOT 3-of-4** — HOT-band not universal within same 07:30-08:00Z launch window
+- tanjiro launched 07:27Z (basically same window as askeladd 07:53Z HOT) but is the CLEANEST ctrl this cycle
+- Refined interpretation: HOT-band is wave-localized but NOT deterministic — CUDA non-determinism noise is HETEROGENEOUS across same-window concurrent training jobs
+- Consistent with sub-σ_seed paired-Δ noise events being random across runs rather than systematically biased
+
+**HB-wave running LATE** (delayed beyond 09:30-10:16Z window — step_avg inflation under 100% GPU contention):
+- #2234 fern Arm B HB2 ~10:30Z (slipped from 09:55Z)
+- #2249 frieren Arm A HB1 ~10:30Z (slipped from 09:30Z)
+- #2199 nezuko PP-confirm HB1 ~10:30Z (slipped from 10:00Z)
+- #2204 thorfinn PP-confirm HB1 ~10:30Z (slipped from 10:02Z)
+- #2236 askeladd HB2 ~10:30-11:00Z (slipped from 10:16Z)
+- #2248 tanjiro Arm B step-125 fingerprint ~09:59Z (3min, fast) → HB2 ~12:13Z
+
+---
+
 - **Date:** 2026-06-02 09:48Z (cycle c790g-51 — **2 HB2-PP ACKs landed CRITICAL-CATALOG-DEEP: #2177 alphonse + #2179 edward BOTH cross-seed SIGN-FLIP from SEED=0 single-seed FAV to SEED=1 NULL/NEG = [[single-seed-headline-attrition]] CATALOG-CONFIRMED at 2 axes simultaneously (NS_STOC + NM_BETA) + 2 NEW catalog candidates ([[paired-test-with-fresh-launch-ctrl-noise-dominates-sub-sigma-axis-effects]] from #2177 — n=1 paired Δ at sub-σ_anchor NOT distinguishable from CTRL-cohort tail-event; [[r-buffer-mechanism-direction-preserved-magnitude-collapsed-cross-seed]] from #2179 — precond_ratio direction preserved both seeds but magnitude HALVED s0→s1) + portfolio-wide [[single-seed-headline-attrition]] pattern emerging at 2-of-4 c790g PP-confirms with 2 more pending (nezuko/thorfinn ~10:00Z) + alphonse n=2 partial cohort WAFER-THIN G1 margin −0.18σ_paired_n3 → SEED=2 decisive arm at 3.26077 boundary + edward n=3 merge gate INFEASIBLE (required Δ_BA_s2 ≤ −1.21σ very unlikely after s1 sign-flip). 8 PRs in flight 0 idle students. Dense HB-wave 09:50-10:16Z incoming (fern/tanjiro/frieren HB1/HB2 + askeladd HB2 + nezuko/thorfinn PP-HB1).**)
 
 **#2177 alphonse PP-confirm HB2 ACKed PASS-CRITICAL-CATALOG-DEEP** (09:47Z):
