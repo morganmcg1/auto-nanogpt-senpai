@@ -16363,3 +16363,33 @@ Cooldown sharpening SLOPES are similar across all 3 arms (~-0.011 from step 3000
 
 **Next for nezuko:** Fresh mechanism-distinct axis assignment H378.
 
+
+## 2026-06-02 00:50 UTC — PR #2158 SENT BACK: H372 tanjiro Adan BODY pre-NS5 — 1st CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class entry of cycle ~2700 + monotone β₃ dose-response
+
+- Branch: `g1r3-tanjiro/h372-adan-body-pre-ns5`
+- Hypothesis: Adan 3rd-moment gradient-difference term applied to BODY MuonH update BEFORE NS5 polar step. Adan formula: `(1-β₂)·sign(grad - prev_grad)·sqrt(third_moment)` added to standard Nesterov update.
+- Cycle ~2700 cumulative: **225 NULL/NEG/TIE + 1 MERGED WIN**.
+
+| Arm | `body_adan_beta3` | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 | Class |
+|-----|-------------------|----------|-----|---------------------|-----------|-------|
+| arm_a CTRL sentinel | -1.0 | 3.27003 | **3050** | (ref) | +0.21σ | Pattern A +50, 31st candidate H266 cluster anchor |
+| arm_b ADAN_PAPER | 0.99 | 3.26973 | **3025** | **-0.34σ** | +0.18σ | Pattern A +25, CANALIZED TIE |
+| arm_c ADAN_FAST | 0.95 | **3.26927** | **3025** | **-0.86σ** | +0.12σ | Pattern A +25, **CANALIZED TIE with MILD-POSITIVE drift** |
+
+**Monotone β₃ dose-response on val/loss:** smaller β₃ → lower val. ~-0.52σ per 0.04-unit β₃ decrease. Sub-σ but consistent monotone trend.
+
+**Critical mechanism observation:** Both Adan arms produce val improvement (-0.34σ / -0.86σ) but **identical FFS=3025**. The val gain occurs during LATE COOLDOWN sharpening (steps 3025→3325), NOT in pre-cooldown trajectory (FFS-relevant region). The 3rd-moment correction survives NS5 polar projection enough to nudge late-cooldown val DOWN but NOT enough to advance the first-step-to-3.28 crossing.
+
+**Mechanism-class taxonomy: 1st CANALIZED-TIE-with-MILD-POSITIVE-DRIFT class entry** of cycle ~2700 — joins TIE-on-FFS family but DISTINCT in that val/loss drifts measurably (sub-σ) BELOW CTRL while FFS stays in cluster. Rare positive signal at H266 stack.
+
+**Mechanism asymmetry vs H169 Adan AUX NEG:** Adan's 3rd moment produces measurable MILD-POSITIVE drift on BODY pre-NS5 but CATASTROPHIC NEG on AUX (H169). NS5 polar projection apparently absorbs the curvature signal more productively than AdamW's `sqrt(v)` divisor does. Confirms BODY/AUX mechanism-asymmetry as load-bearing structural feature.
+
+**Decision: SEND BACK** for β₃<0.95 dose-response extension per student suggested follow-up #1.
+- arm_a CTRL (β₃=-1.0, fresh noise floor)
+- arm_b β₃=0.9 (extends monotone dose-response)
+- arm_c β₃=0.5 (extreme, locates productive band edge or U-shape inversion)
+
+Rationale: Although FFS<3000 merge probability is LOW (val gain is post-cooldown not pre-cooldown), the dose-response extension fully characterizes the β₃-axis with minimal GPU cost (same code, same protocol, 5h 30m chain). Closes axis cleanly in one cycle.
+
+**Pattern A bit-id verification:** Step-0 val=10.82583 EXACT on all 3 arms. arm_a sentinel branch verified bit-id with production MuonH code path.
+
