@@ -1,3 +1,42 @@
+## 2026-06-02 ~07:45 UTC — Cycle 71 mid-569 — thorfinn #2243 CLOSED (474th refute / **ABOVE-FLOOR DEGRADATION — MLP-SOAP × PER_KIND_BETA1_LM_HEAD=0.7 COMPOUND DESTRUCTIVELY INTERFERES** — Arm A val@500=3.806 decisive kill, refute on n=1 at 10% prior REALIZED; env var correction: post-PR2153 canonical value names are `PER_KIND_BETA1_*` not `AUX_BETA1_*`; thorfinn #2251 PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD depth-axis trust gate assigned). Fleet 7/8 WIP (nezuko HOLD). Cumulative: **474 refuted / 324 mech classes / 296 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability observations + 1 POD-BROKEN-CONFIRMED**.
+
+### thorfinn #2243 CLOSED — 474th refute / ABOVE-FLOOR DEGRADATION (10% prior REALIZED)
+
+**Single-arm kill — Arm A `njyoe40p` KILLED at step ~903/3175**:
+- val@500=3.806 vs kill gate 3.55 → Δ=+0.256 (decisive)
+- Trajectory monotonically lagging disabled-check by ~125 steps
+- Curve flattening (step 750→875 Δ=−0.025 per 125 steps)
+- Arm B NOT launched (decisive single-arm kill justified, saves 1h GPU)
+
+**Mechanism finding**: MLP-SOAP front=fast × PER_KIND_BETA1_LM_HEAD=0.7 compound DESTRUCTIVELY INTERFERES. Both mechanisms productive when ISOLATED (#1577 best 3.26992; #2218+#2191 floor-band buffered) but compound slows output-projection learning beyond either individual mechanism. First confirmed destructive compound at 10% prior.
+
+**Env var correction (PR2153 cherry-pick)**: canonical per-kind β1 VALUE names are `PER_KIND_BETA1_EMBED/LM_HEAD/SCALARS` (no AUX in middle). Gate flag remains `PER_KIND_AUX_BETA1_ENABLED`. Updated memory note.
+
+### thorfinn #2251 next — PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD depth-axis trust gate
+
+Fresh state-phase × depth axis. Split ATTN_SOAP_TRUST_THRESHOLD by depth-half:
+- Arm A FRONT-LOOSE: front=0.80, back=0.90 (more SOAP in early-depth layers)
+- Arm B BACK-LOOSE: front=0.90, back=0.80 (more SOAP in late-depth layers)
+- Depth split=6 (layers 0..5 front, 6..11 back)
+- Priors: 30% front-loose merge break / 35% direction-symmetric null / 25% back-loose merge break / 10% degradation
+- Requires PR2153 cherry-pick (commit 4130c311) for SEED hook + ~20 LOC infra impl
+
+### Cycle 71 mid-569 fleet status
+
+Fleet 7/8 active (nezuko POD-BROKEN).
+- alphonse #2215 (n=4 variance): nudged for SEED=5 duplicate kill, awaiting response
+- askeladd #2217 (MLP-SOAP back=fast): near-terminal
+- tanjiro #2230 (PROJ-ONLY ATTN-SOAP pruning ablation): in-flight
+- frieren #2233 (SCALARS-RESET M=2 F=1.0): Arm A `u8h2e77o` near-terminal (~08:00Z)
+- fern #2238 (PER_DEPTH_HALF_MUON_LR): unblocked, expect arms launching
+- nezuko #2241 (AUX_CLIP_NORM): **HOLD — POD-BROKEN pending issue #2250 remediation**
+- edward #2244 (PER_KIND_MUON_LR attn-vs-mlp): in-flight early steps
+- thorfinn #2251 (PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD): ASSIGNED
+
+Cumulative: **474 refuted / 324 mech classes / 296 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability observations + 1 POD-BROKEN-CONFIRMED**.
+
+---
+
 ## 2026-06-02 ~07:30 UTC — Cycle 71 mid-568 — **g1r2-nezuko POD-BROKEN CONFIRMED + STANDING AUDIT FILED for PR2237 axis-14 closure** — nezuko #2241 NOT-A-REFUTE (POD-BLOCK at disabled-check, byte-identical baseline path; cross-pod control on tanjiro `1zb5h0e5` reaches val/loss=4.42 at step 125; pre-event passing canary `mnm5jf3v` 2026-05-31 08:05:47 UTC; data integrity confirmed; hardware/CUDA-state fingerprint nf=147,758,208 step-1 byte-identical to #1239); issue #2250 [HUMAN-NEEDED] filed by morganmcg1 for pod remediation; sent #2241 status:review → status:wip; **CRITICAL AUDIT CONCERN**: PR2214/PR2231/PR2237 "BITFIELD-INVARIANT cascade attractor" closures all on broken pod since 2026-05-31 10:22 UTC — may be pod-broken signatures, not configuration-driven; cascade attractor 147,984,768 at step 125 IS genuine cross-pod (fern pod #2212/#2220/#2227/#2232), but nezuko pod's contributions are unreliable. Fleet 7/8 WIP (nezuko POD-BROKEN, no new assignments until remediation). Cumulative: **473 refuted / 323 mech classes / 295 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability observations + 1 POD-BROKEN-CONFIRMED**.
 
 ### nezuko #2241 NOT-A-REFUTE — POD-BROKEN at disabled-check
