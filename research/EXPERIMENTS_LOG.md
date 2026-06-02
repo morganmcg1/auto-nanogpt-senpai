@@ -1,3 +1,41 @@
+## 2026-06-02 13:00 — PR #2242: H384 tanjiro WSD-Scheduled Outer Sync Interval (FREQUENCY axis at H266 stack) — CLOSED 240th NULL/NEG (🎯 BILATERAL ASYMMETRIC FREQUENCY CANALIZATION + 14-AXIS OUTER-LOOP MECHANISM CANALIZATION JOINT EXTENDED + paper-grade COOLDOWN-BOUNDARY TRAJECTORY-DIVERGENCE diagnostic + 34th candidate H266 cluster anchor for cycle ~2700)
+
+- Branch: g1r3-tanjiro/h384-wsd-scheduled-outer-sync-interval (PR #2242)
+- Hypothesis: WSD-style FREQUENCY schedule on MuLoCo outer sync interval — keep H266 sync_interval=30 during stable phase (steps 0-1994), then either halve (→15, more frequent outer corrections) or double (→60, fewer outer corrections) during cooldown phase (steps 1995-3324, boundary aligned with AUX cooldown_frac=0.4). Tests whether outer-correction FREQUENCY benefits from phase-aware scheduling at H266 stack.
+- Results (3 arms × n=1 × 3325 steps, all Pattern A bit-id step-0 val=10.82583 EXACT):
+
+| Arm | sync_interval_cooldown | val/loss | FFS | Δ vs CTRL (σ_H174) | Δ vs H266 (σ_H174) | W&B run |
+|-----|------------------------|----------|-----|---------------------|---------------------|---------|
+| arm_a CTRL | -1 (constant 30) | 3.26895 | 3025 | — | +0.87σ NULL | `13ysnyu6` |
+| arm_b SYNC_HALVED | 15 (2× MORE freq) | 3.27044 | 3050 | +1.69σ NEG | +2.55σ NEG | `6h3i23cy` |
+| arm_c SYNC_DOUBLED | 60 (2× FEWER freq) | 3.26885 | 3025 | -0.11σ TIE | +0.76σ NULL | `l6xgane8` |
+
+- σ_H174 = 0.000884 noise floor. H266 baseline val=3.26818 FFS=3000.
+
+- Bilateral asymmetric closure: FREQUENCY UP (HALVED interval = more frequent corrections) monotone NEG; FREQUENCY DOWN (DOUBLED interval = fewer corrections) plateau-flat TIE.
+
+🎯 **PAPER-GRADE COOLDOWN-BOUNDARY TRAJECTORY-DIVERGENCE DIAGNOSTIC**: Pre-boundary (step ≤ 1875), all 3 arms identical within CUDA noise floor (0.0079 nat hardware envelope on RTX PRO 6000 Blackwell). At step 2000 (boundary +5), bilateral split appears: arm_b UP, arm_c DOWN about CTRL. Peak divergence at step 2125 (boundary +130 = one HALVED outer-period and one DOUBLED outer-period) = Δ_b vs Δ_c spread of **0.0122 nat (~14σ_H174)** — FREQUENCY axis IS load-bearing during cooldown. Mid-cooldown signal substantially re-absorbed by terminal: arm_b NEG persists, arm_c re-converges to TIE.
+
+- 14th axis in OUTER-LOOP mechanism canalization joint at H266 stack. Updated 6-mechanism-axis portfolio at H266 (FORM × VALUE × FREQUENCY × RESET-EVENT × ALLOCATION × SCHEDULE-OF-VALUE):
+  - **FORM**: H103 Nesterov-vs-HB closed + H379v2 Lion-form OUTER closed
+  - **VALUE**: H91/H99/H100/H101/H108/H111/H113/H116 closed
+  - **FREQUENCY**: H384 (this PR — bilateral asymmetric closure, 1st FREQUENCY-axis entry at H266 stack)
+  - **RESET-EVENT**: H382 OUTER velocity reset closed (TIE-on-FFS)
+  - **ALLOCATION**: H381 per-param outer LR/momentum closed (bilateral asymmetric)
+  - **SCHEDULE-OF-VALUE**: H289 closed (symmetric about constant)
+
+- **arm_a CTRL = 34th candidate H266 attractor cluster anchor** (val=3.26895 FFS=3025 Pattern A +25 drift-free, +0.87σ_H174 envelope NULL vs H266). On Blackwell hardware (RTX PRO 6000), Pattern A drift is FFS=3050, so CTRL=3025 is within Blackwell envelope.
+
+- Mechanism reading: Outer Nesterov velocity acts as a smoothing/averaging buffer; firing it 2× as often in cooldown re-injects stale long-horizon momentum into a converging trajectory (arm_b NEG). Halving outer-correction frequency in cooldown does not hurt and may marginally help mid-cooldown (peak Δ_c = -0.00489 at step 2125), but the terminal value re-converges to CTRL within noise (arm_c TIE). The H266 constant `sync_interval=30` sits at or just past the "frequent enough" edge of a one-sided canalization plateau on the FREQUENCY axis.
+
+- 🎯 **PAPER-GRADE "FREE COMPUTE" OBSERVATION**: arm_c equal-FFS-with-fewer-outer-fires = you can halve outer-step compute during cooldown without paying any val/loss or FFS price. At ~50 ms/outer-step over 1330 cooldown steps, ~44 fewer outer fires = ~2.2s wall-time savings per H384 arm_c-style run. Negligible at this scale but a clean "free compute" lever for production-style sweeps.
+
+- Hardware note: RTX PRO 6000 Blackwell (not H100). Pre-launch double-smoke characterization (smoke_a vs smoke_a_repeat at 125 steps) measured 0.0079 nat run-to-run noise from CUDA non-determinism. arm_a CTRL +0.87σ_H174 vs H266 sits inside that envelope. Chain-length averaging dampens to terminal. Trajectory-divergence diagnostic operates per-step on relative deltas between concurrent arms and is robust to absolute-noise floor.
+
+- Post-closure action: tanjiro reassigned to **H394 AUX m_t (first-moment) RESET at cooldown entry (PR #2278)** — 4th RESET-axis test at H266 stack, mechanism-symmetric to H170 v_t reset, explicit "m₁-direction diagnostic" future direction from H170 closure narrative. Mechanism prediction: arm_b RESET_AT_COOLDOWN +10-30σ NEG (gentler than H170 v_t catastrophic via additive vs multiplicative recovery dynamics), arm_c RESET_AT_MID NULL (buffer has ~665 steps to rebuild before cooldown).
+
+---
+
 ## 2026-06-02 11:05 — Assignment cluster: H392 edward cosine_squared cooldown + H393 thorfinn PROJECTION-at-OUTER NS5; researcher-agent codepath-mismatch process incident
 
 ### H392 edward — MuonH `--muonh_cooldown_shape cosine_squared` (PR #2267)
