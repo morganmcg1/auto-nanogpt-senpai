@@ -1,3 +1,42 @@
+## 2026-06-02 ~10:30 UTC — Cycle 71 mid-575 — wake 9 frieren #2233 CLOSED as 477th refute / SCALARS SUBSTRATE M=2 F=1.0 FLOOR-BAND NULL + SUBSTRATE-CLASSIFICATION TAXONOMY ESTABLISHED (SCALARS=EMBED-pole; EMBED+SCALARS tolerate F=1.0 momentum reset; LM_HEAD does not — operative axis is parameter dimensionality / Adam state geometry, NOT output-facing position); frieren #2261 EMBED_RESET M=3 F=1.0 ISOLATED bilateral assigned (JOINT momentum+preconditioner reset on EMBED, completes EMBED column of substrate×M classification matrix). Fleet 7/8 active (fern POD-BROKEN HOLD, all others including frieren reassigned). Cumulative: **477 refuted / 327 mech classes / 299 family closures / 14 structural axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability + 2 POD-BROKEN-CONFIRMED**.
+
+### frieren #2233 CLOSED — 477th refute / SCALARS SUBSTRATE M=2 F=1.0 + SUBSTRATE-CLASSIFICATION TAXONOMY
+
+**Bilateral n=2:**
+- Arm A `u8h2e77o` SEED=1: val=3.27107 (floor band)
+- Arm B `ovhldwe4` SEED=2: val=3.269180 (sub-cluster-edge)
+- μ=3.270125, MERGE bar misses by +0.00237, stat margin 0.01396 ≥ 0.004 → RTM-NEGATIVE
+
+**Substrate-classification taxonomy (per student frieren's synthesis):**
+| Substrate × M | F=1.0 outcome | Pole |
+|---|---|---|
+| EMBED M=1 | STABLE 3.27063 (#2153) | EMBED-pole |
+| EMBED M=2 | STABLE 3.270913 (#2185) | EMBED-pole |
+| LM_HEAD M=1 | POD-BLOCK (#2145) | LM_HEAD-pole |
+| LM_HEAD M=2 | POD-BLOCK nf=234,624 (#2160) | LM_HEAD-pole |
+| SCALARS M=2 | STABLE 3.270125 (THIS PR) | EMBED-pole |
+
+**Operative axis:** parameter dimensionality / Adam state geometry (NOT output-facing position). SCALARS (1D bias/LayerNorm) + EMBED (high-dim token embeddings) both tolerate F=1.0 momentum wipe. LM_HEAD (2D output projection, high-LR Adam) does not. This is a META-axis (substrate-classification taxonomy), NOT a new structural axis count. Cumulative: 14 axes (with axis-14 audit standing).
+
+### frieren #2261 — EMBED_RESET M=3 F=1.0 ISOLATED bilateral (next)
+
+Completes the EMBED column of the substrate×M matrix. M=3 = JOINT reset (momentum + preconditioner simultaneously). Two prior cells STABLE on EMBED at M=1 and M=2 → 50% prior STABLE, 25% PRODUCTIVE (joint wipe regularizes EMBED), 25% DEGRADATION.
+- Arm A SEED=1: `PER_KIND_AUX_PERIODIC_RESET_EMBED_ENABLED=1 AUX_RESET_INTERVAL_EMBED=200 AUX_RESET_MOMENT_EMBED=3 AUX_RESET_PARTIAL_FACTOR_EMBED=1.0`
+- Arm B SEED=2: identical
+
+### Wake 9 fleet status (7/8 active, 0 idle)
+
+- alphonse #2215 (n=4 variance): Arm F `fl8ou15m` step 2175, ETA terminal ~10:55Z
+- askeladd #2257 (PER_KIND_AUX_BETA1_EMBED ISOLATED): Arm A `yybv8mwq` step 350 ETA ~12:00Z
+- frieren #2261 (EMBED_RESET M=3 F=1.0 ISOLATED): just assigned, pending pickup
+- edward #2244 (PER_KIND_MUON_LR attn-vs-mlp): Arm A 3.285627 ABOVE BASELINE (DEGRADATION), Arm B `p7e8if41` step 475 ETA ~11:30Z
+- thorfinn #2251 (PER_DEPTH_HALF_ATTN_SOAP_TRUST_THRESHOLD): Arm A `nmyqt4ur` step 3100 — TERMINAL IMMINENT
+- tanjiro #2255 (PER_DEPTH_HALF_MU_WARMUP_START): Arm A `2p3xn58v` step 525 — third launch, 24-min SIGTERM pattern (student investigating)
+- fern #2238 (PER_DEPTH_HALF_MUON_LR): **HOLD — POD-BROKEN issue #2252** (no human response yet)
+- nezuko #2241 (AUX_CLIP_NORM): **HOLD — POD-BROKEN issue #2250** (no human response yet)
+
+---
+
 ## 2026-06-02 ~09:55 UTC — Cycle 71 mid-574 — wake 8 fleet update, frieren #2233 Arm B terminal (BILATERAL READY, val=3.269180 Arm B sub-cluster-edge + Arm A val=3.27107 floor band → bilateral mean 3.270125 floor-band null, awaiting student submission); edward #2244 Arm A `obbaknj4` terminal val=**3.285627 ABOVE BASELINE** (DEGRADATION signal — MLP-TIGHT body-Muon LR), student auto-launched Arm B `p7e8if41` ETA ~11:30Z; tanjiro #2255 **24-MINUTE SIGTERM PATTERN DIAGNOSED** (three runs killed at exactly ~24 min each — wall-clock watchdog NOT pod-broken NOT training-instability, student instructed to grep for stale poll-watchers); askeladd #2257 Arm A `yybv8mwq` LAUNCHED at 09:39Z; nezuko #2241 stale_wip refresh comment posted (HOLD continues, pod-broken issue #2250 awaiting human remediation). Fleet 6/8 active + 2/8 HOLD. Cumulative unchanged: **476 refuted / 326 mech classes / 298 family closures / 14 axes (AXIS 14 UNDER AUDIT) / 68 RTM precedents / 53 pod-stability + 2 POD-BROKEN-CONFIRMED**.
 
 ### frieren #2233 BILATERAL TERMINAL — awaiting student SENPAI-RESULT submission
