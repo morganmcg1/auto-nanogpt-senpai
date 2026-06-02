@@ -1,3 +1,29 @@
+## 2026-06-02 11:05 — Assignment cluster: H392 edward cosine_squared cooldown + H393 thorfinn PROJECTION-at-OUTER NS5; researcher-agent codepath-mismatch process incident
+
+### H392 edward — MuonH `--muonh_cooldown_shape cosine_squared` (PR #2267)
+- Hypothesis: explicit deferred student suggestion from H139 cooldown shape analysis (this log L7625) never followed up. Prior 12-arm sweep (L16311) tested {linear, cosine, sqrt, quadratic} but NOT cosine_squared. Verified novel: 0 hits on `cosine_squared|cosine\^2|cos_squared` in EXPERIMENTS_LOG.
+- Mechanism: extend `--muonh_cooldown_shape` choices with `cosine_squared = (0.5·(1−cos(πc)))²`. Squares existing cosine ramp — at mid-cooldown c=0.5 cosine eta=0.5 vs cosine_squared eta=0.25, STRONGER mid-to-late drain. Mechanism-distinct from existing 4 shapes.
+- 3-arm chain: arm_a CTRL cosine (Pattern A bit-id) / arm_b COSINE² / arm_c COSINE² + cooldown_frac=0.5 (interaction probe). Implementation ~7 LoC.
+
+### H393 thorfinn — PROJECTION-at-OUTER NS5 orthogonalization on MuLoCo step (PR #2268)
+- Hypothesis: First PROJECTION-axis probe at OUTER scope. 13 prior OUTER closures (joint H91/H99/H100/H101/H103/H108/H111/H113/H116 + H379v2 + H381 + H382) all operate on scalar/vector axes (LR/momentum/sync_interval/sign-FORM/reset triggers/per-param allocation). NO closure tests matrix-PROJECTION on outer step direction. Verified novel: 0 hits on `outer.*ns5|ns5.*outer|orthogonalize.*outer|outer.*projection`.
+- Mechanism: at outer sync, NS5-orthogonalize the outer step direction `update = outer_momentum × outer_velocity + delta` for body 2D weights (`"blocks" in n`). Mechanism-distinct from H379v2 Lion sign-FORM (per-element vs whole-matrix spectral).
+- 3-arm chain: arm_a CTRL ortho=0 (Pattern A bit-id sentinel) / arm_b ortho=1 NS5 + F-norm preserve (strong-effect) / arm_c ortho=2 50/50 blend with raw (soft safety). Implementation ~15 LoC.
+
+### Process incident — researcher-agent `a85b13b2318034c34` codepath mismatch
+
+Replacement researcher-agent spawned to find 2 alternative axes for edward + thorfinn after H390 SWA + H391 AGC schedule REJECTED returned 2 proposals targeting a WRONG codebase: the proposals referenced `polar_express`, `_apply_normuon_variance_reduction`, `mantissa` BF16 buffer, and `momentum_buffer` — all NorMuon-family infrastructure. Grep verification on the active `records/track_3_optimization/train_gpt_simple.py` returned **0 matches** for any of those identifiers (40 hits on `muonh_mode|scale_invariant|MuonH` confirms MuonH-SI is the live optimizer). The NorMuon references trace to `records/track_3_optimization/results/20260504_muloco_normuonh/` historic record artifacts.
+
+Both proposals REJECTED as codepath-mismatch. Replaced with manually-verified axes (H392 + H393) via direct grep + L7625 deferred-suggestion mining. Cost: ~30 min advisor cycle on the 2nd researcher round; 0 GPU-time wasted (caught at advisor side before student smoke gate). Saved feedback memory `feedback_researcher_codepath_verification.md` to guard future cycles.
+
+This is the **2nd dedup-class failure mode** in cycle ~2700:
+1. **3-fresh-axes round** (`a338cb49462eb4c73`): H389 NOVEL ✓ but H390 SWA + H391 AGC schedule were DUPLICATES of H153/H149/H157 strategy-tier closures (caught at dedup-grep)
+2. **Replacement-axes round** (`a85b13b2318034c34`): both proposals targeted WRONG codebase entirely (caught at codepath-grep)
+
+Programme implication: at cycle ~2700 with 239 cumulative closures spanning ~50 mechanism classes, the researcher-agent's mechanism-novelty filter is overwhelmed by the saturated axis-closure landscape AND the agent's mental model of which optimizer is active drifts away from the H266 baseline. Going forward, advisor-side dedup-grep + codepath-grep are MANDATORY gates before assignment.
+
+---
+
 ## 2026-06-02 09:42 — PR #2228: H382 thorfinn Outer Velocity Reset at Cooldown Entry — CLOSED 239th NULL/TIE (🎯 OUTER-VELOCITY RESET-AT-COOLDOWN-ENTRY axis CANALIZED at H266 stack with TIE-on-FFS at best; 6-mechanism-axis OUTER-LOOP family closure adding TRAJECTORY-RESET-on-OUTER; TRAJECTORY-PRESERVATION dichotomy refinement extended from AUX to OUTER scope; H170 misclassification in PR brief corrected by student)
 
 - Branch: g1r3-thorfinn/h382-outer-velocity-reset-cooldown-entry
