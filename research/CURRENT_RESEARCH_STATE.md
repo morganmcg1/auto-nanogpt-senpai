@@ -1,3 +1,27 @@
+- **Date:** 2026-06-02 02:10Z (cycle c790g-35 — **2 HB ACKs LANDED (1 HB2 + 1 HB0): #2179 edward β=0.90 SECOND substantive single-seed FAV-direction signal joining HEADLINE-CANDIDATE portfolio + #2176 SEED=2 chain launched per c790g-34 advisor decision**)
+
+**#2179 edward HB2** (01:52Z + 02:08Z synthesis): **Arm B β=0.90 (~10-step EMA wash) Δ_BA=−0.00159 = −0.99σ_seed direction-FAV** — strongest single-arm FAV signal in c790g cycle BEHIND fern #2146 Arm B `constant` (−1.94σ_seed HEADLINE-CANDIDATE). val=3.26180 > baseline 3.26118 by +0.00062 G2 FAIL n=1. FFS=3150 (no FFS shift). R-buffer precond_ratio_mean Δ_BA −2.55% LIFT-band compression matches tanjiro #2176 γ-axis −3.39% to within 0.84pp → **[[r-buffer-compensation-reduction-shared-mechanism-channel]] NEW-CANDIDATE** multiple distinct axes deliver similar val improvement via shared R-buffer compensation reduction pathway via DIFFERENT mechanisms (γ-UP pre-decomp eigenvalue regularization vs β-DOWN faster EMA wash). No step-125-to-terminal direction flip on β-axis (contrast γ-axis flip from drag→FAV); β-axis is early-and-persistent FAV. Arm C β=0.98 in flight ETA HB-FINAL ~04:04Z. If Arm C direction-NEG → asymmetric β-DOWN-favoring confirmed → recommend PP n=3 follow-up at SEED={1,2} for HEADLINE-CANDIDATE-classification.
+
+**#2176 tanjiro SEED=2 HB0** (02:05Z): Per advisor c790g-34 decision SENT-BACK SEED=2 chain APPROVED. Arm A `b9yrow6e` launched 02:02:46Z + step:0 bit-id 10.82583 ✓ matches SEED=0/SEED=1 anchors + all 22 production env vars VERBATIM ✓ + chain runner distinct lock/state/pid (`pr2176_chain_seed2.lock`) avoiding clobber + pre-launch hygiene clean. ETA HB1 Arm A ~04:23Z, HB-FINAL ~07:00Z. Required Arm B SEED=2 val ≤ 3.26035 for pooled n=3 μ_test ≤ baseline 3.26118 (0.78σ below SEED={0,1} observed) — possible but requires significantly stronger FAV-direction at SEED=2 than at SEED=1. Modal prediction n=3 pooled μ_test 3.26154-3.26159 = +0.00036 to +0.00041 above baseline → catalog-PASSIVE-CONFIRMED-CROSS-SEED-DIRECTION-REPRODUCIBLE expected outcome.
+
+**Cross-axis HEADLINE-CANDIDATE convergence pattern** c790g cycle synthesis:
+- fern #2146 NS_COEF_SCHEDULE Arm B `constant` Δ_BA=−1.94σ_seed (PP-confirm SEED={1,2} in flight ETA ~05:30Z)
+- edward #2179 NEWTON_MUON_BETA Arm B β=0.90 Δ_BA=−0.99σ_seed (HB-FINAL pending ~04:04Z, PP-confirm if HEADLINE-CANDIDATE)
+- tanjiro #2176 NEWTON_MUON_TIKHONOV_GAMMA Arm C γ=0.025 SEED=0 Δ_CA=−1.12σ_seed → SEED=1 Δ_BA=−0.59σ_seed → SEED=2 in flight (PP-confirm closure ~07:00Z)
+- All 3 axes operate on R-buffer compensation reduction via DIFFERENT pathways — convergence supports SHARED-CHANNEL catalog candidate
+
+**Issue #2122 status**: r3-advisor confirmed addressed (2026-06-02T02:08:51Z); r4 had previously responded in prior cycles + no new directives.
+
+**Current PRs in flight (r4)** (all 8 active, 0 idle):
+- #2146 fern NS_COEF_SCHEDULE PP-confirm SEED=1 (HB1 ETA imminent, was ~01:44Z, slight wall delay; SEED=2 chain ETA ~03:50Z)
+- #2176 tanjiro γ=0.025 PP-confirm SEED=2 (Arm A in flight, HB1 ~04:23Z, HB-FINAL ~07:00Z)
+- #2177 alphonse NS_STOC_COOLDOWN ablation (Arm C ETA ~03:27Z)
+- #2179 edward NM_BETA bracket (Arm C β=0.98 in flight ~15%, HB-FINAL ~04:04Z)
+- #2181 askeladd EMBED_INIT_ANCHOR_LAMBDA (Arm B ETA ~02:30Z + Arm C ~05:05Z)
+- #2199 nezuko GRAD_CLIP_BODY bracket (Arm A ETA ~03:00Z)
+- #2200 frieren ADAMW_LM_HEAD_LR_MULT (Arm A HB1 ETA imminent, was ~01:50Z, slight wall delay; chain ETA ~05:40Z)
+- #2204 thorfinn GRAD_CLIP_AUX bracket (Arm A ETA ~03:00Z)
+
 - **Date:** 2026-06-02 01:47Z (cycle c790g-34 — **1 HB-FINAL DECISION SENT-BACK + 6 HB ACKs LANDED (1 HB2 + 1 HB1 + 4 HB0) + 2 CATALOG-NEW-CANDIDATES (dual independent confirm) + 1 CATALOG-MAJOR REVISION**)
 
 **#2176 tanjiro γ=0.025 PP-confirm SEED=1 HB-FINAL DECISION: APPROVE SEED=2 CHAIN — protocol completion required for catalog promotion class decision**
