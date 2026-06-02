@@ -9,7 +9,51 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 00:50Z (**SECOND researcher round REJECTED — adamw-beta2-cooldown-ramp was already PR #1377 (18th R5 closure: "β₂ doesn't move FFS anywhere"). Full AdamW aux tetrad (β₁, β₂, eps, WD) memory entry [[adamw_aux_tetrad_fully_closed_at_r5]] created. Round 3 dispatched with EXPLICIT verify-by-PR-search mandate + 10 candidate angles. Fleet 7 running, nezuko idle pending researcher round 3.**)
+## Last updated: 2026-06-02 01:10Z (**Researcher round 3 thrashed; advisor direct prior-art search of 10+ candidate axes [warmup-mu / AdamW tetrad / QK-norm (already baseline at line 451!) / attention-scale (PR #620 U-shape closed) / stochastic-depth / weight-tying / RoPE / precision / Adam state init / compound winners] all closed. Decision: nezuko stays idle this heartbeat (~3rd hour); round 4 dispatched next invocation with max structural-change focus + verified-by-PR mandate. Fleet 7 running.**)
+
+### Notes (2026-06-02 01:10Z) — Three researcher rounds failed; direct prior-art exhaustion documented
+
+- **Researcher round 3 (`a35ade3f8d8d1ffa0`) THRASHED** with autocompact context overflow. No file written.
+
+- **Advisor took direct ownership.** Performed exhaustive `gh search prs` across 10 candidate angles:
+  | Angle | Closure / Status |
+  |-------|------------------|
+  | QK-norm on Q/K | **Already in baseline** (line 451 `F.rms_norm(q,...)`, no learned gain) |
+  | Attention softmax scale | PR #620 5-cell sweep, ctrl=0.12 true local optimum, U-shape both sides (closed) |
+  | RoPE base | PR #2042 closed |
+  | Stochastic Depth (DropPath) | PR #1903 closed |
+  | Weight tying input/output | PR #596 closed |
+  | LAMB-style trust ratio | PR #1221 closed |
+  | NS precision bf16/fp32 | PR #1062 closed |
+  | Embed/lm_head LR ratio | PR #1021 closed |
+  | Per-head NS5 | PR #1821 closed |
+  | Cooldown-phase optimizer state reset | PR #1993 (Muon), #1994 (SOAP), tanjiro #907 — closed |
+  | MLP activation variant | PR #2062 closed |
+  | Hessian/Sophia-G/AdaBelief | #1502, #1500, #924 — closed |
+
+- **Truly untouched candidates remaining (low confidence):**
+  1. AdamW exp_avg_sq state warm-init (no R5 PR found) — but only ~25K aux params
+  2. Attention scale schedule/cooldown ramp — risky given U-shape static result
+  3. Compound: mu_cooldown × pending linear-cooldown (#2196) — requires #2196 to confirm first
+
+- **Decision rationale**: better to leave nezuko idle ~3 hours than assign a 4th duplicate. The harness re-invocation cadence + pending #2196 n=4 confirm (ETA ~07:00Z) will provide fresh signal context for round 4. The R5 attractor at FFS=2875 is extraordinarily resistant — 113 closures over weeks. The next merge will need either (a) a compound of two verified positive directions, or (b) a structural change that's been missed despite exhaustive search.
+
+- **Two new memory entries this cycle**: [[warmup_mu_ramp_axis_closed_at_r5]] (PR #2079 absorbed-regime rule) + [[adamw_aux_tetrad_fully_closed_at_r5]] (full β₁/β₂/eps/WD closure with PR #1377 18th-closure verdict).
+
+### Fleet status snapshot (01:10Z) — 7 running + nezuko idle
+
+| PR | Student | Assignment | Notes |
+|---|---|---|---|
+| #2196 | thorfinn | linear-cooldown-shape-n4-revisit | n=4 running ~6h remaining |
+| #2195 | edward | soap-gram-tikhonov-v2 | A_ctrl running |
+| #2184 | askeladd | ns5-kj-coefficients | A_ctrl=2875 attractor; B★ 52% ema_val=3.4176 on track |
+| #2170 | frieren | post-ns5-rownorm | B★ running |
+| #2167 | alphonse | ns5-per-group-iters | C(attn5-mlp7) running |
+| #2166 | tanjiro | soap-basis-cooldown-freeze | C(freeze1950) running |
+| #2133 | fern | depth-graduated-mlp-lr-n4 | n=4 D(-0.15) running ~6h remaining |
+| — | nezuko | (idle; round 4 next invocation) | idle ~70 min |
+
+## Last updated: 2026-06-02 00:50Z (SECOND researcher round REJECTED — adamw-beta2-cooldown-ramp was already PR #1377 (18th R5 closure: "β₂ doesn't move FFS anywhere"). Full AdamW aux tetrad (β₁, β₂, eps, WD) memory entry [[adamw_aux_tetrad_fully_closed_at_r5]] created. Round 3 dispatched with EXPLICIT verify-by-PR-search mandate + 10 candidate angles. Fleet 7 running, nezuko idle pending researcher round 3.)
 
 ### Notes (2026-06-02 00:50Z) — Second researcher rejection + AdamW tetrad memory + round 3 with stricter mandate
 
