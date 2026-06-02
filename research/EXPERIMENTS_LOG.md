@@ -1,5 +1,30 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r5
 
+## 2026-06-02 11:50Z — PR #2235 CLOSED FFS-NEG [post-ns5-dir-ema-gate; scalar cosine-similarity gate of NS5 update direction vs per-parameter direction EMA, 3-cell A_ctrl/B★/C sweep with mode∈{none/relu/soft} and β∈{0.9, 0.95}; gate engaged actively (mean cos sim 0.461 B★ relu, 0.685 C soft — NOT a no-op) but FFS-NEG in B★ (+125) and val-regressed in C; bridges to pre-NS5 closure as 'gradient/update magnitude is signal across optimizer path'; NS5 step-to-step directional variance is functional signal not noise to smooth] [122nd R5 closure]
+
+- branch: g1r5-frieren/post-ns5-dir-ema-gate
+- hypothesis: NS5 produces unit-norm outputs but no temporal consistency guarantee; the direction of orthogonalized update can rotate substantially between steps. A directional EMA gate acts as soft momentum filter in update-direction space (scalar gate, not per-element mask), suppressing high-rotation steps without changing the NS5 magnitude-normalization invariant.
+- 3-cell n=1 results (W&B `2ryspbd6`, `jfi0s3cx`, `x4eb0ztc`):
+
+| Cell | Mode + β | FFS_ema | best_val_loss | ema_corr_val | Δ vs A | Gate mean | Gate range |
+|------|----------|--------:|--------------:|-------------:|-------:|----------:|------------|
+| A_ctrl | none | 2875 | 3.26973 | 3.27014 | +0 (parity) | n/a | n/a |
+| **B★** | relu, β=0.9 | **3000** | 3.27635 | 3.27668 | **+125 / +0.0063** | **0.461** | min=0.197, q25=0.368, q75=0.566 |
+| **C** | soft, β=0.95 | **2875** | 3.27114 | 3.27152 | **+0 / +0.0011** | **0.685** | floor=0.599 (soft bounded ≥0.5) |
+
+- **Mechanism active across all cells** (telemetry-confirmed not no-op): B★ relu suppressed ~54% of update magnitude on average with min as low as 0.197; C soft suppressed ~31% with floor at 0.599. Cooldown tail (B★ last 3 steps: 0.32, 0.31, 0.32) shows the gate clamps hard during cooldown. First-step gate=1.0 (EMA-zero skip path correctly engaged).
+- **NS5 outputs DO have temporal variance** (cos sim ~0.5 with β=0.9 EMA), but **the variance is signal, not noise** — downweighting it starves the optimizer of legitimately changing gradient information. Relu strictly worse (can drive to near-zero on noisy steps, near-starving updates). Soft recovers FFS parity but with val regressed.
+- **Bridges to closed direction-modification family** — joins:
+  - `[[pre_ns5_gradient_transformation_axis_saturated_at_r5]]` (Muon-path pre-NS5: column norm, ZCA, RMSprop v_t)
+  - `[[aux_path_grad_magnitude_is_signal_at_r5]]` (AdamW-path: per-aux-group L2 grad clip)
+  - `[[sgld_annealed_noise_pre_ns_family_neg_at_r5]]` (annealed pre-NS5 additive)
+  - **NEW**: post-NS5 directional gate — same conclusion, fourth optimizer-path position
+- Mechanism interpretation: Muon's Nesterov μ momentum upstream of NS5 already smooths the gradient direction; a second temporal smoother in update-direction space over-attenuates the legitimately changing component of the orthogonalized update (risk #1 in PR body, now confirmed). Falsifier outcome: relu fails strict (FFS-NEG), soft fails soft (val regression at FFS parity).
+- Memory rule `[[post_ns5_directional_gate_axis_closed_at_r5]]` saved.
+- Student excellence note: per-step `post_ns5_gate_mean` telemetry ruled out 'no-op mechanism' AND 'wrong threshold' as failure modes — leaving only 'mechanism active but absorbed by NS5' as the proven falsification.
+- Suggested follow-ups (declined): reverse-polarity gate (high NaN risk), per-column gate (closed via #844 Cautious Muon family), μ-decouple gate (warmup-μ axis closed).
+- Action: PR #2235 closed FFS-NEG; fresh frieren hypothesis next.
+
 ## 2026-06-02 11:30Z — PR #2209 CLOSED FFS-NEG [logit-cap-cooldown-schedule; soft-logit-cap cooldown ramp from 15 → target during cosine LR cooldown phase, 4-cell A/B/C/D sweep with cap targets in {15-flat, 10, 20, 7.5}; monotone FFS regression with cap-target tightness, catastrophic late-step val divergence at tight7.5; cap=15 baseline at natural logit ceiling under SOAP+Muon+EMA at FFS-convergence; tightening saturates high-confidence tokens late in training and silences gradient signal driving final FFS approach; joins logit-magnitude closure cluster with z-loss (#2077), cap-value sweep (#2080), softcap variants] [121st R5 closure]
 
 - branch: g1r5-nezuko/logit-cap-cooldown-schedule

@@ -9,6 +9,41 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
+## Last updated: 2026-06-02 11:55Z (**122nd R5 closure + 8/8 fleet replenish. PR #2235 frieren post-ns5-dir-ema-gate CLOSED FFS-NEG with mechanism-rich falsification (gate engaged active mean cos sim 0.46-0.69 but FFS-NEG anyway — NS5 directional variance is signal not noise). Bridges to closed direction-modification family with pre-NS5/AdamW-aux/SGLD-noise = 4-position uniform closure: gradient/update magnitude is signal across optimizer path. Memory rule [[post_ns5_directional_gate_axis_closed_at_r5]] saved. PR #2271 frieren wd-warmup-prefix ASSIGNED (direct-constructed; orthogonal to in-flight loss-axis cluster) — tests WD schedule SHAPE via linear warmup prefix on existing ramp_down. Distinct from #1983 const-WD closure (which tested constant vs ramp_down). Alphonse #2223 n=4 confirm trial 0/1 both alive at FFS={2625, 2750}; worst-case μ_4 = 2806 (still clears merge gate by 56). Fleet back to 8/8 fully occupied.**)
+
+### Notes (2026-06-02 11:55Z) — 122nd R5 closure + frieren wd-warmup-prefix assigned + alphonse n=4 trial 1 also alive
+
+- **PR #2235 frieren post-ns5-dir-ema-gate CLOSED — 122nd R5 FFS-NEG (mechanism-rich):**
+  - A_ctrl ✓ FFS_ema=2875 (baseline parity, val=3.26973)
+  - **B★ (relu, β=0.9)**: FFS_ema=3000 (+125, val=3.27635, gate mean=0.461)
+  - **C (soft, β=0.95)**: FFS_ema=2875 parity but val=3.27114 (+0.0011, gate mean=0.685)
+  - Gate engaged ACTIVELY in both modes (not a no-op) — relu suppressed ~54% of update magnitude on average, with min=0.197 (near-starvation on noisy steps). Soft floor at 0.599.
+  - **NS5 update direction step-to-step variance is signal, not noise** — downweighting the divergent component starves the optimizer of legitimately changing gradient information.
+  - Memory rule `[[post_ns5_directional_gate_axis_closed_at_r5]]` saved (123rd R5 closure-family rule).
+  - **4-position uniform closure**: gradient/update magnitude is signal across pre-NS5 + post-NS5 + AdamW aux + SGLD-pre-NS5 additive paths. Future hypotheses of form "smooth/clip/regularize an optimizer intermediate" need NS5-bypass mechanism.
+- **PR #2271 frieren wd-warmup-prefix ASSIGNED** (direct-constructed; orthogonal to loss-axis cluster):
+  - Mechanism: pre-multiply existing `wd_schedule=ramp_down` output by linear ramp 0→1 over first `wd_warmup_frac` of training. After warmup, standard ramp_down continues unchanged.
+  - Distinct from `[[adamw_aux_tetrad_fully_closed_at_r5]]` (WD VALUE, not SCHEDULE SHAPE) and `[[lr_cooldown_shape_doubly_closed_at_r5]]` (LR shape, not WD shape).
+  - 4 cells: A_ctrl (0.0=baseline) → B★ (0.05 short warmup) → C (0.10 moderate) → D (0.30 long-warmup falsifier).
+  - Hypothesis NOT expected to BLOCKBUSTER — modest schedule-shape mechanism in a family that's often absorbed. Either alive (small FFS improvement from removing step-0 WD spike) or absorbed cleanly. Either way mechanism-rich result.
+- **Alphonse #2223 n=4 confirm SECOND ALIVE TRIAL** (W&B `ubh89k2w` ~step 6644/13000, trial 2 just started):
+  - Trial 0 FFS_ema=**2625** (Δ=−250 BLOCKBUSTER)
+  - Trial 1 FFS_ema=**2750** (Δ=−125 also alive! second consecutive non-attractor result)
+  - Worst-case μ_4 if trials 2+3 BOTH hit attractor ceiling 2925: μ_4=(2625+2750+2925+2925)/4 = **2806.25** → clears merge gate by **56.25 steps**. **THIS PR WILL MERGE.**
+  - ETA terminal ~15:10-15:20Z. Will be biggest R5 merge since #1966 (cosine cooldown shape).
+- **Fleet 8/8 fully occupied:**
+  - alphonse #2223 pos-loss-ramp n=4 (trial 2/4, BLOCKBUSTER imminent merge)
+  - edward #2195 soap-gram-tikhonov B(α=0.01) n=4 confirm running
+  - askeladd #2245 adamw-skip-step Cell B (K=2) in flight
+  - fern #2258 ema-teacher-kl-distillation A_ctrl ~87%
+  - thorfinn #2253 focal-loss A_ctrl ~99% (terminal imminent)
+  - tanjiro #2266 adamuon-rms-rescale A_ctrl
+  - nezuko #2270 entropy-weighted-ce A_ctrl
+  - **frieren #2271 wd-warmup-prefix just assigned** (pod pickup in ~5 min)
+- **No review-ready PRs, no new human issues** (#2122 Aurora addressed earlier; #2263/#2252/#2250 are r2 ops).
+
+---
+
 ## Last updated: 2026-06-02 11:45Z (**PR #2270 nezuko entropy-weighted-ce ASSIGNED (DIRECT-CONSTRUCTED — researcher autocompact-thrashed 3rd consecutive failure on huge PR context). Mechanism: per-token CE × normalized prediction-distribution entropy^γ. Loss-axis family alive at R5 (alphonse #2223 trial 0 BLOCKBUSTER FFS=2625). Distinct from alphonse (position) / thorfinn (target-prob focal) / fern (KL-teacher) — uses FULL distribution entropy not target-prob point estimate. 4 cells with B★ primary probe (γ=1.0), D inverse falsifier (γ=-1.0). Distinct from all closed loss-axes (label smoothing #1870, z-loss #2077, logit-cap #2080/#2209, aux clip #2213). Fleet back to 8/8 fully occupied.**)
 
 ### Notes (2026-06-02 11:45Z) — PR #2270 nezuko entropy-weighted-ce ASSIGNED + researcher 3rd consecutive failure
