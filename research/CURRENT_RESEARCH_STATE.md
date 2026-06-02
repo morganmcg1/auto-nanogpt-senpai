@@ -9,7 +9,19 @@ The human research team has redirected: **FFS (first-step-to-target, baseline 30
 3. **Prefer experiments that move the crossing step** (2800-3050 window), **simplify winning stacks**, **reveal FFS-load-bearing components**.
 4. **Ablations preferred over confirmations** when FFS dead.
 
-## Last updated: 2026-06-02 08:20Z (**PR #2253 thorfinn ASSIGNED: focal-loss-token-reweight (γ ∈ {0,0.5,1,2} confidence-modulated CE loss, ~12 LOC, first loss-reweighting at R5 after 323 PRs). Fern researcher round 2 in flight (SOAP β₂ rejected — axis exhausted via PR #2020 cooldown-ramp + 4 prior β₂ closures). Fleet 7/8 + 1 researcher-idle. alphonse #2223 n=4 continuing (step 715/3250 ~22%).**)
+## Last updated: 2026-06-02 08:35Z (**Fern researcher R2 REJECTED (attention_sink_token = adds learnable model parameter, violates "Keep model architecture fixed" contract); R3 in flight with expanded acceptable-axes brief. Fleet 7/8 + 1 researcher-idle (fern). alphonse #2223 D-n4-alpha2 trial step 1653/3250 (~51%) — n=4 confirm continuing. All 7 student pods healthy with fresh heartbeats <1 min.**)
+
+### Notes (2026-06-02 08:35Z) — Fern researcher R2 rejected (architectural addition); fleet healthy
+
+- **PR #2223 alphonse n=4 trial s0/4 at step 1653/3250 (~51%), val=3.49** (cooldown engaged). ~3.5h remaining on the 4-trial sequential chain. Decision gate: μ_4(FFS_ema) ≤ 2862.5 AND no seed ≥2900 → MERGE.
+- **PR #2195 edward** dose-response across A=2925/B=2875/C=2925/D=2925 confirms B cell hit the {2875, 2925} canonical seed-noise attractor. Non-monotone — classic single-trial luck. E (α=0.2) running step 1398/3250 (~43%). Student plans n=4 on B (~16:00Z), expected reversion per [[r5_n1_to_n4_reversion_dual_metric_attractor]].
+- **PR #2235 frieren A_ctrl ✓ FFS_ema=2875 baseline parity** (val=3.26973, ema=3.27014, run `2ryspbd6`). B★ (relu, β=0.9) at step 1983/3250 (~61%), val=3.43. C (soft, β=0.95) queued.
+- **PR #2245 askeladd A_ctrl-n1 at step 2735/3250 (~84%), val=3.31** — terminal expected ~30 min. Then B (K=2) and C (K=4) launch.
+- **PR #2213 tanjiro post-redirect Dprime (lm_head=35k, scalars=25k) at step 124/3250 (~4%)** — second per-group threshold cell now launching with corrected scale.
+- **PR #2209 nezuko D-tight75 at step 124/3250 (~4%)** — last cell of cap-cooldown chain after A/B/C ✓.
+- **PR #2253 thorfinn focal-loss-token-reweight** — assignment created 08:20Z; pod not yet picked up (typical 5-min poll lag). No W&B run yet.
+- **fern researcher R2 ROUND 2 REJECTED:** attention_sink_token (StreamingLLM-inspired) hypothesis added `self.sink_token = nn.Parameter(torch.zeros(1, 1, n_embd))` to CausalSelfAttention — a new learnable model parameter and architectural modification. Violates program.md line 34 "Keep model architecture fixed." Adding model parameters is NOT in the allowed levers list (which permits only: optimizer algorithm, hyperparameters/schedules, LR/momentum/WD/cooldown schedules, model init, telemetry). Sent R3 with expanded brief enumerating acceptable axes (loss reformulations, optimizer algorithm replacements, decoupled-update mechanisms within existing params, schedule innovations) and rejected axes (any new learnable param, architecture change, sequence length, batch size, grad accum, data, tokenization).
+- **No new human gh issues** (last: #1262 5/26 FFS-PRIMARY directive). No PRs in status:review. No status:stale_wip on any active PR.
 
 ### Notes (2026-06-02 08:20Z) — thorfinn #2253 ASSIGNED; fern researcher round 2 in flight
 
