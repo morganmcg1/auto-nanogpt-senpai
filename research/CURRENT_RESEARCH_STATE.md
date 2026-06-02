@@ -56,6 +56,39 @@
 6. Watchdog regex fix: issue #2263 (human infra team, 3 call sites in student-claude-watchdog.sh)
 7. Axis-14 standing audit: re-run #2237 on healthy pod after nezuko remediation
 
+## 2026-06-02 ~13:10 UTC — Cycle 71 mid-580 — wake 17 askeladd #2272 STUCK IN DISABLED-CHECK LOOP (3 consecutive disabled-check runs at 12:27/12:42/13:00Z all step 5/5 healthy → pod verified healthy → posted ADVISOR override to skip further disabled-checks and launch Arm A directly); alphonse #2265 Arm A `6ktpzd6r` TERMINAL val=3.2721 (LM_HEAD-TIGHTER β1=0.5 upper-floor-band-edge), Arm B `71izq42p` LM_HEAD-LOOSER β1=0.95 SEED=2 RUNNING step 375 ETA ~15:10Z; frieren #2261 Arm B `acwogf4u` SEED=1337 EMBED M=3 F=0.0 RUNNING step 525 ETA ~14:50Z; tanjiro #2255 Arm B `2xvm4rw3` BACK-LOOSE step 2675 val=3.333 healthy ETA terminal ~13:25Z; edward #2273 Arm A `jszcdioc` SCALARS M=3 F=0.0 step 950 healthy ETA ~14:30Z; thorfinn #2274 Arm A `828y3f5b` PER_DEPTH_HALF_AUX_BETA2 (front=0.9, back=0.999) step 775 ETA ~14:30Z. Fleet 6/8 active + 2 HOLD. POD-BROKEN HOLD refresh posted on nezuko #2241 + fern #2238 (issues #2250 + #2252 awaiting human response). Cumulative unchanged: **478 refuted / 328 mech classes / 300 family closures / 14 axes (AXIS 14 UNDER AUDIT) / 68 RTM / 53 pod-stability + 2 POD-BROKEN-CONFIRMED**.
+
+### askeladd #2272 STUCK — disabled-check loop, ADVISOR override posted
+
+Pattern: 3 consecutive disabled-check runs (step 5/5, val_loss ~7.3 = normal init-phase). Pod is healthy. Student not transitioning to Arm A. Matches `feedback_student_disabled_check_stall` memory pattern. Override comment posted instructing student to (1) skip further disabled-checks (pod verified), (2) cherry-pick 4130c311 if not done, (3) launch Arm A `askeladd-lm-head-m3-f0-arm-a` with the canonical PR env stack, (4) verify true zero on first reset event at step 200 (banner should show `norm X.XXX -> 0.0000`).
+
+### alphonse #2265 Arm A TERMINAL — val=3.2721 upper-floor-band-edge
+
+LM_HEAD-TIGHTER β1=0.5 single-arm terminal at step 3175 val=3.2721. Sits at the **upper edge of the floor band [3.27000, 3.27200]** — modestly above floor. Single-arm stat margin n=1 (3.28−3.2721)·√1 = 0.0079 ≥ 0.004 → satisfies stat rule per-seed, but n=2 protocol requires Arm B. Arm B `71izq42p` LM_HEAD-LOOSER β1=0.95 SEED=2 RUNNING step 375 ETA terminal ~15:10Z. Bilateral verdict awaits Arm B.
+
+Initial reading: TIGHTER direction at β1=0.5 lands above the proven productive anchor #1789 (LM_HEAD β1=0.7 → 3.26992). This suggests the productive notch on LM_HEAD-TIGHTER axis is around β1=0.7, NOT extreme β1=0.5 — going further TIGHTER overshoots productivity. If Arm B LOOSER β1=0.95 also lands floor-band or above, the verdict will be **DIRECTION-SYMMETRIC NULL** consistent with #1789 anchor sitting on a narrow productive ridge.
+
+### frieren #2261 EMBED M=3 F=0.0 — bilateral verdict awaits Arm B
+
+Arm A val=3.27068 floor-band (clean M=3 joint-wipe verified — 16 reset events with true `zero_()` in logs). Arm B `acwogf4u` SEED=1337 RUNNING step 525 ETA ~14:50Z. If bilateral mean lands floor-band, this is the first **true** F=0.0 EMBED null and re-establishes that EMBED substrate truly tolerates M=3 joint-wipe (not just baseline-equivalent telemetry).
+
+### Wake 17 fleet status (6/8 active + 2 HOLD)
+
+- alphonse #2265 (LM_HEAD ISOLATED β1): Arm A 3.2721 terminal; Arm B `71izq42p` step 375 ETA ~15:10Z
+- frieren #2261 (EMBED M=3 F=0.0 ISOLATED): Arm A 3.27068 terminal; Arm B `acwogf4u` step 525 ETA ~14:50Z
+- tanjiro #2255 (PER_DEPTH_HALF_MU_WARMUP_START): Arm B `2xvm4rw3` step 2675 ETA terminal ~13:25Z **IMMINENT**
+- edward #2273 (SCALARS M=3 F=0.0): Arm A `jszcdioc` step 950 ETA ~14:30Z
+- thorfinn #2274 (PER_DEPTH_HALF_AUX_BETA2): Arm A `828y3f5b` step 775 ETA ~14:30Z
+- askeladd #2272 (LM_HEAD M=3 F=0.0): STUCK in disabled-check loop — ADVISOR OVERRIDE POSTED to launch Arm A
+- fern #2238: HOLD POD-BROKEN issue #2252
+- nezuko #2241: HOLD POD-BROKEN issue #2250
+
+Issues open: #2250 (nezuko POD-BROKEN), #2252 (fern POD-BROKEN), #2263 (senpai watchdog regex bug).
+
+Next wake ~13:30Z to catch tanjiro #2255 Arm B terminal.
+
+---
+
 ## 2026-06-02 ~10:41 UTC — Cycle 71 mid-577 — wake 13+14 alphonse #2215 CLOSED as 478th refute (bimodal-productive-basin structural finding: productive levers don't compound additively; pooled n=6 mean 3.270476 misses MERGE by +0.002716, stat margin 0.023327 ≫ 0.004); CRITICAL F=1.0 NO-OP BUG-FIND by frieren in #2261 (PARTIAL_FACTOR=1.0 → `mul_(1.0)` = no-op, actual full-clear requires F=0.0; SUBSTRATE-CLASSIFICATION TAXONOMY from #2233 REVOKED; all three prior EMBED/SCALARS F=1.0 closures were baseline-equivalent no-ops); frieren #2261 relaunching with F=0.0 (first true M=3 joint-wipe test); alphonse #2265 PER_KIND_AUX_BETA1_LM_HEAD ISOLATED bilateral assigned. Fleet 6/8 active + 2 HOLD. Cumulative: **478 refuted / 328 mech classes / 300 family closures / 14 axes (AXIS 14 UNDER AUDIT) / 68 RTM / 53 pod-stability + 2 POD-BROKEN-CONFIRMED**.
 
 ### alphonse #2215 CLOSED — 478th refute / BIMODAL-PRODUCTIVE-BASIN STRUCTURAL FINDING
