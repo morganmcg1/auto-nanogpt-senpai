@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-06-02 00:55 UTC — PR #2148 askeladd: Cautious Adam (cAdam) applied to aux Adam group — ❌ BILATERAL NULL; cAdam axis EXHAUSTED on aux Adam stack; askeladd REASSIGNED → #2207 post-NS update EMA
+
+- Branch: `g1r1-askeladd/caut-adam-aux`
+- Hypothesis: Apply cautious Adam masking (m_hat/grad sign agreement mask) to the aux Adam optimizer group, in two activation windows: PERMANENT from step 0 (Arm A) vs TRANSIENT from step 975 cooldown onset (Arm B). Tests whether cAdam's "stale momentum suppression" improves the aux Adam subproblem.
+- W&B runs: `not2xz5c` (Arm A PERMANENT), `f4tgy5uc` (Arm B TRANSIENT @975)
+
+| Metric | Baseline #1532 | Arm A (PERMANENT, n=1) | Arm B (TRANSIENT @975, n=1) |
+|---|---|---|---|
+| `speedrun/first_step_to_target` | **2875** | **3025** (+150) | **3050** (+175) |
+| `val/loss_ema` (final) | **3.262854** | **3.27178** (+0.00893) | **3.27367** (+0.01081) |
+| Merge gate | — | ❌ FAIL | ❌ FAIL |
+
+Mechanism diagnostics: mask_fraction stable at ~0.558 (45% of aux Adam updates suppressed), confirming the mechanism is firing. But masking is HARMFUL on this aux Adam subspace — the embed/lm_head/scalar params benefit from "stale momentum" updates (useful smoothing), not suppression. Effective step shrinkage of ~45% per step under-steps aux params throughout the run. The null confirms cAdam does not generalize from full-network Adam (where it was published) to this well-conditioned, EMA-decoupled aux subproblem.
+
+**Conclusion:** cAdam axis CLOSED on the aux Adam stack. Combined with prior aux-Adam structural axis closures: β₁ pulse (#1592/#1639), β₁ DROP, m-reset (in-flight #2183), β₂ pulse decomposition (#2086), AdEMAMix dual-EMA (#2117), NorMuon (#2082). Reassigned to body-PMuon post-NS update EMA — addresses diagnosed bottleneck of insufficient polar update persistence in late-cooldown.
+
+---
+
 ## 2026-06-01 21:25 UTC — PR #2115 tanjiro: Body Muon momentum HARD-ZERO RESET @ step 2750 (pure vs fresh-μ window) — ❌ BILATERAL NULL; @2750 body-Muon momentum axis EXHAUSTED; tanjiro REASSIGNED → #2183 aux-adam-m-reset
 
 - Branch: `g1r1-tanjiro/momentum-hard-zero-reset`
