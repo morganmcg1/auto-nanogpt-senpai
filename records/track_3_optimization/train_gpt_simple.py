@@ -107,6 +107,16 @@ def parse_args():
                              "of training). Default=0.80 (winning value, PR #1966). "
                              "Set to None or 0.95 to disable the ramp. "
                              "Affects all muon_* param groups.")
+    parser.add_argument("--soap_freeze_basis_at_cooldown", action="store_true", default=False,
+                        help="If set, freeze the SOAP Kronecker eigenbasis (q_row/q_col) once "
+                             "the LR cooldown begins (step >= cooldown_start). Eliminates "
+                             "stochastic basis rotation events in the final convergence window. "
+                             "cooldown_start = int((1 - cooldown_frac) * train_steps), where "
+                             "cooldown_frac=0.7 (matches the hardcoded value in set_hparams).")
+    parser.add_argument("--soap_freeze_basis_step", type=int, default=None,
+                        help="If set, overrides --soap_freeze_basis_at_cooldown and freezes "
+                             "the SOAP Kronecker eigenbasis once soap_step >= this value. "
+                             "Used for ablations of the freeze threshold (e.g. 487, 1950).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -576,14 +586,18 @@ def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
     return precond.to(update.dtype)
 
 
-def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, precondition_frequency=PRECOND_FREQ):
+def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2,
+                               precondition_frequency=PRECOND_FREQ,
+                               freeze_basis_after_step=None):
     grad_f = grad.float()
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - shampoo_beta)
     state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - shampoo_beta)
     if state["q_row"] is None:
         state["q_row"] = soap_eigenbasis(state["row_gg"])
         state["q_col"] = soap_eigenbasis(state["col_gg"])
-    elif state["soap_step"] > 0 and state["soap_step"] % precondition_frequency == 0:
+    elif (state["soap_step"] > 0
+          and state["soap_step"] % precondition_frequency == 0
+          and (freeze_basis_after_step is None or state["soap_step"] < freeze_basis_after_step)):
         state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
             state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
         )
@@ -595,7 +609,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 soap_freeze_basis_after_step=None):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -618,6 +633,10 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.soap_freeze_basis_after_step = (
+            int(soap_freeze_basis_after_step)
+            if soap_freeze_basis_after_step is not None else None
+        )
 
         param_groups = []
         for g in groups_raw:
@@ -671,7 +690,10 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(
+                            p.grad, state,
+                            freeze_basis_after_step=self.soap_freeze_basis_after_step,
+                        )
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
@@ -779,6 +801,8 @@ if dist.get_rank() == 0:
             ),
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
+            "soap_freeze_basis_at_cooldown": bool(args.soap_freeze_basis_at_cooldown),
+            "soap_freeze_basis_step": args.soap_freeze_basis_step,
             "ns_iter": NS_ITER,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
@@ -876,13 +900,22 @@ for trial_idx in range(args.num_trials):
     attn_named = [(n, p) for n, p in named_blocks
                   if not (n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"))]
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
+    if args.soap_freeze_basis_step is not None:
+        soap_freeze_basis_after_step = int(args.soap_freeze_basis_step)
+    elif args.soap_freeze_basis_at_cooldown:
+        soap_freeze_basis_after_step = int((1 - 0.7) * train_steps)
+    else:
+        soap_freeze_basis_after_step = None
     optimizer2 = Muon(
         [
             dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        soap_freeze_basis_after_step=soap_freeze_basis_after_step,
     )
+    print0(f"[soap-basis-freeze] soap_freeze_basis_after_step={soap_freeze_basis_after_step}",
+           console=True)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
