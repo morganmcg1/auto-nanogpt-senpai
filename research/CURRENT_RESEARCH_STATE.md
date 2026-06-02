@@ -1,3 +1,40 @@
+- **Date:** 2026-06-02 07:40Z (cycle c790g-46 — **#2199 nezuko HB-FINAL → PP-CONFIRM SEND-BACK Arm C SEED={1,2} GRAD_CLIP_BODY=20.0 + 3 catalog-NEW promotions logged ([[clip-r-buffer-decoupling-modern-nm-stack-absorbs-post-clip-magnitude]] CONFIRMED REFUTING math-corrected s² R-buffer scaling prediction + [[clip-axis-mid-train-trajectory-direction-asymmetry-fav-growth-vs-decay]] MIRROR-SYMMETRIC candidate + [[clip-axis-non-monotonic-around-production-threshold-both-directions-fav]] candidate) + 3 HB ACKs landed (#2234 fern HB1 Arm A β1=0.8 ctrl val=3.26164 +0.29σ_seed sub-σ + #2248 tanjiro HB0 PASS-CLEAN-DEEP EPS bracket + #2249 frieren HB0 PASS-CLEAN NS_ITERS_COOLDOWN bracket late_peak math confirmed) + nezuko still on #2199 PP-confirm chain (NOT IDLE). 8 PRs in flight 0 idle students. NM-portfolio: 3 axes simultaneously characterizing (EPS / NS_ITERS_COOLDOWN / WARMSTART_K).**)
+
+**#2199 nezuko GRAD_CLIP_BODY bracket HB-FINAL → PP-CONFIRM SEND-BACK** (07:30Z verdict):
+- 3-arm full: Arm A ctrl=3.26504 HOT-CTRL +2.4σ_seed, Arm B body=5 val=3.26271 Δ_BA=−0.00233 within drift gate, Arm C body=20 val=3.26117 Δ_CA=−0.00387 −2.40σ_seed OUTSIDE drift gate FAV
+- Arm C marginal G1 tie (−0.00001 vs baseline) + G2 FAIL margin 0.00001 << 0.004 + HOT-CTRL confounds absolute signal → PP-confirm at SEED∈{1,2} only via [[pp-collapse-arm-a-ctrl-realization-conflation]] CATALOG-MAJOR
+- **3 catalog-NEW promotions logged**:
+  - [[clip-r-buffer-decoupling-modern-nm-stack-absorbs-post-clip-magnitude]] CATALOG-CONFIRMED — REFUTES math-corrected s² R-buffer scaling (predicted precond_ratio Δ 0.5×/2× → observed Δ ≤6.3% for 4× clip range); modern stack (Tikhonov γ=0.005 + eps=1e-4 + r_warmstart K=100) absorbs clip-induced post-clip magnitude variations
+  - [[clip-axis-mid-train-trajectory-direction-asymmetry-fav-growth-vs-decay]] candidate — Arm B SCALE-DOWN monotonic FAV-GROWTH (early Δ_BA +0.01741 → terminal −0.00233) vs Arm C SCALE-UP monotonic FAV-DECAY (early Δ_CA −0.01510 → terminal −0.00387) MIRROR-SYMMETRIC, both terminate FAV NO COOLDOWN EVAPORATION (distinct from #2141 body-LR pattern)
+  - [[clip-axis-non-monotonic-around-production-threshold-both-directions-fav]] candidate — BOTH directions paired-FAV with Arm C 1.66× stronger than Arm B; either production clip=10 is local max OR HOT-CTRL artifact cancellation
+- [[clip-spectral-concentration-r-condition-rise]] EXTENDED bidirectional: Arm B clip-DOWN R_cond_mean +3.89% concentrates / Arm C clip-UP R_cond_mean −7.37% disperses; R_cond_max rises BOTH directions
+- [[grad-clip-modal-active-100pct-bracket-is-LR-scale-axis]] dual-direction CONFIRMED with mirror-symmetric trajectory body-clip family DIFFERENT from body-LR family despite math-equivalence
+
+**#2234 fern β1=0.8 ctrl HB1 ACKed PASS-CLEAN** (07:33Z):
+- Arm A val=3.26164 = +0.29σ_seed sub-σ-baseline within drift gate ✓
+- FFS=3150 (+16.67 above baseline)
+- [[ctrl-anchor-cohort-config-heterogeneity]] flagged on `qb6jh4vm` PR #1702-era reference (cross-anchor R-buffer comparison: pivot to current-cycle config-matched `nfllq6zk` or `t4xpnrgt` for HB2)
+- Arm B β1=0.7 launched atomic step ~25/3350 (3.33-step m-EMA memory, predicted NEG borderline)
+- HB2 ETA ~09:55Z
+
+**#2248 tanjiro NEWTON_MUON_EPS HB0 ACKed PASS-CLEAN-DEEP** (07:29Z):
+- Chain launched 07:27:44Z flock-guarded
+- Banner 20 prod envs verbatim + 2 NM extras + bit-id step:0=10.82583 EXACT
+- Extreme-value R_inv_sqrt per-eigenvalue upper bound math {316.228, 100, 31.623} per arm direction prediction Arm B > Arm A > Arm C (Frobenius vs max-eigenvalue refinement acknowledged — eps-dominated spectrum tail differentiation)
+- 7-line code-path inspection L603→L843→L851→L853→L889→L962→L1036→L1227 confirms axis-orthogonality
+- Arm A W&B: `di5msrxo` HB1 ETA ~09:55Z
+
+**#2249 frieren NS_ITERS_COOLDOWN HB0 ACKed PASS-CLEAN** (07:36Z):
+- Chain launched 07:28:15Z flock-guarded pid 3193112 `logs_pr2249_arms/chain.lock`
+- Banner verified Arm A `NS_SCHEDULE: ns_iters=12 -> ns_iters_cooldown=16 at fraction 0.7 (shape=late_peak)`
+- late_peak math {Arm B peak=12 DEGENERATE, Arm A peak=20 ctrl, Arm C peak=28}
+- Arm B DEGENERATE (peak=ns_base=12 → no late peak); Arm C max NS polish (+8 iters in second-half cooldown)
+- 20+ prod env vars verbatim + 72 NM hooks ✓
+- Extreme-value W&B `train/ns_schedule/iters_this_step` step ~3100 verification deferred to HB1
+- HB1 ETA ~09:55Z
+
+---
+
 - **Date:** 2026-06-02 07:30Z (cycle c790g-45 — **2 PRs CLOSED + 2 NEW ASSIGNMENTS + frieren HB-FINAL ACKed: #2176 tanjiro CLOSED catalog-PASSIVE-CONFIRMED-CROSS-SEED n=3 G2 FAIL +0.00059 (direction-FAV 3/3 weakening −1.12σ→−0.59σ→−0.13σ) → tanjiro assigned #2248 NEWTON_MUON_EPS bracket {1e-5, 1e-4 ctrl, 1e-3} (last uncharacterized NM parameter, zero-code-change); #2200 frieren CLOSED PORTFOLIO-NEG-ASYMMETRIC (Arm B +1.18σ, Arm C +0.78σ) production LM_HEAD_LR_MULT=1.0 at POST-#1702 curvature minimum + 5 catalog promotions including [[lm-head-lr-mult-couples-to-body-muon-r-buffer]] CATALOG-CONFIRMED bidirectional-asymmetric + [[grad-clip-modal-active-100pct-bracket-is-LR-scale-axis]] REFINED math-vs-trajectory-distinction + [[mid-train-fav-evaporation]] illustrative Arm C → frieren assigned #2249 NS_ITERS_COOLDOWN bracket {12, 16 ctrl, 20} (late_peak peak {12, 20 ctrl, 28}, untested on POST-#1702 stack). 8 PRs in flight 0 idle students.**)
 
 **#2176 tanjiro Tikhonov γ=0.025 PP-confirm CLOSED catalog-PASSIVE** (07:14Z verdict):
