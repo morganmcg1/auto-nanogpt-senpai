@@ -874,32 +874,41 @@ def muon_update(update, second_moment, step, beta2=NOR_BETA2,
     NorMuon-lite row variance normalization, fan-out gain.
     """
     # ---------- Pre-NS conditioning (H4 ablation) ----------
-    arbor_g_norm = None
+    arbor_active = (PRE_NS_MODE == "arbor" and is_mlp)
     if PRE_NS_MODE == "nc":
         update_f = update.float()
         r_norm = update_f.norm(dim=-1, keepdim=True)
         c_norm = update_f.norm(dim=-2, keepdim=True)
         scale = torch.sqrt(torch.clamp(r_norm * c_norm, min=1e-12))
         update = (update_f / scale).to(update.dtype)
-    elif PRE_NS_MODE == "arbor" and is_mlp:
+    elif arbor_active:
+        # PR #310 row/column equilibration: alternating row-then-col, each pass
+        # rescales by (per-row-RMS / mean-row-RMS).clamp(0.25, 4.0).sqrt(). This is
+        # a *relative* scaling that flattens row/col variation without large global
+        # amplification (cf. the earlier absolute-geometric-mean draft which
+        # saturated at the clamp and amplified the whole update ~4x).
         update_f = update.float()
-        arbor_g_norm = update_f.norm().clamp_min(1e-12)
         for _ in range(2):
-            row_rms = (update_f * update_f).mean(dim=-1, keepdim=True).sqrt().clamp(min=1e-8)
-            col_rms = (update_f * update_f).mean(dim=-2, keepdim=True).sqrt().clamp(min=1e-8)
-            scale = (row_rms * col_rms).sqrt().clamp(0.25, 4.0)
-            update_f = update_f / scale
+            row_rms = ((update_f * update_f).mean(dim=-1, keepdim=True) + 1e-12).sqrt()
+            row_scale = (row_rms / (row_rms.mean(dim=-2, keepdim=True) + 1e-12)).clamp(0.25, 4.0).sqrt()
+            update_f = update_f / row_scale
+            col_rms = ((update_f * update_f).mean(dim=-2, keepdim=True) + 1e-12).sqrt()
+            col_scale = (col_rms / (col_rms.mean(dim=-1, keepdim=True) + 1e-12)).clamp(0.25, 4.0).sqrt()
+            update_f = update_f / col_scale
         update = update_f.to(update.dtype)
 
     normalized_grad = scale_to_unit_operator_norm(update.clone())
     ns_update = zeropower_via_newtonschulz5(update)
 
-    # Arbor post-NS rescale: preserve the pre-equilibration Frobenius norm.
-    # Use Frobenius norm for both sides to match PR #310's `update.norm()` convention;
-    # mixing with gram_frobenius_norm_estimate (Schatten-4) would inflate by ~rank^0.25.
-    if arbor_g_norm is not None:
+    # PR #310 post-NS Frobenius pin to sqrt(grad.size(-2)) = sqrt(out_dim).
+    # For mlp.fc this is sqrt(4*dim) ~ 55.4 (boosts the natural NS Frobenius
+    # ~sqrt(dim) by 2x); for mlp.proj it is sqrt(dim) ~ 27.7 (matches naturally).
+    # This is equivalent to the Aurora fan-out gain `max(1, m/n)**0.5`, so we
+    # skip that line below to avoid composing them multiplicatively.
+    if arbor_active:
+        target = ns_update.size(-2) ** 0.5
         cur_norm = ns_update.float().norm().clamp_min(1e-12)
-        ns_update = (ns_update * (arbor_g_norm / cur_norm).to(ns_update.dtype))
+        ns_update = (ns_update * (target / cur_norm)).to(ns_update.dtype)
 
     update_norm_estimate = gram_frobenius_norm_estimate(ns_update)
     contra_coeff = contra_coeff_for_step(step) if use_contra else 0.0
@@ -914,7 +923,8 @@ def muon_update(update, second_moment, step, beta2=NOR_BETA2,
         blend = 0.0
     update = contra_update + (soft_update - contra_update) * blend
     update = update * update_norm_estimate / gram_frobenius_norm_estimate(update)
-    update *= max(1, update.size(-2) / update.size(-1))**0.5
+    if not arbor_active:
+        update *= max(1, update.size(-2) / update.size(-1))**0.5
     if update.size(-2) >= update.size(-1):
         per_row_var = (update * update).mean(dim=-1, keepdim=True)
     else:
