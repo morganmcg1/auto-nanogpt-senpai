@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-04 (launch day, updated ~21:15 UTC)
+- **As of:** 2026-06-04 (launch day, updated ~22:05 UTC)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,34 +18,38 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 
 | PR | Student | Hypothesis | Base | Target step | Status | Source |
 |---:|---|---|---|---:|---|---|
-| #2281 | open2-alphonse | H1 NC on Aurora+RRE base | PR #305 | 2925 | **trial 0 done 3.2769**, trial 1 step ~1000 (34%) | PR #295 |
-| #2282 | open2-askeladd | H2 EMA-Nesterov (β=0.3) | PR #300 | 2900 | seed 1 done **3.28135 (FAIL)**, seed 2 step ~2625 (90%) | PR #309 |
-| #2283 | open2-edward | H3 Circuit-Muon isolated | PR #300 | 2930 | n=4 confirm `glygz1xt` trial 0 step ~1050 (36%) | PR #311 |
-| #2284 | open2-fern | H4 Arbor vs NC ablation (3 arms) | PR #300 | 2930 | Arm A n=4 confirm `m50dnbvb` trial 0 step ~300; Arm B re-impl pending per spec | PR #295, #310 |
-| #2289 | open2-frieren | H5b RI on PR #300 base (no RRE) | PR #300 | 2930 | Arm A control `wd1aaqtr` trial 0 step ~375 (12%); Arm B not yet launched | PR #307, #312 |
-| #2286 | open2-nezuko | Replicate PR #309 EMA-Nesterov+Aurora | PR #309 | 2890 | **seed 1 done 3.27794**, seed 2 step ~2425 (84%, terminal imminent) | PR #309 |
-| #2287 | open2-tanjiro | H9 Single-stage Tail Phase Readout | PR #300 | 2930 | **trial 0 done 3.2791**, trial 1 step ~586 (20%) | PR #318 |
-| #2288 | open2-thorfinn | Replicate PR #295 NC standalone | base Muon | 3325 | **trial 0 done 3.2778**, trial 1 step ~76 (very early) | PR #295 |
+| #2281 | open2-alphonse | H1 NC on Aurora+RRE base | PR #305 | 2925 | trial 0 = 3.2769, trial 1 step ~2125 (72%, val 3.40) | PR #295 |
+| #2282 | open2-askeladd | H2 EMA-Nesterov (β=0.3) | PR #300 | 2900 | trials 0+1 done (3.28135, 3.28122 — FAIL), trial 2 step ~875 | PR #309 |
+| #2283 | open2-edward | H3 Circuit-Muon isolated | PR #300 | 2930 | n=4 `glygz1xt` trial 0 step ~2250 (77%, val 3.37) | PR #311 |
+| #2284 | open2-fern | H4 Arbor vs NC ablation (3 arms) | PR #300 | 2930 | Arm A n=4 `m50dnbvb` trial 0 step ~1500 (51%); Arm B re-impl pending | PR #295, #310 |
+| #2289 | open2-frieren | H5b RI on PR #300 base (no RRE) | PR #300 | 2930 | Arm A control `wd1aaqtr` trial 0 step ~1125 (38%); Arm B sequential after Arm A | PR #307, #312 |
+| #2286 | open2-nezuko | Replicate PR #309 EMA-Nesterov+Aurora | PR #309 | 2890 | **trials 0+1 done (3.27794, 3.27823), mean 3.27809**, trial 2 step ~625 | PR #309 |
+| #2287 | open2-tanjiro | H9 Single-stage Tail Phase Readout | PR #300 | 2930 | trial 0 = 3.2791, trial 1 step ~1750 (60%, val 3.47) | PR #318 |
+| #2288 | open2-thorfinn | Replicate PR #295 NC standalone | base Muon | 3325 | **Arm Z control** trial 0 = 3.2778, trial 1 step ~1375 (41%); Arm A NC pending | PR #295 |
 
-**Top contenders (trial 0 / seed 1 partial — ranked by val/loss):**
+**Top contenders (trial-status — ranked by current best aggregate):**
 
-| Student | PR | Trial 0 val/loss | Step | n=1 margin | Hypothesis |
-|---|---:|---:|---:|---:|---|
-| alphonse | #2281 | **3.2769** | 2925 | +0.0031 | NC on PR #305 base (Aurora+RRE+Contra-Muon+NC) |
-| thorfinn | #2288 | **3.2778** | 3325 | +0.0022 | NC standalone on base Muon (PR #295 replicate) |
-| nezuko | #2286 | **3.27794** | 2890 | +0.00206 | EMA-Nesterov + Aurora (PR #309 lineage) |
-| tanjiro | #2287 | **3.2791** | 2930 | +0.00090 | Single-stage Tail Phase Readout on PR #300 |
-| askeladd | #2282 | 3.28135 | 2900 | −0.00135 | EMA-Nesterov on PR #300 bare (FAILED ceiling) |
+| Student | PR | Best aggregate | Step | Status | Hypothesis |
+|---|---:|---:|---:|---|---|
+| nezuko | #2286 | **3.27809 (mean of 2 trials)** | 2890 | trials 2-3 in progress | EMA-Nesterov + Aurora (PR #309 lineage) |
+| alphonse | #2281 | 3.2769 (trial 0) | 2925 | trial 1 ~72% | NC on PR #305 base (Aurora+RRE+Contra-Muon+NC) |
+| tanjiro | #2287 | 3.2791 (trial 0) | 2930 | trial 1 ~60% | Single-stage Tail Phase Readout on PR #300 |
+| thorfinn | #2288 | 3.2778 (trial 0, Arm Z = plain Muon control) | 3325 | Arm Z trial 1, Arm A NC pending | NC vs control on bare Muon (A/B) |
+| askeladd | #2282 | 3.28129 (mean of 2 trials) | 2900 | FAILED — falsifying | EMA-Nesterov on PR #300 bare |
 
-**Note on thorfinn:** his step 3325 is higher than PR #305 (2925) and PR #300 (2930), so a val/loss win there doesn't directly contribute to a sub-2900 fixed-step record — it just confirms NC is a real mechanism. Compositional value: pair with alphonse's NC-on-PR-#305 win at step 2925 (3.2769) to triangulate that NC reliably helps in the 0.001-0.0015 range.
+**Key analytical reads this turn:**
 
-**Reading the early seed/trial pattern:** four mechanisms (NC, EMA-Nesterov+Aurora, Tail-Phase, RI) all produce single-seed wins ≤ 3.279 at compatible step counts. The contract requires n=4 mean ≤ 3.278 for stat-sig — so seed-2 variance is the gating signal for the next merge.
+1. **Thorfinn correction:** `sx4q2hn0` is **Arm Z (control = plain Muon)**, not Arm A (NC). The 3.2778 trial 0 is the plain-Muon baseline at step 3325, not a "win". The NC arm hasn't started yet. His proper A/B will give matched-seed NC delta when Arm A launches. This actually moves him *off* the contender list — his result so far is a control baseline.
 
-**Resolved this turn:**
-- thorfinn trial 0 landed at 3.2778 — PR was stale_wip but he was actually training; left status note + analysis on PR #2288.
-- fern launched Arm A n=4 confirmation `m50dnbvb` per my priority order; Arm B re-impl pending.
-- edward launched n=4 confirmation `glygz1xt` (circuit-muon-pr300-confirm).
-- frieren Arm A control progressing cleanly at step ~375/3020.
+2. **Nezuko is the merge frontrunner.** Sub-2900 step count (2890) with 2-trial mean 3.27809 below PR #300 (3.27844) and PR #305 (3.27813). Trials 2-3 needed for n=4 stat-sig — current margin tight.
+
+3. **Askeladd compositional insight (consistent with nezuko win):** EMA-Nesterov on PR #300 bare fails (mean 3.28129); EMA-Nesterov + Aurora on PR #309 lineage succeeds (mean 3.27809). The Aurora row-balanced polar is doing the work that turns EMA-Nesterov from a wash into a sub-2900 win.
+
+**In-flight observations:**
+- Alphonse trial 1 val 3.40 at step 2125/2925 looks slightly elevated vs trial 0 (3.277 final). Watching whether it descends normally to ≤ 3.28 at terminal.
+- Edward trial 0 at step 2250/2930 (77%, val 3.37) close to terminal — expected within ~30 min.
+- Fern Arm A NC trial 0 at step 1500/2930 (51%, val 3.52); Arm B re-impl pending per her own PR #310 spec correction.
+- Frieren Arm A control at step 1125/3020 (38%, val 3.61). RI Arm B scheduled to auto-launch after Arm A.
 
 **Resolved this turn:**
 - W&B step encoding `trial_idx × (train_steps+1) + step` (line 676) misread as "divergence to 10.82 after target step". Actually trial 2 starting fresh — runs are healthy.
