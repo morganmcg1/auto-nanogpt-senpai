@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-04 (launch day, updated ~18:00 UTC)
+- **As of:** 2026-06-04 (launch day, updated ~20:00 UTC)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -14,23 +14,31 @@ the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 2900. Prime Intellect public auto-speedrun materials are also allowed sources.
 
-## Active assignments (as of 2026-06-04 ~18:00 UTC)
+## Active assignments (as of 2026-06-04 ~20:00 UTC)
 
 | PR | Student | Hypothesis | Base | Target step | Status | Source |
 |---:|---|---|---|---:|---|---|
-| #2281 | open2-alphonse | H1 NC on Aurora+RRE base | PR #305 | 2925 | WIP step~1350 | PR #295 |
-| #2282 | open2-askeladd | H2 EMA-Nesterov (β=0.3) | PR #300 | 2900 | WIP step~1200 | PR #309 |
-| #2283 | open2-edward | H3 Circuit-Muon isolated | PR #300 | 2930 | WIP step~1050 | PR #311 |
-| #2284 | open2-fern | H4 Arbor vs NC ablation (3 arms) | PR #300 | 2930 | WIP step~1250 | PR #295, #310 |
-| #2289 | open2-frieren | H5b RI on PR #300 base (no RRE) | PR #300 | 2930 | New — awaiting pickup | PR #307, #312 |
-| #2286 | open2-nezuko | Replicate PR #309 EMA-Nesterov+Aurora | PR #309 | 2890 | WIP step~1250 | PR #309 |
-| #2287 | open2-tanjiro | H9 Single-stage Tail Phase Readout | PR #300 | 2930 | WIP step~800 | PR #318 |
-| #2288 | open2-thorfinn | Replicate PR #295 NC standalone | base Muon | 3325 | WIP (GPU active) | PR #295 |
+| #2281 | open2-alphonse | H1 NC on Aurora+RRE base | PR #305 | 2925 | WIP step~1800 (~61%, ~1h to target) | PR #295 |
+| #2282 | open2-askeladd | H2 EMA-Nesterov (β=0.3) | PR #300 | 2900 | seed 1 done **3.28135 (FAIL)**, seed 2 step ~425 | PR #309 |
+| #2283 | open2-edward | H3 Circuit-Muon isolated | PR #300 | 2930 | run `6sjgkwhu` step ~400 (post-crash relaunch) | PR #311 |
+| #2284 | open2-fern | H4 Arbor vs NC ablation (3 arms) | PR #300 | 2930 | arm-z step ~1425 (needs_rebase) | PR #295, #310 |
+| #2289 | open2-frieren | H5b RI on PR #300 base (no RRE) | PR #300 | 2930 | **GHOST POD** (99% GPU, no live W&B) — asked to investigate | PR #307, #312 |
+| #2286 | open2-nezuko | Replicate PR #309 EMA-Nesterov+Aurora | PR #309 | 2890 | **seed 1 done 3.27794 (BEATS BASELINE)**, seed 2 step ~200 | PR #309 |
+| #2287 | open2-tanjiro | H9 Single-stage Tail Phase Readout | PR #300 | 2930 | n=4 confirm step ~1350 (~46%) | PR #318 |
+| #2288 | open2-thorfinn | Replicate PR #295 NC standalone | base Muon | 3325 | n=4 confirm step ~996 (~28%) | PR #295 |
 
-**Notes:**
-- PR #2285 (frieren, H5 RI on PR #305 base) was **closed** — PR #305 base NaN on Blackwell; replaced by PR #2289 (RI on PR #300 base, known-good).
-- alphonse is running PR #305 base cleanly (step 1350, loss 3.5756). Her success vs frieren's NaN suggests an env/config difference; to be resolved once she pushes her working code.
-- Histogram bug (OOB index in `sample_tensor` for 38.6M-element embed.weight) is fixed in student working trees but not yet pushed to branches. Asked fern (#2284), tanjiro (#2287), thorfinn (#2288) to push a clean commit for cherry-pick to advisor branch.
+**Top contender (seed-1 partial):**
+- **nezuko PR #2286** seed 1: val/loss **3.27794** at step 2890 → beats both PR #305 (3.27813) and PR #300 (3.27844). n=1 score (3.28 − μ) × √n = +0.00206 (need ≥+0.004 stat-sig at n=1, or mean ≤ 3.278 at n=4). Awaiting seeds 2-4.
+
+**Operational issues:**
+- **frieren PR #2289**: pod at 99% GPU but no live W&B run since 18:00 UTC. Only run `oxgbh05l` failed at step 100 with WRONG CONFIG (PR #305+RRE, not PR #300/no-RRE). Asked her to verify pod state and relaunch.
+- **fern PR #2284**: still WIP arm-z, has needs_rebase from histogram-fix conflict; rebase guidance posted.
+- **edward PR #2283**: prior run `c06l5nrj` crashed at 19:22, asked for traceback. New run `6sjgkwhu` healthy.
+
+**Resolved this turn:**
+- W&B step encoding `trial_idx × (train_steps+1) + step` (line 676) misread as "divergence to 10.82 after target step". Actually trial 2 starting fresh — runs are healthy.
+- PR #2285 (frieren H5 RI on PR #305 base) — closed earlier; PR #305 base NaN on Blackwell.
+- Histogram bug fix landed on advisor branch as f8ecb78e (from tanjiro's eeaf2a30).
 
 ## Research focus
 
