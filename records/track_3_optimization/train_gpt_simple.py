@@ -180,7 +180,9 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
+        # Clamp indices to guard against floating-point rounding at the endpoint
         idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        idx = idx.clamp(0, values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
