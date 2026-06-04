@@ -433,6 +433,13 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+# PRE_NS_MODE controls pre-Newton-Schulz conditioning of the Muon update tensor.
+# "none"  = standard Muon (Arm Z / control)
+# "nc"    = Normalized Correction (Nora / KellerJordan PR #295, Arm A)
+#           Equalises per-row and per-column ℓ₂ norms of the nesterov update
+#           before NS orthogonalisation: update /= sqrt(row_norms * col_norms)
+PRE_NS_MODE = os.environ.get("PRE_NS_MODE", "none")  # set to "nc" for Arm A
+
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -456,6 +463,13 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
+    # Normalized Correction (NC) — KellerJordan/modded-nanogpt PR #295.
+    # Equalises per-row and per-column ℓ₂ norms of the nesterov update tensor
+    # before NS orthogonalisation, stabilising singular-value spread.
+    if PRE_NS_MODE == "nc":
+        r_norm = update.norm(dim=-1, keepdim=True)
+        c_norm = update.norm(dim=-2, keepdim=True)
+        update = update / torch.sqrt(torch.clamp(r_norm * c_norm, min=1e-12))
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
@@ -554,6 +568,7 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "pre_ns_mode": PRE_NS_MODE,
         },
     )
 
@@ -565,7 +580,8 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    # Set to 3325 to match KellerJordan PR #295 declared step budget for NC evaluation
+    train_steps = int(os.environ.get("TRAIN_STEPS", "3325"))
 
     # initialize model parameters
     for name, p in model.named_parameters():
