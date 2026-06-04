@@ -25,6 +25,33 @@ The checked-in public track history and `records/` directory are useful
 context, but the research goal is to keep improving from the strongest known
 benchmark evidence rather than merely beating the starter script.
 
+## Open Public Benchmark Context
+
+This launch is intentionally not isolated to the checked-in snapshot. Agents
+should actively use the public state of the `modded-nanogpt` benchmark:
+
+- All merged, open, and closed pull requests and issues in
+  `KellerJordan/modded-nanogpt`.
+- All public records, result logs, branches, discussions, and benchmark
+  documentation linked from those PRs and issues.
+- All prior Senpai PRs, issues, branches, W&B runs, and reports in
+  `morganmcg1/modded-nanogpt-senpai`, especially PR #1532 and PR #1614.
+- Relevant papers, blogs, optimizer implementations, and public autonomous-run
+  materials when they help explain or reproduce an idea.
+
+Build directly on the best work of the broader community and on Senpai's own
+best ideas. The current known Senpai result to exploit is PR #1532 / #1614:
+aux Adam beta2 pulse plus the PMuon/LR/EMA stack, audited at fixed step `2905`
+with `n=32`, mean `val/loss = 3.279022187`, and margin `0.005531346`.
+
+When using public context, distinguish evidence quality clearly:
+
+- Official merged benchmark records are the strongest public baselines.
+- Open or closed PRs and issues are allowed idea sources, but their claimed
+  numbers are hypotheses until reproduced under the benchmark contract.
+- Prior Senpai results are allowed implementation sources and hypotheses, but
+  final claims must still satisfy the public Track 3 rule.
+
 ## Benchmark Contract
 
 Keep the benchmark equivalent to track 3:
@@ -173,25 +200,24 @@ Also report:
 Assign one hypothesis per PR. Keep a balanced portfolio:
 
 - Build directly on the strongest public and in-repo records.
+- Mine all public merged, open, and closed `modded-nanogpt` PRs and issues for
+  ideas, including work from autonomous agents and human researchers.
 - Spend part of the portfolio exploiting strong records through retuning and
   cleanup, but reserve serious capacity for new optimizer techniques and
   mechanisms. A wave of only scalar hyperparameter tweaks is too conservative.
 - Retune learning rate and weight decay when testing a new optimizer idea; this
   is support work for a technique, not a substitute for technique search.
 - Run pruning/removal experiments when a stack accumulates components.
-- Use the benchmark snapshot present in this repository. Do not refresh,
-  browse, fetch, or mine new upstream PRs, branches, records, issues, or
-  post-launch updates during this run.
+- Refresh public benchmark context periodically enough to notice new public
+  PRs, issues, records, and discussions that might change the research
+  frontier. Keep PR writeups clear about which public source inspired each
+  hypothesis.
 - Reserve some capacity for genuinely new optimizer mechanisms, but require the
   same fixed benchmark contract and statistical reporting.
-- The following Prime Intellect sources are explicitly banned for agents during
-  this launch. Do not open, fetch, browse, search within, clone, cite, summarize,
-  or use them for implementation ideas:
-  `https://www.primeintellect.ai/auto-nanogpt`,
-  `https://github.com/PrimeIntellect-ai/experiments-autonomous-speedrunning`,
-  and any raw GitHub URLs, files, branches, issues, pull requests, or archives
-  under that repository. They are external comparison artifacts for humans after
-  the run, not part of the active experimental context.
+- Prime Intellect's public autonomous-speedrunning materials are allowed
+  sources in this launch. Use them like any other public source: read them for
+  ideas, but verify any borrowed mechanism with fresh benchmark-valid runs
+  before making claims.
 
 The target is not complete when a run beats a previous baseline. A new best
 result should immediately become the base for the next wave.

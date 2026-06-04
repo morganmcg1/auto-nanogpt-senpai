@@ -32,6 +32,14 @@ Do not change the dataset, model architecture, batch size, or number of
 forward-backward passes per optimizer step unless the advisor explicitly says
 the PR is changing the benchmark contract.
 
+This launch allows public research context. When useful for your assigned PR,
+you may inspect merged, open, and closed `KellerJordan/modded-nanogpt` PRs and
+issues, prior Senpai PRs and W&B runs, public records/logs, optimizer papers,
+blogs, implementation repositories, and autonomous-run materials. Use those
+sources to understand mechanisms and reproduce ideas, but do not treat
+unmerged or closed claims as verified results until you run benchmark-valid
+experiments yourself. Cite important public sources in your PR summary.
+
 ## Running
 
 Use the command pattern in `program.md`, including W&B naming:
