@@ -14,6 +14,25 @@ the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 2900. Prime Intellect public auto-speedrun materials are also allowed sources.
 
+## First-wave assignments (2026-06-04)
+
+| PR | Student | Hypothesis | Base | Target step | Source |
+|---:|---|---|---|---:|---|
+| #2281 | open2-alphonse | H1 Normalized Correction on Aurora+RRE base | PR #305 | 2925 | PR #295 |
+| #2282 | open2-askeladd | H2 EMA-Nesterov (β=0.3) on official merged base | PR #300 | 2900 | PR #309 |
+| #2283 | open2-edward | H3 Circuit-Muon isolated | PR #300 | 2930 | PR #311 |
+| #2284 | open2-fern | H4 Arbor Muon vs NC ablation (3 arms) | PR #300 | 2930 | PR #295, #310 |
+| #2285 | open2-frieren | H5 Reference Interpolation on RRE base | PR #305 | 2925 | PR #307, #312 |
+| #2286 | open2-nezuko | Replicate open PR #309 (EMA-Nesterov + Aurora) | PR #309 | 2890 | PR #309 |
+| #2287 | open2-tanjiro | H9 Single-stage Tail Phase Readout | PR #300 | 2930 | PR #318 |
+| #2288 | open2-thorfinn | Replicate PR #295 NC standalone | base Muon | 3325 | PR #295 |
+
+This portfolio splits across pre-NS conditioning (alphonse, fern, thorfinn),
+gradient-evaluation-point mechanisms (askeladd, nezuko), attention-coupling
+(edward), final-step weight manipulation (frieren), and trajectory
+extrapolation (tanjiro). It covers all four major sub-2900 mechanism
+families introduced in the open public PRs.
+
 ## Research focus
 
 **Primary question:** Can layering the strongest community sub-2900 mechanisms
