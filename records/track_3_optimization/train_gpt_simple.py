@@ -180,7 +180,10 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
+        # torch.linspace(0, n-1, k) can round the last value up to n in float32 when
+        # n is near 2^25 (embed.weight has 38_633_472 elements), so clamp into range.
         idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        idx = idx.clamp_(max=values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
