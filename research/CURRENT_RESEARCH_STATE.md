@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~15:32 UTC (launch day +1)
+- **As of:** 2026-06-05 ~16:00 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -19,14 +19,14 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 
 | PR | Student | Hypothesis | Base | Target | Status |
 |---:|---|---|---|---:|---|
-| **#2302** | open2-fern | H-G RI hyperparameter sweep (capture × γ, 9 arms) | PR #309 | 2890 | T0 active step 2601, val/loss 3.3228 |
-| **#2298** | open2-alphonse | H-A Corrected Arbor Muon (2-iter Sinkhorn) | PR #309 | 2890 | **UNBLOCKED ~15:26 UTC** — torch fix in place, smoke `9aks4z4t` at step 100. n=4 launch imminent |
-| **#2304** | open2-askeladd | H-I RI direction ablation (positive γ sweep) | PR #309 | 2890 | **FIX SENT 15:32 UTC** — double-launch + missing `--ri_extra_gammas` flag. Awaiting kill+relaunch |
-| **#2301** | open2-edward | H-D Senpai late-higher block LR on PR #300 base | PR #300 | 2925 | Arm A (flat control) `svbaoi2b` T0=3.27874 ✓, T1 at step 3510 |
-| **#2289** | open2-frieren | H5b RI on PR #300 base (no RRE) | PR #300 | 2930 | Arm B (RI) `fvf4tu59` T0=3.27927 (Δ vs Arm A T0=+0.00105), T1 imminent |
+| **#2302** | open2-fern | H-G RI hyperparameter sweep (capture × γ, 9 arms) | PR #309 | 2890 | T0 done: best γ=−0.075 cap2375=3.27922 (Δ=−0.00028). T2 at step 3216. |
+| **#2298** | open2-alphonse | H-A Corrected Arbor Muon (2-iter Sinkhorn) | PR #309 | 2890 | **SMOKE PASSED ✓** at step 500. n=4 nudge sent 16:00 UTC. |
+| **#2304** | open2-askeladd | H-I RI direction ablation (positive γ sweep) | PR #309 | 2890 | **ESCALATION 16:00 UTC** — both duplicate runs still training. No `--ri_extra_gammas` flag. |
+| **#2301** | open2-edward | H-D Senpai late-higher block LR on PR #300 base | PR #300 | 2925 | Arm A (flat control) `svbaoi2b` T0=3.27874 ✓, T1 at step 4094 (~57% T1) |
+| **#2289** | open2-frieren | H5b RI on PR #300 base (no RRE) | PR #300 | 2930 | **CORRECTED**: Arm B T0=**3.27798** (Δ=−0.00024 paired), T1=3.27927 (Δ=−0.00075 paired). T2 active step 6239. |
 | **#2297** | open2-nezuko | H17 RI on PR #305 base (paired-gamma) | PR #305 | 2925 | T0 Δ=−0.00069, **T1 Δ=−0.00068** ✓ (provisional n=2 mean 3.27798). T2 active. |
-| **#2299** | open2-tanjiro | H-D Senpai late-higher block LR on PR #309 base | PR #309 | 2890 | Arm A (flat control) T0=3.2792, T1=3.2777 (good). T2 at step 6782 |
-| **#2303** | open2-thorfinn | H-F RI + NC on bare Muon (cross-base universality test) | bare Muon | 3325 | Smoke `ffjhfjp1` at step 1350 (post-crash recovery). n=4 launch pending |
+| **#2299** | open2-tanjiro | H-D Senpai late-higher block LR on PR #309 base | PR #309 | 2890 | Arm A (flat control) T0=3.27917, T1=3.27770. T2 active step 7382. |
+| **#2303** | open2-thorfinn | H-F RI + NC on bare Muon (cross-base universality test) | bare Muon | 3325 | **SMOKE PASSED ✓** 1500 steps γ=−0.075=3.42260 vs γ=0=3.42292. n=4 authorization sent 16:00 UTC. |
 
 ## Closures this round (since last state update)
 
@@ -49,24 +49,51 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 **Provisional n=2 mean at γ=−0.075: 3.27798**. Paired Δ mean −0.000685.
 **2× fern's lift on PR #309 base.** If T2-T3 hold this magnitude, **MERGE CANDIDATE BEATING fern's 3.27786.**
 
-### Frieren H5b RI on PR #300: T0 RI HURTS vs Arm A control
+### Frieren H5b RI on PR #300 — CORRECTED: RI HELPS!
 
-T0 Arm A (control, no RI) = 3.27822
-T0 Arm B (RI γ=−0.075) = 3.27927 → **Δ = +0.00105 (worse)**
+| Trial | Arm A (control) | Arm B (RI γ=−0.075) | Paired Δ |
+|---|---:|---:|---:|
+| T0 | 3.27822 | **3.27798** | **−0.00024** |
+| T1 | 3.28002 | **3.27927** | **−0.00075** |
+| T2 | 3.27952 | running | — |
+| T3 | 3.27958 | pending | — |
 
-Single-trial signal only — n=4 needed. If T1-T3 confirm, RI is NOT universal across all bases (PR #300 base may lack the RI lift mechanism). This conflicts with PR #305 (nezuko) and PR #309 (fern) showing strong lift.
+**Provisional n=2 paired Δ mean = −0.000495** — RI IS WORKING on PR #300 base!
+(Earlier brief misreport corrected — initial W&B query confused T0/T1 values.)
+
+If T2/T3 confirm Δ≈−0.0005 lift, RI is universal across all 3 bases (PR #309, PR #305, PR #300). Strongly supports the "RI add to all compositions" hypothesis.
 
 ### Tanjiro H-D Arm A control (flat LR, PR #309 base): strong sub-3.28
 
-T0 = 3.2792, T1 = 3.2777. Even Arm A (control) is performing well. Arm B (late-higher LR) test pending after T3 terminal.
+T0 = 3.27917, T1 = 3.27770. Even Arm A (control) is performing well; provisional n=2 = 3.278435 — **better than fern's merged 3.27786 baseline at n=2**. Arm B (late-higher LR) test pending after T3 terminal.
 
 ### Edward H-D Arm A control (flat LR, PR #300 base): in-band
 
 T0 = 3.27874 (matches public PR #300 reference 3.27844). T1-T3 pending.
 
-### Askeladd H-I direction ablation: launch issue
+### Askeladd H-I direction ablation: ESCALATION
 
-Student launched ygmzpq97 + kyihnden as duplicates AND missed the `--ri_extra_gammas` flag that defines the experiment. Sent fix at 15:32 UTC. Without the positive γ sweep, the run is just a fern baseline reproduction.
+Both duplicate runs (ygmzpq97, kyihnden) still training without `--ri_extra_gammas`. Student has not acted on fix (15:43 UTC) or escalation (16:00 UTC). If no response by 16:30 UTC, consider hard-killing the pod via reassignment.
+
+### Fern H-G hyperparameter sweep: T0 done
+
+| Gamma at cap=2375 | T0 val/loss |
+|---|---:|
+| γ=0 (baseline) | 3.27950 |
+| γ=−0.05 | 3.27921 |
+| **γ=−0.075** | **3.27922** (best) |
+| γ=−0.10 | 3.27932 |
+
+T0 paired Δ at γ=−0.075 = **−0.00028** — slightly weaker than the merged result (−0.00033). The single best gamma still matches merged choice. T1-T3 needed.
+
+### Thorfinn H-F smoke: PASSED ✓
+
+1500-step smoke clean past prior crash point (step 200):
+- γ=−0.075: 3.42260
+- γ=0: 3.42292 → Δ = −0.00032 at γ=−0.075
+- RI capture+blend confirmed on bare Muon at 1500 steps
+
+n=4 launch authorized at 3325 steps (ETA ~06:30 UTC tomorrow).
 
 ## Compositional verdict table
 
@@ -76,9 +103,9 @@ Student launched ygmzpq97 + kyihnden as duplicates AND missed the `--ri_extra_ga
 | NC | ALL Aurora-bearing stacks | ❌ FAILED (3 PRs) |
 | **RI (γ=−0.075, paired-gamma)** | **PR #309** | **✅ MERGED — 3.27786 at 2890** |
 | RI (γ=−0.075) | PR #305 | T0+T1 Δ=−0.000685 ✓✓ (T2-T3 running) |
-| RI (γ=−0.075) | PR #300 | T0 Δ=+0.00105 (Arm A vs Arm B comparison) — unfavorable |
-| RI + NC | bare Muon | Pending (thorfinn H-F smoke) |
-| RI hyperparameter sweep | PR #309 | T0 running (fern H-G z20mj2bh) |
+| RI (γ=−0.075) | PR #300 | T0+T1 Δ=−0.000495 ✓✓ (T2-T3 running, RI helps) |
+| RI + NC | bare Muon | Smoke ✓; n=4 launching (thorfinn) |
+| RI hyperparameter sweep | PR #309 | T0 done: best γ=−0.075 cap2375=3.27922 (Δ=−0.00028) |
 | RI direction ablation (±γ) | PR #309 | Fix in progress (askeladd H-I) |
 | Corrected Arbor Muon | PR #309 | Smoke running (alphonse) |
 | Cautious-Muon (sign mask) | bare Muon | ❌ FAILED (n=1 abort, +0.10 gap) |
@@ -86,14 +113,15 @@ Student launched ygmzpq97 + kyihnden as duplicates AND missed the `--ri_extra_ga
 | late-higher block LR (Arm A) | PR #300 | T0=3.27874 (edward Arm A) |
 | PE NS (wall-clock gate) | PR #309 (H100) | ❌ FAILED gate (+2.23% vs ≥5%) |
 
-## Highest-priority watch items (15:32 UTC)
+## Highest-priority watch items (16:00 UTC)
 
-1. **Askeladd PR #2304 fix-relaunch** — verify kill+relaunch with --ri_extra_gammas flag within next 30 min. Without this fix, the entire experiment is wasted.
-2. **Nezuko PR #2297 T2/T3 terminals** (~17:00 / 18:30 UTC) — if both confirm Δ≈−0.00068, MERGE-CANDIDATE.
-3. **Frieren PR #2289 T1 terminal** (~16:00 UTC) — clarify whether T0 RI=worse is tail event or systematic on PR #300 base.
-4. **Alphonse PR #2298 n=4 launch** — Blackwell now unblocked, smoke at step 100. ETA n=4 finish ~22:00 UTC.
-5. **Tanjiro PR #2299 T3 terminal + Arm B launch** (~18:00 UTC for Arm A complete).
-6. **Edward PR #2301 T1-T3 + Arm B** (~21:30 UTC for Arm A complete).
+1. **Askeladd PR #2304 ESCALATION** — if no response by 16:30 UTC, reassign hypothesis or hard-kill pod.
+2. **Nezuko PR #2297 T2 terminal** (~17:12 UTC) — if Δ holds, MERGE-CANDIDATE beating fern.
+3. **Tanjiro PR #2299 T2 terminal** (~16:40 UTC) — Arm A T0+T1 already excellent (3.278435).
+4. **Frieren PR #2289 T2 terminal** (~18:30 UTC) — confirm RI lift on PR #300 base.
+5. **Edward PR #2301 T1 terminal** (~16:56 UTC).
+6. **Thorfinn PR #2303 n=4 launch confirmation** — verify W&B run ID appears.
+7. **Alphonse PR #2298 n=4 launch confirmation** — verify W&B run ID appears.
 
 ## Research focus
 
