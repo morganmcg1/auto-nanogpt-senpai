@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~05:15 UTC (launch day +1)
+- **As of:** 2026-06-05 ~05:35 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -21,13 +21,13 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 | **#2292** | open2-alphonse | **H12 Senpai #1532 β2-pulse on PR #309 base NEW** | PR #309 | 2890 | just assigned (replaces closed #2281) | Senpai #1532/#1614 + PR #309 |
 | **#2291** | open2-askeladd | **H11 Aurora+EMA-Nesterov+Circuit-Muon NEW** | PR #309 | 2890 | just assigned (replaces closed #2282) | nezuko #2286 + edward #2283 |
 | **#2294** | open2-edward | **H14 Senpai #1614 PMuon on PR #300 base NEW** | PR #300 | 2925 | just assigned (replaces closed #2283) | Senpai #1532/#1614 + PR #300 |
-| #2284 | open2-fern | H4 Arbor vs NC ablation (3 arms) | PR #300 | 2930 | **Arm A FALSIFIED: n=4 mean 3.27875** (T0=3.27828, T1=3.27760, T2=3.27903, T3=**3.28007 tail**), margin 0.00250 < 0.004; closing pending terminal SENPAI-RESULT | PR #295, #310 |
+| **#2295** | **open2-fern** | **H15 Tail Reference Interpolation on PR #309 base (gamma ablation) NEW** | PR #309 | 2890 | just assigned (replaces closed #2284) | PR #307, #312 |
 | #2289 | open2-frieren | H5b RI on PR #300 base (no RRE) | PR #300 | 2930-3020 | Arm A control T0=3.27822; T1 in progress | PR #307, #312 |
 | **#2290** | open2-nezuko | **H10 Aurora+EMA-Nesterov+NC NEW** | PR #309 | 2890 | just assigned (replaces closed #2286) | nezuko #2286 + fern #2284 |
 | **#2293** | open2-tanjiro | **H13 Senpai #1614 PMuon on PR #309 base NEW** | PR #309 | 2890 | just assigned (replaces closed #2287) | Senpai #1532/#1614 + PR #309 |
 | #2288 | open2-thorfinn | Replicate PR #295 NC standalone | base Muon | 3325 | Arm Z control n=2 mean 3.27846; **Arm A NC T0 = 3.27461 — striking**, T1 in progress | PR #295 |
 
-**Closed this turn:** PR #2283 (edward — Circuit-Muon isolated on PR #300 base falsified, n=4 mean 3.27874). Prior: PR #2287 (tanjiro — single-stage TPR, 3.27901), PR #2281 (alphonse — NC+PR #305, 3.27986), PR #2286 (nezuko — PR #309 replication tail, 3.27838), PR #2282 (askeladd — EMA-Nesterov bare PR #300, 3.28075). **About to close: PR #2284** (fern — NC standalone on PR #300 base, n=4 mean 3.27875, margin 0.00250 < 0.004; +0.00031 worse than PR #300 baseline).
+**Closed this turn:** PR #2283 (edward — Circuit-Muon isolated on PR #300 base falsified, n=4 mean 3.27874). Prior: PR #2287 (tanjiro — single-stage TPR, 3.27901), PR #2281 (alphonse — NC+PR #305, 3.27986), PR #2286 (nezuko — PR #309 replication tail, 3.27838), PR #2282 (askeladd — EMA-Nesterov bare PR #300, 3.28075). **Closed this turn (new):** PR #2284 (fern — NC standalone on PR #300 base FALSIFIED n=4 mean 3.27875; Arbor-fixed screen also failed val=3.554 vs Arm Z 3.486; fan-out + sqrt(out_dim) double-applied). **Assigned PR #2295** (fern H15 Tail Ref Interp on PR #309 base, 3-arm gamma ablation).
 
 **🚨 NC compositional verdict (FINAL with fern terminal):** NC (PR #295) is **NOT additive** on top of PR #300 stack. Alphonse (NC+PR #305 = Aurora+RRE+Contra-Muon+NC) FAILED at 3.27986; fern (NC+PR #300 = Aurora+Contra-Muon+NC) FAILED at 3.27875. NC standalone on bare Muon (thorfinn PR #2288) is the only remaining test — Arm A T0 was 3.27461 at 3325 steps but that's a different step budget. **Working rule: NC is redundant with row-aware refinements that already exist in Aurora/Contra-Muon.** NC may only deliver value on minimal Muon stacks. This refutes the earlier "NC + Contra-Muon DOES compose" hypothesis.
 
@@ -91,7 +91,7 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 - **Alphonse PR #2292:** confirm `1tegunyu` at T0 step 2250/2930 (~77%), val/loss=3.362. **β2-pulse FIRED correctly at step 970** (0.95→0.99 transition logged via `aux_b2/current`). T0 terminal in ~45 min.
 - **Askeladd PR #2291:** confirm `ar3yhz6f` at T0 step 1500/2930 (~51%), val/loss=3.530.
 - **Tanjiro PR #2293:** confirm `7eimwktx` at T0 step 875/2930 (~30%), val/loss=3.692. No further crashes.
-- **Edward PR #2294:** original screen `78gqxnp3` had val/loss=10.826 at step ~75 — investigating whether this was a real crash on PR #300+PMuon (first such crash, would change PR #300-base robustness framing) or a sentinel artifact. Relaunched `cgm4s7j3` at step 375/1500 (~25%), healthy.
+- **Edward PR #2294:** RESOLVED — original screen val=10.826 was sentinel (ln(50257)=10.826, not a crash). PMuon source identified: **PR #64 SOAP bilateral whitening** `L^{-γ}mR^{-γ}` (β_cov=0.95, γ=0.3, eigh every step, **identity-init** for L/R — this is the fix that clears the step-1 crash). **n=4 confirm `i97y7os1` already launched 05:23 UTC** (group `open2-edward/h14-senpai-pmuon-pr300-base-confirm-n4`, ETA ~18:00 UTC).
 - **Frieren PR #2289:** `wd1aaqtr` at T2 step 2002/2930 (~68%), val/loss=3.420. Trial 0=3.27822, Trial 1=3.28002 (tail event already at n=2).
 
 **🚨 PR #309-base + Muon-side mechanism step-1 crash pattern (3-of-3):**
