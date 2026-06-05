@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~05:35 UTC (launch day +1)
+- **As of:** 2026-06-05 ~05:50 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -84,15 +84,31 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
    - **Backup 3:** push Aurora+EMA-Nesterov to train_steps=2810 with proven stack
    - **Backup 4:** outer-Nesterov wrapper (PR #277 MuLoCo) or Polar Express (PR #254) as architectural fallback
 
-**In-flight observations (as of 2026-06-05 05:15 UTC):**
-- **🚨 THORFINN NC bare-Muon at 3325 steps WINNING:** T0=3.27461, T1=3.27582, T2=3.27628 all complete (n=3 mean 3.27557, margin 0.00767). T3 at step 1375/3325 (~41%), ETA ~06:11 UTC. **Not directly sub-2900 mergeable** (wrong step budget) but a foundational finding: NC's lift requires absence of row-aware refinement upstream. Reframe NC: redundant with Aurora; positive on bare Muon.
-- **Fern PR #2284 (closing):** Arm A FALSIFIED. Arm B (Arbor-fixed) screen `k6zzht60` at step ~800/1500 (~53%) — early trajectory healthy. ETA ~05:37 UTC. Awaiting screen number then close + assign H-A.
-- **Nezuko PR #2290:** confirm `7frhd6u6` at T0 step 2500/2930 (~85%), val/loss=3.323. T0 terminal in ~30 min.
-- **Alphonse PR #2292:** confirm `1tegunyu` at T0 step 2250/2930 (~77%), val/loss=3.362. **β2-pulse FIRED correctly at step 970** (0.95→0.99 transition logged via `aux_b2/current`). T0 terminal in ~45 min.
-- **Askeladd PR #2291:** confirm `ar3yhz6f` at T0 step 1500/2930 (~51%), val/loss=3.530.
-- **Tanjiro PR #2293:** confirm `7eimwktx` at T0 step 875/2930 (~30%), val/loss=3.692. No further crashes.
-- **Edward PR #2294:** RESOLVED — original screen val=10.826 was sentinel (ln(50257)=10.826, not a crash). PMuon source identified: **PR #64 SOAP bilateral whitening** `L^{-γ}mR^{-γ}` (β_cov=0.95, γ=0.3, eigh every step, **identity-init** for L/R — this is the fix that clears the step-1 crash). **n=4 confirm `i97y7os1` already launched 05:23 UTC** (group `open2-edward/h14-senpai-pmuon-pr300-base-confirm-n4`, ETA ~18:00 UTC).
-- **Frieren PR #2289:** `wd1aaqtr` at T2 step 2002/2930 (~68%), val/loss=3.420. Trial 0=3.27822, Trial 1=3.28002 (tail event already at n=2).
+**In-flight observations (as of 2026-06-05 05:50 UTC):**
+
+**🔴 Two PR #309-base + extra-ingredient terminals landed — BOTH WORSE than PR #309 base alone (~3.27800):**
+- **Alphonse PR #2292 T0 = 3.27971** (Senpai β2-pulse). +0.00171 worse than PR #309 base. T1 at step 500/2890 (17%).
+- **Nezuko PR #2290 T0 = 3.27938** (Aurora+EMA-Nesterov+NC). +0.00138 worse than PR #309 base. T1 at step 875/2890 (30%).
+
+Both refute their hypotheses — adding β2-pulse OR NC on top of Aurora+EMA-Nesterov is net-negative on T0. n=4 means likely 3.279–3.280 range (assumes T1-T3 similar to T0). Compositional read: **Aurora+EMA-Nesterov base is already saturated**; both pre-NS NC and aux-Adam β2-pulse interfere rather than compose.
+
+**🥇 THORFINN NC bare-Muon at 3325 steps STRONG:** T0=3.27461, T1=3.27582, T2=3.27628 all complete (n=3 mean **3.27557**, margin 0.00767). **T3 at step 2625/3325 (~79%), ETA ~06:08 UTC.** Not directly sub-2900 mergeable (wrong step budget) but a foundational finding: NC's lift requires absence of upstream row-aware refinement. Reframe NC: redundant with Aurora; positive on bare Muon.
+
+**🥇 New fleet leaders by T0 alone:**
+1. **Frieren T0 = 3.27822** (PR #300 + nothing; control replication) — matches PR #300 ref well
+2. Nezuko T0 = 3.27938 (PR #309 + NC) — worse than PR #309 base alone
+3. Alphonse T0 = 3.27971 (PR #309 + β2-pulse) — worse still
+4. Frieren T1 = 3.28063 (above contract ceiling!) — n=4 forming a 3.279-3.280 range
+
+**Fern PR #2295 (NEW):** H15 Tail Reference Interpolation on PR #309 base assigned 05:30 UTC. Pod pickup pending.
+
+**Tanjiro PR #2293:** confirm `7eimwktx` T0 at step 1550/2890 (~54%), val/loss=3.539. PMuon (PR #64 bilateral whitening) on PR #309 base. No further crashes.
+
+**Edward PR #2294:** n=4 confirm `i97y7os1` T0 at step 375/2925 (~13%). PMuon on PR #300 base. ETA ~18:00 UTC.
+
+**Askeladd PR #2291:** confirm `ar3yhz6f` T0 at step 2725/2890 (~94%), val/loss=3.293 — T0 terminal IMMINENT (~13 min). Aurora+EMA-Nesterov+Circuit-Muon on PR #309.
+
+**Frieren PR #2289:** `wd1aaqtr` Arm A T2 at step 2627/2930 (~90%), val/loss=3.280. T0=3.27822, T1=3.28063 (tail). Arm A terminal soon, Arm B (RI) starts after.
 
 **🚨 PR #309-base + Muon-side mechanism step-1 crash pattern (3-of-3):**
 - nezuko PR #2290 (NC pre-NS): 3 step-1 crashes
