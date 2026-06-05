@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~08:35 UTC (launch day +1)
+- **As of:** 2026-06-05 ~08:55 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -75,6 +75,8 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
     **Fern's RI (g32gn44z) T0 paired-gamma TERMINAL (08:21 UTC):** γ=0 (control) = 3.27798, γ=-0.05 = 3.27766, γ=-0.075 = **3.27765** (best). Within-trial lift ~0.00033 — first positive PR #309-base composition signal of the round. Paired design eliminates seed noise. Critically, control γ=0 = 3.27798 sits AT PR #309 base mean, suggesting fern's seed=0 trajectory is itself a "normal" trial (vs other students' bad seed=0 T0s). The 0.00033 lift is RI's pure additive contribution. If lift holds across T1/T2/T3, n=4 mean projects ~3.27765 — cleanly clearing PR #305 (3.27813) and the n=4 stat-sig contract (3.27800). T3 ETA ~13:00 UTC.
 
     **Tanjiro H13 PMuon planning abort:** T0=3.28237 falsification floor is 3.27909 (even with theoretical best T1-T3 = 3.27800 each). Student plans to abort T2/T3 if T1 > 3.27950 at ~10:30 UTC. Approved.
+
+4. **CRITICAL FLEET FINDING (08:38 UTC): Thorfinn's pod (RTX Pro 6000 Blackwell) cannot run PR #305 OR PR #309 base on 1 GPU.** Student verified by pulling alphonse's H12 file (which runs cleanly on alphonse's pod per W&B `1tegunyu`) and getting identical step-2 NaN on Blackwell pod. Bare advisor base runs cleanly past step 19 on same pod. Confirmed: Aurora row-rescaling + proj-zero-init combination is bf16-precision incompatible on Blackwell. **Operational implication:** future Aurora-stack hypotheses MUST NOT be routed to thorfinn's pod. Thorfinn pivoted (second time) to C-Muon on bare Muon at train_steps=3325 (matching PR #2288 budget). 2-arm ablation (normalized/unnormalized) × n=4. Baselines: PR #2288 Arm Z (bare Muon n=2 mean 3.278455), PR #2288 Arm A (bare Muon + NC, n=3 mean 3.27557). Not sub-2900-eligible but answers structural question + sets up potential NC + C-Muon stack as follow-up.
 
 4. **New next-wave (thorfinn H16):** Cautious-Muon on PR #305 base — post-NS sign mask from Liu et al. ICLR 2026. Different mechanism class from NC (sign-agreement direction control vs. spectrum normalization). PR #296 (open2-thorfinn) just assigned.
 
