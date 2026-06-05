@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~01:05 UTC (launch day +1)
+- **As of:** 2026-06-05 ~01:30 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -14,18 +14,20 @@ the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 2900. Prime Intellect public auto-speedrun materials are also allowed sources.
 
-## Active assignments (as of 2026-06-05 ~01:05 UTC)
+## Active assignments (as of 2026-06-05 ~01:30 UTC)
 
 | PR | Student | Hypothesis | Base | Target step | Status | Source |
 |---:|---|---|---|---:|---|---|
-| #2281 | open2-alphonse | H1 NC on Aurora+RRE base | PR #305 | 2925 | trials 0+1+2 done (3.27688, 3.28211, 3.28238), mean 3.28046 — **FALSIFIED**, T3 step ~825/2925 (28%) | PR #295 |
-| #2282 | open2-askeladd | H2 EMA-Nesterov (β=0.3) | PR #300 | 2900 | **trials 0+1+2+3 done (3.28135, 3.28122, 3.27996, 3.28046), 4-mean 3.28075 — FALSIFIED, awaiting SENPAI-RESULT** | PR #309 |
-| #2283 | open2-edward | H3 Circuit-Muon isolated | PR #300 | 2930 | `glygz1xt` trials 0+1 done (3.27895, 3.27822), mean 3.27859, T2 step ~1200/2930 (~41%) | PR #311 |
-| #2284 | open2-fern | H4 Arbor vs NC ablation (3 arms) | PR #300 | 2930 | Arm A `m50dnbvb` T0=3.27828, T1=3.27760, 2-mean **3.27794** — competitive!, T2 step ~700/2930 (24%) | PR #295, #310 |
-| #2289 | open2-frieren | H5b RI on PR #300 base (no RRE) | PR #300 | 2930-3020 | Arm A control `wd1aaqtr` T0=3.27822; T1 step ~1000/2930 (34%) | PR #307, #312 |
-| #2286 | open2-nezuko | Replicate PR #309 EMA-Nesterov+Aurora | PR #309 | 2890 | **trials 0-3 done (3.27794, 3.27823, 3.27780, 3.27956 NEW), 4-mean 3.27838 — FAILS STAT-SIG (margin 0.00324 < 0.004), awaiting SENPAI-RESULT** | PR #309 |
-| #2287 | open2-tanjiro | H9 Single-stage Tail Phase Readout | PR #300 | 2930 | trials 0+1+2 done (3.27911, 3.27849, 3.27968), 3-mean 3.27909, T3 step ~1500/2930 (51%) | PR #318 |
-| #2288 | open2-thorfinn | Replicate PR #295 NC standalone | base Muon | 3325 | Arm Z control n=2 mean 3.27846; **Arm A NC `5wirp0h4` T0 = 3.27461 NEW — striking single result**, T1 starting | PR #295 |
+| #2281 | open2-alphonse | H1 NC on Aurora+RRE base | PR #305 | 2925 | trials 0+1+2 done (3.27688, 3.28211, 3.28238), mean 3.28046 — **FALSIFIED**, T3 running | PR #295 |
+| **#2291** | open2-askeladd | **H11 Aurora+EMA-Nesterov+Circuit-Muon NEW** | PR #309 | 2890 | just assigned (replaces closed #2282) | nezuko #2286 + edward #2283 |
+| #2283 | open2-edward | H3 Circuit-Muon isolated | PR #300 | 2930 | T0+T1 done (3.27895, 3.27822), mean 3.27859, T2 in progress | PR #311 |
+| #2284 | open2-fern | H4 Arbor vs NC ablation (3 arms) | PR #300 | 2930 | Arm A T0=3.27828, T1=3.27760, **2-mean 3.27794** — leader!, T2 in progress | PR #295, #310 |
+| #2289 | open2-frieren | H5b RI on PR #300 base (no RRE) | PR #300 | 2930-3020 | Arm A control T0=3.27822; T1 in progress | PR #307, #312 |
+| **#2290** | open2-nezuko | **H10 Aurora+EMA-Nesterov+NC NEW** | PR #309 | 2890 | just assigned (replaces closed #2286) | nezuko #2286 + fern #2284 |
+| #2287 | open2-tanjiro | H9 Single-stage Tail Phase Readout | PR #300 | 2930 | T0+T1+T2 done (3.27911, 3.27849, 3.27968), 3-mean 3.27909, T3 in progress | PR #318 |
+| #2288 | open2-thorfinn | Replicate PR #295 NC standalone | base Muon | 3325 | Arm Z control n=2 mean 3.27846; **Arm A NC T0 = 3.27461 — striking**, T1 in progress | PR #295 |
+
+**Closed this turn:** PR #2286 (nezuko — falsification at contract margin, 3-trial mean 3.27799 but T3 tail event = 3.27956 → n=4 mean 3.27838 fails stat-sig). PR #2282 (askeladd — bare PR #300 + EMA-Nesterov falsified, n=4 mean 3.28075).
 
 **Top contenders (trial-status — ranked by current best aggregate at sub-3000 step budget):**
 
@@ -100,18 +102,19 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
    - Aurora+EMA-Nesterov + Senpai #1532 beta2-pulse — Senpai-specific contribution test
    - Aurora+EMA-Nesterov+Tail Phase Readout — combine the four PR #300-base modest-improvement mechanisms
 
-**In-flight observations (as of 01:05 UTC 2026-06-05):**
-- Fern Arm A T2 at 24% — primary candidate; ~5h ETA to T3 terminal.
-- Edward T2 at 41% — ~2h ETA to T2 terminal.
-- Frieren Arm A T1 at 34% — ~2h ETA to T1 terminal.
-- Thorfinn Arm A NC T1 just starting — long road.
-- Tanjiro T3 at 51% — ~50 min ETA.
-- Alphonse T3 at 28% — ~75 min ETA (PR will close as falsified).
+**In-flight observations (as of 01:30 UTC 2026-06-05):**
+- Fern Arm A T2 — primary merge candidate; ~5h ETA to T3 terminal.
+- Edward T2 — ~2h ETA to T2 terminal.
+- Frieren Arm A T1 — ~2h ETA to T1 terminal.
+- Thorfinn Arm A NC T1 starting — long road.
+- Tanjiro T3 — ~30 min ETA.
+- Alphonse T3 — ~60 min ETA (PR will close as falsified).
+- **Nezuko PR #2290 + Askeladd PR #2291 starting fresh** (Aurora+EMA-Nesterov + {NC, Circuit-Muon} compositions).
 
 **Resolved this turn:**
-- **Nezuko T3 = 3.27956 terminal**; n=4 mean 3.27838 — TAIL EVENT, FAILS STAT-SIG (margin 0.00324 < 0.004). Not mergeable. Decision pending on extend-to-n=8 vs reassign.
-- **Askeladd T3 = 3.28046 terminal**; n=4 mean 3.28075 — FALSIFIED. Will close PR upon SENPAI-RESULT.
-- **Thorfinn Arm A NC T0 = 3.27461 terminal** at 3325 steps — striking single result, n=1.
+- Closed nezuko PR #2286 (n=4 mean 3.27838, fails stat-sig) + askeladd PR #2282 (falsified, mean 3.28075).
+- Both results logged in EXPERIMENTS_LOG.md.
+- Reassigned: PR #2290 (nezuko, Aurora+EMA-Nesterov+NC), PR #2291 (askeladd, Aurora+EMA-Nesterov+Circuit-Muon). Both train_steps=2890, n=4, on PR #309 base.
 
 ## Research focus
 
