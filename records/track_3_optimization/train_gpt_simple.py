@@ -15,10 +15,21 @@ This is a training-graph-invisible eval-time transformation gated by --ri_gamma
 (0.0 disables, PR #307 default -0.075). Snapshot is captured after the
 optimizer.step() that completes --ri_capture_step.
 
+H-J extension: Two-Snapshot Tail Extrapolation (Richardson-style). When
+--ri_capture_step_2 > 0 and --ri_gamma_2_values is non-empty, a second snapshot
+is captured at --ri_capture_step_2 (e.g. 1750, the "far-field" reference) and
+the eval is swept over a 2D Cartesian product (gamma_1, gamma_2):
+    theta_eval = theta_final + gamma_1 (theta_final - theta_S2)
+                              + gamma_2 (theta_final - theta_S1)
+where S2 = ri_capture_step (near-field) and S1 = ri_capture_step_2 (far-field).
+Per-arm losses are logged as val/ri_loss_g1_<slug1>_g2_<slug2>. Setting
+gamma_2 = 0 recovers the single-snapshot H15 path exactly.
+
 Public sources:
 - https://github.com/KellerJordan/modded-nanogpt/pull/309 (PR #309 base)
 - https://github.com/KellerJordan/modded-nanogpt/pull/307 (RI)
 - https://github.com/KellerJordan/modded-nanogpt/pull/312 (RI on Aurora+EMA-Nesterov)
+- Richardson (1911), "The approximate arithmetical solution by finite differences..."
 """
 
 import os
@@ -140,16 +151,28 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--ri_capture_step_2", type=int, default=0,
+                        help="H-J: Training step for the SECOND (far-field) RI snapshot. "
+                             "0 disables and the eval falls back to single-snapshot RI. "
+                             "Typical value 1750 (~60pct of 2890) — earlier than ri_capture_step.")
+    parser.add_argument("--ri_gamma_2_values", type=str, default="",
+                        help="H-J: Comma-separated gamma_2 values to sweep at eval against the SECOND snapshot. "
+                             "Empty disables two-snapshot mode. With ri_capture_step_2 > 0 and a non-empty "
+                             "list, the eval sweeps the Cartesian product of ([ri_gamma]+ri_extra_gammas) x "
+                             "ri_gamma_2_values and logs val/ri_loss_g1_<slug1>_g2_<slug2> per arm.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     args.ri_extra_gammas = [float(g.strip()) for g in args.ri_extra_gammas.split(",") if g.strip()]
+    args.ri_gamma_2_values = [float(g.strip()) for g in args.ri_gamma_2_values.split(",") if g.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
     if args.train_steps < 1:
         raise ValueError("--train_steps must be positive")
     if args.ri_capture_step < 0 or args.ri_capture_step >= args.train_steps:
         raise ValueError(f"--ri_capture_step must be in [0, train_steps); got {args.ri_capture_step}")
+    if args.ri_capture_step_2 < 0 or args.ri_capture_step_2 >= args.train_steps:
+        raise ValueError(f"--ri_capture_step_2 must be in [0, train_steps); got {args.ri_capture_step_2}")
     return args
 
 
@@ -1147,6 +1170,11 @@ if dist.get_rank() == 0:
             "ri_gamma": args.ri_gamma,
             "ri_capture_step": args.ri_capture_step,
             "ri_enabled": args.ri_gamma != 0.0,
+            "ri_extra_gammas": list(args.ri_extra_gammas),
+            "ri_capture_step_2": args.ri_capture_step_2,
+            "ri_gamma_2_values": list(args.ri_gamma_2_values),
+            "ri_two_snap_enabled": (args.ri_capture_step_2 > 0
+                                    and len(args.ri_gamma_2_values) > 0),
         },
     )
 
@@ -1267,12 +1295,27 @@ for trial_idx in range(args.num_trials):
     # ri_capture_step after the inner optimizer step completes. The snapshot is
     # taken whenever any non-zero gamma is requested (primary or extra), so that
     # gamma=0 can also be evaluated from the same trajectory for paired comparison.
-    ri_gammas_all = [args.ri_gamma] + list(args.ri_extra_gammas)
-    ri_enabled = any(g != 0.0 for g in ri_gammas_all)
+    # H-J: Optional SECOND snapshot at ri_capture_step_2 for 2D (g1, g2) extrapolation.
+    _seen_g1 = set()
+    ri_g1_axis = [g for g in ([args.ri_gamma] + list(args.ri_extra_gammas))
+                  if not (g in _seen_g1 or _seen_g1.add(g))]
+    ri_two_snap_enabled = (args.ri_capture_step_2 > 0 and len(args.ri_gamma_2_values) > 0)
+    if ri_two_snap_enabled:
+        _seen_g2 = set()
+        ri_g2_axis = [g for g in list(args.ri_gamma_2_values)
+                      if not (g in _seen_g2 or _seen_g2.add(g))]
+    else:
+        ri_g2_axis = [0.0]
+    ri_snap1_needed = any(g != 0.0 for g in ri_g1_axis)
+    ri_snap2_needed = ri_two_snap_enabled and any(g != 0.0 for g in ri_g2_axis)
+    ri_enabled = ri_snap1_needed or ri_snap2_needed
     ri_snapshot: dict[str, Tensor] | None = None
+    ri_snapshot_2: dict[str, Tensor] | None = None
     ri_pre_val_loss: float | None = None
     ri_delta_norm: float | None = None
+    ri_delta_norm_2: float | None = None
     ri_per_gamma_losses: dict[float, float] = {}
+    ri_per_arm_losses: dict[tuple[float, float], float] = {}
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -1287,59 +1330,74 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             # H15 Tail Reference Interpolation: extrapolate from snapshot before final eval.
-            # theta_eval = theta_final + gamma * (theta_final - theta_capture).
-            # If multiple gammas were requested, evaluate each from the same final
-            # snapshot for a paired-comparison ablation. The PRIMARY gamma's val_loss
-            # becomes val_loss_float and feeds into best_val_loss.
+            # Single-snapshot: theta_eval = theta_final + g1 * (theta_final - theta_S2).
+            # H-J two-snapshot: theta_eval = theta_final + g1*(theta_final - theta_S2)
+            #                                            + g2*(theta_final - theta_S1).
+            # The PRIMARY arm (args.ri_gamma, 0) is applied last so val_loss_float feeds
+            # best_val_loss with the same interpretation as the single-snapshot path.
             ri_applied = False
             ri_per_gamma_losses = {}
-            if step == train_steps and ri_enabled and ri_snapshot is not None:
-                # Take a fresh snapshot of the final post-step-train_steps weights so we
-                # can repeatedly apply different gammas and restore between evaluations.
+            ri_per_arm_losses = {}
+            if step == train_steps and ri_enabled and (
+                ri_snapshot is not None or ri_snapshot_2 is not None
+            ):
+                # Fresh snapshot of the final post-step weights so we can repeatedly
+                # apply different (g1, g2) pairs and restore between evaluations.
                 with torch.no_grad():
                     final_snapshot = {name: p.detach().clone() for name, p in model.named_parameters()}
-                # Helper: in-place set p.data = final + gamma*(final - capture).
-                # gamma=0 == restore to final unchanged.
-                delta_sq_sum = 0.0
-                def _apply_gamma(g):
-                    nonlocal_delta = 0.0
+                # Helper: in-place set p.data = final + g1*(final - ref1) + g2*(final - ref2).
+                # (0, 0) == restore to final unchanged. Returns (d1_norm, d2_norm).
+                def _apply_pair(g1, g2):
+                    d1_sq = 0.0
+                    d2_sq = 0.0
                     with torch.no_grad():
                         for name, p in model.named_parameters():
                             final = final_snapshot.get(name)
-                            ref = ri_snapshot.get(name)
-                            if final is None or ref is None:
+                            if final is None:
                                 continue
-                            delta = final - ref
-                            p.data.copy_(final).add_(delta, alpha=g)
-                            nonlocal_delta += float(delta.float().pow(2).sum().item())
-                    return nonlocal_delta ** 0.5
-                # Pre-RI val_loss == gamma=0 eval (no perturbation from final).
-                model.eval()
-                pre_val_loss = torch.zeros((), device=device)
-                with torch.no_grad():
-                    for i in range(len(val_inputs) // mbs):
-                        pre_val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
-                dist.all_reduce(pre_val_loss, op=dist.ReduceOp.SUM)
-                pre_val_loss /= val_tokens
-                ri_pre_val_loss = float(pre_val_loss.item())
-                ri_per_gamma_losses[0.0] = ri_pre_val_loss
-                # Evaluate every requested gamma (extras first, primary last so the
-                # model ends in primary-gamma state for the val_loss measurement below).
-                seen_gammas = {0.0}
-                for g in list(args.ri_extra_gammas):
-                    if g in seen_gammas:
-                        continue
-                    seen_gammas.add(g)
-                    d_norm = _apply_gamma(g)
+                            p.data.copy_(final)
+                            if g1 != 0.0 and ri_snapshot is not None:
+                                ref1 = ri_snapshot.get(name)
+                                if ref1 is not None:
+                                    delta1 = final - ref1
+                                    p.data.add_(delta1, alpha=g1)
+                                    d1_sq += float(delta1.float().pow(2).sum().item())
+                            if g2 != 0.0 and ri_snapshot_2 is not None:
+                                ref2 = ri_snapshot_2.get(name)
+                                if ref2 is not None:
+                                    delta2 = final - ref2
+                                    p.data.add_(delta2, alpha=g2)
+                                    d2_sq += float(delta2.float().pow(2).sum().item())
+                    return d1_sq ** 0.5, d2_sq ** 0.5
+                def _eval_val():
+                    model.eval()
                     ev_loss = torch.zeros((), device=device)
                     with torch.no_grad():
                         for i in range(len(val_inputs) // mbs):
                             ev_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
                     dist.all_reduce(ev_loss, op=dist.ReduceOp.SUM)
                     ev_loss /= val_tokens
-                    ri_per_gamma_losses[g] = float(ev_loss.item())
-                # Finally apply primary gamma; the val_loss below picks it up.
-                ri_delta_norm = _apply_gamma(float(args.ri_gamma))
+                    return float(ev_loss.item())
+                # (0, 0) baseline eval (no perturbation from final).
+                _apply_pair(0.0, 0.0)
+                ri_pre_val_loss = _eval_val()
+                ri_per_arm_losses[(0.0, 0.0)] = ri_pre_val_loss
+                ri_per_gamma_losses[0.0] = ri_pre_val_loss
+                # Sweep every (g1, g2) pair except (0,0) and the primary pair, which
+                # gets applied last so val_loss_float below picks it up.
+                primary_pair = (float(args.ri_gamma), 0.0)
+                for g1 in ri_g1_axis:
+                    for g2 in ri_g2_axis:
+                        pair = (float(g1), float(g2))
+                        if pair == (0.0, 0.0) or pair == primary_pair:
+                            continue
+                        _apply_pair(g1, g2)
+                        loss = _eval_val()
+                        ri_per_arm_losses[pair] = loss
+                        if g2 == 0.0:
+                            ri_per_gamma_losses[float(g1)] = loss
+                # Finally apply primary pair; val_loss below picks it up.
+                ri_delta_norm, ri_delta_norm_2 = _apply_pair(*primary_pair)
                 ri_applied = True
                 # Free the per-trial final snapshot.
                 del final_snapshot
@@ -1354,9 +1412,10 @@ for trial_idx in range(args.num_trials):
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
             # Record primary gamma's val loss into the per-gamma table (overwrite gamma=0
-            # entry if primary==0; otherwise add primary).
+            # entry if primary==0; otherwise add primary). Same for per-arm primary (g1, 0).
             if ri_applied:
                 ri_per_gamma_losses[float(args.ri_gamma)] = val_loss_float
+                ri_per_arm_losses[(float(args.ri_gamma), 0.0)] = val_loss_float
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -1383,6 +1442,14 @@ for trial_idx in range(args.num_trials):
                     metrics["val/ri_delta_loss"] = val_loss_float - (ri_pre_val_loss or 0.0)
                     metrics["val/ri_delta_norm"] = ri_delta_norm
                     metrics["val/ri_gamma"] = float(args.ri_gamma)
+                    if ri_two_snap_enabled:
+                        metrics["val/ri_delta_norm_2"] = ri_delta_norm_2
+                        # H-J 2D per-arm losses.
+                        for (g1, g2), loss in ri_per_arm_losses.items():
+                            slug1 = f"{g1:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
+                            slug2 = f"{g2:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
+                            metrics[f"val/ri_loss_g1_{slug1}_g2_{slug2}"] = loss
+                            metrics[f"val/ri_delta_g1_{slug1}_g2_{slug2}"] = loss - (ri_pre_val_loss or 0.0)
                     for g, loss in ri_per_gamma_losses.items():
                         # Use a stable string slug: replace . and - with safe characters.
                         slug = f"{g:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
@@ -1460,10 +1527,10 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             opt.step()
         # H15 Tail Reference Interpolation: snapshot params after the optimizer.step that
-        # completes ri_capture_step. Snapshot is per-rank but params are all-gathered inside
-        # the Muon.step (and AdamW is replicated), so every rank has the same post-step
-        # params here.
-        if ri_enabled and train_step == args.ri_capture_step:
+        # completes ri_capture_step (near-field S2). Snapshot is per-rank but params are
+        # all-gathered inside the Muon.step (and AdamW is replicated), so every rank has
+        # the same post-step params here.
+        if ri_snap1_needed and train_step == args.ri_capture_step:
             with torch.no_grad():
                 ri_snapshot = {name: p.detach().clone() for name, p in model.named_parameters()}
             if dist.get_rank() == 0:
@@ -1475,7 +1542,22 @@ for trial_idx in range(args.num_trials):
                     "val/ri_snapshot_step": train_step,
                     "val/ri_snapshot_norm": snap_norm,
                 }, step=wandb_step)
-                print0(f"step:{train_step} captured RI snapshot (gamma={args.ri_gamma}, norm={snap_norm:.4f})",
+                print0(f"step:{train_step} captured RI snapshot S2 (gamma={args.ri_gamma}, norm={snap_norm:.4f})",
+                       console=True)
+        # H-J: second snapshot at ri_capture_step_2 (far-field S1).
+        if ri_snap2_needed and train_step == args.ri_capture_step_2:
+            with torch.no_grad():
+                ri_snapshot_2 = {name: p.detach().clone() for name, p in model.named_parameters()}
+            if dist.get_rank() == 0:
+                snap_norm_sq_2 = sum(float(t.float().pow(2).sum().item()) for t in ri_snapshot_2.values())
+                snap_norm_2 = snap_norm_sq_2 ** 0.5
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "val/ri_snapshot_step_2": train_step,
+                    "val/ri_snapshot_norm_2": snap_norm_2,
+                }, step=wandb_step)
+                print0(f"step:{train_step} captured RI snapshot S1 (far-field, norm={snap_norm_2:.4f})",
                        console=True)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
@@ -1520,10 +1602,17 @@ for trial_idx in range(args.num_trials):
             for g, loss in ri_per_gamma_losses.items():
                 slug = f"{g:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
                 final_metrics[f"speedrun/final_ri_loss_gamma_{slug}"] = loss
+            if ri_two_snap_enabled:
+                final_metrics["speedrun/final_ri_delta_norm_2"] = ri_delta_norm_2 or 0.0
+                for (g1, g2), loss in ri_per_arm_losses.items():
+                    slug1 = f"{g1:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
+                    slug2 = f"{g2:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
+                    final_metrics[f"speedrun/final_ri_loss_g1_{slug1}_g2_{slug2}"] = loss
         wandb.log(final_metrics, step=(trial_idx + 1) * (train_steps + 1) - 1)
-    # Free the snapshot before the next trial allocates a fresh one.
-    if ri_snapshot is not None:
+    # Free the snapshot(s) before the next trial allocates fresh ones.
+    if ri_snapshot is not None or ri_snapshot_2 is not None:
         ri_snapshot = None
+        ri_snapshot_2 = None
         torch.cuda.empty_cache()
 
 if dist.get_rank() == 0:
