@@ -73,6 +73,10 @@ TARGET_UW = 0.3825
 SOAP_TARGET_UW = TARGET_UW
 NONSOAP_TARGET_UW = TARGET_UW
 NOR_BETA2 = 1.0                  # NorMuon-lite disabled
+CAUTIOUS_MUON = False            # H16 (PR #2296): Liu et al. ICLR 2026 Cautious sign-mask post-NS. FALSIFIED on bare Muon.
+CAUTIOUS_NORMALIZE = True        # When CAUTIOUS_MUON, rescale by 1/mean(mask). Off → unnormalized mask (Arm B).
+_CAUTIOUS_LAST_MASK_RATE = 0.0   # Telemetry: last-step fp32 mean mask rate across all Muon params.
+_CAUTIOUS_LAST_MASK_NORM = 1.0   # Telemetry: last-step 1/clamp(mask_rate, 0.01).
 SOAP_BETA2 = 0.90
 SOAP_PRECONDITION_FREQUENCY = 10
 SOAP_DENOM_POWER = 0.50
@@ -117,6 +121,10 @@ def parse_args():
     parser.add_argument("--train_steps", type=int, default=FINAL_TRAIN_STEPS)
     parser.add_argument("--seed_offset", type=int, default=0,
                         help="Base seed for trial loop; trial t uses seed_offset + t.")
+    parser.add_argument("--cautious_muon", type=int, default=0,
+                        help="H16: Apply Cautious (Liu et al. ICLR 2026) sign-agreement mask post-NS in Muon. FALSIFIED on bare Muon (PR #2296).")
+    parser.add_argument("--cautious_normalize", type=int, default=1,
+                        help="When --cautious_muon=1, rescale mask by 1/mean(mask) to preserve update energy.")
     parser.add_argument("--wandb_name", default=os.environ.get("WANDB_NAME", ""))
     parser.add_argument("--wandb_group", default=os.environ.get("WANDB_RUN_GROUP", ""))
     parser.add_argument("--wandb_project", default=os.environ.get("WANDB_PROJECT", "modded-nanogpt-senpai"))
@@ -154,6 +162,10 @@ def parse_args():
 
 
 args = parse_args()
+
+# H16 (PR #2296): apply CLI flags to module-level Cautious-Muon globals.
+CAUTIOUS_MUON = bool(args.cautious_muon)
+CAUTIOUS_NORMALIZE = bool(args.cautious_normalize)
 
 
 def clean_metric_name(name: str) -> str:
@@ -849,6 +861,21 @@ def soft_blend_for_step(step: int) -> float:
 def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, use_soft=True):
     normalized_grad = scale_to_unit_operator_norm(update.clone())
     ns_update = zeropower_via_newtonschulz5(update)
+    if CAUTIOUS_MUON:
+        # Liu et al. ICLR 2026 sign-mask: zero entries where post-NS direction disagrees with the
+        # Nesterov-blended momentum (`update` here). sign-comparison sidesteps bf16 multiply
+        # underflow seen on Blackwell. mask_rate is reduced in fp32 to dodge bf16 mean saturation.
+        sign_match = (ns_update.sign() == update.sign())
+        mask_rate_f32 = sign_match.float().mean()
+        global _CAUTIOUS_LAST_MASK_RATE, _CAUTIOUS_LAST_MASK_NORM
+        _CAUTIOUS_LAST_MASK_RATE = float(mask_rate_f32)
+        if CAUTIOUS_NORMALIZE:
+            norm = 1.0 / mask_rate_f32.clamp(min=0.01)
+            _CAUTIOUS_LAST_MASK_NORM = float(norm)
+            ns_update = ns_update * sign_match.to(ns_update.dtype) * norm.to(ns_update.dtype)
+        else:
+            _CAUTIOUS_LAST_MASK_NORM = 1.0
+            ns_update = ns_update * sign_match.to(ns_update.dtype)
     update_norm_estimate = gram_frobenius_norm_estimate(ns_update)
 
     contra_coeff = contra_coeff_for_step(step) if use_contra else 0.0
@@ -1130,6 +1157,8 @@ if dist.get_rank() == 0:
             "contra_to_normal_end_step": CONTRA_TO_NORMAL_END_STEP,
             "soft_muon_ceil": SOFT_MUON_CEIL,
             "nor_beta2": NOR_BETA2,
+            "cautious_muon": CAUTIOUS_MUON,
+            "cautious_normalize": CAUTIOUS_NORMALIZE,
             "soap_param_mode": SOAP_PARAM_MODE,
             "soap_beta2": SOAP_BETA2,
             "soap_precondition_frequency": SOAP_PRECONDITION_FREQUENCY,
@@ -1444,6 +1473,9 @@ for trial_idx in range(args.num_trials):
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
                 ),
             }
+            if CAUTIOUS_MUON:
+                ema_extras["cautious/mask_rate"] = _CAUTIOUS_LAST_MASK_RATE
+                ema_extras["cautious/mask_norm_factor"] = _CAUTIOUS_LAST_MASK_NORM
             log_training_telemetry(
                 model=model,
                 optimizers=inner_optimizers,
