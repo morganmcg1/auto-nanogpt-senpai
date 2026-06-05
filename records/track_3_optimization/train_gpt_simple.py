@@ -1,8 +1,40 @@
 """
-train_gpt_simple.py
+train_gpt_simple_rre_pr300_2925.py
 
 This file descends from the [NanoGPT speedrun](https://github.com/KellerJordan/modded-nanogpt).
 It was prepared as a simplified version of the speedrun for use in neural net optimization research.
+
+---
+
+dampen radial gradient component
+
+---
+
+This submission incorporates features from the following previous submissions
+
+@nilin PR291
+
+@kumarkrishna PR274 / Skylight-001
+  NorMuon-lite row/column variance normalization
+  u/w floor postprocessing
+  lr=0.0375 style Muon setup
+
+@nilin (me): PR275 / Contra-Muon
+  Introduces Contra-Muon update term
+
+@samacqua: PR278 / MLP SOAP preconditioning 
+  SOAP preconditioning machinery / MLP SOAP idea.
+  Our script uses that SOAP machinery and extends the selected SOAP set to MLP+V.
+
+@yash-oai: PR287 / power law LR schedule
+  Power-law LR schedule PowerCool:
+  min(flat_lr, c * (t_end - step)^1.2)
+  PR287-style cooldown constants / schedule tuning.
+
+The SOAP-like preconditioning from samacqua / PR 278 is also applied to the attention value-projection (V) matrices in this submission.
+
+New in this result: a late reduced-rank extrapolation (RRE) overlay over recent
+parameter vectors, damped and capped by relative parameter-vector norm.
 """
 
 import os
@@ -25,10 +57,16 @@ TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 
+# cuDNN SDPA can fail to build an execution plan for this compiled causal-attention
+# layout on some PyTorch/CUDA/cuDNN combinations. Leave Flash/mem-efficient/math SDPA
+# enabled and only remove the cuDNN backend from consideration.
+torch.backends.cuda.enable_cudnn_sdp(False)
+
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
+    parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer (NC + PR #305 base)")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--num_trials", type=int, default=None)
     parser.add_argument("--wandb_name", default=os.environ.get("WANDB_NAME", ""))
     parser.add_argument("--wandb_group", default=os.environ.get("WANDB_RUN_GROUP", ""))
@@ -50,6 +88,93 @@ def parse_args():
 
 args = parse_args()
 
+SEED = int(os.environ.get("SEED", str(args.seed)))
+# Hardcoded final schedule constants
+FINAL_TRAIN_STEPS = 3020
+FINAL_SCHEDULE_STEPS = 3050
+FINAL_LR_POWER = 1.2
+ADAM_EMBED_POWER_C = 4.976805410800738e-05
+ADAM_PROJ_POWER_C = 5.184172302917436e-07
+ADAM_OTHER_POWER_C = 1.6589351369335795e-06
+MUON_POWER_C = 3.3169534699576625e-06
+FINAL_MUON_WD = 0.025
+EXPERIMENT_NAME = "contra-muon-to-soft-muon"
+EXPERIMENT_INTUITION = "PR291 plus dampened radial gradient component before the u/w floor, followed by post-step radius correction for tangent drift."
+CONTRA_MUON_COEFF = -0.2
+SOFT_MUON_P = 0.1
+SOFT_MUON_SCALE = "none"
+SOFT_MUON_INPUT_NORM = "frobenius_schatten4"
+SOFT_MUON_CEIL = 0.00
+CONTRA_HOLD_END_STEP = 0
+CONTRA_TO_NORMAL_END_STEP = 2500
+NORMAL_TO_SOFT_START_STEP = 2500
+NORMAL_TO_SOFT_END_STEP = 3010
+MU = 0.95
+MUON_LR = 0.0375
+MUON_WEIGHT_DECAY = FINAL_MUON_WD
+TARGET_UW = 0.3825
+SOAP_TARGET_UW = TARGET_UW
+NONSOAP_TARGET_UW = TARGET_UW
+NOR_BETA2 = 1.0
+SOAP_BETA2 = 0.90
+SOAP_PRECONDITION_FREQUENCY = 10
+SOAP_DENOM_POWER = 0.50
+SOAP_BLEND = 1.00
+SOAP_UPDATE_BEFORE_USE = False
+SOAP_PARAM_MODE = "mlp_plus_v"
+ATTN_SOAP_DENOM_FLOOR = 0.55
+ATTN_SOAP_BLEND = 1.00
+V_SOAP_BLEND = 0.95
+V_SOAP_BLEND_RAMP_END_STEP = 0
+ATTN_EARLY_TRUST_FLOOR = 0.45
+ATTN_EARLY_TRUST_CAP = 0.85
+ATTN_TRUST_FLOOR_END_STEP = 1375
+ATTN_TRUST_FLOOR_FADE_END_STEP = 1625
+ATTN_TRUST_MIN_AGREE = 0.20
+ATTN_TRUST_MIN_GRAD_ALIGN = 0.00
+ATTN_TRUST_POWER = 1.00
+ATTN_SOAP_FADE_START_STEP = 1000000000
+ATTN_SOAP_FADE_END_STEP = 1000000000
+NO_CONTRA_PARAM = ""
+NO_SOFTMUON_PARAM = ""
+TRAIN_PROGRESS_INTERVAL = 0
+LOG_DIR = Path("logs")
+RADIAL_OUTWARD_SCALE = 0.5
+RADIAL_INWARD_SCALE = 1.0
+EXTRAPOLATION_NAME = os.environ.get("EXTRAPOLATION_NAME", "rre").strip().lower()
+EXTRAPOLATION_EVERY = int(os.environ.get("EXTRAPOLATION_EVERY", "5"))
+EXTRAPOLATION_START_STEP = int(os.environ.get("EXTRAPOLATION_START_STEP", "2820"))
+EXTRAPOLATION_NUM_CHECKPOINTS = int(os.environ.get("EXTRAPOLATION_NUM_CHECKPOINTS", "4"))
+EXTRAPOLATION_REGULARIZATION = float(os.environ.get("EXTRAPOLATION_REGULARIZATION", "1e-6"))
+EXTRAPOLATION_DAMPING = float(os.environ.get("EXTRAPOLATION_DAMPING", "0.875"))
+EXTRAPOLATION_MAX_REL = float(os.environ.get("EXTRAPOLATION_MAX_REL", "0.001"))
+EXTRAPOLATION_BLEND_WEIGHT = float(os.environ.get("EXTRAPOLATION_BLEND_WEIGHT", "0.25"))
+EXTRAPOLATION_BLEND_MAX_EXTRA_REL = float(os.environ.get("EXTRAPOLATION_BLEND_MAX_EXTRA_REL", "0.25"))
+EXTRAPOLATION_BLEND_ORTHOGONAL = os.environ.get("EXTRAPOLATION_BLEND_ORTHOGONAL", "1").strip().lower() not in {"0", "false", "no", "off"}
+EXTRAPOLATION_RESET_MOMENTUM = os.environ.get("EXTRAPOLATION_RESET_MOMENTUM", "0").strip().lower() not in {"0", "false", "no", "off"}
+EXTRAPOLATION_STOP_STEP = int(os.environ.get("EXTRAPOLATION_STOP_STEP", "2925"))
+EXTRAPOLATION_AFTER_STOP_EVERY = int(os.environ.get("EXTRAPOLATION_AFTER_STOP_EVERY", "0"))
+EXTRAPOLATION_PARAM_FILTER = os.environ.get("EXTRAPOLATION_PARAM_FILTER", "all").strip().lower()
+CHECKPOINT_SAVE_STEP = int(os.environ.get("CHECKPOINT_SAVE_STEP", "0"))
+CHECKPOINT_SAVE_PATH = os.environ.get("CHECKPOINT_SAVE_PATH", "").strip()
+CHECKPOINT_LOAD_PATH = os.environ.get("CHECKPOINT_LOAD_PATH", "").strip()
+CHECKPOINT_EXIT_AFTER_SAVE = os.environ.get("CHECKPOINT_EXIT_AFTER_SAVE", "0").strip().lower() in {"1", "true", "yes", "on"}
+MODEL_NUM_LAYERS = int(os.environ.get("MODEL_NUM_LAYERS", "12"))
+MODEL_DIM = int(os.environ.get("MODEL_DIM", "768"))
+VAL_TOKENS = int(os.environ.get("VAL_TOKENS", str(20 * 524288)))
+TRAIN_BATCH_TOKENS = int(os.environ.get("TRAIN_BATCH_TOKENS", str(8 * 64 * 1024)))
+MICRO_BATCH_SEQUENCES = int(os.environ.get("MICRO_BATCH_SEQUENCES", "64"))
+LR_SPRINT_START_STEP = int(os.environ.get("LR_SPRINT_START_STEP", "0"))
+LR_SPRINT_END_STEP = int(os.environ.get("LR_SPRINT_END_STEP", "0"))
+LR_SPRINT_SCALE = float(os.environ.get("LR_SPRINT_SCALE", "1.0"))
+LR_SPRINT_RAMP_STEPS = int(os.environ.get("LR_SPRINT_RAMP_STEPS", "0"))
+LR_SPRINT_APPLY_TO = os.environ.get("LR_SPRINT_APPLY_TO", "muon").strip().lower()
+assert LR_SPRINT_APPLY_TO in {"muon", "adam", "all"}
+
+
+########################################
+#         WandB Telemetry Helpers      #
+########################################
 
 def clean_metric_name(name: str) -> str:
     return name.replace(".", "/")
@@ -180,7 +305,11 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
+        # CUDA float32 linspace can round the upper bound past N-1 for large N
+        # (e.g. 50304*768 = 38633472 → linspace last entry rounds to N rather
+        # than N-1), so clamp before indexing.
         idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        idx.clamp_(0, values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -220,6 +349,8 @@ def log_training_telemetry(
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
             metrics[f"train/lr/{group_name}"] = group["lr"]
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
+            if "mu" in group:
+                metrics[f"train/muon_mu/{group_name}"] = group["mu"]
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -308,15 +439,17 @@ def _load_data_shard(file: Path):
     return tokens
 
 def distributed_data_generator(filename_pattern: str, batch_size: int, seq_len=1024):
+    world_size = dist.get_world_size()
+    rank = dist.get_rank()
     files = sorted(Path.cwd().glob(filename_pattern))
-    assert batch_size % dist.get_world_size() == 0
-    local_batch_size = batch_size // dist.get_world_size()
+    assert batch_size % world_size == 0
+    local_batch_size = batch_size // world_size
     file_iter = iter(files)
     tokens, pos = _load_data_shard(next(file_iter)), 0
     while True:
         if pos + batch_size + 1 >= len(tokens):
             tokens, pos = _load_data_shard(next(file_iter)), 0
-        buf = tokens[pos + dist.get_rank() * local_batch_size:][:local_batch_size + 1]
+        buf = tokens[pos + rank * local_batch_size:][:local_batch_size + 1]
         inputs = buf[:-1].to(device="cuda", dtype=torch.int32, non_blocking=True)
         targets = buf[1:].to(device="cuda", dtype=torch.int64, non_blocking=True)
         pos += batch_size
@@ -327,13 +460,16 @@ def distributed_data_generator(filename_pattern: str, batch_size: int, seq_len=1
 #             Architecture             #
 ########################################
 
+def norm(x: Tensor):
+    return F.rms_norm(x, (x.size(-1),))
+
 class RMSNorm(nn.Module):
     def __init__(self, dim):
         super().__init__()
         self.gains = nn.Parameter(torch.ones(dim))
 
     def forward(self, x):
-        return F.rms_norm(x, (x.size(-1),), weight=self.gains.type_as(x))
+        return (norm(x.float()) * self.gains).type_as(x)
 
 class Linear(nn.Linear):
     def __init__(self, in_features, out_features):
@@ -375,7 +511,7 @@ class CausalSelfAttention(nn.Module):
         q = self.q(x).view(B, T, self.num_heads, self.head_dim)
         k = self.k(x).view(B, T, self.num_heads, self.head_dim)
         v = self.v(x).view(B, T, self.num_heads, self.head_dim)
-        q, k = F.rms_norm(q, (q.size(-1),)), F.rms_norm(k, (k.size(-1),))
+        q, k = norm(q), norm(k)
         q, k = self.rotary(q), self.rotary(k)
         y = F.scaled_dot_product_attention(q.transpose(1, 2), k.transpose(1, 2),
                                            v.transpose(1, 2), scale=0.12, is_causal=True).transpose(1, 2)
@@ -431,39 +567,906 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
-    assert G.ndim >= 2
-    X = G.bfloat16()
-    if G.size(-2) > G.size(-1):
-        X = X.mT
+def gram_frobenius_norm_estimate(G: Tensor, keepdim: bool = False, eps: float = 1e-10) -> Tensor:
+    X = G.float()
+    gram = X.mT @ X if X.size(-2) > X.size(-1) else X @ X.mT
+    return gram.norm(dim=(-2, -1), keepdim=keepdim).sqrt().clamp_min(eps)
 
-    # Ensure spectral norm is at most 1
-    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
-    # Perform the NS iterations, not optimizing for wallclock speed
+def _ns_inner(X: Tensor) -> Tensor:
     a, b, c = 2, -1.5, 0.5
     for _ in range(12):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
+    return X
+
+# v93: Aurora-on-mlp.proj (K=3 outer iterations with D row rescaling)
+_AURORA_K = 3
+_AURORA_BETA = 0.25
+_AURORA_EPS = 1e-7
+
+def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+    assert G.ndim >= 2
+    is_originally_wide = G.size(-2) < G.size(-1)
+    X = G.bfloat16()
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+
+    if is_originally_wide:
+        Xt = X.mT
+        Xt32 = Xt.to(torch.float32)
+        target_row_sq = Xt.size(-1) / Xt.size(-2)
+        row_norm = Xt32.norm(dim=-1, keepdim=True).clamp_(min=_AURORA_EPS)
+        D = 1.0 / row_norm
+        U = None
+        for k in range(_AURORA_K):
+            scaled = (D * Xt32).to(Xt.dtype)
+            scaled_wide = scaled.mT
+            scaled_wide = scaled_wide / gram_frobenius_norm_estimate(scaled_wide, keepdim=True, eps=1e-7).to(scaled_wide.dtype)
+            U_wide = _ns_inner(scaled_wide)
+            U = U_wide.mT
+            if k < _AURORA_K - 1:
+                U32 = U.to(torch.float32)
+                row_sq = U32.pow(2).sum(dim=-1, keepdim=True).clamp_(min=_AURORA_EPS * _AURORA_EPS)
+                D = D * (target_row_sq / row_sq).pow(_AURORA_BETA)
+        X = U.mT
+    else:
+        X = X / gram_frobenius_norm_estimate(X, keepdim=True, eps=1e-7).to(X.dtype)
+        X = _ns_inner(X)
 
     if G.size(-2) > G.size(-1):
         X = X.mT
     return X
 
-@torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
-    momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
-    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+def _soft_coefficients(p: float) -> tuple[float, tuple[float, ...]]:
+    if p == 0.0:
+        return 1.0, (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    if p == 0.1:
+        return 0.0, (0.1091613623, 0.07085664498, 0.05210528973, 0.05457295795, 0.05011334061, 0.03334622198, 0.05022104481, 0.1053727358, 0.1187323776, 0.1185061091, 0.1185059576, 0.1185059576)
+    raise ValueError(f"unsupported soft-muon singular-value power: {p}")
+
+def zeropower_frobenius_norm_like(G: Tensor) -> float:
+    return (G.numel() / max(G.size(-2), G.size(-1)))**0.5
+
+def soft_via_newtonschulz5(G: Tensor, p: float, scale_mode: str, input_norm: str) -> Tensor:
+    assert G.ndim >= 2
+    X = G.bfloat16()
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+
+    if input_norm == "frobenius_schatten4":
+        X = X / gram_frobenius_norm_estimate(X, keepdim=True, eps=1e-7).to(X.dtype)
+    elif input_norm != "frobenius":
+        raise ValueError(f"unsupported soft_muon input_norm: {input_norm}")
+    else:
+        X = X / gram_frobenius_norm_estimate(X, keepdim=True, eps=1e-7).to(X.dtype)
+    constant, coeffs = _soft_coefficients(p)
+
+    a, b, c = 2, -1.5, 0.5
+    basis = [X]
+    for _ in range(len(coeffs)):
+        A = X @ X.mT
+        B = b * A + c * A @ A
+        X = a * X + B @ X
+        basis.append(X)
+
+    out = constant * basis[-1]
+    for coeff, basis_term in zip(coeffs, basis[:-1]):
+        out = out + coeff * basis_term
+
+    value_at_one = constant + sum(coeffs)
+    if scale_mode == "top":
+        out = out / value_at_one
+    elif scale_mode == "top_sqrt":
+        out = out / value_at_one**0.5
+    elif scale_mode == "frobenius":
+        theoretical_opower_norm = zeropower_frobenius_norm_like(out)
+        out = out * theoretical_opower_norm / gram_frobenius_norm_estimate(out)
+    elif scale_mode == "frobenius_sqrt":
+        theoretical_opower_norm = zeropower_frobenius_norm_like(out)
+        out = out * (theoretical_opower_norm / gram_frobenius_norm_estimate(out))**0.5
+    elif scale_mode != "none":
+        raise ValueError(f"unsupported soft_muon scale: {scale_mode}")
+
+    if G.size(-2) > G.size(-1):
+        out = out.mT
+    return out
+
+def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
+    return G / gram_frobenius_norm_estimate(G, eps=eps).to(G.dtype)
+
+def should_soap_param(name: str) -> bool:
+    is_mlp_fc = name.endswith(".mlp.fc.weight")
+    is_mlp_proj = name.endswith(".mlp.proj.weight")
+    is_attn_proj = name.endswith(".attn.proj.weight")
+    is_qkv = (
+        name.endswith(".attn.q.weight")
+        or name.endswith(".attn.k.weight")
+        or name.endswith(".attn.v.weight")
+    )
+    is_q = name.endswith(".attn.q.weight")
+    is_k = name.endswith(".attn.k.weight")
+    is_v = name.endswith(".attn.v.weight")
+    if SOAP_PARAM_MODE == "mlp_all":
+        return is_mlp_fc or is_mlp_proj
+    if SOAP_PARAM_MODE == "mlp_fc":
+        return is_mlp_fc
+    if SOAP_PARAM_MODE == "mlp_proj":
+        return is_mlp_proj
+    if SOAP_PARAM_MODE == "mlp_plus_attn_proj":
+        return is_mlp_fc or is_mlp_proj or is_attn_proj
+    if SOAP_PARAM_MODE == "mlp_plus_q":
+        return is_mlp_fc or is_mlp_proj or is_q
+    if SOAP_PARAM_MODE == "mlp_plus_k":
+        return is_mlp_fc or is_mlp_proj or is_k
+    if SOAP_PARAM_MODE == "mlp_plus_v":
+        return is_mlp_fc or is_mlp_proj or is_v
+    if SOAP_PARAM_MODE == "mlp_plus_qkv":
+        return is_mlp_fc or is_mlp_proj or is_qkv
+    if SOAP_PARAM_MODE == "all_hidden":
+        return is_mlp_fc or is_mlp_proj or is_attn_proj or is_qkv
+    raise ValueError(f"unknown SOAP_PARAM_MODE={SOAP_PARAM_MODE}")
+
+def is_attn_proj_param(name: str) -> bool:
+    return name.endswith(".attn.proj.weight")
+
+def is_attn_param(name: str) -> bool:
+    return (
+        name.endswith(".attn.q.weight")
+        or name.endswith(".attn.k.weight")
+        or name.endswith(".attn.v.weight")
+        or name.endswith(".attn.proj.weight")
+    )
+
+def is_v_param(name: str) -> bool:
+    return name.endswith(".attn.v.weight")
+
+def is_q_param(name: str) -> bool:
+    return name.endswith(".attn.q.weight")
+
+def is_k_param(name: str) -> bool:
+    return name.endswith(".attn.k.weight")
+
+def is_mlp_param(name: str) -> bool:
+    return name.endswith(".mlp.fc.weight") or name.endswith(".mlp.proj.weight")
+
+def extrap_param_matches(name: str) -> bool:
+    spec = EXTRAPOLATION_PARAM_FILTER
+    if spec in {"all", "*"}:
+        return True
+    keys = {part.strip() for part in spec.split(",") if part.strip()}
+    return (
+        ("attn" in keys and is_attn_param(name))
+        or ("qkv" in keys and (is_q_param(name) or is_k_param(name) or is_v_param(name)))
+        or ("q" in keys and is_q_param(name))
+        or ("k" in keys and is_k_param(name))
+        or ("v" in keys and is_v_param(name))
+        or ("attn_proj" in keys and is_attn_proj_param(name))
+        or ("mlp" in keys and is_mlp_param(name))
+        or ("mlp_fc" in keys and name.endswith(".mlp.fc.weight"))
+        or ("mlp_proj" in keys and name.endswith(".mlp.proj.weight"))
+        or ("soap" in keys and should_soap_param(name))
+        or ("nonsoap" in keys and not should_soap_param(name))
+    )
+
+def param_matches_spec(name: str, spec: str) -> bool:
+    keys = {part.strip() for part in spec.split(",") if part.strip()}
+    return (
+        ("q" in keys and name.endswith(".attn.q.weight"))
+        or ("k" in keys and name.endswith(".attn.k.weight"))
+        or ("v" in keys and name.endswith(".attn.v.weight"))
+        or ("attn_proj" in keys and name.endswith(".attn.proj.weight"))
+    )
+
+def tensor_cosine(a: Tensor, b: Tensor, eps: float = 1e-8) -> Tensor:
+    a_f, b_f = a.float(), b.float()
+    return (a_f * b_f).sum() / (a_f.norm() * b_f.norm()).clamp_min(eps)
+
+def trust_gate(raw: Tensor, soap: Tensor, grad: Tensor, eps: float = 1e-8) -> Tensor:
+    # SOAP is trusted when it still points with raw momentum and is at least as
+    # gradient-aligned as raw momentum. This catches stale whitening bases.
+    raw_grad = tensor_cosine(raw, grad, eps)
+    soap_grad = tensor_cosine(soap, grad, eps)
+    soap_raw = tensor_cosine(soap, raw, eps)
+
+    agree_gate = ((soap_raw - ATTN_TRUST_MIN_AGREE) / (1 - ATTN_TRUST_MIN_AGREE)).clamp(0, 1)
+    denom = (raw_grad - ATTN_TRUST_MIN_GRAD_ALIGN).clamp_min(eps)
+    grad_gate = ((soap_grad - ATTN_TRUST_MIN_GRAD_ALIGN) / denom).clamp(0, 1)
+    gate = (agree_gate * grad_gate).clamp(0, 1)
+    if ATTN_TRUST_POWER != 1.0:
+        gate = gate.pow(ATTN_TRUST_POWER)
+    return gate
+
+def early_trust_floor_for_step(step: int) -> float:
+    if ATTN_TRUST_FLOOR_FADE_END_STEP <= ATTN_TRUST_FLOOR_END_STEP:
+        return 0.0 if step >= ATTN_TRUST_FLOOR_FADE_END_STEP else ATTN_EARLY_TRUST_FLOOR
+    if step < ATTN_TRUST_FLOOR_END_STEP:
+        return ATTN_EARLY_TRUST_FLOOR
+    if step >= ATTN_TRUST_FLOOR_FADE_END_STEP:
+        return 0.0
+    return ATTN_EARLY_TRUST_FLOOR * (
+        ATTN_TRUST_FLOOR_FADE_END_STEP - step
+    ) / (ATTN_TRUST_FLOOR_FADE_END_STEP - ATTN_TRUST_FLOOR_END_STEP)
+
+def bounded_trust_gate(gate: Tensor, step: int) -> Tensor:
+    floor = early_trust_floor_for_step(step)
+    cap = ATTN_EARLY_TRUST_CAP if step < ATTN_TRUST_FLOOR_FADE_END_STEP else 1.0
+    return gate.clamp(min=floor, max=cap)
+
+def attention_soap_blend_for_step(step: int) -> float:
+    if step < ATTN_SOAP_FADE_START_STEP:
+        return 1.0
+    if step >= ATTN_SOAP_FADE_END_STEP:
+        return 0.0
+    if ATTN_SOAP_FADE_END_STEP <= ATTN_SOAP_FADE_START_STEP:
+        return 0.0
+    return (
+        ATTN_SOAP_FADE_END_STEP - step
+    ) / (ATTN_SOAP_FADE_END_STEP - ATTN_SOAP_FADE_START_STEP)
+
+def norm_preserving_blend(raw: Tensor, soap: Tensor, gate: Tensor, eps: float = 1e-8) -> Tensor:
+    blended = raw + (soap - raw) * gate.to(raw.dtype)
+    raw_norm = gram_frobenius_norm_estimate(raw, eps=eps)
+    blended_norm = gram_frobenius_norm_estimate(blended, eps=eps)
+    return (blended * (raw_norm / blended_norm).to(blended.dtype)).to(raw.dtype)
+
+def scale_radial_update(update: Tensor, param: Tensor, eps: float = 1e-12) -> Tensor:
+    update_f = update.float()
+    param_f = param.float()
+    denom = (param_f * param_f).sum().clamp_min(eps)
+    coeff = (update_f * param_f).sum() / denom
+    radial = coeff * param_f
+    tangential = update_f - radial
+    # p.add_(update, alpha=-lr), so actual movement is -update.
+    # Outward movement means (-update) is aligned with p, i.e. coeff < 0.
+    radial_scale = torch.where(
+        coeff < 0,
+        update_f.new_tensor(RADIAL_OUTWARD_SCALE),
+        update_f.new_tensor(RADIAL_INWARD_SCALE),
+    )
+    return (tangential + radial_scale * radial).to(update.dtype)
+
+def target_radius_after_update(param: Tensor, update: Tensor, lr: float, eps: float = 1e-8) -> Tensor:
+    param_f = param.float()
+    update_f = update.float()
+    before_norm = param_f.norm().clamp_min(eps)
+    # Use only the radial component's first-order radius change as the intended
+    # radius change; the post-step rescale below removes finite tangent drift.
+    radial_delta = -lr * (update_f * param_f).sum() / before_norm
+    return (before_norm + radial_delta).clamp_min(eps)
+
+def rescale_to_radius(param: Tensor, target_norm: Tensor, eps: float = 1e-8):
+    after_norm = param.float().norm().clamp_min(eps)
+    param.mul_((target_norm / after_norm).to(param.dtype))
+
+def soap_eigenbasis(mat: Tensor) -> Tensor:
+    try:
+        _, q = torch.linalg.eigh(mat + 1e-30 * torch.eye(mat.size(0), device=mat.device))
+    except RuntimeError:
+        _, q = torch.linalg.eigh(mat.double() + 1e-30 * torch.eye(mat.size(0), device=mat.device))
+        q = q.float()
+    return torch.flip(q, [1])
+
+def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
+    row_eig = torch.diag(q_row.T @ row_gg @ q_row)
+    row_sort = torch.argsort(row_eig, descending=True)
+    q_row = q_row[:, row_sort]
+    exp_avg_sq = exp_avg_sq.index_select(0, row_sort)
+    q_row, _ = torch.linalg.qr(row_gg @ q_row)
+
+    col_eig = torch.diag(q_col.T @ col_gg @ q_col)
+    col_sort = torch.argsort(col_eig, descending=True)
+    q_col = q_col[:, col_sort]
+    exp_avg_sq = exp_avg_sq.index_select(1, col_sort)
+    q_col, _ = torch.linalg.qr(col_gg @ q_col)
+    return q_row, q_col, exp_avg_sq
+
+def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8,
+                               blend=SOAP_BLEND, denom_floor_ratio=0.0):
+    update_f = update.float()
+    if state["q_row"] is None:
+        return update
+    q_row, q_col = state["q_row"], state["q_col"]
+    projected = q_row.T @ update_f @ q_col
+    state["exp_avg_sq"].mul_(beta2).add_(projected.square(), alpha=1 - beta2)
+    denom = state["exp_avg_sq"].clamp_min(eps * eps).pow(SOAP_DENOM_POWER)
+    if denom_floor_ratio > 0:
+        denom_floor = denom.float().square().mean().sqrt().mul(denom_floor_ratio).clamp_min(eps)
+        denom = denom.clamp_min(denom_floor.to(denom.dtype))
+    precond = q_row @ (projected / denom) @ q_col.T
+    if blend != 1.0:
+        precond = blend * precond + (1 - blend) * update_f
+    precond.mul_(gram_frobenius_norm_estimate(update_f, eps=eps) / gram_frobenius_norm_estimate(precond, eps=eps))
+    return precond.to(update.dtype)
+
+def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, precondition_frequency=SOAP_PRECONDITION_FREQUENCY):
+    grad_f = grad.float()
+    state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - shampoo_beta)
+    state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - shampoo_beta)
+    if state["q_row"] is None:
+        state["q_row"] = soap_eigenbasis(state["row_gg"])
+        state["q_col"] = soap_eigenbasis(state["col_gg"])
+    elif state["soap_step"] > 0 and state["soap_step"] % precondition_frequency == 0:
+        state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
+            state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
+        )
+    state["soap_step"] += 1
+
+def _linear_ramp(step: int, start_step: int, end_step: int) -> float:
+    if end_step <= start_step:
+        return 1.0 if step >= end_step else 0.0
+    return min(1.0, max(0.0, (step - start_step) / (end_step - start_step)))
+
+def contra_coeff_for_step(step: int) -> float:
+    contra_to_normal = _linear_ramp(step, CONTRA_HOLD_END_STEP, CONTRA_TO_NORMAL_END_STEP)
+    return CONTRA_MUON_COEFF * (1.0 - contra_to_normal)
+
+def soft_blend_for_step(step: int) -> float:
+    return min(SOFT_MUON_CEIL, _linear_ramp(step, NORMAL_TO_SOFT_START_STEP, NORMAL_TO_SOFT_END_STEP))
+
+def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, use_soft=True):
+    # Normalized Correction (NC, KellerJordan PR #295 / Nora arxiv:2605.03769):
+    # pre-NS row/col rebalancing of the update so that NS sees a better-conditioned
+    # input. Applied here so every downstream NS-related path (raw normalized grad,
+    # NS update, soft-Muon update) sees the NC-rebalanced gradient.
+    r_norm = update.norm(dim=-1, keepdim=True)    # shape [..., m, 1]
+    c_norm = update.norm(dim=-2, keepdim=True)    # shape [..., 1, n]
+    update = update / torch.sqrt(torch.clamp(r_norm * c_norm, min=1e-12))
+    normalized_grad = scale_to_unit_operator_norm(update.clone())
+    ns_update = zeropower_via_newtonschulz5(update)
+    update_norm_estimate = gram_frobenius_norm_estimate(ns_update)
+
+    contra_coeff = contra_coeff_for_step(step) if use_contra else 0.0
+    contra_update = ns_update + contra_coeff * normalized_grad
+    contra_update = contra_update * update_norm_estimate / gram_frobenius_norm_estimate(contra_update)
+    if use_soft:
+        soft_update = soft_via_newtonschulz5(update, SOFT_MUON_P, SOFT_MUON_SCALE, SOFT_MUON_INPUT_NORM)
+        soft_update = soft_update * update_norm_estimate / gram_frobenius_norm_estimate(soft_update)
+        blend = soft_blend_for_step(step)
+    else:
+        soft_update = contra_update
+        blend = 0.0
+    update = contra_update + (soft_update - contra_update) * blend
+    update = update * update_norm_estimate / gram_frobenius_norm_estimate(update)
+    update *= max(1, update.size(-2) / update.size(-1))**0.5
+    # Per-row variance (or per-col if matrix is wide). Keep along the longer dim.
+    if update.size(-2) >= update.size(-1):
+        per_row_var = (update * update).mean(dim=-1, keepdim=True)  # shape (..., m, 1)
+    else:
+        per_row_var = (update * update).mean(dim=-2, keepdim=True)  # shape (..., 1, n)
+    second_moment.lerp_(per_row_var.float(), 1 - beta2)
+    vnorm = gram_frobenius_norm_estimate(update)
+    update = update * second_moment.clamp_min(1e-10).rsqrt().to(update.dtype)
+    vnorm_new = gram_frobenius_norm_estimate(update)
+    update = update * (vnorm / vnorm_new)
     return update
 
+def rre_extrapolate(iterates, regularization=1e-6, damping=1.0):
+    k = len(iterates) - 1
+    if k < 2:
+        return iterates[-1].clone()
+
+    orig_dtype = iterates[0].dtype
+    iterates_f32 = [x.float() for x in iterates]
+    diffs = [iterates_f32[i + 1] - iterates_f32[i] for i in range(k)]
+    U = torch.stack(diffs)
+    G = U @ U.T
+    reg = regularization * torch.trace(G).clamp_min(0) / k + 1e-10
+    G = G + reg * torch.eye(k, device=G.device, dtype=G.dtype)
+    ones = torch.ones(k, dtype=G.dtype, device=G.device)
+
+    try:
+        coeffs = torch.linalg.solve(G, ones)
+        coeff_sum = coeffs.sum()
+        if not torch.isfinite(coeff_sum) or coeff_sum.abs() < 1e-12:
+            return iterates[-1].clone()
+        coeffs = coeffs / coeff_sum
+        gamma = torch.flip(torch.cumsum(torch.flip(coeffs, [0]), 0), [0])
+        extrapolated = iterates_f32[-1] - (gamma @ U)
+        if damping != 1.0:
+            extrapolated = iterates_f32[-1].lerp(extrapolated, damping)
+        if not torch.isfinite(extrapolated).all():
+            return iterates[-1].clone()
+        return extrapolated.to(orig_dtype)
+    except Exception:
+        return iterates[-1].clone()
+
+def rre_tsvd_extrapolate(iterates, regularization=1e-6, damping=1.0):
+    k = len(iterates) - 1
+    if k < 2:
+        return iterates[-1].clone()
+
+    orig_dtype = iterates[0].dtype
+    iterates_f32 = [x.float() for x in iterates]
+    diffs = [iterates_f32[i + 1] - iterates_f32[i] for i in range(k)]
+    U = torch.stack(diffs)
+    G = U @ U.T
+    ones = torch.ones(k, dtype=G.dtype, device=G.device)
+
+    try:
+        evals, evecs = torch.linalg.eigh(G)
+        if not torch.isfinite(evals).all() or evals.numel() == 0:
+            return rre_extrapolate(iterates, regularization=regularization, damping=damping)
+        max_eval = evals.max().clamp_min(1e-12)
+        threshold = max(float(regularization), 1e-12) * max_eval
+        keep = evals > threshold
+        if not bool(keep.any()):
+            keep[torch.argmax(evals)] = True
+        V = evecs[:, keep]
+        coeffs = V @ ((V.T @ ones) / evals[keep].clamp_min(1e-12))
+        coeff_sum = coeffs.sum()
+        if not torch.isfinite(coeff_sum) or coeff_sum.abs() < 1e-12:
+            return iterates[-1].clone()
+        coeffs = coeffs / coeff_sum
+        gamma = torch.flip(torch.cumsum(torch.flip(coeffs, [0]), 0), [0])
+        extrapolated = iterates_f32[-1] - (gamma @ U)
+        return _finish_extrapolation(iterates[-1], extrapolated, damping, orig_dtype)
+    except Exception:
+        return iterates[-1].clone()
+
+def _finish_extrapolation(current, extrapolated, damping, orig_dtype):
+    if damping != 1.0:
+        extrapolated = current.float().lerp(extrapolated.float(), damping)
+    if not torch.isfinite(extrapolated).all():
+        return current.clone()
+    return extrapolated.to(orig_dtype)
+
+def mpe_extrapolate(iterates, regularization=1e-6, damping=1.0):
+    k = len(iterates) - 1
+    if k < 3:
+        return rre_extrapolate(iterates, regularization=regularization, damping=damping)
+
+    orig_dtype = iterates[0].dtype
+    iterates_f32 = [x.float() for x in iterates]
+    diffs = [iterates_f32[i + 1] - iterates_f32[i] for i in range(k)]
+    second_diffs = [diffs[i + 1] - diffs[i] for i in range(k - 1)]
+    if not second_diffs:
+        return rre_extrapolate(iterates, regularization=regularization, damping=damping)
+
+    W = torch.stack(second_diffs)
+    G = W @ W.T
+    reg = regularization * torch.trace(G).clamp_min(0) / max(1, G.size(0)) + 1e-10
+    G = G + reg * torch.eye(G.size(0), device=G.device, dtype=G.dtype)
+    ones = torch.ones(G.size(0), dtype=G.dtype, device=G.device)
+
+    try:
+        coeffs = torch.linalg.solve(G, ones)
+        coeff_sum = coeffs.sum()
+        if not torch.isfinite(coeff_sum) or coeff_sum.abs() < 1e-12:
+            return iterates[-1].clone()
+        coeffs = coeffs / coeff_sum
+        gamma = torch.flip(torch.cumsum(torch.flip(coeffs, [0]), 0), [0])
+        extrapolated = iterates_f32[-2].clone()
+        for weight, second_diff in zip(gamma, second_diffs):
+            extrapolated = extrapolated - weight * second_diff
+        return _finish_extrapolation(iterates[-1], extrapolated, damping, orig_dtype)
+    except Exception:
+        return iterates[-1].clone()
+
+def mpe_sidi_extrapolate(iterates, regularization=1e-6, damping=1.0):
+    if len(iterates) < 4:
+        return rre_extrapolate(iterates, regularization=regularization, damping=damping)
+
+    orig_dtype = iterates[0].dtype
+    iterates_f32 = [x.float() for x in iterates]
+    diffs = [iterates_f32[i + 1] - iterates_f32[i] for i in range(len(iterates_f32) - 1)]
+    basis = torch.stack(diffs[:-1])
+    target = diffs[-1]
+    G = basis @ basis.T
+    reg = regularization * torch.trace(G).clamp_min(0) / max(1, G.size(0)) + 1e-10
+    G = G + reg * torch.eye(G.size(0), device=G.device, dtype=G.dtype)
+    rhs = -(basis @ target)
+
+    try:
+        coeff_head = torch.linalg.solve(G, rhs)
+        coeffs = torch.cat([coeff_head, torch.ones(1, device=G.device, dtype=G.dtype)])
+        coeff_sum = coeffs.sum()
+        if not torch.isfinite(coeff_sum) or coeff_sum.abs() < 1e-12:
+            return iterates[-1].clone()
+        coeffs = coeffs / coeff_sum
+        extrapolated = sum(coeffs[i] * iterates_f32[i + 1] for i in range(coeffs.numel()))
+        return _finish_extrapolation(iterates[-1], extrapolated, damping, orig_dtype)
+    except Exception:
+        return iterates[-1].clone()
+
+def anderson_extrapolate(iterates, regularization=1e-6, damping=1.0, beta=1.0):
+    k = len(iterates) - 1
+    if k < 2:
+        return iterates[-1].clone()
+
+    orig_dtype = iterates[0].dtype
+    iterates_f32 = [x.float() for x in iterates]
+    residuals = [iterates_f32[i + 1] - iterates_f32[i] for i in range(k)]
+    R = torch.stack(residuals)
+    G = R @ R.T
+    reg = regularization * torch.trace(G).clamp_min(0) / k + 1e-10
+    G = G + reg * torch.eye(k, device=G.device, dtype=G.dtype)
+    ones = torch.ones(k, dtype=G.dtype, device=G.device)
+
+    try:
+        alpha = torch.linalg.solve(G, ones)
+        alpha_sum = alpha.sum()
+        if not torch.isfinite(alpha_sum) or alpha_sum.abs() < 1e-12:
+            return iterates[-1].clone()
+        alpha = alpha / alpha_sum
+        x_bar = sum(alpha[i] * iterates_f32[i + 1] for i in range(k))
+        r_bar = sum(alpha[i] * residuals[i] for i in range(k))
+        extrapolated = x_bar + beta * r_bar
+        return _finish_extrapolation(iterates[-1], extrapolated, damping, orig_dtype)
+    except Exception:
+        return iterates[-1].clone()
+
+def vea_extrapolate(iterates, regularization=1e-6, damping=1.0):
+    k = len(iterates) - 1
+    if k < 2:
+        return iterates[-1].clone()
+
+    orig_dtype = iterates[0].dtype
+    iterates_f32 = [x.float() for x in iterates]
+    eps_prev = [torch.zeros_like(iterates_f32[0]) for _ in iterates_f32]
+    eps_curr = [x.clone() for x in iterates_f32]
+    eps = max(float(regularization), 1e-10)
+
+    try:
+        for _ in range(min(k, 4)):
+            eps_next = []
+            for i in range(len(eps_curr) - 1):
+                diff = eps_curr[i + 1] - eps_curr[i]
+                norm_sq = torch.dot(diff.flatten(), diff.flatten())
+                if norm_sq < eps:
+                    eps_next.append(eps_curr[i + 1].clone())
+                else:
+                    eps_next.append(eps_prev[i + 1] + diff / (norm_sq + eps))
+            if not eps_next:
+                break
+            eps_prev = eps_curr
+            eps_curr = eps_next
+        extrapolated = eps_curr[-1] if eps_curr else iterates_f32[-1]
+        return _finish_extrapolation(iterates[-1], extrapolated, damping, orig_dtype)
+    except Exception:
+        return iterates[-1].clone()
+
+def stea_extrapolate(iterates, regularization=1e-6, damping=1.0):
+    k = len(iterates) - 1
+    if k < 2:
+        return iterates[-1].clone()
+
+    orig_dtype = iterates[0].dtype
+    iterates_f32 = [x.float() for x in iterates]
+    diffs = [iterates_f32[i + 1] - iterates_f32[i] for i in range(k)]
+    try:
+        weights = torch.tensor(
+            [1.0 / (torch.norm(d).item() + regularization) for d in diffs],
+            device=iterates[0].device,
+            dtype=torch.float32,
+        )
+        weights = weights / weights.sum().clamp_min(1e-12)
+        extrapolated = iterates_f32[-1].clone()
+        for i, (weight, diff) in enumerate(zip(weights, diffs)):
+            extrapolated = extrapolated - weight * ((i + 1) / k) * diff
+        return _finish_extrapolation(iterates[-1], extrapolated, damping, orig_dtype)
+    except Exception:
+        return iterates[-1].clone()
+
+def quadratic_extrapolate(iterates, regularization=1e-6, damping=1.0):
+    if len(iterates) < 3:
+        return iterates[-1].clone()
+
+    orig_dtype = iterates[0].dtype
+    x0 = iterates[-3].float()
+    x1 = iterates[-2].float()
+    x2 = iterates[-1].float()
+    d1 = x1 - x0
+    d2 = x2 - x1
+    dd = d2 - d1
+    dd_norm = torch.dot(dd.flatten(), dd.flatten())
+    if dd_norm < max(float(regularization), 1e-10):
+        return iterates[-1].clone()
+    try:
+        extrapolated = x0 - d1 * (torch.dot(d1.flatten(), dd.flatten()) / dd_norm)
+        return _finish_extrapolation(iterates[-1], extrapolated, damping, orig_dtype)
+    except Exception:
+        return iterates[-1].clone()
+
+def rre_quadratic_blend_extrapolate(iterates, regularization=1e-6, damping=1.0):
+    if len(iterates) < 3:
+        return rre_extrapolate(iterates, regularization=regularization, damping=damping)
+
+    orig_dtype = iterates[0].dtype
+    current = iterates[-1].float()
+    rre = rre_extrapolate(iterates, regularization=regularization, damping=1.0).float()
+    quad = quadratic_extrapolate(iterates, regularization=regularization, damping=1.0).float()
+    rre_delta = rre - current
+    quad_delta = quad - current
+    rre_norm = torch.dot(rre_delta.flatten(), rre_delta.flatten()).sqrt().clamp_min(1e-12)
+    quad_norm = torch.dot(quad_delta.flatten(), quad_delta.flatten()).sqrt().clamp_min(1e-12)
+
+    if not torch.isfinite(rre_delta).all() or not torch.isfinite(quad_delta).all():
+        return rre_extrapolate(iterates, regularization=regularization, damping=damping)
+
+    dot = torch.dot(rre_delta.flatten(), quad_delta.flatten())
+    cos = dot / (rre_norm * quad_norm)
+    if not torch.isfinite(cos) or cos <= 0:
+        blended_delta = rre_delta
+    else:
+        if EXTRAPOLATION_BLEND_ORTHOGONAL:
+            extra = quad_delta - rre_delta * (dot / rre_norm.square())
+        else:
+            extra = quad_delta - rre_delta
+        extra_norm = torch.dot(extra.flatten(), extra.flatten()).sqrt()
+        max_extra = rre_norm * max(0.0, EXTRAPOLATION_BLEND_MAX_EXTRA_REL)
+        if extra_norm > max_extra:
+            extra = extra * (max_extra / extra_norm.clamp_min(1e-12))
+        blended_delta = rre_delta + max(0.0, EXTRAPOLATION_BLEND_WEIGHT) * extra
+
+    extrapolated = current + damping * blended_delta
+    if not torch.isfinite(extrapolated).all():
+        return iterates[-1].clone()
+    return extrapolated.to(orig_dtype)
+
+def _blend_extra_delta(base_delta, extra_delta):
+    base_norm = torch.dot(base_delta.flatten(), base_delta.flatten()).sqrt().clamp_min(1e-12)
+    extra_norm = torch.dot(extra_delta.flatten(), extra_delta.flatten()).sqrt()
+    max_extra = base_norm * max(0.0, EXTRAPOLATION_BLEND_MAX_EXTRA_REL)
+    if extra_norm > max_extra:
+        extra_delta = extra_delta * (max_extra / extra_norm.clamp_min(1e-12))
+    return base_delta + max(0.0, EXTRAPOLATION_BLEND_WEIGHT) * extra_delta
+
+def rre_mpe_blend_extrapolate(iterates, regularization=1e-6, damping=1.0):
+    if len(iterates) < 4:
+        return rre_extrapolate(iterates, regularization=regularization, damping=damping)
+
+    orig_dtype = iterates[0].dtype
+    current = iterates[-1].float()
+    rre = rre_extrapolate(iterates, regularization=regularization, damping=1.0).float()
+    mpe = mpe_sidi_extrapolate(iterates, regularization=regularization, damping=1.0).float()
+    rre_delta = rre - current
+    mpe_delta = mpe - current
+    if not torch.isfinite(rre_delta).all() or not torch.isfinite(mpe_delta).all():
+        return rre_extrapolate(iterates, regularization=regularization, damping=damping)
+
+    rre_norm = torch.dot(rre_delta.flatten(), rre_delta.flatten()).sqrt().clamp_min(1e-12)
+    mpe_norm = torch.dot(mpe_delta.flatten(), mpe_delta.flatten()).sqrt().clamp_min(1e-12)
+    dot = torch.dot(rre_delta.flatten(), mpe_delta.flatten())
+    cos = dot / (rre_norm * mpe_norm)
+    if not torch.isfinite(cos) or cos <= 0:
+        blended_delta = rre_delta
+    else:
+        if EXTRAPOLATION_BLEND_ORTHOGONAL:
+            extra = mpe_delta - rre_delta * (dot / rre_norm.square())
+        else:
+            extra = mpe_delta - rre_delta
+        blended_delta = _blend_extra_delta(rre_delta, extra)
+
+    extrapolated = current + damping * blended_delta
+    if not torch.isfinite(extrapolated).all():
+        return iterates[-1].clone()
+    return extrapolated.to(orig_dtype)
+
+def rre_velocity_blend_extrapolate(iterates, regularization=1e-6, damping=1.0):
+    if len(iterates) < 3:
+        return rre_extrapolate(iterates, regularization=regularization, damping=damping)
+
+    orig_dtype = iterates[0].dtype
+    current = iterates[-1].float()
+    rre = rre_extrapolate(iterates, regularization=regularization, damping=1.0).float()
+    rre_delta = rre - current
+    velocity = current - iterates[-2].float()
+    if not torch.isfinite(rre_delta).all() or not torch.isfinite(velocity).all():
+        return rre_extrapolate(iterates, regularization=regularization, damping=damping)
+
+    rre_norm = torch.dot(rre_delta.flatten(), rre_delta.flatten()).sqrt().clamp_min(1e-12)
+    vel_norm = torch.dot(velocity.flatten(), velocity.flatten()).sqrt().clamp_min(1e-12)
+    dot = torch.dot(rre_delta.flatten(), velocity.flatten())
+    cos = dot / (rre_norm * vel_norm)
+    if not torch.isfinite(cos) or cos <= 0:
+        blended_delta = rre_delta
+    else:
+        if EXTRAPOLATION_BLEND_ORTHOGONAL:
+            extra = velocity - rre_delta * (dot / rre_norm.square())
+        else:
+            extra = velocity
+        blended_delta = _blend_extra_delta(rre_delta, extra)
+
+    extrapolated = current + damping * blended_delta
+    if not torch.isfinite(extrapolated).all():
+        return iterates[-1].clone()
+    return extrapolated.to(orig_dtype)
+
+def rre_velocity_residual_extrapolate(iterates, regularization=1e-6, damping=1.0):
+    if len(iterates) < 3:
+        return rre_extrapolate(iterates, regularization=regularization, damping=damping)
+
+    orig_dtype = iterates[0].dtype
+    current = iterates[-1].float()
+    rre = rre_extrapolate(iterates, regularization=regularization, damping=1.0).float()
+    rre_delta = rre - current
+    velocity = current - iterates[-2].float()
+    vel_norm_sq = torch.dot(velocity.flatten(), velocity.flatten()).clamp_min(1e-12)
+    dot = torch.dot(rre_delta.flatten(), velocity.flatten())
+    if torch.isfinite(dot) and dot > 0:
+        projection = velocity * (dot / vel_norm_sq)
+        rre_delta = rre_delta - max(0.0, EXTRAPOLATION_BLEND_WEIGHT) * projection
+    extrapolated = current + damping * rre_delta
+    if not torch.isfinite(extrapolated).all():
+        return iterates[-1].clone()
+    return extrapolated.to(orig_dtype)
+
+EXTRAPOLATION_ALGORITHMS = {
+    "rre": rre_extrapolate,
+    "rre_tsvd": rre_tsvd_extrapolate,
+    "mpe": mpe_extrapolate,
+    "mpe_sidi": mpe_sidi_extrapolate,
+    "anderson": anderson_extrapolate,
+    "vea": vea_extrapolate,
+    "stea": stea_extrapolate,
+    "quadratic": quadratic_extrapolate,
+    "rre_quadratic_blend": rre_quadratic_blend_extrapolate,
+    "rre_quad_blend": rre_quadratic_blend_extrapolate,
+    "rre_quadratic_orthogonal": rre_quadratic_blend_extrapolate,
+    "rre_mpe_blend": rre_mpe_blend_extrapolate,
+    "rre_velocity_blend": rre_velocity_blend_extrapolate,
+    "rre_velocity_residual": rre_velocity_residual_extrapolate,
+}
+RRE_LAYERWISE_NAMES = {"rre_layer", "layer_rre", "rre_per_layer", "per_layer_rre"}
+RRE_TENSORWISE_NAMES = {"rre_tensor", "tensor_rre", "rre_per_tensor", "per_tensor_rre"}
+
+def extrap_layer_key(name):
+    parts = name.split(".")
+    if len(parts) >= 2 and parts[0] == "blocks" and parts[1].isdigit():
+        return f"block_{parts[1]}"
+    if parts and parts[0].isdigit():
+        return f"block_{parts[0]}"
+    return name
+
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95):
+        assert isinstance(named_params, list) and len(named_params) >= 1
+        for n, p in named_params:
+            p._extrap_layer_key = extrap_layer_key(n)
+        self.soap_params = {p for n, p in named_params if should_soap_param(n)}
+        self.attn_soap_params = {p for n, p in named_params if should_soap_param(n) and is_attn_param(n)}
+        self.attn_proj_soap_params = {p for n, p in named_params if should_soap_param(n) and is_attn_proj_param(n)}
+        self.v_params = {p for n, p in named_params if is_v_param(n)}
+        self.no_contra_params = {p for n, p in named_params if param_matches_spec(n, NO_CONTRA_PARAM)}
+        self.no_soft_params = {p for n, p in named_params if param_matches_spec(n, NO_SOFTMUON_PARAM)}
+        self.extrap_params = {p for n, p in named_params if extrap_param_matches(n)}
+        self.step_count = 0
+        params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        self.extrap_checkpoints = []
+        self.extrap_count = 0
+        self.last_extrap_rel = 0.0
+        self.last_handoff_mode = "none"
+
+    def _flatten_params(self, params):
+        return torch.cat([p.detach().reshape(-1) for p in params])
+
+    def _unflatten_params(self, params, flat_params):
+        offset = 0
+        for p in params:
+            numel = p.numel()
+            p.copy_(flat_params[offset:offset + numel].view_as(p))
+            offset += numel
+
+    def _reset_momentum(self, params):
+        for p in params:
+            state = self.state.get(p)
+            if state and "momentum" in state:
+                state["momentum"].zero_()
+
+    def _parameter_offsets(self, params):
+        offsets = []
+        offset = 0
+        for p in params:
+            next_offset = offset + p.numel()
+            offsets.append((offset, next_offset))
+            offset = next_offset
+        return offsets
+
+    def _rre_groupwise_extrapolate(self, params, checkpoints, damping, mode):
+        offsets = self._parameter_offsets(params)
+        result = checkpoints[-1].clone()
+        if mode == "tensor":
+            groups = [(i,) for i in range(len(params))]
+        else:
+            by_layer = {}
+            for i, p in enumerate(params):
+                key = getattr(p, "_extrap_layer_key", f"param_{i}")
+                by_layer.setdefault(key, []).append(i)
+            groups = list(by_layer.values())
+
+        for group in groups:
+            group_iterates = []
+            for checkpoint in checkpoints:
+                group_iterates.append(torch.cat([checkpoint[offsets[i][0]:offsets[i][1]] for i in group]))
+            group_extrapolated = rre_extrapolate(
+                group_iterates,
+                regularization=EXTRAPOLATION_REGULARIZATION,
+                damping=damping,
+            )
+            cursor = 0
+            for i in group:
+                start, end = offsets[i]
+                size = end - start
+                result[start:end].copy_(group_extrapolated[cursor:cursor + size])
+                cursor += size
+        return result
+
+    def _maybe_extrapolate(self, params):
+        extrapolation_name = EXTRAPOLATION_NAME.lower()
+        if EXTRAPOLATION_EVERY <= 0 or extrapolation_name in {"none", "off", "0"}:
+            return
+        params = [p for p in params if p in self.extrap_params]
+        if not params:
+            self.last_handoff_mode = "filter_empty"
+            return
+        extrapolate = EXTRAPOLATION_ALGORITHMS.get(extrapolation_name)
+        is_layerwise_rre = extrapolation_name in RRE_LAYERWISE_NAMES
+        is_tensorwise_rre = extrapolation_name in RRE_TENSORWISE_NAMES
+        if extrapolate is None and not is_layerwise_rre and not is_tensorwise_rre:
+            raise ValueError(f"unknown vector extrapolation algorithm: {EXTRAPOLATION_NAME}")
+
+        next_step = self.step_count + 1
+        if next_step < EXTRAPOLATION_START_STEP:
+            return
+        after_stop = EXTRAPOLATION_STOP_STEP and next_step > EXTRAPOLATION_STOP_STEP
+        every = EXTRAPOLATION_AFTER_STOP_EVERY if after_stop else EXTRAPOLATION_EVERY
+        if after_stop and every <= 0:
+            return
+
+        current = self._flatten_params(params).detach().clone()
+        self.extrap_checkpoints.append(current)
+        if len(self.extrap_checkpoints) > EXTRAPOLATION_NUM_CHECKPOINTS:
+            self.extrap_checkpoints.pop(0)
+        if next_step % every != 0 or len(self.extrap_checkpoints) < EXTRAPOLATION_NUM_CHECKPOINTS:
+            return
+
+        if is_layerwise_rre:
+            extrapolated = self._rre_groupwise_extrapolate(
+                params,
+                self.extrap_checkpoints,
+                EXTRAPOLATION_DAMPING,
+                "layer",
+            )
+        elif is_tensorwise_rre:
+            extrapolated = self._rre_groupwise_extrapolate(
+                params,
+                self.extrap_checkpoints,
+                EXTRAPOLATION_DAMPING,
+                "tensor",
+            )
+        else:
+            extrapolated = extrapolate(
+                self.extrap_checkpoints,
+                regularization=EXTRAPOLATION_REGULARIZATION,
+                damping=EXTRAPOLATION_DAMPING,
+            )
+        current_f32 = current.float()
+        delta = extrapolated.float() - current_f32
+        current_norm = current_f32.norm().clamp_min(1e-12)
+        extrap_rel = float(delta.norm() / current_norm)
+        if EXTRAPOLATION_MAX_REL > 0 and extrap_rel > EXTRAPOLATION_MAX_REL:
+            delta = delta * (EXTRAPOLATION_MAX_REL / max(extrap_rel, 1e-12))
+            extrapolated = (current_f32 + delta).to(current.dtype)
+            extrap_rel = float(delta.norm() / current_norm)
+        self.last_extrap_rel = extrap_rel
+        self._unflatten_params(params, extrapolated)
+        self.extrap_checkpoints = [extrapolated.detach().clone()]
+        final_extrap_before_stop = (
+            EXTRAPOLATION_STOP_STEP
+            and EXTRAPOLATION_AFTER_STOP_EVERY <= 0
+            and next_step + EXTRAPOLATION_EVERY > EXTRAPOLATION_STOP_STEP
+        )
+        if final_extrap_before_stop:
+            self.last_handoff_mode = "keep"
+        elif EXTRAPOLATION_RESET_MOMENTUM:
+            self._reset_momentum(params)
+            self.last_handoff_mode = "reset"
+        else:
+            self.last_handoff_mode = "keep"
+        self.extrap_count += 1
 
     @torch.no_grad()
     def step(self):
@@ -478,10 +1481,71 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
-                    p.mul_(1 - group["lr"] * group["weight_decay"])
+                        if p in self.soap_params:
+                            state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
+                            state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
+                            state["col_gg"] = torch.zeros(p.size(1), p.size(1), dtype=torch.float32, device=p.device)
+                            state["q_row"] = None
+                            state["q_col"] = None
+                            state["soap_step"] = 0
+                        # Second-moment buffer matches per-row-or-col shape.
+                        if p.size(-2) >= p.size(-1):
+                            state["second_moment"] = torch.zeros((*p.shape[:-1], 1),
+                                dtype=torch.float32, device=p.device)
+                        else:
+                            state["second_moment"] = torch.zeros((*p.shape[:-2], 1, p.shape[-1]),
+                                dtype=torch.float32, device=p.device)
+                    grad = p.grad
+                    state["momentum"].lerp_(grad, 1 - group["mu"])
+                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    is_attn_soap = p in self.attn_soap_params
+                    use_soap = p in self.soap_params
+                    if use_soap and SOAP_UPDATE_BEFORE_USE:
+                        soap_update_preconditioner(grad, state)
+                    if use_soap:
+                        if is_attn_soap:
+                            soap_blend = V_SOAP_BLEND if p in self.v_params else ATTN_SOAP_BLEND
+                            if p in self.v_params and V_SOAP_BLEND_RAMP_END_STEP > 0:
+                                soap_blend *= _linear_ramp(self.step_count, 0, V_SOAP_BLEND_RAMP_END_STEP)
+                            soap_update = soap_precondition_momentum(
+                                momentum_update, state, blend=soap_blend,
+                                denom_floor_ratio=ATTN_SOAP_DENOM_FLOOR
+                            )
+                            if p in self.attn_proj_soap_params:
+                                gate = bounded_trust_gate(
+                                    trust_gate(momentum_update, soap_update, grad),
+                                    self.step_count
+                                )
+                            else:
+                                gate = torch.ones((), dtype=torch.float32, device=p.device)
+                            gate = gate * attention_soap_blend_for_step(self.step_count)
+                            momentum_update = norm_preserving_blend(momentum_update, soap_update, gate)
+                        else:
+                            momentum_update = soap_precondition_momentum(momentum_update, state, blend=SOAP_BLEND)
+                    update = muon_update(
+                        momentum_update,
+                        state["second_moment"],
+                        self.step_count,
+                        use_contra=p not in self.no_contra_params,
+                        use_soft=p not in self.no_soft_params,
+                    )
+                    update = scale_radial_update(update, p)
+                    # u/w-floor. SOAP and non-SOAP params can use different floors.
+                    p_fro = p.float().norm().clamp_min(1e-8)
+                    u_fro = update.float().norm().clamp_min(1e-8)
+                    cur_uw = u_fro / p_fro
+                    target_uw = SOAP_TARGET_UW if use_soap else NONSOAP_TARGET_UW
+                    scale = torch.where(cur_uw < target_uw, target_uw * p_fro / u_fro, torch.ones_like(p_fro))
+                    update = update * scale.to(update.dtype)
+                    target_radius = target_radius_after_update(p, update, group["lr"])
+                    # WD set to 0 — u/w target replaces wd's role (smaller updates as p grows).
                     p.add_(update, alpha=-group["lr"])
+                    rescale_to_radius(p, target_radius)
+                    if use_soap and not SOAP_UPDATE_BEFORE_USE:
+                        soap_update_preconditioner(grad, state)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+            self._maybe_extrapolate(params)
+        self.step_count += 1
 
 
 ########################################
@@ -491,6 +1555,7 @@ class Muon(torch.optim.Optimizer):
 # torchrun sets these env variables
 device = torch.device("cuda", int(os.environ["LOCAL_RANK"]))
 torch.cuda.set_device(device)
+torch.manual_seed(SEED)
 dist.init_process_group(backend="nccl", device_id=device)
 dist.barrier()
 # this code can be run equivalently with 1, 2, 4, or 8 gpus.
@@ -498,13 +1563,14 @@ assert 8 % dist.get_world_size() == 0
 
 # logging setup
 if dist.get_rank() == 0:
-    os.makedirs("logs", exist_ok=True)
-    logfile = f"logs/{uuid.uuid4()}.txt"
-    print(logfile)
+    log_dir = LOG_DIR
+    log_dir.mkdir(parents=True, exist_ok=True)
+    logfile = str(log_dir / f"{uuid.uuid4()}.txt")
+    print(logfile, flush=True)
 def print0(s, console=False, log=True):
     if dist.get_rank() == 0:
         if console:
-            print(s)
+            print(s, flush=True)
         if log:
             with open(logfile, "a") as f:
                 print(s, file=f)
@@ -512,21 +1578,85 @@ def print0(s, console=False, log=True):
 # we begin by logging this file itself
 print0(code)
 print0("="*100)
-print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
-       + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
+print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}")
+print0(f"Running on device_name={torch.cuda.get_device_name(device)} with world_size={dist.get_world_size()}")
+print0(f"Run UTC timestamp={time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}")
+print0(f"Using seed={SEED}")
+print0(f"Experiment={EXPERIMENT_NAME}")
+print0(f"Intuition={EXPERIMENT_INTUITION}")
+print0("Muon update linearly changes from Contra Muon to normal Muon, then normal Muon to soft Muon.")
+print0("This script retains the PR 274 NorMuon-lite row/column variance normalization and u/w-floor postprocessing.")
+print0("MLP and V SOAP stay on all run; V SOAP blend is fixed at 0.95.")
+print0(f"Schedule uses hardcoded PR 287 cooldown constants with train_steps={FINAL_TRAIN_STEPS}, schedule_steps={FINAL_SCHEDULE_STEPS}.")
+print0(f"Using contra_muon_coeff={CONTRA_MUON_COEFF}")
+print0(f"Using soft_muon_p={SOFT_MUON_P}")
+print0(f"Using soft_muon_scale={SOFT_MUON_SCALE}")
+print0(f"Using soft_muon_input_norm={SOFT_MUON_INPUT_NORM}")
+print0(f"Using soft_muon_ceil={SOFT_MUON_CEIL}")
+print0(f"Using contra_hold_end_step={CONTRA_HOLD_END_STEP}")
+print0(f"Using contra_to_normal_end_step={CONTRA_TO_NORMAL_END_STEP}")
+print0(f"Using normal_to_soft_start_step={NORMAL_TO_SOFT_START_STEP}")
+print0(f"Using normal_to_soft_end_step={NORMAL_TO_SOFT_END_STEP}")
+print0(f"Using mu={MU}")
+print0(f"Using muon_lr={MUON_LR}")
+print0(f"Using muon_weight_decay={MUON_WEIGHT_DECAY}")
+print0(f"Using target_uw={TARGET_UW}")
+print0(f"Using soap_target_uw={SOAP_TARGET_UW}")
+print0(f"Using nonsoap_target_uw={NONSOAP_TARGET_UW}")
+print0(f"Using nor_beta2={NOR_BETA2}")
+print0(f"Using soap_beta2={SOAP_BETA2}")
+print0(f"Using soap_precondition_frequency={SOAP_PRECONDITION_FREQUENCY}")
+print0(f"Using soap_denom_power={SOAP_DENOM_POWER}")
+print0(f"Using soap_blend={SOAP_BLEND}")
+print0(f"Using soap_update_before_use={SOAP_UPDATE_BEFORE_USE}")
+print0(f"Using soap_param_mode={SOAP_PARAM_MODE}")
+print0(f"Using attn_soap_denom_floor={ATTN_SOAP_DENOM_FLOOR}")
+print0(f"Using attn_soap_blend={ATTN_SOAP_BLEND}")
+print0(f"Using v_soap_blend={V_SOAP_BLEND}")
+print0(f"Using v_soap_blend_ramp_end_step={V_SOAP_BLEND_RAMP_END_STEP}")
+print0(f"Using attn_early_trust_floor={ATTN_EARLY_TRUST_FLOOR}")
+print0(f"Using attn_early_trust_cap={ATTN_EARLY_TRUST_CAP}")
+print0(f"Using attn_trust_floor_end_step={ATTN_TRUST_FLOOR_END_STEP}")
+print0(f"Using attn_trust_floor_fade_end_step={ATTN_TRUST_FLOOR_FADE_END_STEP}")
+print0(f"Using attn_trust_min_agree={ATTN_TRUST_MIN_AGREE}")
+print0(f"Using attn_trust_min_grad_align={ATTN_TRUST_MIN_GRAD_ALIGN}")
+print0(f"Using attn_trust_power={ATTN_TRUST_POWER}")
+print0(f"Using attn_soap_fade_start_step={ATTN_SOAP_FADE_START_STEP}")
+print0(f"Using attn_soap_fade_end_step={ATTN_SOAP_FADE_END_STEP}")
+print0(f"Using no_contra_param={NO_CONTRA_PARAM}")
+print0(f"Using no_softmuon_param={NO_SOFTMUON_PARAM}")
+print0(f"Using radial_outward_scale={RADIAL_OUTWARD_SCALE}")
+print0(f"Using radial_inward_scale={RADIAL_INWARD_SCALE}")
+print0(f"Using vector_extrapolation={EXTRAPOLATION_NAME} every={EXTRAPOLATION_EVERY} start_step={EXTRAPOLATION_START_STEP} checkpoints={EXTRAPOLATION_NUM_CHECKPOINTS} regularization={EXTRAPOLATION_REGULARIZATION} damping={EXTRAPOLATION_DAMPING} reset_momentum={EXTRAPOLATION_RESET_MOMENTUM} stop_step={EXTRAPOLATION_STOP_STEP} after_stop_every={EXTRAPOLATION_AFTER_STOP_EVERY} param_filter={EXTRAPOLATION_PARAM_FILTER}")
+print0(f"Using extrapolation_blend_weight={EXTRAPOLATION_BLEND_WEIGHT} blend_max_extra_rel={EXTRAPOLATION_BLEND_MAX_EXTRA_REL} blend_orthogonal={EXTRAPOLATION_BLEND_ORTHOGONAL}")
+print0(f"Using checkpoint_load_path={CHECKPOINT_LOAD_PATH} checkpoint_save_step={CHECKPOINT_SAVE_STEP} checkpoint_save_path={CHECKPOINT_SAVE_PATH} checkpoint_exit_after_save={CHECKPOINT_EXIT_AFTER_SAVE}")
+print0(f"Using model_num_layers={MODEL_NUM_LAYERS} model_dim={MODEL_DIM} val_tokens={VAL_TOKENS} train_batch_tokens={TRAIN_BATCH_TOKENS} micro_batch_sequences={MICRO_BATCH_SEQUENCES}")
+print0(f"Using lr_sprint start={LR_SPRINT_START_STEP} end={LR_SPRINT_END_STEP} scale={LR_SPRINT_SCALE} ramp_steps={LR_SPRINT_RAMP_STEPS} apply_to={LR_SPRINT_APPLY_TO}")
+print0("Dampened radial gradient component is applied before the u/w floor; post-step radius is corrected to remove tangent drift.")
 print0("="*100)
 
-val_tokens = 20 * 524288
-batch_size = 8 * 64 * 1024
-mbs = 64
+val_tokens = VAL_TOKENS
+batch_size = TRAIN_BATCH_TOKENS
+mbs = MICRO_BATCH_SEQUENCES
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
-model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+model = GPT(vocab_size=50304, num_layers=MODEL_NUM_LAYERS, model_dim=MODEL_DIM).cuda()
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
+
+
+# we want to minimize this while still reaching 3.28 val loss
+train_steps = FINAL_TRAIN_STEPS
+run_stop_step = int(os.environ.get("RUN_STOP_STEP", "2925"))
+assert 0 < run_stop_step <= train_steps
+val_regular_interval = 125
+extra_val_steps = {2820, 2830, 2840, 2850, 2860, 2870, 2880, 2890, 2895, 2900, 2910, 2920, 2930, 2940, 2950, 2960, 2965, 2970, 2975, 2980, 2985, 2990, 2995, 2999, 3000, 3010, 3020}
+print0(f"Using run_stop_step={run_stop_step} train_steps={train_steps}")
+
+# WandB init (rank 0 only)
 if dist.get_rank() == 0:
-    tags = ["track-3-optimization", "senpai"] + args.wandb_tags
+    tags = ["track-3-optimization", "senpai", "nc", "pr305-base"] + args.wandb_tags
     if os.environ.get("RESEARCH_TAG"):
         tags.append(os.environ["RESEARCH_TAG"])
     if os.environ.get("STUDENT_NAME"):
@@ -552,43 +1682,146 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "base_seed": SEED,
+            "experiment": EXPERIMENT_NAME,
+            "nc_enabled": True,
+            "final_train_steps": FINAL_TRAIN_STEPS,
+            "final_schedule_steps": FINAL_SCHEDULE_STEPS,
+            "final_lr_power": FINAL_LR_POWER,
+            "muon_lr": MUON_LR,
+            "muon_weight_decay": MUON_WEIGHT_DECAY,
+            "contra_muon_coeff": CONTRA_MUON_COEFF,
+            "soft_muon_p": SOFT_MUON_P,
+            "target_uw": TARGET_UW,
+            "extrapolation_name": EXTRAPOLATION_NAME,
+            "extrapolation_every": EXTRAPOLATION_EVERY,
+            "extrapolation_start_step": EXTRAPOLATION_START_STEP,
+            "extrapolation_stop_step": EXTRAPOLATION_STOP_STEP,
+            "extrapolation_damping": EXTRAPOLATION_DAMPING,
+            "extrapolation_max_rel": EXTRAPOLATION_MAX_REL,
+            "run_stop_step": run_stop_step,
         },
     )
 
-for trial_idx in range(args.num_trials):
+
+# learning rate schedule: stable then decay (shared between trials)
+def _lr(step, initial_lr, power_c, power=1.0):
+    t_end = FINAL_SCHEDULE_STEPS
+    flat_lr = initial_lr
+    downward_lr = power_c * max(0.0, t_end - step) ** power
+    return min(flat_lr, downward_lr)
+
+def _lr_sprint_scale_at_step(step):
+    if LR_SPRINT_SCALE == 1.0 or LR_SPRINT_START_STEP <= 0:
+        return 1.0
+    end_step = LR_SPRINT_END_STEP if LR_SPRINT_END_STEP > 0 else FINAL_TRAIN_STEPS
+    if step < LR_SPRINT_START_STEP or step > end_step:
+        return 1.0
+    if LR_SPRINT_RAMP_STEPS <= 0:
+        return LR_SPRINT_SCALE
+    ramp = _linear_ramp(step, LR_SPRINT_START_STEP, LR_SPRINT_START_STEP + LR_SPRINT_RAMP_STEPS)
+    return 1.0 + (LR_SPRINT_SCALE - 1.0) * ramp
+
+# v49: v15 Muon mu schedule (warmup 0.85->0.95 over 300 steps, cooldown 0.95->0.85 over last 50)
+_MU_MIN = 0.85
+_MU_MAX = 0.95
+_MU_WARMUP_STEPS = 300
+_MU_COOLDOWN_STEPS = 100
+
+def _muon_mu_at_step(step, train_steps):
+    cd_start = train_steps - _MU_COOLDOWN_STEPS
+    if step < _MU_WARMUP_STEPS:
+        frac = step / max(_MU_WARMUP_STEPS, 1)
+        return _MU_MIN + frac * (_MU_MAX - _MU_MIN)
+    elif step > cd_start:
+        frac = (step - cd_start) / max(_MU_COOLDOWN_STEPS, 1)
+        return _MU_MAX - frac * (_MU_MAX - _MU_MIN)
+    else:
+        return _MU_MAX
 
 
-    ########################################
-    #       Init & Optim Hyperparams       #
-    ########################################
-
-    # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
-
-    # initialize model parameters
+def reinitialize_model(model: nn.Module):
+    """Re-initialize all model parameters for a fresh trial."""
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
             if "proj" in name:
                 w.zero_()
             elif "embed" in name:
-                w.normal_()  # default torch init
+                w.normal_()  # default torch nn.Embedding init
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # roughly nn.Linear default
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
-            w.normal_(mean=1, std=0)
+            w.fill_(1.0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
 
-    # create the optimizer(s)
+    # v44: v13 depth-scaled mlp.fc init alpha=0.30 (ported from opus v15)
+    _DI_FC_ALPHA = 0.30
+    _NUM_BLOCKS = len(model.blocks)
+    with torch.no_grad():
+        for l_idx, block in enumerate(model.blocks):
+            ramp = l_idx / (_NUM_BLOCKS - 1) if _NUM_BLOCKS > 1 else 0.0
+            s_l = 1.0 - _DI_FC_ALPHA * ramp
+            block.mlp.fc.weight.data.mul_(s_l)
+
+    # v44: v14 CGI Rademacher channel-gain split alpha=0.14 (ported from opus v15)
+    _CGI_ALPHA = 0.14
+    with torch.no_grad():
+        for block in model.blocks:
+            s = (torch.randint(0, 2, block.norm1.gains.shape,
+                               device=block.norm1.gains.device, dtype=torch.float32) * 2 - 1)
+            block.norm1.gains.data.copy_((1.0 - _CGI_ALPHA * s).to(block.norm1.gains.dtype))
+            block.norm2.gains.data.copy_((1.0 + _CGI_ALPHA * s).to(block.norm2.gains.dtype))
+
+
+def save_checkpoint(step: int, model, optimizer1, optimizer2, trial_seed: int):
+    if not CHECKPOINT_SAVE_PATH or step != CHECKPOINT_SAVE_STEP:
+        return False
+    path = Path(CHECKPOINT_SAVE_PATH)
+    if dist.get_rank() == 0:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save({
+            "step": step,
+            "model": model.state_dict(),
+            "optimizer1": optimizer1.state_dict(),
+            "optimizer2": optimizer2.state_dict(),
+            "optimizer2_step_count": optimizer2.step_count,
+            "seed": trial_seed,
+            "model_num_layers": MODEL_NUM_LAYERS,
+            "model_dim": MODEL_DIM,
+        }, path)
+        print0(f"Saved checkpoint to {path} at step={step}", console=True)
+    dist.barrier()
+    return True
+
+
+########################################
+#       Per-Trial Training Loop        #
+########################################
+
+slope_interval = max(1, round(run_stop_step * SLOPE_FRACTION))
+slope_window_steps = max(100, slope_interval)
+trial_summaries = []
+
+for trial_idx in range(args.num_trials):
+    trial_seed = SEED + trial_idx
+    torch.manual_seed(trial_seed)
+    print0(f"\n========== Trial {trial_idx} / {args.num_trials} (seed={trial_seed}) ==========",
+           console=True)
+
+    reinitialize_model(model)
+
+    # create the optimizer(s) — PR #305 setup
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+                       betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
+    # Skylight-001: NorMuon-lite (per-row variance) + u/w-floor + PR #305 lr/wd.
+    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
+                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -596,52 +1829,82 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+    optimizer1.param_groups[0]["power_c"] = ADAM_EMBED_POWER_C
+    optimizer1.param_groups[1]["power_c"] = ADAM_PROJ_POWER_C
+    optimizer1.param_groups[2]["power_c"] = ADAM_OTHER_POWER_C
+    optimizer2.param_groups[0]["power_c"] = MUON_POWER_C
 
-    # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
-        progress = step / train_steps
+    def set_hparams(step):
+        progress = step / FINAL_SCHEDULE_STEPS
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
-        else:
-            eta = (1 - progress) / cooldown_frac
+        mu = _muon_mu_at_step(step, FINAL_TRAIN_STEPS)
+        sprint_scale = _lr_sprint_scale_at_step(step)
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
+                lr = _lr(step, group["initial_lr"], group["power_c"], FINAL_LR_POWER)
+                if (
+                    LR_SPRINT_APPLY_TO == "all"
+                    or (LR_SPRINT_APPLY_TO == "adam" and opt is optimizer1)
+                    or (LR_SPRINT_APPLY_TO == "muon" and opt is optimizer2)
+                ):
+                    lr *= sprint_scale
+                group["lr"] = lr
+        for group in optimizer2.param_groups:
+            group["mu"] = mu
 
+    train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
+    resume_step = 0
+    if CHECKPOINT_LOAD_PATH and trial_idx == 0:
+        checkpoint = torch.load(CHECKPOINT_LOAD_PATH, map_location=device)
+        model.load_state_dict(checkpoint["model"])
+        optimizer1.load_state_dict(checkpoint["optimizer1"])
+        optimizer2.load_state_dict(checkpoint["optimizer2"])
+        resume_step = int(checkpoint.get("step", 0))
+        optimizer2.step_count = int(checkpoint.get("optimizer2_step_count", resume_step))
+        optimizer2.extrap_checkpoints = []
+        optimizer2.extrap_count = 0
+        optimizer2.last_extrap_rel = 0.0
+        optimizer2.last_handoff_mode = "loaded"
+        print0(f"Loaded checkpoint from {CHECKPOINT_LOAD_PATH} at step={resume_step}", console=True)
+        for _ in range(resume_step):
+            next(train_loader)
 
     ########################################
     #        Training and Validation       #
     ########################################
 
-    train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
-    # start the clock
+
     training_time = 0
     last_val_step = 0
     best_val_loss = float("inf")
     best_val_step = -1
     first_step_to_target = -1
-    slope_interval = max(1, round(train_steps * SLOPE_FRACTION))
-    slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    wandb_step_offset = trial_idx * (run_stop_step + 1)
+
     dist.barrier()
     t0 = time.perf_counter()
-    for step in range(train_steps + 1):
+    for step in range(resume_step, run_stop_step + 1):
 
         # --------------- VALIDATION SECTION -----------------
-        val_step_freq = 125 if step / train_steps < 0.9 else 25
-        if step == train_steps or step % val_step_freq == 0:
+        should_validate = (
+            step == train_steps
+            or step == run_stop_step
+            or (step > 0 and step % val_regular_interval == 0)
+            or step in extra_val_steps
+        )
+        if should_validate:
             # stop the clock
             dist.barrier()
             time_since_last_val = time.perf_counter() - t0
-            step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
+            step_avg = time_since_last_val / max(step - last_val_step, 1) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
-            val_loss = torch.zeros((), device=device)
+            val_loss = 0
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
                 for i in range(len(val_inputs) // mbs):
@@ -658,6 +1921,7 @@ for trial_idx in range(args.num_trials):
                     first_step_to_target = step
                 metrics = {
                     "trial": trial_idx,
+                    "trial_seed": trial_seed,
                     "val/step": step,
                     "val/loss": val_loss_float,
                     "val/best_loss": best_val_loss,
@@ -667,18 +1931,27 @@ for trial_idx in range(args.num_trials):
                     "speedrun/first_step_to_target": first_step_to_target,
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
-                    "time/step_avg_ms": 1000 * step_avg,
+                    "time/step_avg_ms": 1000 * step_avg if step > 0 else 0.0,
+                    "muon/extrap_count": optimizer2.extrap_count,
+                    "muon/last_extrap_rel": optimizer2.last_extrap_rel,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
-                wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
-                   + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+                wandb.log(metrics, step=wandb_step_offset + step)
+            print0(f"step:{step}/{train_steps} val_loss:{val_loss_float:.5f} train_time:{training_time:.3f}s"
+                   + f" step_avg:{1000*step_avg:.2f}ms"
+                   + f" extrap_count:{optimizer2.extrap_count}"
+                   + f" extrap_rel:{optimizer2.last_extrap_rel:.3e}"
+                   + f" handoff:{optimizer2.last_handoff_mode}", console=True)
             model.train()
             # start the clock again
             dist.barrier()
             t0 = time.perf_counter()
 
-        if step == train_steps:
+        saved_checkpoint = save_checkpoint(step, model, optimizer1, optimizer2, trial_seed)
+        if saved_checkpoint and CHECKPOINT_EXIT_AFTER_SAVE:
+            break
+
+        if step == run_stop_step:
             break
 
         # --------------- TRAINING SECTION -----------------
@@ -688,6 +1961,9 @@ for trial_idx in range(args.num_trials):
         step_loss = torch.zeros((), device=device)
         for i in range(len(inputs) // mbs):
             loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+            # NaN guard: catch divergence the step it happens, not 750 steps later.
+            if not torch.isfinite(loss).all():
+                raise RuntimeError(f"non-finite train loss at step {step} mb {i}: {loss.item()}")
             step_loss += loss.detach()
             loss.backward()
         for name, p in model.named_parameters():
@@ -698,10 +1974,10 @@ for trial_idx in range(args.num_trials):
         # set optimization hyperparameters and take a step
         set_hparams(step)
         train_step = step + 1
-        telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
-        histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
-        slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
-        wandb_step = trial_idx * (train_steps + 1) + train_step
+        telemetry_due = (step == 0 or train_step % args.telemetry_interval == 0 or train_step == run_stop_step)
+        histogram_due = (step == 0 or train_step % args.histogram_interval == 0 or train_step == run_stop_step)
+        slope_due = (train_step % slope_interval == 0 or train_step == run_stop_step)
+        wandb_step = wandb_step_offset + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
         if dist.get_rank() == 0 and slope_due:
@@ -720,7 +1996,7 @@ for trial_idx in range(args.num_trials):
                 train_loss=train_loss,
                 trial_idx=trial_idx,
                 step=train_step,
-                train_steps=train_steps,
+                train_steps=run_stop_step,
                 wandb_step=wandb_step,
             )
         for opt in optimizers:
@@ -743,10 +2019,15 @@ for trial_idx in range(args.num_trials):
                 param_histogram_limit=args.param_histogram_limit,
             )
         model.zero_grad(set_to_none=True)
-        approx_training_time = training_time + (time.perf_counter() - t0)
-        print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
-               + f" step_avg:{1000*approx_training_time/(step + 1):.2f}ms", console=True, log=False)
+        if TRAIN_PROGRESS_INTERVAL > 0 and train_step % TRAIN_PROGRESS_INTERVAL == 0:
+            approx_training_time = training_time + (time.perf_counter() - t0)
+            print0(f"step:{train_step}/{train_steps} train_time:{approx_training_time:.3f}s"
+                   + f" step_avg:{1000*approx_training_time/train_step:.2f}ms"
+                   + f" extrap_count:{optimizer2.extrap_count}"
+                   + f" extrap_rel:{optimizer2.last_extrap_rel:.3e}"
+                   + f" handoff:{optimizer2.last_handoff_mode}", console=True, log=False)
 
+    # Per-trial summary
     if dist.get_rank() == 0:
         print0(
             f"trial:{trial_idx} best_val_loss:{best_val_loss:.5f} best_val_step:{best_val_step}"
@@ -755,11 +2036,47 @@ for trial_idx in range(args.num_trials):
         )
         wandb.log({
             "trial": trial_idx,
+            "trial_seed": trial_seed,
             "speedrun/final_best_val_loss": best_val_loss,
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
-        }, step=(trial_idx + 1) * (train_steps + 1) - 1)
+        }, step=wandb_step_offset + run_stop_step)
+        trial_summaries.append({
+            "trial": trial_idx,
+            "seed": trial_seed,
+            "best_val_loss": best_val_loss,
+            "best_val_step": best_val_step,
+            "first_step_to_target": first_step_to_target,
+            "final_val_loss": val_loss_history[-1][1] if val_loss_history else float("nan"),
+        })
+
+# Cross-trial summary
+if dist.get_rank() == 0 and trial_summaries:
+    import statistics as _stats
+    finals = [s["final_val_loss"] for s in trial_summaries if s["final_val_loss"] == s["final_val_loss"]]
+    bests = [s["best_val_loss"] for s in trial_summaries]
+    n = len(finals)
+    if n > 0:
+        mean_final = sum(finals) / n
+        std_final = _stats.pstdev(finals) if n > 1 else 0.0
+        stat_sig = (TARGET_VAL_LOSS - mean_final) * (n ** 0.5)
+        print0(
+            f"\n===== Cross-trial summary (n={n}) =====\n"
+            f"mean(final_val_loss) = {mean_final:.6f}\n"
+            f"std(final_val_loss)  = {std_final:.6f}\n"
+            f"(3.28 - mu) * sqrt(n) = {stat_sig:.6f}\n"
+            f"contract satisfied   = {stat_sig >= STAT_SIG_DELTA}",
+            console=True,
+        )
+        wandb.log({
+            "summary/n_trials": n,
+            "summary/mean_final_val_loss": mean_final,
+            "summary/std_final_val_loss": std_final,
+            "summary/stat_sig_margin": stat_sig,
+            "summary/contract_satisfied": int(stat_sig >= STAT_SIG_DELTA),
+            "summary/mean_best_val_loss": sum(bests) / n,
+        })
 
 if dist.get_rank() == 0:
     wandb.finish()
