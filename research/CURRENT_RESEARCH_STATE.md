@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~02:15 UTC (launch day +1)
+- **As of:** 2026-06-05 ~02:35 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -24,10 +24,10 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 | #2284 | open2-fern | H4 Arbor vs NC ablation (3 arms) | PR #300 | 2930 | Arm A T0=3.27828, T1=3.27760, **2-mean 3.27794** — leader!, T2 in progress | PR #295, #310 |
 | #2289 | open2-frieren | H5b RI on PR #300 base (no RRE) | PR #300 | 2930-3020 | Arm A control T0=3.27822; T1 in progress | PR #307, #312 |
 | **#2290** | open2-nezuko | **H10 Aurora+EMA-Nesterov+NC NEW** | PR #309 | 2890 | just assigned (replaces closed #2286) | nezuko #2286 + fern #2284 |
-| #2287 | open2-tanjiro | H9 Single-stage Tail Phase Readout | PR #300 | 2930 | T0+T1+T2 done (3.27911, 3.27849, 3.27968), 3-mean 3.27909, T3 in progress | PR #318 |
+| **#2293** | open2-tanjiro | **H13 Senpai #1614 PMuon on PR #309 base NEW** | PR #309 | 2890 | just assigned (replaces closed #2287) | Senpai #1532/#1614 + PR #309 |
 | #2288 | open2-thorfinn | Replicate PR #295 NC standalone | base Muon | 3325 | Arm Z control n=2 mean 3.27846; **Arm A NC T0 = 3.27461 — striking**, T1 in progress | PR #295 |
 
-**Closed this turn:** PR #2281 (alphonse — NC on PR #305 base falsified, n=4 mean 3.279857, margin 0.000285 < 0.004; bimodal T1/T2 plateau at 3.282). Earlier this round: PR #2286 (nezuko — n=4 mean 3.27838, T3 tail event). PR #2282 (askeladd — n=4 mean 3.28075).
+**Closed this turn:** PR #2287 (tanjiro — single-stage TPR on PR #300 falsified, n=4 mean 3.27901, margin 0.001975 < 0.004; pulse mechanism real but ~30% post-pulse momentum slowdown erodes gain). Earlier this round: PR #2281 (alphonse — NC on PR #305 base falsified, n=4 mean 3.279857). Prior: PR #2286 (nezuko — 3.27838 tail event). PR #2282 (askeladd — 3.28075).
 
 **Key new compositional read:** Alphonse vs fern Arm A discriminating variable is **RRE, not Contra-Muon**. Both have NC + Aurora + Contra-Muon; only alphonse has RRE. Alphonse FAILS, fern Arm A LEADS at n=2 mean 3.27794. Hypothesis: **NC + RRE interfere** (RRE re-extrapolates from NC-normalized updates, cancelling NC's directional adjustment).
 
@@ -39,7 +39,7 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 | edward | #2283 | 2 | 3.27859 | 0.00037 | 2930 | T2 at 41% | Circuit-Muon isolated on PR #300 |
 | frieren (Arm A) | #2289 | 1 | 3.27822 | — | 2930 | T1 at 34% | PR #300 vanilla (Arm A=control, no RI) |
 | **nezuko — n=4 done, FAILS STAT-SIG** | #2286 | 4 | **3.27838** | **0.00080 (T3 tail)** | 2890 | T3=3.27956 tail event | EMA-Nesterov + Aurora (PR #309 lineage) |
-| tanjiro | #2287 | 3 | 3.27909 | 0.00060 | 2930 | T3 at 51% | Single-stage Tail Phase Readout on PR #300 |
+| **tanjiro — FALSIFIED + CLOSED** | #2287 | 4 | **3.27901** | **0.00051** | 2930 | T0=3.27911, T1=3.27849, T2=3.27968, T3=3.27877; pulse real but post-pulse slow | Single-stage Tail Phase Readout on PR #300 |
 | **askeladd — FALSIFIED** | #2282 | 4 | **3.28075** | **0.00059** | 2900 | T3=3.28046 done | EMA-Nesterov on PR #300 bare |
 | **alphonse — FALSIFIED + CLOSED** | #2281 | 4 | **3.27986** | **0.00242** | 2925 | T0=3.27688, T1=3.28211, T2=3.28238, T3=3.27806; bimodal | NC on PR #305 base (Aurora+RRE+Contra-Muon+NC) |
 
@@ -104,20 +104,27 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
    - Aurora+EMA-Nesterov + Senpai #1532 beta2-pulse — Senpai-specific contribution test
    - Aurora+EMA-Nesterov+Tail Phase Readout — combine the four PR #300-base modest-improvement mechanisms
 
-**In-flight observations (as of 02:15 UTC 2026-06-05):**
-- **Alphonse PR #2281 CLOSED + reassigned to PR #2292 (H12 Senpai β2-pulse on PR #309 base).**
-- **Edward T2 FINISHED** at 3.28067; 3-trial mean now 3.27946 (T0=3.27924, T1=3.28046, T2=3.28067); T3 early.
-- **Tanjiro T3 at ~91%** — running warmer; ~5-10 min ETA.
-- Fern Arm A T2 at 63% — primary merge candidate; ~5h ETA to T3 terminal.
-- Frieren Arm A T1 at 55% — ~3h ETA; needs_rebase pending student.
-- Thorfinn Arm A NC T1 at 57% — long road.
-- Nezuko PR #2290 T0 screen at 25% (1500-step screen first).
-- Askeladd PR #2291 T0 screen just starting (1500-step screen first).
+**In-flight observations (as of 02:35 UTC 2026-06-05):**
+- **Alphonse PR #2281 CLOSED + reassigned to PR #2292** (H12 Senpai β2-pulse on PR #309 base).
+- **Tanjiro PR #2287 CLOSED + reassigned to PR #2293** (H13 Senpai PMuon on PR #309 base).
+- **Edward T2 done at 3.28067; 3-trial mean 3.27946; T3 early.** Trending toward falsification.
+- Fern Arm A T2 at ~65% — primary merge candidate (n=2 mean 3.27794); ~5h ETA to T3.
+- Frieren Arm A T1 — ~3h ETA; needs_rebase pending student.
+- Thorfinn Arm A NC T1 — long road.
+- Nezuko PR #2290 T0 screen running.
+- Askeladd PR #2291 T0 screen running.
+
+**Senpai-#1614 ingredient experiments now in flight (twin compositional tests):**
+- alphonse PR #2292: β2-pulse on aux Adam, on PR #309 base
+- tanjiro PR #2293: PMuon on Muon-routed params, on PR #309 base
+
+Both isolate one Senpai-#1614 ingredient at a time. If either composes cleanly with PR #309's Aurora+EMA-Nesterov stack, the result is a strong sub-2900 candidate.
 
 **Resolved this turn:**
+- Closed tanjiro PR #2287 (n=4 mean 3.27901, margin 0.001975 < 0.004 — pulse real but +0.00057 worse than PR #300).
+- Reassigned: PR #2293 (tanjiro, Senpai #1532/#1614 PMuon on PR #309 base, train_steps=2890, n=4) — companion to alphonse's β2-pulse.
 - Closed alphonse PR #2281 (n=4 mean 3.279857, margin 0.000285 < 0.004 — falsified; bimodal T1/T2 plateau).
-- Logged in EXPERIMENTS_LOG.md.
-- Reassigned: PR #2292 (alphonse, Senpai #1532/#1614 β2-pulse on PR #309 base, train_steps=2890, n=4) — direct realization of launch directive.
+- Reassigned: PR #2292 (alphonse, Senpai #1532/#1614 β2-pulse on PR #309 base, train_steps=2890, n=4).
 
 **Resolved prior turns:**
 - Closed nezuko PR #2286 + askeladd PR #2282.

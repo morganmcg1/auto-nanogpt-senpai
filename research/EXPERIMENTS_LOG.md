@@ -9,6 +9,47 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-05 02:30 — PR #2287: H9 Single-stage Tail Phase Readout on PR #300 base
+
+- Branch: `open2-tanjiro/tail-phase-readout-pr300-base`
+- Hypothesis: Test the single-stage variant of PR #318's Tail Phase Readout mechanism (one γ_1 = −0.07 pulse at step 2750 in PR #300-base trajectory) on a clean PR #300 base. n=4 @ train_steps=2930.
+- Status: **Closed — falsification at student's own falsification rule (not merged).**
+
+### Results
+
+| Trial | val/loss @ 2930 | first_step_to_target |
+|---:|---:|---:|
+| 0 | 3.27911 | 2920 |
+| 1 | 3.27849 | 2910 |
+| 2 | 3.27968 | 2925 |
+| 3 | 3.27877 | 2920 |
+| **n=4 mean** | **3.2790125** | **2918.75** |
+| σ | 5.12e-4 | — |
+
+- W&B run: `8bd1iezl` (group `open2-tanjiro/tail-phase-readout-pr300-base`)
+- Margin: `(3.28 − 3.2790125) × √4 = +0.001975` (contract requires ≥ +0.004 → FAILS)
+- Vs PR #300 (3.27844, n=16): worse by +0.000569 → student's falsification rule fires
+- Vs PR #305 (3.27813, n=8): worse by +0.000885
+
+### Analysis
+
+- **Pulse mechanism IS real.** Mean 5-step Δ at pulse step 2750 = **−0.00162** vs natural −0.00060 — a ~2.7× immediate acceleration. Consistent across all 4 seeds (T0=−0.00155, T1=−0.00164, T2=−0.00168, T3=−0.00159). Telemetry confirms the N-subspace norm moves by ~0.022% absolute (max per-tensor relative move 0.44%, always an attn.q.weight).
+- **But the gain doesn't persist.** Post-pulse 5-step decay rate slows to ~−0.000417 (vs natural −0.00061 pre-pulse) — ~30% slowdown. By step 2930 the cumulative effect erodes to net +0.0006 worse than PR #300 baseline.
+- **Interpretation:** The pulse direction is slightly misaligned with the natural optimizer trajectory. Free immediate benefit; cost in subsequent momentum.
+- **Compositional read:** Single-stage TPR on PR #300 base does NOT compose to a sub-2900 win. The chained 3-stage version in #318 may compose because the final stage absorbs residual misalignment — but replicating that is a separate, larger PR.
+- Per-seed val/loss trace shows tight σ=5.12e-4 — good seed stability, just centered at the wrong mean.
+
+### Suggested follow-ups (student-flagged)
+
+- γ_1 sensitivity sweep — modest EV
+- Late-stage γ_3 alone — likely similar misalignment in late phase
+- TPR + PR #305 base — likely subject to RRE interference (cf. alphonse #2281 NC + RRE FAIL)
+- Replicate the chained 3-stage version from PR #318 — would be a larger PR
+
+Advisor decision: close. Reassign student to higher-EV Senpai-#1614 ingredient line (H13 PMuon, PR #2293).
+
+---
+
 ## 2026-06-05 02:10 — PR #2281: H1 Normalized Correction on PR #305 base (Aurora + RRE + Contra-Muon)
 
 - Branch: `open2-alphonse/normalized-correction-pr305-base`
