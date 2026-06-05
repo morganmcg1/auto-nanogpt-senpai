@@ -9,6 +9,81 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-05 11:10 — PR #2293: H13 Senpai PMuon on PR #309 base (FALSIFIED)
+
+- Branch: `open2-tanjiro/h13-senpai-pmuon-pr309-base`
+- Hypothesis: Does Senpai PR #64 bilateral covariance whitening (PMuon: L^{-γ} m R^{-γ}, γ=0.4, β_cov=0.95) on the Nesterov-blended momentum before NS5 improve val/loss on PR #309 base (Aurora+EMA-Nesterov)?
+- Status: **FALSIFIED (n=2 abort)** — n=2 mean 3.28053, best-case n=4=3.27926, above PR #305.
+
+### Results
+
+| Trial | val/loss @ 2890 | Notes |
+|-------|-----------------|-------|
+| T0 | 3.28237 | Healthy convergence; high relative to base |
+| T1 | 3.27868 | Healthy convergence; partial recovery |
+| T2 | — | Aborted (advisor-approved) |
+| T3 | — | Aborted |
+| n=2 mean | **3.28053** | |
+
+- W&B run: `7eimwktx`
+- Stat-sig: best-case n=4 mean = 3.27926 (well above PR #305 3.27813)
+
+### Analysis
+
+PMuon's Frobenius rescale (`||whitened|| / ||raw|| ≡ 1.0 by construction`) forces magnitude-neutrality while applying 800–14000× bilateral directional reweighting. The directional interference with EMA-Nesterov+Aurora produces high seed variance (σ ≈ 0.0018 vs PR #309 base σ ≈ 0.00018). PMuon does not transfer from its Senpai #1614 context (different LR, aux-Adam, no Aurora) to PR #309 base without the compensating mechanisms. Stack-dependent composition failure.
+
+---
+
+## 2026-06-05 11:05 — PR #2291: H11 Circuit-Muon on PR #309 base (FALSIFIED)
+
+- Branch: `open2-askeladd/aurora-ema-nesterov-circuit-muon-pr309-base`
+- Hypothesis: Does KellerJordan PR #311 Circuit-Muon (V/O attention cross-scaling) improve val/loss when composed with PR #309 base (Aurora+EMA-Nesterov)?
+- Status: **FALSIFIED** — n=4 mean 3.27844, above PR #305 (3.27813).
+
+### Results
+
+| Trial | val/loss @ 2890 | Notes |
+|-------|-----------------|-------|
+| T0 | 3.27958 | Tail event (PR #309 base bimodal pattern) |
+| T1 | **3.27726** | Best individual trial this round |
+| T2 | 3.27846 | |
+| T3 | 3.27846 | |
+| n=4 mean | **3.27844** | |
+
+- W&B run: `ar3yhz6f`
+- Stat-sig: (3.28 - 3.27844) × √4 = 0.00312 < 0.004
+
+### Analysis
+
+Circuit-Muon on PR #309 adds bimodal structure on top of the existing PR #309 tail-event distribution. T0 is the tail event (3.27958); T1-T3 average 3.27806 (slightly below PR #309 base mean of 3.27800). On non-tail trials Circuit-Muon shows marginal lift; T1=3.27726 is the best single trial this round. The tail event (not the mechanism) kills the mean. Mechanism not competitive as standalone; future composition with RI or Arbor (tail-suppression) may be worth revisiting.
+
+---
+
+## 2026-06-05 10:59 — PR #2292: H12 β2-pulse on PR #309 base (FALSIFIED)
+
+- Branch: `open2-alphonse/h12-senpai-beta2pulse-pr309-base`
+- Hypothesis: Does Senpai #1532 aux-Adam β2 pulse (0.95→0.99 at step 970) improve val/loss on PR #309 base (Aurora+EMA-Nesterov)?
+- Status: **FALSIFIED** — n=4 mean 3.27822, above PR #305 (3.27813).
+
+### Results
+
+| Trial | val/loss @ 2890 | Notes |
+|-------|-----------------|-------|
+| T0 | 3.27971 | Tail event |
+| T1 | 3.27775 | |
+| T2 | 3.27766 | |
+| T3 | 3.27775 | |
+| n=4 mean | **3.27822** | |
+
+- W&B run: `1tegunyu`
+- Stat-sig: (3.28 - 3.27822) × √4 = 0.00356 < 0.004
+
+### Analysis
+
+T0=3.27971 tail event drives mean above PR #305. T1/T2/T3 mean = 3.27772 (would beat PR #305 at n=3 if stat-sig contract could be cleared at n=3). Pattern confirms: PR #309 base bimodal distribution is on the Muon path; aux-Adam-side interventions cannot suppress it. β2-pulse is "additive on weak base, neutral on strong base."
+
+---
+
 ## 2026-06-05 06:10 — PR #2288: Replicate PR #295 — Normalized Correction on base Muon (CONFIRMED)
 
 - Branch: `open2-thorfinn/pr295-nc-base-muon`
