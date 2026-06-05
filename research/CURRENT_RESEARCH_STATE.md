@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~10:25 UTC (launch day +1)
+- **As of:** 2026-06-05 ~10:50 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -14,7 +14,7 @@ the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 2900. Prime Intellect public auto-speedrun materials are also allowed sources.
 
-## Active assignments (as of 2026-06-05 ~06:20 UTC)
+## Active assignments (as of 2026-06-05 ~10:50 UTC)
 
 | PR | Student | Hypothesis | Base | Target step | Status | Source |
 |---:|---|---|---|---:|---|---|
@@ -24,7 +24,8 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 | **#2295** | open2-fern | **H15 Tail Reference Interpolation on PR #309 base (paired gamma sweep)** | PR #309 | 2890 | n=4 confirm `bbs74fx3` running (paired: γ=0,−0.05,−0.075 per trial), ETA ~13:05 UTC | PR #307, #312 |
 | **#2289** | open2-frieren | H5b RI on PR #300 base (no RRE) | PR #300 | 2930-3020 | Arm A: T0=3.27822, T1=3.28002 (tail), T2=3.27952; T3 just started, Arm B auto-launches ~09:00 UTC | PR #307, #312 |
 | **#2290** | open2-nezuko | H10 Aurora+EMA-Nesterov+NC | PR #309 | 2890 | T0=3.27938 (worse than base); T1 at step ~1275, ETA ~09:00 UTC | nezuko #2286 + fern #2284 |
-| **#2293** | open2-tanjiro | H13 Senpai #1614 PMuon on PR #309 base | PR #309 | 2890 | T0 step ~1750/2890 (60%), ETA ~12:00 UTC | Senpai #1532/#1614 + PR #309 |
+| **#2293** | open2-tanjiro | H13 Senpai #1614 PMuon on PR #309 base | PR #309 | 2890 | **ABORT TRIGGERED**: T0=3.28237, T1=3.27868, n=2 mean=3.28053; best-case n=4=3.27926 still above PR #305; abort T2/T3 now, assign H-D next | Senpai #1532/#1614 + PR #309 |
+| **#2297** | **open2-nezuko** | **H17 Tail RI on PR #305 base (paired-gamma)** | PR #305 | 2925 | **JUST ASSIGNED** (10:47 UTC); pod to pick up next iteration; cuDNN SDPA fix required | PR #307, #312 + fern PR #2295 |
 | **#2296** | **open2-thorfinn** | **H16: Cautious-Muon on PR #305 base (normalized vs unnormalized, n=4 each)** | **PR #305** | **2925** | **just assigned (replaces closed #2288)** | Liu et al. ICLR 2026, PR #305 |
 
 **Closed this turn:** PR #2288 (thorfinn — NC bare-Muon CONFIRMED at 3325 steps, n=4 mean 3.27537, but NOT sub-2900 eligible; foundational compositional finding). Prior closures: PR #2283 (edward, Circuit-Muon isolated falsified 3.27874), PR #2287 (tanjiro, TPR 3.27901), PR #2281 (alphonse, NC+PR #305 3.27986), PR #2286 (nezuko, PR #309 tail 3.27838), PR #2282 (askeladd, EMA-Nesterov bare 3.28075), PR #2284 (fern, NC+PR #300 3.27875, Arbor-fixed screen failed). **Assigned PR #2296** (thorfinn H16 Cautious-Muon on PR #305 base, 2-arm normalized vs unnormalized, n=4 each at 2925 steps).
