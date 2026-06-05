@@ -110,6 +110,16 @@ EMA_NESTEROV_LOOKAHEAD = 0.3
 EMA_NESTEROV_GAMMA = 0.99
 
 
+def _ri_gamma_slug(g: float) -> str:
+    """Slug for an RI gamma value, e.g. 0.05 -> 'pos0p05', -0.075 -> 'neg0p075', 1.0 -> 'pos1p00'."""
+    sign = "pos" if g >= 0 else "neg"
+    int_part, dec_part = f"{abs(g):.4f}".split(".")
+    dec_part = dec_part.rstrip("0") or "0"
+    if len(dec_part) < 2:
+        dec_part = dec_part.ljust(2, "0")
+    return f"{sign}{int_part}p{dec_part}"
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer (PR #309 port)")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
@@ -134,8 +144,9 @@ def parse_args():
                              "Its post-RI val loss becomes the reported speedrun/final_best_val_loss.")
     parser.add_argument("--ri_extra_gammas", type=str, default="",
                         help="Comma-separated extra gammas to evaluate at the final step using the SAME "
-                             "trajectory and snapshot. Each is logged separately as val/ri_loss_gamma_<g>. "
-                             "Enables paired-comparison ablation in a single training run.")
+                             "trajectory and snapshot. Each is logged separately as "
+                             "val/ri_loss_cap<step>_gamma<sign><abs>. Enables paired-comparison ablation "
+                             "in a single training run.")
     parser.add_argument("--ri_capture_step", type=int, default=2375,
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
@@ -1384,11 +1395,11 @@ for trial_idx in range(args.num_trials):
                     metrics["val/ri_delta_loss"] = val_loss_float - (ri_pre_val_loss or 0.0)
                     metrics["val/ri_delta_norm"] = ri_delta_norm
                     metrics["val/ri_gamma"] = float(args.ri_gamma)
+                    cap_str = f"cap{args.ri_capture_step}"
                     for g, loss in ri_per_gamma_losses.items():
-                        # Use a stable string slug: replace . and - with safe characters.
-                        slug = f"{g:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
-                        metrics[f"val/ri_loss_gamma_{slug}"] = loss
-                        metrics[f"val/ri_delta_gamma_{slug}"] = loss - (ri_pre_val_loss or 0.0)
+                        slug = _ri_gamma_slug(g)
+                        metrics[f"val/ri_loss_{cap_str}_gamma{slug}"] = loss
+                        metrics[f"val/ri_delta_{cap_str}_gamma{slug}"] = loss - (ri_pre_val_loss or 0.0)
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -1518,9 +1529,10 @@ for trial_idx in range(args.num_trials):
             final_metrics["speedrun/final_ri_post_val_loss"] = val_loss_history[-1][1] if val_loss_history else float("nan")
             final_metrics["speedrun/final_ri_delta_norm"] = ri_delta_norm or 0.0
             final_metrics["speedrun/final_ri_gamma"] = float(args.ri_gamma)
+            cap_str = f"cap{args.ri_capture_step}"
             for g, loss in ri_per_gamma_losses.items():
-                slug = f"{g:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
-                final_metrics[f"speedrun/final_ri_loss_gamma_{slug}"] = loss
+                slug = _ri_gamma_slug(g)
+                final_metrics[f"speedrun/final_ri_loss_{cap_str}_gamma{slug}"] = loss
         wandb.log(final_metrics, step=(trial_idx + 1) * (train_steps + 1) - 1)
     # Free the snapshot before the next trial allocates a fresh one.
     if ri_snapshot is not None:
