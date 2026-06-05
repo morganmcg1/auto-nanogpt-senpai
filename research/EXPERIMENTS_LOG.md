@@ -9,6 +9,35 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-05 14:13 — PR #2296: H16 Cautious-Muon on bare Muon (FALSIFIED)
+
+- Branch: `open2-thorfinn/h16-cautious-muon-pr305-aurora-rre`
+- Hypothesis: Does applying Liu et al. (ICLR 2026) Cautious Optimizer sign-agreement mask post-Newton-Schulz (normalized, `mask_norm = 1/max(mask_rate, 0.01)`) improve bare Muon convergence at 3325 steps?
+- Status: **FALSIFIED (n=1 abort)** — T0 val_loss = 3.37845, +0.10 above falsification threshold (3.279). Abort after T0 correct given unambiguous gap.
+- W&B run: `26jalgru`
+
+### Results
+
+| Step | NC Arm A reference (PR #2288) | C-Muon (26jalgru) | Delta |
+|---:|---:|---:|---:|
+| 250 | 4.09993 | 4.73628 | +0.636 |
+| 1000 | 3.63200 | 3.77067 | +0.139 |
+| 2000 | 3.43784 | 3.54161 | +0.104 |
+| 3000 | 3.30454 | 3.40938 | +0.105 |
+| **3325 (final)** | **3.27461** | **3.37845** | **+0.104** |
+
+Mask diagnostics: mask_rate 0.65-0.80 (healthy), mask_norm_factor 1.4-1.5 (no runaway). Implementation correct; mechanism fails.
+
+### Analysis
+
+The +0.10 gap is stable from step ~250 onwards (not narrowing at all during cooldown). Root cause: Newton-Schulz output is already approximately orthonormal, so the sign-product `(g_orth * buf)` doesn't carry "noise filtering" semantics — the mask discards ~30% of an already-rotated near-isotropic update, losing information rather than filtering noise. The `cautious_normalize=1` then scales the surviving 70% by 1.43×, amplifying on top of an already-high Muon LR schedule.
+
+Liu et al.'s gains were on AdamW (1e-4 scale LR); Muon operates ~2 orders of magnitude higher effective LR after NS. The sign-agreement filter is counterproductive in this regime.
+
+**Cross-base verdict:** C-Muon is OUT of all compositions for this wave. Do not revisit.
+
+---
+
 ## 2026-06-05 13:37 — PR #2295: H15 Tail Reference Interpolation on PR #309 base (MERGED ✅ NEW BASELINE)
 
 - Branch: `open2-fern/h15-tail-reference-interpolation-pr309`
