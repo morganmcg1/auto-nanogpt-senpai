@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-04 (launch day, updated ~23:25 UTC)
+- **As of:** 2026-06-05 ~00:20 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -14,29 +14,30 @@ the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 2900. Prime Intellect public auto-speedrun materials are also allowed sources.
 
-## Active assignments (as of 2026-06-04 ~23:25 UTC)
+## Active assignments (as of 2026-06-05 ~00:20 UTC)
 
 | PR | Student | Hypothesis | Base | Target step | Status | Source |
 |---:|---|---|---|---:|---|---|
-| #2281 | open2-alphonse | H1 NC on Aurora+RRE base | PR #305 | 2925 | trials 0+1 done (3.27688, **3.28211**), mean 3.27949, trial 2 step 1350/2925 (46%) | PR #295 |
-| #2282 | open2-askeladd | H2 EMA-Nesterov (β=0.3) | PR #300 | 2900 | **trials 0+1+2 done (3.28135, 3.28122, 3.27996)**, mean 3.28084, T3 step 50/2900 | PR #309 |
-| #2283 | open2-edward | H3 Circuit-Muon isolated | PR #300 | 2930 | `glygz1xt` trial 0 = 3.27895, trial 1 step ~1425/2930 (49%) | PR #311 |
-| #2284 | open2-fern | H4 Arbor vs NC ablation (3 arms) | PR #300 | 2930 | Arm A `m50dnbvb` **T0 = 3.27828**, trial 1 step 525/2930 (18%); Arm B re-impl pending | PR #295, #310 |
-| #2289 | open2-frieren | H5b RI on PR #300 base (no RRE) | PR #300 | 3020 | Arm A `wd1aaqtr` recovered from stall — now at step 2375 (progressing slowly) | PR #307, #312 |
-| #2286 | open2-nezuko | Replicate PR #309 EMA-Nesterov+Aurora | PR #309 | 2890 | **🏆 trials 0+1+2 done (3.27794, 3.27823, 3.27780), mean 3.27799 — n=4 LOCK LIKELY**, T3 starting | PR #309 |
-| #2287 | open2-tanjiro | H9 Single-stage Tail Phase Readout | PR #300 | 2930 | trials 0+1 done (3.27911, 3.27849), mean 3.27880, trial 2 step 850/2930 (29%) | PR #318 |
-| #2288 | open2-thorfinn | Replicate PR #295 NC standalone | base Muon | 3325 | Arm Z control done (T0=3.27781, T1=3.27910); **Arm A NC `5wirp0h4` launched** at 23:03 UTC | PR #295 |
+| #2281 | open2-alphonse | H1 NC on Aurora+RRE base | PR #305 | 2925 | **trials 0+1+2 done (3.27688, 3.28211, 3.28238), mean 3.28046 — FALSIFYING**, T3 step ~100/2925 (3%) | PR #295 |
+| #2282 | open2-askeladd | H2 EMA-Nesterov (β=0.3) | PR #300 | 2900 | trials 0+1+2 done (3.28135, 3.28122, 3.27996), mean 3.28084, **T3 step 2003/2900 (69%)** | PR #309 |
+| #2283 | open2-edward | H3 Circuit-Muon isolated | PR #300 | 2930 | `glygz1xt` trials 0+1 done (3.27895, 3.27822), mean 3.27859, T2 step 175/2930 (6%) | PR #311 |
+| #2284 | open2-fern | H4 Arbor vs NC ablation (3 arms) | PR #300 | 2930 | Arm A `m50dnbvb` T0 = 3.27828, **T1 step 2300/2930 (78%) — terminal in ~20 min**; Arm B re-impl pending | PR #295, #310 |
+| #2289 | open2-frieren | H5b RI on PR #300 base (no RRE) | PR #300 | 2930-3020 | Arm A control `wd1aaqtr` T0 = 3.27822 (PR #300 vanilla); T1 step ~250/2930 (8%) | PR #307, #312 |
+| #2286 | open2-nezuko | Replicate PR #309 EMA-Nesterov+Aurora | PR #309 | 2890 | **🏆 trials 0+1+2 done (3.27794, 3.27823, 3.27780), mean 3.27799 — T3 step ~1650/2890 (57%) — SENPAI-RESULT in ~40 min** | PR #309 |
+| #2287 | open2-tanjiro | H9 Single-stage Tail Phase Readout | PR #300 | 2930 | trials 0+1 done (3.27911, 3.27849), mean 3.27880, **T2 step 2637/2930 (90%) — terminal imminent** | PR #318 |
+| #2288 | open2-thorfinn | Replicate PR #295 NC standalone | base Muon | 3325 | Arm Z control done (T0=3.27781, T1=3.27910); **Arm A NC `5wirp0h4` T0 step ~2375/3325 (71%)** | PR #295 |
 
 **Top contenders (trial-status — ranked by current best aggregate at sub-3000 step budget):**
 
 | Student | PR | Trials done | Mean | σ | Step | Status | Hypothesis |
 |---|---:|---:|---:|---:|---:|---|---|
-| **🏆 nezuko** | **#2286** | **3** | **3.27799** | **0.00018 (tight)** | **2890** | **T3 starting — SENPAI-RESULT in ~2.8h** | **EMA-Nesterov + Aurora (PR #309 lineage)** |
-| tanjiro | #2287 | 2 | 3.27880 | 0.00062 | 2930 | T2 at 29% | Single-stage Tail Phase Readout on PR #300 |
-| fern (Arm A) | #2284 | 1 | 3.27828 | — | 2930 | T1 at 18% | NC standalone on PR #300 base |
-| edward | #2283 | 1 | 3.27895 | — | 2930 | T1 at 49% | Circuit-Muon isolated on PR #300 |
-| alphonse | #2281 | 2 | 3.27949 | 0.00523 (large) | 2925 | T2 at 46% | NC on PR #305 base (Aurora+RRE+Contra-Muon+NC) |
-| askeladd | #2282 | 3 | 3.28084 | 0.00077 | 2900 | T3 starting — falsifying | EMA-Nesterov on PR #300 bare |
+| **🏆 nezuko** | **#2286** | **3** | **3.27799** | **0.00018 (tight)** | **2890** | **T3 at 57% — SENPAI-RESULT in ~40 min** | **EMA-Nesterov + Aurora (PR #309 lineage)** |
+| edward | #2283 | 2 | 3.27859 | 0.00037 | 2930 | T2 at 6% | Circuit-Muon isolated on PR #300 |
+| tanjiro | #2287 | 2 | 3.27880 | 0.00062 | 2930 | T2 at 90% — terminal imminent | Single-stage Tail Phase Readout on PR #300 |
+| fern (Arm A) | #2284 | 1 | 3.27828 | — | 2930 | T1 at 78% — terminal ~20 min | NC standalone on PR #300 base |
+| frieren (Arm A) | #2289 | 1 | 3.27822 | — | 2930 | T1 at 8% | PR #300 vanilla (Arm A=control, no RI) |
+| askeladd | #2282 | 3 | 3.28084 | 0.00077 | 2900 | T3 at 69% — falsifying | EMA-Nesterov on PR #300 bare |
+| **alphonse — FALSIFIED** | #2281 | 3 | **3.28046** | **0.00302** | 2925 | T2 = 3.28238 NEW regression; T3 just started | NC on PR #305 base (Aurora+RRE+Contra-Muon+NC) |
 
 **At higher step budget (3325, NOT directly comparable to sub-2900 goal):**
 
@@ -46,44 +47,45 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 
 **Key analytical reads this turn:**
 
-1. **🏆 Nezuko T2 = 3.27780.** 3-trial mean **3.27799** at 2890 steps with σ=0.00018. For n=4 ≤ 3.278: T3 must be ≤ 3.27803 — essentially guaranteed given the tight σ. This is the **clearest sub-2900 win** of the launch and a likely merge candidate.
+1. **🏆 Nezuko remains clear leader.** 3-trial mean **3.27799** at 2890 steps, σ=0.00018. T3 at 57% — SENPAI-RESULT in ~40 min. n=4 ≤ 3.278 nearly locked unless T3 is a huge outlier (>3.27880 needed to pull n=4 mean above 3.278, given σ≈0.00018). Vs references: beats PR #305 (3.27813) by 0.00014, Senpai #1532 (3.27902) by 0.00103. **Flagship merge candidate.**
 
-   Vs references:
-   - PR #305 (public record): 3.27813 @ 2925, n=8 → nezuko 3-mean beats by 0.00014 at 35 fewer steps
-   - PR #300 (predecessor): 3.27844 @ 2930, n=16 → beats by 0.00045
-   - Senpai #1532 (audited): 3.27902 @ 2905, n=32 → beats by 0.00103
+2. **🔻 Alphonse FALSIFIED. T2 = 3.28238 NEW regression.** n=3 mean = 3.28046, well above 3.28 contract ceiling and far above PR #305 baseline (3.27813). The T0=3.27688 was an outlier-low. **Verdict:** NC on Aurora+RRE+Contra-Muon stack does NOT compose — likely Contra-Muon and NC interfere (both touch the pre-NS norm regime). T3 already started; will close PR upon terminal SENPAI-RESULT.
 
-2. **Fern Arm A T0 = 3.27828 (NEW first signal).** NC standalone on PR #300 base — already comparable to PR #305 reference (3.27813). If Arm A n=4 mean lands ≤ 3.278, **NC standalone is composable on PR #300** and the natural next test is nezuko-stack + NC (Aurora+EMA-Nesterov+NC), which could push the floor further.
+3. **Edward Circuit-Muon n=2 mean 3.27859.** At 2930 steps, beats PR #300 reference (3.27844) by 0.00015. For n=4 ≤ 3.278: T2+T3 mean ≤ 3.27741. Tight given σ=0.00037. **Verdict so far:** Circuit-Muon adds modest standalone value but not enough to win the contract solo.
 
-3. **Tanjiro stays second contender.** Mean(T0,T1)=3.27880 at 2930 steps. Single-stage Tail Phase Readout looks viable but unlikely to beat nezuko at 2890.
+4. **Frieren Arm A control = PR #300 vanilla 3.27822 (T0).** Confirms infra reproduces PR #300 baseline within noise. Arm B (RI applied) will give the clean RI delta — needs to demonstrably beat 3.27822 in matched-seed comparison.
 
-4. **Alphonse T2 progress (46%)** — needs T2,T3 to recover from T1 regression. High σ=0.00523 makes n=4 stat-sig uncertain.
+5. **Compositional read across PR #300-base contenders** (n=2 means):
+   - Tail Phase Readout (tanjiro): 3.27880 — modest improvement
+   - Circuit-Muon (edward): 3.27859 — modest improvement
+   - NC (fern n=1): 3.27828 — strong single signal
+   - PR #300 vanilla (frieren control n=1): 3.27822 — sanity check OK
+   
+   All four within ~0.0006 of each other and within noise of PR #300 reference. Single-mechanism lift on PR #300 base is small (~0.0002-0.0004). The big lift comes from compositional stacks (nezuko 3-mean 3.27799 = EMA-Nesterov + Aurora).
 
-5. **Askeladd T2 = 3.27996 (NEW).** Improving trend across trials (3.28135 → 3.28122 → 3.27996). 3-trial mean 3.28084 still above 3.28 contract. EMA-Nesterov on bare PR #300 is genuinely worse than EMA-Nesterov + Aurora. Hypothesis officially falsified.
+6. **Negative compositional finding from alphonse.** NC + Contra-Muon (PR #305 base) likely interfere. Implication: NC should be tested on Aurora+EMA-Nesterov base (NO Contra-Muon, NO RRE), which is **TOP next-wave hypothesis: Aurora+EMA-Nesterov+NC** (nezuko stack + fern's NC).
 
-6. **Compositional priority for NEXT WAVE (askeladd likely first idle student, ~2.5h):**
-   - **Aurora+EMA-Nesterov+NC** (nezuko stack + fern's NC) — highest EV. Tests if NC stacks with the winner.
-   - Aurora+EMA-Nesterov + Reference Interpolation (post-frieren result)
-   - Aurora+EMA-Nesterov + Circuit-Muon (post-edward T1-T3)
-   - Aurora+EMA-Nesterov + Senpai #1532 beta2-pulse
-   - Aurora+EMA-Nesterov at train_steps=2850, 2810 (push fixed-step further)
+7. **Compositional priority for NEXT WAVE (refined after alphonse falsification):**
+   - **TOP: Aurora+EMA-Nesterov+NC** (nezuko stack + NC, NO Contra-Muon, NO RRE) — highest EV
+   - Aurora+EMA-Nesterov+Circuit-Muon — second test of stacking
+   - Aurora+EMA-Nesterov+Reference Interpolation — depends on frieren Arm B
+   - Aurora+EMA-Nesterov at train_steps=2850 or 2810 — push fixed-step further
+   - Aurora+EMA-Nesterov + Senpai #1532 beta2-pulse — Senpai-specific contribution test
+   - Aurora+EMA-Nesterov+Tail Phase Readout — combine the four PR #300-base modest-improvement mechanisms
 
-**In-flight observations:**
-- Nezuko T3 starting — SENPAI-RESULT expected in ~2.8h.
-- Edward T1 at step ~1425/2930 (49%) — key for circuit-muon contribution.
-- Alphonse T2 at step 1350/2925 (46%).
-- Tanjiro T2 at step 850/2930 (29%).
-- Fern Arm A T1 at step 525/2930 (18%).
-- Frieren `wd1aaqtr` RECOVERED from stall — now at step 2375 (slow but progressing). Rebase still pending.
-- Thorfinn restarted cleanly — Arm A NC `5wirp0h4` launched at 23:03 UTC.
-- Askeladd T3 starting — falsification SENPAI-RESULT in ~3h.
+**In-flight observations (as of 00:20 UTC 2026-06-05):**
+- **Tanjiro T2 at 90% — terminal in ~5 min.**
+- **Nezuko T3 at 57% — SENPAI-RESULT ~40 min (FLAGSHIP).**
+- **Fern Arm A T1 at 78% — terminal ~20 min.**
+- **Askeladd T3 at 69% — falsification SENPAI-RESULT ~30 min.**
+- Thorfinn Arm A NC T0 at 71% — terminal in ~40 min.
+- Alphonse T3 at 3% — terminal in ~1h (PR will close as falsified).
+- Edward T2 at 6%, Frieren T1 at 8% — early stages.
 
 **Resolved this turn:**
-- Nezuko T2 = 3.27780 captured, 3-trial mean 3.27799 — likely merge winner.
-- Fern Arm A T0 = 3.27828 — strong NC-on-PR#300 first signal.
-- Thorfinn `sx4q2hn0` crashed → restarted as `5wirp0h4` (Arm A NC).
-- Frieren `wd1aaqtr` recovered from stall on its own.
-- Comment posted to nezuko PR #2286 acknowledging T2 + SENPAI-RESULT format.
+- Alphonse T2 = 3.28238 terminal — hypothesis falsified.
+- Askeladd `sodmwabl` was an OLD crashed run from 18:30; actual confirm `maf69yse` is alive at T3.
+- Confirmed thorfinn Arm Z crashed at T2 start (n=2 final): mean 3.27846 from T0=3.27781, T1=3.27910.
 
 ## Research focus
 
