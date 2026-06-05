@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~03:05 UTC (launch day +1)
+- **As of:** 2026-06-05 ~03:45 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -105,13 +105,13 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
    - Aurora+EMA-Nesterov+Tail Phase Readout — combine the four PR #300-base modest-improvement mechanisms
 
 **In-flight observations (as of 02:50 UTC 2026-06-05):**
-- **🥇 Fern Arm A T2 = 3.27903** NEW (above T0=3.27828 / T1=3.27760 → eroded n=3 mean to **3.27830** σ≈0.00072). T3 at ~17%. For n=4 to clear stat-sig: T3 ≤ 3.27708. For n=4 to beat PR #305: T3 ≤ 3.27765. **Tight margin now.**
-- **Edward T2 corrected to 3.27838** (prior 3.28067 was mid-trial). n=3 mean 3.27936. T3 at 53%. Heading toward falsification.
-- **Alphonse PR #2292 (H12 β2-pulse) screen at 37%**, healthy.
-- **Tanjiro PR #2293 (H13 PMuon)** smoke test launched 02:49:45 UTC — pod picked up.
-- **Nezuko PR #2290: 3 step-1 crashes** since 01:57 UTC; current restart at 02:46 progressing through step 50+. Advisor commented confirming LR=0.0375 + asked for crash diagnosis.
-- **Askeladd PR #2291:** original screen still healthy at 53%; two student-initiated relaunches failed at step 1 (similar signature to nezuko).
-- Frieren Arm A T1 — still running, needs_rebase pending (low priority since Arm A is control).
+- **🥇 Fern Arm A T3 at ~92.5%** (val=3.421 cooldown phase). Terminal imminent (~30 min). n=3 mean stands at 3.27830. For n=4 to beat PR #305: T3 ≤ 3.27765. For stat-sig clear: T3 ≤ 3.27708.
+- **Edward T3 finished** per student comment trail (n=3 mean 3.27852: T0=3.27895, T1=3.27822, T2=3.27838). Awaiting student SENPAI-RESULT with T3 confirmation. W&B subagent reads diverge from student-reported values — trusting student. If T3 ~3.279, n=4 mean ~3.278-3.279, **likely falsified** but close.
+- **Alphonse PR #2292: screen DONE at val=3.4947.** Confirm not yet launched — posted nudge comment. β2-pulse on PR #309 base composes cleanly (no step-1 crash), confirming aux-Adam mechanism is in different regime from Muon-side.
+- **Nezuko PR #2290:** screen DONE at val=3.4954, **confirm run `7frhd6u6` started 03:40 UTC at step 125/2890** — healthy. Student successfully debugged step-1 crash.
+- **Tanjiro PR #2293:** relaunch `kcdmyc6f` at step 275/1500 (18%), no crash.
+- **Askeladd PR #2291:** two parallel screens running (`jrrlurv1` 70%, `1itylpsc` 15%) — posted comment recommending kill the slower.
+- Frieren Arm A T1 — needs_rebase pending (low priority since Arm A is control).
 - Thorfinn Arm A NC — long road, no new terminals.
 
 **🚨 PR #309-base + Muon-side mechanism step-1 crash pattern (3-of-3):**
