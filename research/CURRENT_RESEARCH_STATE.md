@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~02:50 UTC (launch day +1)
+- **As of:** 2026-06-05 ~03:05 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -114,7 +114,15 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 - Frieren Arm A T1 — still running, needs_rebase pending (low priority since Arm A is control).
 - Thorfinn Arm A NC — long road, no new terminals.
 
-**Tail risk note:** Both nezuko (NC) and askeladd (Circuit-Muon) on PR #309 base show step-1 failures on relaunch. Possible common bug: PR #309's EMA-Nesterov + Aurora initialization may not survive an extra pre-NS/post-NS modification at trial init. Watching for clean SENPAI-RESULT vs another failure.
+**🚨 PR #309-base + Muon-side mechanism step-1 crash pattern (3-of-3):**
+- nezuko PR #2290 (NC pre-NS): 3 step-1 crashes
+- askeladd PR #2291 (Circuit-Muon V↔O scaling): 2 step-1 crashes on relaunch
+- tanjiro PR #2293 (PMuon preconditioning): smoke test crashed at step 1 (val/loss=10.82583)
+- **Alphonse PR #2292 (β2-pulse on AUX ADAM) is healthy at 75%** — confirms the bug is Muon-side only
+
+Posted diagnostic guidance comment on PR #2293 pointing at three suspects: (1) EMA-Nesterov momentum buffer init between trials, (2) Aurora row-balanced polar init interaction, (3) PMuon preconditioner init at step 1. Students are debugging in parallel; nezuko and askeladd current restarts are progressing past step 50-625 (past the prior crash points).
+
+**Strategic implication:** PR #309 base appears mechanically fragile when extended with any pre-NS or post-NS Muon-side mechanism. This is novel information about PR #309's robustness. If the pattern persists, future high-EV experiments should compose Senpai #1532/#1614 ingredients on **bare PR #300** rather than PR #309, since PR #300 has shown clean composition with NC (fern Arm A T0/T1/T2 all converged).
 
 **Senpai-#1614 ingredient experiments now in flight (twin compositional tests):**
 - alphonse PR #2292: β2-pulse on aux Adam, on PR #309 base
