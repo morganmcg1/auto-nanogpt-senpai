@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~06:45 UTC (launch day +1)
+- **As of:** 2026-06-05 ~07:00 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -61,7 +61,7 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 
 2. **NC compositional verdict FINAL (06:20 UTC):** NC confirmed on bare Muon (thorfinn n=4 mean 3.27537, margin 0.00926) and falsified on ALL Aurora-bearing stacks. Rule: NC is structurally redundant with Aurora's row-balanced polar refinement. NC-only future hypothesis must start from bare Muon.
 
-3. **In-flight PR #309-base composition tests all showing T0 ≥ 3.27938 (3-of-3 confirmed):** alphonse (β2-pulse) T0=3.27971, nezuko (NC) T0=3.27938, askeladd (Circuit-Muon) T0=3.27958 — all 3 worse than PR #309 base (~3.27800) on the first trial. Pattern is now clear at n=1: Aurora+EMA-Nesterov base is saturated; pre-NS (NC), aux-Adam (β2-pulse), and Muon-side (Circuit-Muon) perturbations all regress. The remaining bet on the PR #309 base is **fern's RI (g32gn44z, paired gamma sweep)** — a strictly post-hoc eval-time transform that does NOT touch training dynamics, so it should be immune to this saturation pattern.
+3. **In-flight PR #309-base composition tests all showing T0 ≥ 3.27938 (3-of-3 confirmed):** alphonse (β2-pulse) T0=3.27971, nezuko (NC) T0=3.27938, askeladd (Circuit-Muon) T0=3.27958 — all 3 worse than PR #309 base (~3.27800) on the first trial. Pattern is now clear at n=1: Aurora+EMA-Nesterov base is saturated; pre-NS (NC), aux-Adam (β2-pulse), and Muon-side (Circuit-Muon) perturbations all regress. **But nezuko T1=3.27753** (W&B `7frhd6u6` summary at 06:57 UTC) — the FIRST PR #309-base composition trial BELOW the base. Wide T0/T1 variance (range 0.00185) suggests NC adds high variance rather than uniformly regresses. Watch T2/T3 to disambiguate: if n=4 mean lands ~3.27800, NC composition is neutral; if mean dips below, NC may still compose on the right upstream stack. The remaining bet on the PR #309 base is **fern's RI (g32gn44z, paired gamma sweep)** — a strictly post-hoc eval-time transform that does NOT touch training dynamics, so it should be immune to whatever drives the saturation pattern.
 
 4. **New next-wave (thorfinn H16):** Cautious-Muon on PR #305 base — post-NS sign mask from Liu et al. ICLR 2026. Different mechanism class from NC (sign-agreement direction control vs. spectrum normalization). PR #296 (open2-thorfinn) just assigned.
 
