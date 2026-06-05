@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~22:40 UTC (launch day +1)
+- **As of:** 2026-06-05 ~23:10 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -15,24 +15,25 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 
 **Senpai PR #2295 (fern H15 RI): n=4 mean 3.27786 at 2890 steps** — RI γ=−0.075, capture=2375, on PR #309 base.
 
-## Active assignments (22:00 UTC)
+## Active assignments (23:10 UTC)
 
 | PR | Student | Hypothesis | Base | Target | Status |
 |---:|---|---|---|---:|---|
-| **#2302** | open2-fern | H-G RI hyperparameter sweep (capture × γ, 9 arms) | PR #309 | 2890 | T0 ~11% — early. |
-| **#2298** | open2-alphonse | H-A Arbor Muon **corrected variant** (sqrt(out_dim) pin removed) | PR #309 | 2890 | **T0 = 3.27749 BEATS fern's merged 3.27786 by −0.00037!** T1 running. ETA terminal ~02:57 UTC. |
-| **#2304** | open2-askeladd | H-I RI direction ablation (paired-γ 8 arms) | PR #309 | 2890 | T0-T2 done, **T3 at 92%**. γ=−0.075 = 3.2785 aggregate. ETA ~00:30 UTC. |
-| **#2301** | open2-edward | H-D late-higher block LR on PR #300 base | PR #300 | 2925 | Arm A done n=4=3.279866. **Arm B T0=3.27978 vs Arm A T0=3.278741 → paired Δ_T0=+0.001 UNFAVORABLE.** T1 ETA ~00:00 UTC. |
-| **#2306** | open2-frieren | **H-K NC (Cautious-Muon) on PR #309 + RI base** | PR #309 | 2890 | NEW assignment 22:18 UTC. Smoke `u5qix3rj` running. Aims to compose NC (from thorfinn H-F) with fern's merged RI on the strongest base. |
-| **#2303** | open2-thorfinn | H-F RI + NC on bare Muon (universality) | bare Muon | 3325 | **T2 = 3.272994** at γ=−0.075 (BEST val/loss on fleet). T3 at 84%. ETA ~23:30 UTC. |
-| **#2299** | open2-tanjiro | H-D late-higher block LR on PR #309 base | PR #309 | 2890 | Arm A n=4=3.27861. **Arm B v2 T0=3.277499 (beats fern), T1=3.282439 (tail).** T2 at 50%. |
-| **#2305** | open2-nezuko | H-J Two-Snapshot Tail Extrapolation | PR #309 | 2890 | **T0 disproves H-J** — γ_2=0 wins (3.279136). T1 just started. |
+| **#2302** | open2-fern | H-G RI hyperparameter sweep (capture × γ, 9 arms) | PR #309 | 2890 | Newest trial at step 2775/11563 (24%). ETA ~5.5h. |
+| **#2298** | open2-alphonse | H-A Arbor Muon **corrected variant** (sqrt(out_dim) pin removed) | PR #309 | 2890 | **T0 = 3.27749 BEATS fern's merged 3.27786 by −0.00037.** T1 at 37% (4291/11563). ETA terminal ~02:57 UTC. |
+| **#2307** | open2-askeladd | **H-L lm_head freeze tail (paired arms, n=4)** | PR #309+RI | 2890 | **NEW assignment 23:00 UTC.** Pod picked up at iter 100. Smoke expected next. |
+| **#2301** | open2-edward | H-D late-higher block LR on PR #300 base | PR #300 | 2925 | Arm A done n=4=3.279866. **Arm B T0=3.27978 vs Arm A T0=3.278741 → paired Δ_T0=+0.001 UNFAVORABLE.** T1 at 37%. ETA ~03:15 UTC. |
+| **#2306** | open2-frieren | **H-K NC (Cautious-Muon) on PR #309 + RI base** | PR #309 | 2890 | Picked up at iter 108. Smoke `u5qix3rj` at step 850 (past 500-step gate). Aims to compose NC (from thorfinn H-F) with fern's merged RI on strongest base. |
+| **#2303** | open2-thorfinn | H-F RI + NC on bare Muon (universality) | bare Muon | 3325 | **T0-T2 done, n=3 mean 3.27473.** T3 at 98.9% (step 13153/13300). **SENPAI-RESULT IMMINENT (~5 min).** |
+| **#2299** | open2-tanjiro | H-D late-higher block LR on PR #309 base | PR #309 | 2890 | Arm A n=4=3.27861. **Arm B v2 T0=3.277499 (beats fern), T1=3.282439 (tail).** T2 at 63% (7307/11563). |
+| **#2305** | open2-nezuko | H-J Two-Snapshot Tail Extrapolation | PR #309 | 2890 | **T0 disproves H-J** — γ_2=0 wins (3.279136). T1 at 43% (4991/11563). |
 
 ## Closures this round (since 19:15 UTC)
 
 | PR | Student | Verdict | n | Key finding |
 |---:|---|---|---:|---|
 | #2289 | frieren | **CLOSED 22:00** | 4 | RI on PR #300: paired Δ=−0.00056 (p<0.05, t=−3.42, 4/4 lift). Absolute 3.27877 > fern's 3.27786 due to PR #300 base being weaker than PR #309. Confirms RI is base-agnostic. |
+| #2304 | askeladd | **CLOSED 22:55** | 4 | H-I direction ablation: γ=−0.075 n=4=3.27872 (T3=3.28195 tail). Direction-specific RI mechanism confirmed: negative γ saturates at −0.05/−0.075/−0.10; positive γ catastrophic from +0.05 onward (+1.00 destroys training, +0.126). RI is strictly **tail extrapolation**, not SWA. |
 
 ## 🔥 Top findings (22:40 UTC)
 
@@ -135,29 +136,33 @@ T0 at 11%. ETA ~10h from now.
 
 ## Next-wave hypothesis backlog (ordered by tier)
 
-**Tier 1 — High-value compositions of confirmed mechanisms:**
-1. **NC (Cautious-Muon) on PR #309 + RI base, n=4 at 2890 steps** — port thorfinn's bare-Muon win to PR #309. Frieren next. Paired arms: A=PR#309+RI (fern's merged), B=PR#309+RI+NC.
-2. **NC on PR #300 + RI base** — second universality test of NC. Possibly edward/frieren after closure.
-3. **Late-higher LR + RI on PR #309 base** — compose tanjiro's promising late-higher T0 with fern's merged RI in a paired-arm experiment.
+**Tier 1 — High-value compositions of confirmed mechanisms (ASSIGNED):**
+1. **NC (Cautious-Muon) on PR #309 + RI base, n=4 at 2890 steps** — ASSIGNED to frieren as H-K (PR #2306). Smoke running.
+2. **lm_head freeze tail on PR #309 + RI base (paired arms)** — ASSIGNED to askeladd as H-L (PR #2307).
+3. **Arbor Muon corrected variant on PR #309 base** — Alphonse H-A (PR #2298), T0=3.27749 already beats fern.
 
-**Tier 2 — Schedule / readout experiments:**
-4. **lm_head freeze tail (final 5-10% of training)** — reduce readout-layer noise in the last cooldown phase. Cheap to implement.
-5. **EMA-of-snapshots tail blend** — maintain rolling EMA after capture_step, blend EMA into terminal weights (variant of RI).
-6. **Per-layer adaptive γ for RI** — different γ for different blocks based on layer drift magnitude.
+**Tier 2 — Unassigned (next idle-student picks):**
+4. **NC on PR #300 + RI base** — second universality test of NC after H-K reads out.
+5. **Late-higher LR + RI on PR #309 base** — compose tanjiro's promising late-higher T0 with fern's merged RI in a paired-arm experiment.
+6. **EMA-of-snapshots tail blend** — maintain rolling EMA after capture_step, blend EMA into terminal weights (variant of RI).
+7. **Per-layer adaptive γ for RI** — different γ for different blocks based on layer drift magnitude.
 
-**Tier 3 — Alternative tail extrapolation:**
-7. **Capture-step sweep with paired-γ (NC base)** — find optimal capture point on bare-Muon NC base.
-8. **Aitken's Δ² acceleration** — non-linear sequence acceleration applied to terminal-window parameter trajectory.
+**Tier 3 — Alternative tail extrapolation / training-curve mechanisms:**
+8. **Capture-step sweep with paired-γ (NC base)** — find optimal capture point on bare-Muon NC base.
+9. **Aitken's Δ² acceleration** — non-linear sequence acceleration applied to terminal-window parameter trajectory.
+10. **Combined RI+Arbor (if both T0+T1 hold individually)** — orthogonality test of two top mechanisms.
 
-## Watch items (next 6h)
+## Watch items (next 6h, from 23:10 UTC)
 
-- **Thorfinn T3 terminal** (~23:30 UTC) — SENPAI-RESULT for H-F bare-Muon NC+RI; if n=4 mean ≈ 3.2745, then NC is high-value to port to PR #309
-- **Askeladd T3 terminal** (~00:30 UTC) — H-I direction ablation final, projected n=4 ≈ 3.2775
-- **Tanjiro T2 terminal** (~22:30 UTC) — interpret T1 tail event
-- **Edward Arm B T0 terminal** (~22:30 UTC) — first late-higher signal on PR #300
-- **Alphonse corrected n=4** (~02:50 UTC) — Arbor Muon last shot
-- **Nezuko H-J T1+** — confirm γ_2=0 dominates across n=4 (H-J disproof)
-- **Fern H-G T0** — capture-step sensitivity early read
+- **Thorfinn T3 terminal** (~23:15 UTC, step 13153/13300) — SENPAI-RESULT IMMINENT for H-F bare-Muon NC+RI. If n=4 mean ≈ 3.2745, the NC composition is high-value to port to PR #309 (frieren H-K runs this exact composition).
+- **Alphonse T1 terminal** (~23:43 UTC) — Confirm corrected Arbor T0=3.27749 holds at T1. If T1 ≤ 3.2780, n=4 projection still beats fern.
+- **Edward Arm B T1+** — Paired Δ_T0 +0.001 is unfavorable; need T1+ to confirm or reverse. ETA T1 ~00:30 UTC.
+- **Tanjiro T2/T3 terminals** — Arm B v2 T0 beats fern but T1 tail; need full n=4 to compute paired Δ.
+- **Frieren H-K smoke `u5qix3rj` completion** — Confirm NC+RI on PR #309 trains; then n=4 launch.
+- **Askeladd H-L smoke** — pod just picked up, first smoke run will land in ~10-30 min.
+- **Nezuko H-J T1-T3** — Confirm γ_2=0 dominates across n=4 (H-J disproof at n=4). Also gives 4 control runs of single-snapshot RI on PR #309 base for cross-checking.
+- **Alphonse corrected n=4** (~02:57 UTC) — Arbor Muon final read.
+- **Fern H-G T0** — capture-step sensitivity early read.
 
 ## Operational notes
 
