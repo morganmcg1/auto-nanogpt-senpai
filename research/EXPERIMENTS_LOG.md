@@ -9,6 +9,45 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-05 04:40 — PR #2284: H4 Arbor vs NC ablation on PR #300 base (Arm A NC terminal)
+
+- Branch: `open2-fern/arbor-vs-nc-pr300-base`
+- Hypothesis: Three-arm ablation to settle the "pre-Newton-Schulz conditioning slot" question on the PR #300 base — Arm A = PR #295 Normalized Correction (NC) inserted before `X = X / X.norm()`; Arm B = PR #310 Arbor Muon (2-iter row/col equilibration on `mlp.fc`/`mlp.proj`); Arm Z = control replicating PR #300 reference. n=4 @ train_steps=2930.
+- Status: **Arm A terminal known; PR to be closed after student SENPAI-RESULT.**
+
+### Results (Arm A only — Arms B and Z TBD)
+
+| Trial | val/loss @ 2930 |
+|---:|---:|
+| 0 | 3.27828 |
+| 1 | 3.27760 |
+| 2 | 3.27903 |
+| 3 | **3.28007** ← tail event |
+| **n=4 mean** | **3.27875** |
+| σ | 0.00104 |
+
+- W&B run: `m50dnbvb` (group `open2-fern/arbor-vs-nc-pr300-base`)
+- Margin: `(3.28 − 3.27875) × √4 = +0.00250` (contract requires ≥ +0.004 → FAILS)
+- Vs PR #300 (3.27844, n=16): worse by +0.00031 → falsification rule fires
+- Vs PR #305 (3.27813, n=8): worse by +0.00062
+- Arm B (Arbor) original implementation diverged at debug-screen step 758 with loss gap ~0.54 vs control. Student identified three pseudo-code discrepancies vs actual PR #310 (alternating + relative-to-mean clamp + `sqrt(out_dim)` post-NS pin) and was authorized to re-implement; Arm B re-screen may or may not have been launched after Arm A confirm.
+
+### Analysis
+
+- **NC standalone on PR #300 stack does NOT compose.** Combined with alphonse PR #2281 (NC on PR #305 stack, n=4 mean 3.27986) the result is consistent across two NC-bearing compositions on Aurora bases. NC is **redundant** with PR #300's existing row-aware refinement (Aurora row-balanced polar on `mlp.proj` + Contra-Muon ramp).
+- **Refutes earlier "NC + Contra-Muon DOES compose" rule of thumb** — at n=2 fern Arm A appeared to lead at 3.27794, but n=3 erosion (T2=3.27903) and n=4 tail (T3=3.28007) reveal high seed variance and no real lift over PR #300 reference. Single trials are insufficient evidence for compositional rules; must wait for n=4.
+- **σ=0.00104 is ~2× the σ of other PR #300-base n=4 runs** (edward 0.00055, tanjiro #2287 0.00051) — NC may introduce additional seed sensitivity by amplifying gradient-norm fluctuations in early layers.
+- **Implication for next wave:** NC is fully ruled out on Aurora-bearing stacks. NC's potential value is limited to bare-Muon configurations (currently being tested by thorfinn PR #2288 at train_steps=3325, T1-T3 pending).
+- **Strategic implication:** With first-wave NC, EMA-Nesterov-bare, Circuit-Muon-isolated, and Tail Phase Readout all falsified, sub-2900 SOTA now depends on (a) Senpai #1532/#1614 ingredients (β2-pulse, PMuon) currently in flight (alphonse/tanjiro/edward), (b) Aurora+EMA-Nesterov composites (nezuko+askeladd in flight), or (c) genuinely new architectural levers from the next research wave (Polar Express, MuLoCo, KL-SOAP).
+
+### Suggested follow-ups
+
+- **Close PR #2284** upon student terminal SENPAI-RESULT.
+- **Reassign fern** to the next-highest-EV Senpai ingredient: candidate is **Senpai LR/EMA stack on PR #309 base** (the third and last untested Senpai-#1614 ingredient) or **Polar Express NS variant (PR #254)** on PR #300/PR #309 base as a NS-iteration replacement experiment.
+- **Update compositional rules file** (NEW): NC compatibility with row-aware refinement = NEGATIVE; NC may only matter on bare-Muon configurations.
+
+---
+
 ## 2026-06-05 04:00 — PR #2283: H3 Circuit-Muon isolated on PR #300 base
 
 - Branch: `open2-edward/circuit-muon-pr300-base`
