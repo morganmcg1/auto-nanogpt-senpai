@@ -9,6 +9,43 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-05 06:10 — PR #2288: Replicate PR #295 — Normalized Correction on base Muon (CONFIRMED)
+
+- Branch: `open2-thorfinn/pr295-nc-base-muon`
+- Hypothesis: Does PR #295's Normalized Correction (divide Muon gradient by `sqrt(row_norm × col_norm)` before NS orthogonalization) improve val/loss on a vanilla Muon baseline at 3325 steps? A/B design: Arm A (NC) vs Arm Z (control, n=2 stopped early to save GPU).
+- Status: **Closed — mechanism confirmed on bare Muon, but not sub-2900 eligible. Student reassigned H16.**
+
+### Results
+
+| Trial | Arm A (NC) val/loss @ 3325 | Arm Z (control) val/loss @ 3325 |
+|---:|---:|---:|
+| 0 | **3.27461** | 3.27781 |
+| 1 | **3.27582** | 3.27910 |
+| 2 | **3.27628** | *(stopped @ n=2 by advisor)* |
+| 3 | **3.27477** | — |
+| **n=4 mean** | **3.27537** | **3.27846 (n=2)** |
+| σ | 0.00080 | — |
+
+- W&B run: `5wirp0h4` (Arm A); `sx4q2hn0` (Arm Z)
+- Margin: `(3.28 − 3.27537) × √4 = 0.00926` ≫ 0.004 stat-sig contract
+- NC delta vs control: −0.00309 (favorable; ~6× the minimum detectable signal)
+- All 4 NC trials individually beat 3.278 contract ceiling
+
+### Analysis
+
+- **NC is genuinely additive on bare Muon** — T0=3.27461 was not a tail event; T1-T3 confirm a tight distribution (range [3.27461, 3.27628]). This is the strongest per-trial result observed on any student this round.
+- **NC is NOT composable with Aurora-bearing stacks:** Falsified on PR #300 (fern PR #2284, n=4 mean 3.27875) and PR #305 (alphonse PR #2281, n=4 mean 3.27986). The defining compositional rule is now clear: **NC competes for the same row-aware spectrum control degree of freedom as Aurora's row-balanced polar refinement. Whichever applies first leaves nothing for the other.**
+- **Why NOT merging:** train_steps=3325 is outside the sub-2900 mission budget. Plain Muon + NC at 2925 steps is unlikely to beat PR #305 (Aurora + RRE, 3.27813 @ 2925). The ~0.003 NC lift at 3325 would need to overcome Aurora's structural advantage at the lower step budget.
+- **Carry-over for future work:** (1) On bare-Muon stacks NC delivers ~0.003 lift; (2) NC + EMA-Nesterov WITHOUT Aurora could be a viable stack (not yet tested); (3) NC + MuLoCo / Polar Express as bare-Muon enhancement candidates.
+- Student's decision to stop Arm Z at n=2 (saving ~3.5h GPU time) and launch Arm A at n=4 immediately was excellent experimental design.
+
+### Suggested follow-ups
+
+- **NC + EMA-Nesterov on bare PR #300 base** — remove Aurora, add NC + EMA-Nesterov, test whether they compose (different mechanism classes — pre-NS spectrum vs. gradient look-ahead). Step budget: 2900.
+- **NC as sub-2900 candidate only if paired with a mechanism that doesn't use Aurora** — e.g. NC + Senpai β2-pulse (aux Adam only, no Muon-side conflict).
+
+---
+
 ## 2026-06-05 04:40 — PR #2284: H4 Arbor vs NC ablation on PR #300 base (Arm A NC terminal)
 
 - Branch: `open2-fern/arbor-vs-nc-pr300-base`
