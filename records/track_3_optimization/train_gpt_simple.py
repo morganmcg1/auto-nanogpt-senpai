@@ -4,11 +4,14 @@ train_gpt_simple.py
 This file descends from the [NanoGPT speedrun](https://github.com/KellerJordan/modded-nanogpt).
 It was prepared as a simplified version of the speedrun for use in neural net optimization research.
 
-Reproduction of KellerJordan/modded-nanogpt PR #309 (EMA-Nesterov + Aurora @ 2890 steps).
-The optimizer stack is Aurora row-balanced polar + Contra-Muon (extended ramp to 2500) +
-EMA-Nesterov lookahead, with NorMuon-lite disabled via NOR_BETA2=1.0.
+H12: PR #309 base (Aurora row-balanced polar + EMA-Nesterov, Contra-Muon DISABLED) +
+Senpai aux Adam β2-pulse from PR #1532/#1614 (audited mechanism: start β2=0.95, step pulse
+to β2=0.99 at cooldown onset, proportionally scaled to 2890-step budget).
 
-Public source: https://github.com/KellerJordan/modded-nanogpt/pull/309
+Public sources:
+- https://github.com/KellerJordan/modded-nanogpt/pull/309 (Aurora + EMA-Nesterov)
+- https://github.com/morganmcg1/modded-nanogpt-senpai/pull/1532 (β2-pulse mechanism, WIN)
+- https://github.com/morganmcg1/modded-nanogpt-senpai/pull/1614 (β2-pulse cleanup: default target=0.99)
 """
 
 import os
@@ -47,7 +50,10 @@ MUON_POWER_C = 3.3169534699576625e-06
 FINAL_MUON_WD = 0.025
 
 # Optimizer constants from PR #309.
-CONTRA_MUON_COEFF = -0.2
+# H12: Contra-Muon DISABLED (coeff=0.0). Removed per advisor instruction so the base
+# stack is Aurora + EMA-Nesterov only on the Muon path. All other PR #309 inheritance
+# (SOAP, Trustlight, PowerCool, Radial brake, CGI, DI-fc, mu schedule) stays.
+CONTRA_MUON_COEFF = 0.0
 SOFT_MUON_P = 0.1
 SOFT_MUON_SCALE = "none"
 SOFT_MUON_INPUT_NORM = "frobenius_schatten4"
@@ -107,6 +113,17 @@ def parse_args():
     parser.add_argument("--train_steps", type=int, default=FINAL_TRAIN_STEPS)
     parser.add_argument("--seed_offset", type=int, default=0,
                         help="Base seed for trial loop; trial t uses seed_offset + t.")
+    # H12: Senpai PR #1532 / PR #1614 aux Adam β2-pulse.
+    # Default fires at step 970 = round(975 * 2890 / 2905) — proportional scaling from
+    # the Senpai #1532 audited mechanism that pulses at step 975 of a 2905-step run.
+    parser.add_argument("--aux_b2_initial", type=float, default=0.95,
+                        help="Initial aux Adam β2 (Senpai #1532 baseline; PR #309 used 0.99).")
+    parser.add_argument("--aux_b2_pulse_step", type=int, default=970,
+                        help="Step at which to switch aux Adam β2 to --aux_b2_pulse_target. "
+                             "0 or negative disables. Default: 970 (Senpai #1532 step 975 × 2890/2905).")
+    parser.add_argument("--aux_b2_pulse_target", type=float, default=0.99,
+                        help="New aux Adam β2 value at --aux_b2_pulse_step. "
+                             "0 or negative disables. Default: 0.99 (Senpai #1614 canonical WIN).")
     parser.add_argument("--wandb_name", default=os.environ.get("WANDB_NAME", ""))
     parser.add_argument("--wandb_group", default=os.environ.get("WANDB_RUN_GROUP", ""))
     parser.add_argument("--wandb_project", default=os.environ.get("WANDB_PROJECT", "modded-nanogpt-senpai"))
@@ -1065,7 +1082,7 @@ model.compile(dynamic=False)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
-    tags = ["track-3-optimization", "senpai", "pr309-replica"] + args.wandb_tags
+    tags = ["track-3-optimization", "senpai", "h12-beta2pulse-pr309-base"] + args.wandb_tags
     if os.environ.get("RESEARCH_TAG"):
         tags.append(os.environ["RESEARCH_TAG"])
     if os.environ.get("STUDENT_NAME"):
@@ -1079,8 +1096,8 @@ if dist.get_rank() == 0:
         mode=args.wandb_mode,
         config={
             "benchmark": "modded-nanogpt-track-3-optimization",
-            "experiment": "pr309-ema-nesterov-aurora",
-            "public_source": "KellerJordan/modded-nanogpt PR #309",
+            "experiment": "h12-senpai-beta2pulse-pr309-base",
+            "public_source": "KellerJordan/modded-nanogpt PR #309 + Senpai PR #1532/#1614",
             "target_val_loss": TARGET_VAL_LOSS,
             "stat_sig_delta": STAT_SIG_DELTA,
             "num_trials": args.num_trials,
@@ -1118,6 +1135,9 @@ if dist.get_rank() == 0:
             "ema_nesterov_gamma": EMA_NESTEROV_GAMMA,
             "ema_nesterov_prefill_steps": EMA_NESTEROV_PREFILL_STEPS,
             "ema_nesterov_rest_steps": EMA_NESTEROV_REST_STEPS,
+            "aux_b2_initial": args.aux_b2_initial,
+            "aux_b2_pulse_step": args.aux_b2_pulse_step,
+            "aux_b2_pulse_target": args.aux_b2_pulse_target,
         },
     )
 
@@ -1162,11 +1182,13 @@ for trial_idx in range(args.num_trials):
             block.norm1.gains.data.copy_((1.0 - _CGI_ALPHA * s).to(block.norm1.gains.dtype))
             block.norm2.gains.data.copy_((1.0 + _CGI_ALPHA * s).to(block.norm2.gains.dtype))
 
-    # Optimizers (PR #309: AdamW betas (0.8, 0.99)).
+    # Optimizers. PR #309 used betas=(0.8, 0.99). For Senpai β2-pulse from #1532/#1614,
+    # initialize β2 at the audited initial value (default 0.95) and pulse to the audited
+    # target (default 0.99) at the configured step during training.
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, args.aux_b2_initial), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1308,6 +1330,17 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        # H12: Senpai PR #1532 / PR #1614 aux Adam β2-pulse. Fire at the configured step,
+        # mutate optimizer1 (aux AdamW) only. Muon body optimizer is untouched (its β2 lives
+        # in NorMuon-lite, which is disabled here via NOR_BETA2=1.0).
+        if (args.aux_b2_pulse_step > 0
+                and args.aux_b2_pulse_target > 0.0
+                and step == args.aux_b2_pulse_step):
+            old_b2 = optimizer1.param_groups[0]["betas"][1]
+            new_betas = (optimizer1.param_groups[0]["betas"][0], args.aux_b2_pulse_target)
+            for group in optimizer1.param_groups:
+                group["betas"] = new_betas
+            print0(f"[step {step}] aux_b2_pulse: β2 {old_b2} → {args.aux_b2_pulse_target}", console=True)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1330,6 +1363,14 @@ for trial_idx in range(args.num_trials):
                 "train/ema_nesterov/lookahead_active": int(
                     optimizer_ema.it >= EMA_NESTEROV_PREFILL_STEPS
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
+                ),
+                "aux_b2/current": float(optimizer1.param_groups[0]["betas"][1]),
+                "aux_b2/pulse_step": args.aux_b2_pulse_step,
+                "aux_b2/pulse_target": args.aux_b2_pulse_target,
+                "aux_b2/fired": int(
+                    args.aux_b2_pulse_step > 0
+                    and args.aux_b2_pulse_target > 0.0
+                    and step >= args.aux_b2_pulse_step
                 ),
             }
             log_training_telemetry(
