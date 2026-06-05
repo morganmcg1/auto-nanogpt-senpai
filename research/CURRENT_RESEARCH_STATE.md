@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~03:45 UTC (launch day +1)
+- **As of:** 2026-06-05 ~04:00 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -20,14 +20,14 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 |---:|---|---|---|---:|---|---|
 | **#2292** | open2-alphonse | **H12 Senpai #1532 β2-pulse on PR #309 base NEW** | PR #309 | 2890 | just assigned (replaces closed #2281) | Senpai #1532/#1614 + PR #309 |
 | **#2291** | open2-askeladd | **H11 Aurora+EMA-Nesterov+Circuit-Muon NEW** | PR #309 | 2890 | just assigned (replaces closed #2282) | nezuko #2286 + edward #2283 |
-| #2283 | open2-edward | H3 Circuit-Muon isolated | PR #300 | 2930 | T0+T1 done (3.27895, 3.27822), mean 3.27859, T2 in progress | PR #311 |
+| **#2294** | open2-edward | **H14 Senpai #1614 PMuon on PR #300 base NEW** | PR #300 | 2925 | just assigned (replaces closed #2283) | Senpai #1532/#1614 + PR #300 |
 | #2284 | open2-fern | H4 Arbor vs NC ablation (3 arms) | PR #300 | 2930 | Arm A T0=3.27828, T1=3.27760, **2-mean 3.27794** — leader!, T2 in progress | PR #295, #310 |
 | #2289 | open2-frieren | H5b RI on PR #300 base (no RRE) | PR #300 | 2930-3020 | Arm A control T0=3.27822; T1 in progress | PR #307, #312 |
 | **#2290** | open2-nezuko | **H10 Aurora+EMA-Nesterov+NC NEW** | PR #309 | 2890 | just assigned (replaces closed #2286) | nezuko #2286 + fern #2284 |
 | **#2293** | open2-tanjiro | **H13 Senpai #1614 PMuon on PR #309 base NEW** | PR #309 | 2890 | just assigned (replaces closed #2287) | Senpai #1532/#1614 + PR #309 |
 | #2288 | open2-thorfinn | Replicate PR #295 NC standalone | base Muon | 3325 | Arm Z control n=2 mean 3.27846; **Arm A NC T0 = 3.27461 — striking**, T1 in progress | PR #295 |
 
-**Closed this turn:** PR #2287 (tanjiro — single-stage TPR on PR #300 falsified, n=4 mean 3.27901, margin 0.001975 < 0.004; pulse mechanism real but ~30% post-pulse momentum slowdown erodes gain). Earlier this round: PR #2281 (alphonse — NC on PR #305 base falsified, n=4 mean 3.279857). Prior: PR #2286 (nezuko — 3.27838 tail event). PR #2282 (askeladd — 3.28075).
+**Closed this turn:** PR #2283 (edward — Circuit-Muon isolated on PR #300 base falsified, n=4 mean 3.27874, margin 0.002515 < 0.004; mechanism mechanically correct per V/O telemetry but PR #300 already regulates attention step-sizes — Circuit-Muon has nothing to do). Prior: PR #2287 (tanjiro — single-stage TPR, 3.27901), PR #2281 (alphonse — NC+PR #305, 3.27986), PR #2286 (nezuko — PR #309 replication tail, 3.27838), PR #2282 (askeladd — EMA-Nesterov bare PR #300, 3.28075).
 
 **Key new compositional read:** Alphonse vs fern Arm A discriminating variable is **RRE, not Contra-Muon**. Both have NC + Aurora + Contra-Muon; only alphonse has RRE. Alphonse FAILS, fern Arm A LEADS at n=2 mean 3.27794. Hypothesis: **NC + RRE interfere** (RRE re-extrapolates from NC-normalized updates, cancelling NC's directional adjustment).
 
@@ -36,7 +36,7 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 | Student | PR | Trials done | Mean | σ | Step | Status | Hypothesis |
 |---|---:|---:|---:|---:|---:|---|---|
 | **🥇 fern (Arm A)** | #2284 | **3** | **3.27830** | **0.00072** | 2930 | T2=3.27903 NEW (above T0/T1); T3 ~17%; **leader status eroded but still tight** | **NC standalone on PR #300 base** |
-| edward | #2283 | **3** | **3.27936** | **— σ recalc pending** | 2930 | T0=3.27924, T1=3.28046, T2=3.27838 (corrected); T3 at 53% | Circuit-Muon isolated on PR #300 |
+| **edward — FALSIFIED + CLOSED** | #2283 | 4 | **3.27874** | **0.00055** | 2930 | T0=3.27895, T1=3.27822, T2=3.27838, T3=3.27942; V/O telemetry perfect | Circuit-Muon isolated on PR #300 (no EMA-Nesterov) |
 | frieren (Arm A) | #2289 | 1 | 3.27822 | — | 2930 | T1 at 34% | PR #300 vanilla (Arm A=control, no RI) |
 | **nezuko — n=4 done, FAILS STAT-SIG** | #2286 | 4 | **3.27838** | **0.00080 (T3 tail)** | 2890 | T3=3.27956 tail event | EMA-Nesterov + Aurora (PR #309 lineage) |
 | **tanjiro — FALSIFIED + CLOSED** | #2287 | 4 | **3.27901** | **0.00051** | 2930 | T0=3.27911, T1=3.27849, T2=3.27968, T3=3.27877; pulse real but post-pulse slow | Single-stage Tail Phase Readout on PR #300 |
@@ -124,17 +124,18 @@ Posted diagnostic guidance comment on PR #2293 pointing at three suspects: (1) E
 
 **Strategic implication:** PR #309 base appears mechanically fragile when extended with any pre-NS or post-NS Muon-side mechanism. This is novel information about PR #309's robustness. If the pattern persists, future high-EV experiments should compose Senpai #1532/#1614 ingredients on **bare PR #300** rather than PR #309, since PR #300 has shown clean composition with NC (fern Arm A T0/T1/T2 all converged).
 
-**Senpai-#1614 ingredient experiments now in flight (twin compositional tests):**
-- alphonse PR #2292: β2-pulse on aux Adam, on PR #309 base
-- tanjiro PR #2293: PMuon on Muon-routed params, on PR #309 base
+**Senpai-#1532/#1614 ingredient experiments now in flight (matrix on two bases):**
+- alphonse PR #2292: β2-pulse on aux Adam, on **PR #309 base** (screen done at 3.4947, confirm pending)
+- tanjiro PR #2293: PMuon on Muon-routed params, on **PR #309 base** (relaunch screen healthy at step 275)
+- edward PR #2294: PMuon on Muon-routed params, on **PR #300 base** (just assigned) — companion to tanjiro, hedges against PR #309-base fragility
 
-Both isolate one Senpai-#1614 ingredient at a time. If either composes cleanly with PR #309's Aurora+EMA-Nesterov stack, the result is a strong sub-2900 candidate.
+This matrix gives us: (1) β2-pulse robustness on PR #309 base, (2) PMuon on PR #309 base vs PR #300 base — directly tells us if PMuon mechanism is base-dependent or base-independent. If tanjiro's PMuon+PR #309 cannot survive init crashes but edward's PMuon+PR #300 runs cleanly with similar val/loss as fern Arm A (NC+PR #300, current leader 3.27830), we have strong evidence PMuon is base-independent and the PR #309-base init crash is mechanistic-fragility not PMuon-fragility.
 
 **Resolved this turn:**
-- Closed tanjiro PR #2287 (n=4 mean 3.27901, margin 0.001975 < 0.004 — pulse real but +0.00057 worse than PR #300).
-- Reassigned: PR #2293 (tanjiro, Senpai #1532/#1614 PMuon on PR #309 base, train_steps=2890, n=4) — companion to alphonse's β2-pulse.
-- Closed alphonse PR #2281 (n=4 mean 3.279857, margin 0.000285 < 0.004 — falsified; bimodal T1/T2 plateau).
-- Reassigned: PR #2292 (alphonse, Senpai #1532/#1614 β2-pulse on PR #309 base, train_steps=2890, n=4).
+- Closed edward PR #2283 (n=4 mean 3.27874, margin 0.002515 < 0.004 — Circuit-Muon mechanism mechanically correct but PR #300 already regulates attention step-sizes; mechanism has no headroom).
+- Reassigned: PR #2294 (edward, Senpai #1532/#1614 PMuon on PR #300 base, train_steps=2925, n=4) — companion to tanjiro PR #2293 (PMuon on PR #309 base).
+- Closed tanjiro PR #2287, reassigned to PR #2293 (PMuon on PR #309 base).
+- Closed alphonse PR #2281, reassigned to PR #2292 (β2-pulse on PR #309 base).
 
 **Resolved prior turns:**
 - Closed nezuko PR #2286 + askeladd PR #2282.

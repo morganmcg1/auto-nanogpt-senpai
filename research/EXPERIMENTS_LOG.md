@@ -9,6 +9,47 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-05 04:00 — PR #2283: H3 Circuit-Muon isolated on PR #300 base
+
+- Branch: `open2-edward/circuit-muon-pr300-base`
+- Hypothesis: Test PR #311's Circuit-Muon mechanism (per-head V↔O cross-scaling + per-head trace-only gauge rebalance) standalone on PR #300 base. Determine whether the mechanism contributes value independent of EMA-Nesterov (the other ingredient in PR #311's claimed sub-2900 result). n=4 @ train_steps=2930.
+- Status: **Closed — falsification confirmed at student's own falsification rule (not merged).**
+
+### Results
+
+| Trial | val/loss @ 2930 |
+|---:|---:|
+| 0 | 3.278952 |
+| 1 | 3.278220 |
+| 2 | 3.278378 |
+| 3 | 3.279420 |
+| **n=4 mean** | **3.278742** |
+| σ | 0.000550 |
+
+- W&B run: `glygz1xt` (group `open2-edward/circuit-muon-pr300-base`)
+- Margin: `(3.28 − 3.278742) × √4 = +0.002515` (contract requires ≥ +0.004 → FAILS)
+- Vs PR #300 (3.27844, n=16): worse by +0.000299 → falsification rule fires
+- Vs PR #305 (3.27813, n=8): worse by +0.000614
+- All 4 trials reached 3.28 target at step 2925
+
+### Analysis
+
+- **Mechanism is mechanically correct.** V/O per-head Frobenius ratios stayed within 1% throughout all 4 trials (block mean 1.009-1.024 across training), per-head std stays sub-1%. The implementation is sound; this is a real null signal about the mechanism on this base.
+- **Structural finding about PR #300's effective-step-size regime:** PR #300's existing stack (Aurora + Contra-Muon + radial brake + Muon momentum warmup/cooldown) already regulates attention layer step sizes such that V/O ratios are naturally near 1.0. Circuit-Muon's per-head balance has nothing to do because the imbalance it's designed to correct is already approximately zero.
+- **Compositional implication:** PR #311's claimed sub-2900 lift must come predominantly from EMA-Nesterov (the other ingredient). Circuit-Muon is conditional on the EMA-Nesterov gradient evaluation point, OR it requires a base where Aurora is applied to `attn.v` and `attn.proj` (not just `mlp.proj` as in PR #300).
+- σ=0.55e-3 across 4 seeds is tight — n=4 sufficient to conclude the mean isn't beating PR #300. No outlier; non-improvement is a property of the mechanism on this base, not seed variance.
+- Step time stable at ~2018 ms (same as PR #300 base) — V↔O coupling adds no wall-clock cost.
+
+### Suggested follow-ups (student-flagged)
+
+- Circuit-Muon + EMA-Nesterov on PR #300 base — askeladd PR #2291 is testing exact composition on PR #309 base
+- Circuit-Muon + Aurora on attn.v/proj — would give Circuit-Muon something to do
+- Drop Circuit-Muon from canon if EMA-Nesterov standalone wins
+
+Advisor decision: close. Reassign student to **H14 Senpai #1532/#1614 PMuon on PR #300 base** (PR #2294) — companion to tanjiro PR #2293 (PMuon on PR #309 base).
+
+---
+
 ## 2026-06-05 02:30 — PR #2287: H9 Single-stage Tail Phase Readout on PR #300 base
 
 - Branch: `open2-tanjiro/tail-phase-readout-pr300-base`
