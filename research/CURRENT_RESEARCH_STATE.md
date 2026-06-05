@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~22:00 UTC (launch day +1)
+- **As of:** 2026-06-05 ~22:40 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -20,10 +20,10 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | PR | Student | Hypothesis | Base | Target | Status |
 |---:|---|---|---|---:|---|
 | **#2302** | open2-fern | H-G RI hyperparameter sweep (capture × γ, 9 arms) | PR #309 | 2890 | T0 ~11% — early. |
-| **#2298** | open2-alphonse | H-A Arbor Muon **corrected variant** (sqrt(out_dim) pin removed) | PR #309 | 2890 | n=4 `5weg8d9r` T0 at 24%. ETA terminal ~02:50 UTC. |
+| **#2298** | open2-alphonse | H-A Arbor Muon **corrected variant** (sqrt(out_dim) pin removed) | PR #309 | 2890 | **T0 = 3.27749 BEATS fern's merged 3.27786 by −0.00037!** T1 running. ETA terminal ~02:57 UTC. |
 | **#2304** | open2-askeladd | H-I RI direction ablation (paired-γ 8 arms) | PR #309 | 2890 | T0-T2 done, **T3 at 92%**. γ=−0.075 = 3.2785 aggregate. ETA ~00:30 UTC. |
-| **#2301** | open2-edward | H-D late-higher block LR on PR #300 base | PR #300 | 2925 | **Arm A done n=4=3.279866** (T3 tail 3.281341). Arm B `jbdhh1bz` at 24%. ETA ~03:15 UTC. |
-| **#2289** | open2-frieren | H5b RI on PR #300 base (Arm A control / Arm B RI) | PR #300 | 2930 | **CLOSE 22:00 UTC** — Arm B n=4=3.27877, paired Δ=−0.00056 (p<0.05). Universality confirmed; absolute > fern's 3.27786 at +40 steps. |
+| **#2301** | open2-edward | H-D late-higher block LR on PR #300 base | PR #300 | 2925 | Arm A done n=4=3.279866. **Arm B T0=3.27978 vs Arm A T0=3.278741 → paired Δ_T0=+0.001 UNFAVORABLE.** T1 ETA ~00:00 UTC. |
+| **#2306** | open2-frieren | **H-K NC (Cautious-Muon) on PR #309 + RI base** | PR #309 | 2890 | NEW assignment 22:18 UTC. Smoke `u5qix3rj` running. Aims to compose NC (from thorfinn H-F) with fern's merged RI on the strongest base. |
 | **#2303** | open2-thorfinn | H-F RI + NC on bare Muon (universality) | bare Muon | 3325 | **T2 = 3.272994** at γ=−0.075 (BEST val/loss on fleet). T3 at 84%. ETA ~23:30 UTC. |
 | **#2299** | open2-tanjiro | H-D late-higher block LR on PR #309 base | PR #309 | 2890 | Arm A n=4=3.27861. **Arm B v2 T0=3.277499 (beats fern), T1=3.282439 (tail).** T2 at 50%. |
 | **#2305** | open2-nezuko | H-J Two-Snapshot Tail Extrapolation | PR #309 | 2890 | **T0 disproves H-J** — γ_2=0 wins (3.279136). T1 just started. |
@@ -34,7 +34,23 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 |---:|---|---|---:|---|
 | #2289 | frieren | **CLOSED 22:00** | 4 | RI on PR #300: paired Δ=−0.00056 (p<0.05, t=−3.42, 4/4 lift). Absolute 3.27877 > fern's 3.27786 due to PR #300 base being weaker than PR #309. Confirms RI is base-agnostic. |
 
-## 🔥 Top findings (22:00 UTC)
+## 🔥 Top findings (22:40 UTC)
+
+### 🎯 Alphonse H-A corrected Arbor Muon T0 = 3.27749 — BEATS fern's merged record (single trial)
+
+| Metric | Value |
+|---|---:|
+| T0 val/loss @ step 2890 | **3.27749** |
+| vs PR #305 reference (3.27813) | **−0.00064** ✅ |
+| **vs fern's MERGED 3.27786** | **−0.00037** ✅ |
+| vs PR #309 base alone (3.27799) | **−0.00050** ✅ |
+| vs broken sqrt(out_dim) variant (3.32278) | **−0.04529** ✅ (forensic abort validated) |
+
+If T1-T3 cluster near T0 ± seed noise (~0.0008): n=4 mean ≈ 3.27770 → contract margin 0.00461 (PASSES 0.004) → **rank-1 candidate at 2890 steps**. Risk: PR #309 base shows visible tail events at T1+ in multiple recent runs (frieren Arm A T1=3.28002, fern T3=3.27984, tanjiro Arm B v2 T1=3.282439); one tail in T1-T3 inflates the mean. T0 alone is the strongest single-trial 2890-step result on the fleet.
+
+**Mechanism:** Sinkhorn equilibration with default Muon scaling (the sqrt(out_dim) 55× pin removed). Pure row/column statistic rebalancer — exactly what the original spec intended.
+
+
 
 ### Thorfinn H-F RI + NC on bare Muon — STRONGEST ABSOLUTE val/loss on fleet
 
