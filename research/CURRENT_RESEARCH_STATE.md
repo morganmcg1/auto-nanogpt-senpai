@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~06:20 UTC (launch day +1)
+- **As of:** 2026-06-05 ~06:45 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -61,7 +61,7 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 
 2. **NC compositional verdict FINAL (06:20 UTC):** NC confirmed on bare Muon (thorfinn n=4 mean 3.27537, margin 0.00926) and falsified on ALL Aurora-bearing stacks. Rule: NC is structurally redundant with Aurora's row-balanced polar refinement. NC-only future hypothesis must start from bare Muon.
 
-3. **In-flight PR #309-base composition tests all showing T0 ≥ 3.27938:** Both alphonse (β2-pulse) and nezuko (NC) T0s worse than base (~3.27800). Askeladd T0=3.27960 (Circuit-Muon). None clearing the baseline at n=1. Pattern: Aurora+EMA-Nesterov base may be over-fitted to its own parameterization — any mechanism that perturbs optimizer dynamics (pre-NS or post-NS) regresses.
+3. **In-flight PR #309-base composition tests all showing T0 ≥ 3.27938 (3-of-3 confirmed):** alphonse (β2-pulse) T0=3.27971, nezuko (NC) T0=3.27938, askeladd (Circuit-Muon) T0=3.27958 — all 3 worse than PR #309 base (~3.27800) on the first trial. Pattern is now clear at n=1: Aurora+EMA-Nesterov base is saturated; pre-NS (NC), aux-Adam (β2-pulse), and Muon-side (Circuit-Muon) perturbations all regress. The remaining bet on the PR #309 base is **fern's RI (g32gn44z, paired gamma sweep)** — a strictly post-hoc eval-time transform that does NOT touch training dynamics, so it should be immune to this saturation pattern.
 
 4. **New next-wave (thorfinn H16):** Cautious-Muon on PR #305 base — post-NS sign mask from Liu et al. ICLR 2026. Different mechanism class from NC (sign-agreement direction control vs. spectrum normalization). PR #296 (open2-thorfinn) just assigned.
 
@@ -84,28 +84,30 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 | RI (γ=−0.075, PR #307) | PR #309 | **RUNNING** (fern bbs74fx3, paired gamma sweep, ~13:05 UTC) |
 | Cautious-Muon (post-NS) | PR #305 | **JUST ASSIGNED** (thorfinn PR #2296, ~2925 steps) |
 
-**In-flight fleet summary (06:20 UTC):**
+**In-flight fleet summary (06:45 UTC):**
 
 | Student | PR | W&B | Trial | Progress | Best T0 | ETA |
 |---|---:|---|---:|---:|---:|---|
-| open2-alphonse | #2292 | 1tegunyu | T1 | step ~975/2890 | 3.27971 | ~10:26 UTC |
-| open2-askeladd | #2291 | ar3yhz6f | T1 | step ~425/2890 | 3.27960 | ~10:30 UTC |
-| open2-edward | #2294 | i97y7os1 | T0 | step ~600/2925 (5%) | — | ~18:07 UTC |
-| open2-fern | #2295 | bbs74fx3 | T0 | step ~150/2890 (paired γ) | — | ~13:05 UTC |
-| open2-frieren | #2289 | wd1aaqtr | T3 | step ~100/3020 | 3.27822 | Arm A ~09:00, Arm B ~20:30 UTC |
+| open2-alphonse | #2292 | 1tegunyu | T1 | step ~1975/2890 (68%) | **3.27971** | ~14:20 UTC |
+| open2-askeladd | #2291 | ar3yhz6f | T1 | step ~1275/2890 (44%) | **3.27958** | ~10:50 UTC |
+| open2-edward | #2294 | i97y7os1 | T0 | step ~1168/2925 (40%) | — | ~18:10 UTC |
+| open2-fern | #2295 | **g32gn44z (recovery)** | T0 | step ~125/2890 (paired γ) | — | ~13:05 UTC |
+| open2-frieren | #2289 | wd1aaqtr | T3 (Arm A) | step ~100/3020 | 3.27822 | Arm A ~09:00, Arm B ~20:30 UTC |
 | open2-nezuko | #2290 | 7frhd6u6 | T1 | step ~1275/2890 (44%) | 3.27938 | ~09:00 UTC |
 | open2-tanjiro | #2293 | 7eimwktx | T0 | step ~1750/2890 (60%) | — | ~12:00 UTC |
-| open2-thorfinn | **#2296 (new)** | — | — | pod pickup pending | — | ~06:35 UTC pod pickup |
+| open2-thorfinn | **#2296 (new)** | — | — | pod picked up branch; training to launch next iter (~06:45 UTC) | — | ~13:30 UTC est |
 
-**Fern PR #2295 (NEW):** H15 Tail Reference Interpolation on PR #309 base assigned 05:30 UTC. Pod pickup pending.
+**Fern PR #2295:** bbs74fx3 SIGTERM at step 720 (session group cleanup issue). New run **g32gn44z** launched 06:36 UTC by student auto-recovery. Paired-gamma design (γ=0/−0.05/−0.075 evaluated from SAME trajectory + same step-2375 snapshot) — strictly better statistical power than independent arms. Smoke result confirmed monotonic improvement (4.10597→4.0862→4.07752).
 
-**Tanjiro PR #2293:** confirm `7eimwktx` T0 at step 1550/2890 (~54%), val/loss=3.539. PMuon (PR #64 bilateral whitening) on PR #309 base. No further crashes.
+**Tanjiro PR #2293:** confirm `7eimwktx` T0 ~60% (step 1750/2890). PMuon on PR #309 base; running cleanly.
 
-**Edward PR #2294:** n=4 confirm `i97y7os1` T0 at step 375/2925 (~13%). PMuon on PR #300 base. ETA ~18:00 UTC.
+**Edward PR #2294:** confirm `i97y7os1` T0 at step 1168/2925 (~40%). PMuon on PR #300 base. ETA ~18:10 UTC.
 
-**Askeladd PR #2291:** confirm `ar3yhz6f` T0 at step 2725/2890 (~94%), val/loss=3.293 — T0 terminal IMMINENT (~13 min). Aurora+EMA-Nesterov+Circuit-Muon on PR #309.
+**Askeladd PR #2291:** confirm `ar3yhz6f` **T0 TERMINAL at 3.27958** at step 2890. T1 mid-run at step 1275 (44%). Aurora+EMA-Nesterov+Circuit-Muon on PR #309 — T0 worse than PR #309 base (~3.27800). Pattern: Circuit-Muon + EMA-Nesterov composition appears to interfere on Aurora-bearing stack just like NC and β2-pulse.
 
-## Research focus (06:20 UTC)
+**Thorfinn PR #2296 (NEW):** H16 Cautious-Muon on PR #305 base assigned 06:23 UTC. Pod has fetched branch `open2-thorfinn/h16-cmuon-pr305-base` and entered iteration 51 at 06:24 UTC; GPU still 0% at last log (06:35 UTC). Training start expected next iteration (~06:45 UTC).
+
+## Research focus (06:45 UTC)
 
 **Primary question:** Can layering the strongest community sub-2900 mechanisms + Senpai #1532/#1614 ingredients push the fixed-step crossing below 2900? PR #305 is rank-1 at 3.27813 @ 2925 steps, n=8.
 
