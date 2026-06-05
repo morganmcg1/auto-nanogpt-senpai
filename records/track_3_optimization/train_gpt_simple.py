@@ -6,8 +6,10 @@ It was prepared as a simplified version of the speedrun for use in neural net op
 
 H-A: PR #309 base (Aurora row-balanced polar + EMA-Nesterov, Contra-Muon DISABLED) +
 Arbor Muon's corrected 2-iter Sinkhorn row/column equilibration on mlp.fc and mlp.proj
-weights only (verbatim port of KellerJordan PR #310). Simultaneous (not alternating)
-row/col, relative clamp (mean ± 3·std), sqrt(out_dim) post-NS norm pin.
+weights only. Simultaneous (not alternating) row/col, relative clamp (mean ± 3·std).
+The original spec's sqrt(out_dim) post-NS norm pin was a 55× magnitude lift that
+destabilized training (T0=3.32278, T1=3.32056 on the broken variant); the corrected
+variant drops that pin and lets the default max(1, out/in)**0.5 Muon scaling apply.
 
 H15 Tail Reference Interpolation (RI) from KellerJordan PR #307 remains wired as an
 eval-time transformation: theta_eval = theta_final + gamma * (theta_final - theta_capture).
@@ -860,12 +862,12 @@ def soft_blend_for_step(step: int) -> float:
     return min(SOFT_MUON_CEIL, _linear_ramp(step, NORMAL_TO_SOFT_START_STEP, NORMAL_TO_SOFT_END_STEP))
 
 def arbor_sinkhorn_equilibrate(G: Tensor, n_iters: int, clamp_k: float, eps: float = 1e-8) -> tuple[Tensor, dict[str, float]]:
-    """Verbatim 2-iter Sinkhorn equilibration from KellerJordan PR #310.
+    """2-iter Sinkhorn row/col equilibration (corrected variant).
 
-    Simultaneous (row-then-col inside each iter), relative clamp by mean ± k·std,
-    then sqrt(out_dim) post-NS norm pin. Caller is responsible for restricting
-    application to mlp.fc / mlp.proj matrices only and for SKIPPING the standard
-    max(1, out/in)**0.5 scaling that the rest of muon_update would otherwise apply.
+    Simultaneous (row-then-col inside each iter), relative clamp by mean ± k·std.
+    The sqrt(out_dim) post-NS norm pin from the original spec was a 55× magnitude
+    lift that destabilized training; corrected variant returns the equilibrated
+    matrix and lets the default max(1, out/in)**0.5 Muon scaling apply downstream.
     """
     diag: dict[str, float] = {}
     pre_fro = G.float().norm()
@@ -888,13 +890,9 @@ def arbor_sinkhorn_equilibrate(G: Tensor, n_iters: int, clamp_k: float, eps: flo
             diag["arbor/last_col_mean"] = float(cn_mean.item())
             diag["arbor/last_col_std"] = float(cn_std.item())
     post_sinkhorn_fro = G_work.norm()
-    G_work = G_work * (G_work.shape[-2] ** 0.5)
-    post_scaling_fro = G_work.norm()
     diag["arbor/pre_fro"] = float(pre_fro.item())
     diag["arbor/post_sinkhorn_fro"] = float(post_sinkhorn_fro.item())
-    diag["arbor/post_scaling_fro"] = float(post_scaling_fro.item())
     diag["arbor/sinkhorn_fro_ratio"] = float((post_sinkhorn_fro / pre_fro.clamp_min(eps)).item())
-    diag["arbor/total_fro_ratio"] = float((post_scaling_fro / pre_fro.clamp_min(eps)).item())
     return G_work.to(G.dtype), diag
 
 
@@ -920,11 +918,7 @@ def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, u
         blend = 0.0
     update = contra_update + (soft_update - contra_update) * blend
     update = update * update_norm_estimate / gram_frobenius_norm_estimate(update)
-    # Arbor: when the Sinkhorn equilibration already pinned the post-NS norm via
-    # sqrt(out_dim), skip the default max(1, out/in)**0.5 scaling. Otherwise apply
-    # the standard PR #309 Frobenius scaling.
-    if not apply_arbor:
-        update *= max(1, update.size(-2) / update.size(-1))**0.5
+    update *= max(1, update.size(-2) / update.size(-1))**0.5
     if update.size(-2) >= update.size(-1):
         per_row_var = (update * update).mean(dim=-1, keepdim=True)
     else:
