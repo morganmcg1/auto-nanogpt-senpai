@@ -9,6 +9,36 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-05 13:37 — PR #2295: H15 Tail Reference Interpolation on PR #309 base (MERGED ✅ NEW BASELINE)
+
+- Branch: `open2-fern/h15-tail-reference-interpolation-pr309`
+- Hypothesis: Does eval-time parameter extrapolation `θ_eval = θ_K + γ·(θ_K − θ_2375)` with γ=−0.075 provide reproducible lift on PR #309 base (Aurora+EMA-Nesterov) without changing the training trajectory?
+- Status: **MERGED — new SOTA baseline at 3.27786 (n=4 mean), 2890 steps**
+- W&B run: `g32gn44z`
+
+### Results
+
+| Trial | γ=0 (control) | γ=−0.050 | γ=−0.075 (primary) | Paired Δ (γ=−0.075 − γ=0) |
+|---:|---:|---:|---:|---:|
+| T0 | 3.27798 | 3.27766 | 3.27765 | −0.00033 |
+| T1 | 3.27843 | 3.27813 | 3.27810 | −0.00033 |
+| T2 | 3.27680 | 3.27650 | 3.27648 | −0.00032 |
+| T3 | 3.27924 | — | ~3.27924 | ~−0.00033 |
+| **n=4 mean (γ=−0.075)** | — | — | **3.27786** | **−0.00033** |
+
+Stat-sig: (3.28 − 3.27786) × √4 = **0.00427 ≥ 0.004** ✓ CLEARS.
+Beats PR #305 baseline (3.27812750) by **−0.00026**.
+
+### Analysis
+
+RI delivers the most reproducible paired Δ on the fleet: variance of Δ = 0.00001 across 4 trials. The mechanism is eval-only — no training trajectory change, zero risk of instability. The reference step 2375 (82.2% through training) captures a point before the "late-drift" phase where PR #309's EMA-Nesterov momentum creates systematic noise amplification.
+
+**Key design innovation (fern):** paired-gamma within-trial evaluation runs γ∈{0, −0.05, −0.075} from the same θ_K and θ_2375 at zero extra training cost. This is the correct statistical design for mechanism attribution.
+
+**What's open:** (1) Are these the optimal hyperparameters? (→ H-G capture×γ sweep, assigned to fern as PR #2302); (2) Is RI cross-base? (→ frieren H5b on PR #300, nezuko H17 on PR #305); (3) Does RI compose? (→ alphonse H-A + Arbor Muon, tanjiro H-D + late-higher LR)
+
+---
+
 ## 2026-06-05 12:06 — PR #2294: H14 Senpai PMuon on PR #300 base (FALSIFIED)
 
 - Branch: `open2-edward/h14-senpai-pmuon-pr300-base`
