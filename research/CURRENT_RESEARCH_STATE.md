@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~23:10 UTC (launch day +1)
+- **As of:** 2026-06-05 ~23:40 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -24,7 +24,7 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | **#2307** | open2-askeladd | **H-L lm_head freeze tail (paired arms, n=4)** | PR #309+RI | 2890 | **NEW assignment 23:00 UTC.** Pod picked up at iter 100. Smoke expected next. |
 | **#2301** | open2-edward | H-D late-higher block LR on PR #300 base | PR #300 | 2925 | Arm A done n=4=3.279866. **Arm B T0=3.27978 vs Arm A T0=3.278741 → paired Δ_T0=+0.001 UNFAVORABLE.** T1 at 37%. ETA ~03:15 UTC. |
 | **#2306** | open2-frieren | **H-K NC (Cautious-Muon) on PR #309 + RI base** | PR #309 | 2890 | Picked up at iter 108. Smoke `u5qix3rj` at step 850 (past 500-step gate). Aims to compose NC (from thorfinn H-F) with fern's merged RI on strongest base. |
-| **#2303** | open2-thorfinn | H-F RI + NC on bare Muon (universality) | bare Muon | 3325 | **T0-T2 done, n=3 mean 3.27473.** T3 at 98.9% (step 13153/13300). **SENPAI-RESULT IMMINENT (~5 min).** |
+| **#2308** | open2-thorfinn | **H-M NC + RI on bare Muon at 2890 steps** (speedrun adaptation) | bare Muon | 2890 | **NEW assignment 23:35 UTC.** Smoke expected. Tests if bare-Muon family can beat fern's merged 3.27786 at the SAME step budget. |
 | **#2299** | open2-tanjiro | H-D late-higher block LR on PR #309 base | PR #309 | 2890 | Arm A n=4=3.27861. **Arm B v2 T0=3.277499 (beats fern), T1=3.282439 (tail).** T2 at 63% (7307/11563). |
 | **#2305** | open2-nezuko | H-J Two-Snapshot Tail Extrapolation | PR #309 | 2890 | **T0 disproves H-J** — γ_2=0 wins (3.279136). T1 at 43% (4991/11563). |
 
@@ -34,6 +34,7 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 |---:|---|---|---:|---|
 | #2289 | frieren | **CLOSED 22:00** | 4 | RI on PR #300: paired Δ=−0.00056 (p<0.05, t=−3.42, 4/4 lift). Absolute 3.27877 > fern's 3.27786 due to PR #300 base being weaker than PR #309. Confirms RI is base-agnostic. |
 | #2304 | askeladd | **CLOSED 22:55** | 4 | H-I direction ablation: γ=−0.075 n=4=3.27872 (T3=3.28195 tail). Direction-specific RI mechanism confirmed: negative γ saturates at −0.05/−0.075/−0.10; positive γ catastrophic from +0.05 onward (+1.00 destroys training, +0.126). RI is strictly **tail extrapolation**, not SWA. |
+| #2303 | thorfinn | **CLOSED 23:35** | 4 | H-F NC+RI on bare Muon: **n=4 best-γ 3.274723**, paired Δ=−0.000504 (SE 3.1e-6, deterministic). Universality confirmed (4th base). step_to_target=3243.75 > fern's 2890 → cannot displace fern in speedrun. LOW tail variance (no T3 tail, σ(Δ)=6.4e-6). |
 
 ## 🔥 Top findings (22:40 UTC)
 
@@ -122,7 +123,7 @@ T0 at 11%. ETA ~10h from now.
 | Mechanism | Base | Status |
 |---|---|---|
 | NC (Cautious-Muon) | bare Muon | ✅ CONFIRMED (delta vs control >0.003) |
-| NC + RI | bare Muon | ✅ STRONG — best absolute val/loss on fleet (3.272994 at 3325 steps) |
+| NC + RI | bare Muon | ✅ CONFIRMED n=4 — best absolute val/loss 3.274723 at 3325 steps, paired Δ=−0.000504 (deterministic) |
 | RI | PR #300 (Aurora+CM+SOAP) | ✅ UNIVERSAL — paired Δ=−0.00056 (p<0.05) |
 | RI | PR #305 (Aurora+RRE+CM+SOAP) | ✅ UNIVERSAL (nezuko n=4=3.278421, paired Δ=−0.000664) |
 | RI | PR #309 (Aurora+EMA-Nest) | ✅ MERGED at 3.27786 |
@@ -154,7 +155,7 @@ T0 at 11%. ETA ~10h from now.
 
 ## Watch items (next 6h, from 23:10 UTC)
 
-- **Thorfinn T3 terminal** (~23:15 UTC, step 13153/13300) — SENPAI-RESULT IMMINENT for H-F bare-Muon NC+RI. If n=4 mean ≈ 3.2745, the NC composition is high-value to port to PR #309 (frieren H-K runs this exact composition).
+- **Thorfinn T3 TERMINAL 23:33 UTC** — SENPAI-RESULT received: n=4 best-γ 3.274723, paired Δ −0.000504. PR #2303 closed. H-M speedrun adaptation assigned as PR #2308.
 - **Alphonse T1 terminal** (~23:43 UTC) — Confirm corrected Arbor T0=3.27749 holds at T1. If T1 ≤ 3.2780, n=4 projection still beats fern.
 - **Edward Arm B T1+** — Paired Δ_T0 +0.001 is unfavorable; need T1+ to confirm or reverse. ETA T1 ~00:30 UTC.
 - **Tanjiro T2/T3 terminals** — Arm B v2 T0 beats fern but T1 tail; need full n=4 to compute paired Δ.

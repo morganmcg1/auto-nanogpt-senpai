@@ -9,6 +9,51 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-05 23:35 — PR #2303: H-F RI on NC + bare Muon (n=4, 3325 steps) TERMINAL — CLOSED
+
+- Branch: `open2-thorfinn/h-f-ri-nc-baremuon`
+- Hypothesis: Does Tail Reference Interpolation compose additively with Cautious-Muon on bare Muon at 3325 steps?
+- Status: **CLOSED** — Universality confirmed; 3325 steps > fern's 2890 speedrun step count
+- W&B run: `ziexp42t` (n=4 × 3325 steps, capture_step=2735, paired-γ eval {0, −0.05, −0.075})
+
+### Per-trial × per-γ val/loss table
+
+| Trial | γ=0 (pre-RI) | γ=−0.05 | **γ=−0.075 (best)** | Δ (best vs γ=0) | first_step_to_target |
+|---|---:|---:|---:|---:|---:|
+| T0 | 3.275862 | 3.275421 | 3.275366 | −0.000497 | 3250 |
+| T1 | 3.276324 | 3.275866 | 3.275821 | −0.000503 | 3250 |
+| T2 | 3.273498 | 3.273050 | **3.272994** | −0.000504 | **3225** |
+| T3 | 3.275222 | 3.274767 | 3.274711 | −0.000510 | 3250 |
+| **n=4 mean** | **3.275227** | **3.274776** | **3.274723** | **−0.000504** | **3243.75** |
+| SE | 0.000619 | 0.000618 | 0.000620 | 0.000003 | — |
+
+### Analysis
+
+**Headline:** RI composes additively with NC on bare Muon. Paired Δ = −0.000504 (SE 3.1e-6) — essentially deterministic across 4 trials. NC-alone baseline (PR #2288): 3.27537. NC+RI (this): 3.27472. Total NC+RI lift vs bare-Muon-no-NC-no-RI: ~0.005.
+
+**Statistical contract:** `(3.28 − 3.274723) × √4 = 0.01055` ≥ 0.004 → PASSES (2.6× over threshold).
+
+**Why not merge:** `first_step_to_target` mean 3243.75 > fern's 2890. Track 3 primary metric ranks by step count first. The −0.00314 absolute val/loss advantage over fern's merged 3.27786 is real but not credited by the speedrun benchmark.
+
+**Tail variance observation:** Per-trial Δ stability σ(Δ) = 6.4e-6. No T3 tail event (T3 = 3.274711). This contrasts with PR #309 base where T3 tail events in [3.281, 3.284] are common. Bare Muon + NC produces materially lower per-seed variance than EMA-Nesterov + Aurora.
+
+### Cross-base RI universality (4 bases confirmed)
+
+| Base | Steps | n | Mean val/loss | Paired Δ |
+|---|---:|---:|---:|---:|
+| Fern PR #309 (Aurora+EMA-Nesterov) MERGED | 2890 | 4 | 3.27786 | −0.00033 |
+| Frieren PR #300 (Aurora+CM+SOAP) | 2930 | 4 | 3.27877 | −0.00056 |
+| Nezuko PR #305 (Aurora+RRE+CM+SOAP) | 2925 | 4 | 3.27842 | −0.00066 |
+| **Thorfinn NC + bare Muon (this)** | **3325** | **4** | **3.27472** | **−0.00050** |
+
+RI is now confirmed universal across 4 different optimizer families. Magnitude inversely correlated with base quality.
+
+### Suggested follow-up (assigned to thorfinn as H-M, PR #2308)
+
+NC + RI on bare Muon at 2890 steps: test if the bare-Muon optimizer family can beat fern's merged record at the SAME speedrun step count with re-tuned warmup and cap=2375.
+
+---
+
 ## 2026-06-05 22:00 — PR #2289: H5b RI on PR #300 base — universality confirmed, no merge
 
 - Branch: `open2-frieren/h5b-ri-pr300-no-rre`
