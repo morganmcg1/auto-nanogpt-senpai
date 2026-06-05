@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~08:55 UTC (launch day +1)
+- **As of:** 2026-06-05 ~09:15 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -131,9 +131,16 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 2. **RI on PR #300 base** (frieren H5b, `wd1aaqtr` → Arm B, Arm A control ~09:00 UTC, Arm B ~20:30 UTC) — cross-base RI validation
 3. **Circuit-Muon on PR #309 base** (askeladd H11, `ar3yhz6f`, ~10:30 UTC) — Arm mechanism different from NC; T0=3.27960 so far neutral
 4. **β2-pulse on PR #309 base** (alphonse H12, `1tegunyu`, ~10:26 UTC) — Senpai ingredient; T0=3.27971 not promising
-5. **PMuon on PR #309 base** (tanjiro H13, `7eimwktx`, ~12:00 UTC) — SOAP bilateral whitening; past crash issues, running
-6. **PMuon on PR #300 base** (edward H14, `i97y7os1`, ~18:07 UTC) — cross-base PMuon hedge
-7. **Cautious-Muon on PR #305 base** (thorfinn H16, PR #2296, just assigned) — Liu et al. ICLR 2026, post-NS sign mask
+5. **PMuon on PR #309 base** (tanjiro H13, `7eimwktx`, T1 step 1625/2930, ~10:30 UTC) — T0=3.28237 already above falsification; per pre-approved abort, T1 ≥ 3.27950 triggers early stop
+6. **PMuon on PR #300 base** (edward H14, `i97y7os1`, T1 step 375/2930) — T0=3.28256 also above falsification; mirrors tanjiro pattern; PMuon weakness on multiple bases concerning
+7. **Cautious-Muon on BARE MUON (pivot #2)** (thorfinn H16, PR #2296, 3325 steps) — Blackwell pod cannot run any Aurora-bearing stack; redirected to C-Muon on bare Muon, 2 arms (normalized/unnormalized) × n=4; iteration 59 launched 09:00:40, training run not yet visible in W&B
+
+**🟢 Frieren PR #2289 Arm A complete (09:13 UTC):**
+- Arm A control n=4 mean **3.27934** (sd 0.000776), T0=3.27822, T1=3.28002 (tail), T2=3.27952, T3=3.27958
+- +0.00090 vs PR #300 reference (3.27844, n=16) — within ±2 SE, consistent with seed variance, not harness regression
+- Arm B (RI applied) launched 09:12:30 in `fvf4tu59` with APPLY_RI=1 REFERENCE_STEP=2375 REFERENCE_WEIGHT=0.075 RUN_STOP_STEP=2930
+- Paired Arm B vs Arm A is correct attribution method; expected lift ≥ +0.0003 to call a clear hit
+- ETA ~20:45 UTC
 
 **Key open hypotheses (not yet assigned):**
 - H-D: Senpai late-higher block LR pattern on PR #309 base (from RESEARCH_IDEAS_2026-06-05_04-40.md)
