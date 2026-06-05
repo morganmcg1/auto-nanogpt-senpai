@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~02:35 UTC (launch day +1)
+- **As of:** 2026-06-05 ~02:50 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -35,8 +35,8 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 
 | Student | PR | Trials done | Mean | σ | Step | Status | Hypothesis |
 |---|---:|---:|---:|---:|---:|---|---|
-| **🥇 fern (Arm A)** | #2284 | 2 | **3.27794** | **0.00034** | 2930 | T2 at 24% — long way to go | **NC standalone on PR #300 base** |
-| edward | #2283 | 2 | 3.27859 | 0.00037 | 2930 | T2 at 41% | Circuit-Muon isolated on PR #300 |
+| **🥇 fern (Arm A)** | #2284 | **3** | **3.27830** | **0.00072** | 2930 | T2=3.27903 NEW (above T0/T1); T3 ~17%; **leader status eroded but still tight** | **NC standalone on PR #300 base** |
+| edward | #2283 | **3** | **3.27936** | **— σ recalc pending** | 2930 | T0=3.27924, T1=3.28046, T2=3.27838 (corrected); T3 at 53% | Circuit-Muon isolated on PR #300 |
 | frieren (Arm A) | #2289 | 1 | 3.27822 | — | 2930 | T1 at 34% | PR #300 vanilla (Arm A=control, no RI) |
 | **nezuko — n=4 done, FAILS STAT-SIG** | #2286 | 4 | **3.27838** | **0.00080 (T3 tail)** | 2890 | T3=3.27956 tail event | EMA-Nesterov + Aurora (PR #309 lineage) |
 | **tanjiro — FALSIFIED + CLOSED** | #2287 | 4 | **3.27901** | **0.00051** | 2930 | T0=3.27911, T1=3.27849, T2=3.27968, T3=3.27877; pulse real but post-pulse slow | Single-stage Tail Phase Readout on PR #300 |
@@ -104,15 +104,17 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
    - Aurora+EMA-Nesterov + Senpai #1532 beta2-pulse — Senpai-specific contribution test
    - Aurora+EMA-Nesterov+Tail Phase Readout — combine the four PR #300-base modest-improvement mechanisms
 
-**In-flight observations (as of 02:35 UTC 2026-06-05):**
-- **Alphonse PR #2281 CLOSED + reassigned to PR #2292** (H12 Senpai β2-pulse on PR #309 base).
-- **Tanjiro PR #2287 CLOSED + reassigned to PR #2293** (H13 Senpai PMuon on PR #309 base).
-- **Edward T2 done at 3.28067; 3-trial mean 3.27946; T3 early.** Trending toward falsification.
-- Fern Arm A T2 at ~65% — primary merge candidate (n=2 mean 3.27794); ~5h ETA to T3.
-- Frieren Arm A T1 — ~3h ETA; needs_rebase pending student.
-- Thorfinn Arm A NC T1 — long road.
-- Nezuko PR #2290 T0 screen running.
-- Askeladd PR #2291 T0 screen running.
+**In-flight observations (as of 02:50 UTC 2026-06-05):**
+- **🥇 Fern Arm A T2 = 3.27903** NEW (above T0=3.27828 / T1=3.27760 → eroded n=3 mean to **3.27830** σ≈0.00072). T3 at ~17%. For n=4 to clear stat-sig: T3 ≤ 3.27708. For n=4 to beat PR #305: T3 ≤ 3.27765. **Tight margin now.**
+- **Edward T2 corrected to 3.27838** (prior 3.28067 was mid-trial). n=3 mean 3.27936. T3 at 53%. Heading toward falsification.
+- **Alphonse PR #2292 (H12 β2-pulse) screen at 37%**, healthy.
+- **Tanjiro PR #2293 (H13 PMuon)** smoke test launched 02:49:45 UTC — pod picked up.
+- **Nezuko PR #2290: 3 step-1 crashes** since 01:57 UTC; current restart at 02:46 progressing through step 50+. Advisor commented confirming LR=0.0375 + asked for crash diagnosis.
+- **Askeladd PR #2291:** original screen still healthy at 53%; two student-initiated relaunches failed at step 1 (similar signature to nezuko).
+- Frieren Arm A T1 — still running, needs_rebase pending (low priority since Arm A is control).
+- Thorfinn Arm A NC — long road, no new terminals.
+
+**Tail risk note:** Both nezuko (NC) and askeladd (Circuit-Muon) on PR #309 base show step-1 failures on relaunch. Possible common bug: PR #309's EMA-Nesterov + Aurora initialization may not survive an extra pre-NS/post-NS modification at trial init. Watching for clean SENPAI-RESULT vs another failure.
 
 **Senpai-#1614 ingredient experiments now in flight (twin compositional tests):**
 - alphonse PR #2292: β2-pulse on aux Adam, on PR #309 base
