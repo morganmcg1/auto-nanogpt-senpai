@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~04:00 UTC (launch day +1)
+- **As of:** 2026-06-05 ~04:40 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -21,27 +21,28 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 | **#2292** | open2-alphonse | **H12 Senpai #1532 β2-pulse on PR #309 base NEW** | PR #309 | 2890 | just assigned (replaces closed #2281) | Senpai #1532/#1614 + PR #309 |
 | **#2291** | open2-askeladd | **H11 Aurora+EMA-Nesterov+Circuit-Muon NEW** | PR #309 | 2890 | just assigned (replaces closed #2282) | nezuko #2286 + edward #2283 |
 | **#2294** | open2-edward | **H14 Senpai #1614 PMuon on PR #300 base NEW** | PR #300 | 2925 | just assigned (replaces closed #2283) | Senpai #1532/#1614 + PR #300 |
-| #2284 | open2-fern | H4 Arbor vs NC ablation (3 arms) | PR #300 | 2930 | Arm A T0=3.27828, T1=3.27760, **2-mean 3.27794** — leader!, T2 in progress | PR #295, #310 |
+| #2284 | open2-fern | H4 Arbor vs NC ablation (3 arms) | PR #300 | 2930 | **Arm A FALSIFIED: n=4 mean 3.27875** (T0=3.27828, T1=3.27760, T2=3.27903, T3=**3.28007 tail**), margin 0.00250 < 0.004; closing pending terminal SENPAI-RESULT | PR #295, #310 |
 | #2289 | open2-frieren | H5b RI on PR #300 base (no RRE) | PR #300 | 2930-3020 | Arm A control T0=3.27822; T1 in progress | PR #307, #312 |
 | **#2290** | open2-nezuko | **H10 Aurora+EMA-Nesterov+NC NEW** | PR #309 | 2890 | just assigned (replaces closed #2286) | nezuko #2286 + fern #2284 |
 | **#2293** | open2-tanjiro | **H13 Senpai #1614 PMuon on PR #309 base NEW** | PR #309 | 2890 | just assigned (replaces closed #2287) | Senpai #1532/#1614 + PR #309 |
 | #2288 | open2-thorfinn | Replicate PR #295 NC standalone | base Muon | 3325 | Arm Z control n=2 mean 3.27846; **Arm A NC T0 = 3.27461 — striking**, T1 in progress | PR #295 |
 
-**Closed this turn:** PR #2283 (edward — Circuit-Muon isolated on PR #300 base falsified, n=4 mean 3.27874, margin 0.002515 < 0.004; mechanism mechanically correct per V/O telemetry but PR #300 already regulates attention step-sizes — Circuit-Muon has nothing to do). Prior: PR #2287 (tanjiro — single-stage TPR, 3.27901), PR #2281 (alphonse — NC+PR #305, 3.27986), PR #2286 (nezuko — PR #309 replication tail, 3.27838), PR #2282 (askeladd — EMA-Nesterov bare PR #300, 3.28075).
+**Closed this turn:** PR #2283 (edward — Circuit-Muon isolated on PR #300 base falsified, n=4 mean 3.27874). Prior: PR #2287 (tanjiro — single-stage TPR, 3.27901), PR #2281 (alphonse — NC+PR #305, 3.27986), PR #2286 (nezuko — PR #309 replication tail, 3.27838), PR #2282 (askeladd — EMA-Nesterov bare PR #300, 3.28075). **About to close: PR #2284** (fern — NC standalone on PR #300 base, n=4 mean 3.27875, margin 0.00250 < 0.004; +0.00031 worse than PR #300 baseline).
 
-**Key new compositional read:** Alphonse vs fern Arm A discriminating variable is **RRE, not Contra-Muon**. Both have NC + Aurora + Contra-Muon; only alphonse has RRE. Alphonse FAILS, fern Arm A LEADS at n=2 mean 3.27794. Hypothesis: **NC + RRE interfere** (RRE re-extrapolates from NC-normalized updates, cancelling NC's directional adjustment).
+**🚨 NC compositional verdict (FINAL with fern terminal):** NC (PR #295) is **NOT additive** on top of PR #300 stack. Alphonse (NC+PR #305 = Aurora+RRE+Contra-Muon+NC) FAILED at 3.27986; fern (NC+PR #300 = Aurora+Contra-Muon+NC) FAILED at 3.27875. NC standalone on bare Muon (thorfinn PR #2288) is the only remaining test — Arm A T0 was 3.27461 at 3325 steps but that's a different step budget. **Working rule: NC is redundant with row-aware refinements that already exist in Aurora/Contra-Muon.** NC may only deliver value on minimal Muon stacks. This refutes the earlier "NC + Contra-Muon DOES compose" hypothesis.
 
 **Top contenders (trial-status — ranked by current best aggregate at sub-3000 step budget):**
 
 | Student | PR | Trials done | Mean | σ | Step | Status | Hypothesis |
 |---|---:|---:|---:|---:|---:|---|---|
-| **🥇 fern (Arm A)** | #2284 | **3** | **3.27830** | **0.00072** | 2930 | T2=3.27903 NEW (above T0/T1); T3 ~17%; **leader status eroded but still tight** | **NC standalone on PR #300 base** |
+| **— NO MERGE WINNER YET (PR #305 still rank-1 at 3.27813)** | | | | | | | |
+| **fern (Arm A) — FALSIFIED, closing** | #2284 | **4** | **3.27875** | **0.00104** | 2930 | T0=3.27828, T1=3.27760, T2=3.27903, **T3=3.28007** tail; margin 0.00250 fails; +0.00031 worse than PR #300 ref | NC standalone on PR #300 base |
 | **edward — FALSIFIED + CLOSED** | #2283 | 4 | **3.27874** | **0.00055** | 2930 | T0=3.27895, T1=3.27822, T2=3.27838, T3=3.27942; V/O telemetry perfect | Circuit-Muon isolated on PR #300 (no EMA-Nesterov) |
-| frieren (Arm A) | #2289 | 1 | 3.27822 | — | 2930 | T1 at 34% | PR #300 vanilla (Arm A=control, no RI) |
-| **nezuko — n=4 done, FAILS STAT-SIG** | #2286 | 4 | **3.27838** | **0.00080 (T3 tail)** | 2890 | T3=3.27956 tail event | EMA-Nesterov + Aurora (PR #309 lineage) |
-| **tanjiro — FALSIFIED + CLOSED** | #2287 | 4 | **3.27901** | **0.00051** | 2930 | T0=3.27911, T1=3.27849, T2=3.27968, T3=3.27877; pulse real but post-pulse slow | Single-stage Tail Phase Readout on PR #300 |
-| **askeladd — FALSIFIED** | #2282 | 4 | **3.28075** | **0.00059** | 2900 | T3=3.28046 done | EMA-Nesterov on PR #300 bare |
-| **alphonse — FALSIFIED + CLOSED** | #2281 | 4 | **3.27986** | **0.00242** | 2925 | T0=3.27688, T1=3.28211, T2=3.28238, T3=3.27806; bimodal | NC on PR #305 base (Aurora+RRE+Contra-Muon+NC) |
+| frieren (Arm A) | #2289 | 1 | 3.27822 | — | 2930 | T2 ~47% in `wd1aaqtr`, run name suggests control replication progress | PR #300 vanilla (Arm A=control, no RI) |
+| **nezuko #2286 — CLOSED, FAILS STAT-SIG** | #2286 | 4 | **3.27838** | **0.00080 (T3 tail)** | 2890 | T3=3.27956 tail event | EMA-Nesterov + Aurora (PR #309 lineage) |
+| **tanjiro #2287 — FALSIFIED + CLOSED** | #2287 | 4 | **3.27901** | **0.00051** | 2930 | T0=3.27911, T1=3.27849, T2=3.27968, T3=3.27877; pulse real but post-pulse slow | Single-stage Tail Phase Readout on PR #300 |
+| **askeladd #2282 — FALSIFIED + CLOSED** | #2282 | 4 | **3.28075** | **0.00059** | 2900 | T3=3.28046 done | EMA-Nesterov on PR #300 bare |
+| **alphonse #2281 — FALSIFIED + CLOSED** | #2281 | 4 | **3.27986** | **0.00242** | 2925 | T0=3.27688, T1=3.28211, T2=3.28238, T3=3.27806; bimodal | NC on PR #305 base (Aurora+RRE+Contra-Muon+NC) |
 
 **At higher step budget (3325, NOT directly comparable to sub-2900 goal):**
 
@@ -49,70 +50,49 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 |---|---:|---:|---:|---|---|
 | thorfinn | #2288 | n=2 mean 3.27846 (T0=3.27781, T1=3.27910) | **T0 = 3.27461 NEW — striking** | Arm A T1 starting | NC vs control on bare Muon (A/B) |
 
-**Key analytical reads this turn:**
+**Key analytical reads this turn (04:40 UTC):**
 
-1. **🔴 Nezuko T3 TAIL EVENT — n=4 mean fails stat-sig.** T3 = 3.27956 vs T0/T1/T2 mean 3.27799 (σ=0.00018). T3 is ~9σ above prior trials — true tail-of-distribution event. n=4 mean = **3.27838**, margin (3.28-3.27838)*√4 = 0.00324 < 0.004 required. Also worse than PR #305 baseline (3.27813) on raw mean. **NOT mergeable.**
+1. **🔴 Fern Arm A FALSIFIED at terminal — NC standalone on PR #300 base does NOT win.** Per-trial: T0=3.27828, T1=3.27760, T2=3.27903, **T3=3.28007 tail event** (T3 is ~8σ above prior trials). n=4 mean = 3.27875, margin 0.00250 < 0.004; +0.00031 worse than PR #300 reference (3.27844, n=16). The PR #305 rank-1 baseline (3.27813) is still the merge target. **No current merge candidate from the first wave.** Closing fern after terminal SENPAI-RESULT.
 
-   *Interpretation:* The underlying EMA-Nesterov+Aurora mean appears to be ~3.27800 with high seed-to-seed variance. PR #309's claimed sub-2890 result may have been cherry-picked or used different seeds. The mechanism is real but the margin is fragile.
+2. **NC compositional verdict crystallizes.** Two PR #300-stack tests now both falsified (fern NC standalone + alphonse NC+RRE). NC is **not** additive on top of Aurora-bearing stacks. Remaining open question is thorfinn PR #2288 (NC on bare Muon at 3325 steps) — its T0=3.27461 single result is striking but lives at a different step budget and needs T1-T3 to confirm.
 
-   *Options:* (a) extend to n=8 to wash out tail — needs new 4-trial mean ≤ 3.27762, (b) reassign nezuko to the higher-EV compositional hypothesis Aurora+EMA-Nesterov+NC.
+3. **All hopes for sub-2900 SOTA now rest on the Senpai-#1532/#1614 ingredient experiments + the Aurora+EMA-Nesterov composition hypothesis:**
+   - **nezuko PR #2290** Aurora+EMA-Nesterov+NC on PR #309 base — step 1600/2930 (~55%) in confirm `7frhd6u6`. If NC fails alongside Aurora+EMA-Nesterov too, NC is fully ruled out.
+   - **alphonse PR #2292** Senpai β2-pulse on PR #309 base — step 1300/2930 (~44%) in confirm `1tegunyu`.
+   - **tanjiro PR #2293** Senpai PMuon on PR #309 base — step 450/2930 (~15%) in relaunched run `7eimwktx` (past prior crash patterns).
+   - **askeladd PR #2291** Aurora+EMA-Nesterov+Circuit-Muon on PR #309 base — step 600/2930 (~20%) in `ar3yhz6f`.
+   - **edward PR #2294** Senpai PMuon on PR #300 base — debug screen at step 75/1500 in `78gqxnp3` (W&B group flagged for n=4 confirm correction).
+   - **frieren PR #2289** RI on PR #300 base — T2 of `wd1aaqtr` at step 1377/2930 (~47%). RI signal is the only remaining first-wave open mechanism.
 
-2. **🥇 Fern NC standalone now the best sub-2900 candidate.** T0=3.27828, T1=3.27760, n=2 mean **3.27794** at 2930 steps. If T2/T3 hold, n=4 mean projects in [3.27760, 3.27828] — would BEAT PR #305 (3.27813) and clear stat-sig (margin (3.28-3.27780)*√4 = 0.00440). T2/T3 ETA ~6h. **Primary merge candidate now.**
+4. **Compositional landscape after fern terminal:**
+   - **NC on PR #300 stack**: FAILED (fern Arm A)
+   - **NC + RRE + Contra-Muon**: FAILED (alphonse #2281)
+   - **NC + Contra-Muon (no RRE)**: FAILED (fern Arm A — refutes earlier hypothesis)
+   - **NC on bare Muon**: open (thorfinn T0 striking, T1-T3 pending)
+   - **EMA-Nesterov + Aurora**: replicable mean ~3.27800 but tail-prone (nezuko #2286)
+   - **EMA-Nesterov bare**: FAILED (askeladd #2282)
+   - **Circuit-Muon isolated on PR #300**: FAILED (edward #2283)
+   - **Tail Phase Readout single-stage**: FAILED (tanjiro #2287)
+   - **β2-pulse, PMuon, RI, Aurora+EMA-Nesterov composites**: all pending in current confirms
 
-3. **Thorfinn Arm A NC T0 = 3.27461 at 3325 steps** — striking single result. Arm Z control at same steps was n=2 mean 3.27846. Delta = -0.00385 at single trial. If this replicates across T1/T2/T3, NC is a substantial contributor on bare Muon. Note: 3325 ≠ sub-2900 contract, but informs compositional understanding.
+**Refined NEXT WAVE priorities (after fern terminal):**
+   - **TOP if Aurora+EMA-Nesterov+NC (nezuko #2290) wins:** harvest the composition + assign to push train_steps lower
+   - **TOP if Senpai β2-pulse on PR #309 (alphonse #2292) wins:** harvest + stack β2-pulse on Aurora+EMA-Nesterov+NC if nezuko also wins
+   - **TOP if Senpai PMuon (tanjiro #2293 or edward #2294) wins:** that's the singular Senpai ingredient with biggest expected lift
+   - **Backup 1:** Senpai LR/EMA stack (last #1614 ingredient not yet tested) on PR #309 base
+   - **Backup 2:** Aurora + RI composition if frieren shows lift on PR #300
+   - **Backup 3:** push Aurora+EMA-Nesterov to train_steps=2810 with proven stack
+   - **Backup 4:** outer-Nesterov wrapper (PR #277 MuLoCo) or Polar Express (PR #254) as architectural fallback
 
-4. **Askeladd FALSIFIED.** n=4 mean 3.28075 confirms EMA-Nesterov bare-PR #300 does NOT compose to a sub-2900 win. The PR #309 mechanism's lift comes from interaction with Aurora.
-
-5. **Compositional landscape after first wave:**
-   - **NC on PR #300 base (fern Arm A)**: strong, possibly contract-clearing
-   - **NC on bare Muon (thorfinn Arm A)**: strong T0, more trials pending
-   - **NC + Contra-Muon (alphonse)**: FAILED — likely interference
-   - **EMA-Nesterov + Aurora (nezuko)**: replicable mean ~3.27800 but tail-prone
-   - **EMA-Nesterov bare (askeladd)**: FAILED
-   - **Circuit-Muon (edward)**: modest standalone signal
-   - **Tail Phase Readout (tanjiro)**: modest standalone signal
-   - **RI (frieren Arm B)**: pending
-
-6. **Refined NEXT WAVE priorities:**
-   - **TOP: Aurora+EMA-Nesterov+NC** — combines two strong signals; still highest EV
-   - **2nd: Aurora+NC alone** at 2900 — pure NC on PR #300 base + Aurora, without EMA-Nesterov, n=8 to check NC's robust lift
-   - **3rd: Aurora+EMA-Nesterov at train_steps=2810** — push fixed-step deeper with proven stack
-   - **4th: Aurora+EMA-Nesterov+Circuit-Muon** — second compositional test
-   - Lower priority: Aurora+EMA-Nesterov+TailPhaseReadout, Aurora+EMA-Nesterov+RI (dep frieren)
-
-2. **🔻 Alphonse FALSIFIED. T2 = 3.28238 NEW regression.** n=3 mean = 3.28046, well above 3.28 contract ceiling and far above PR #305 baseline (3.27813). The T0=3.27688 was an outlier-low. **Verdict:** NC on Aurora+RRE+Contra-Muon stack does NOT compose — likely Contra-Muon and NC interfere (both touch the pre-NS norm regime). T3 already started; will close PR upon terminal SENPAI-RESULT.
-
-3. **Edward Circuit-Muon n=2 mean 3.27859.** At 2930 steps, beats PR #300 reference (3.27844) by 0.00015. For n=4 ≤ 3.278: T2+T3 mean ≤ 3.27741. Tight given σ=0.00037. **Verdict so far:** Circuit-Muon adds modest standalone value but not enough to win the contract solo.
-
-4. **Frieren Arm A control = PR #300 vanilla 3.27822 (T0).** Confirms infra reproduces PR #300 baseline within noise. Arm B (RI applied) will give the clean RI delta — needs to demonstrably beat 3.27822 in matched-seed comparison.
-
-5. **Compositional read across PR #300-base contenders** (n=2 means):
-   - Tail Phase Readout (tanjiro): 3.27880 — modest improvement
-   - Circuit-Muon (edward): 3.27859 — modest improvement
-   - NC (fern n=1): 3.27828 — strong single signal
-   - PR #300 vanilla (frieren control n=1): 3.27822 — sanity check OK
-   
-   All four within ~0.0006 of each other and within noise of PR #300 reference. Single-mechanism lift on PR #300 base is small (~0.0002-0.0004). The big lift comes from compositional stacks (nezuko 3-mean 3.27799 = EMA-Nesterov + Aurora).
-
-6. **Negative compositional finding from alphonse.** NC + Contra-Muon (PR #305 base) likely interfere. Implication: NC should be tested on Aurora+EMA-Nesterov base (NO Contra-Muon, NO RRE), which is **TOP next-wave hypothesis: Aurora+EMA-Nesterov+NC** (nezuko stack + fern's NC).
-
-7. **Compositional priority for NEXT WAVE (refined after alphonse falsification):**
-   - **TOP: Aurora+EMA-Nesterov+NC** (nezuko stack + NC, NO Contra-Muon, NO RRE) — highest EV
-   - Aurora+EMA-Nesterov+Circuit-Muon — second test of stacking
-   - Aurora+EMA-Nesterov+Reference Interpolation — depends on frieren Arm B
-   - Aurora+EMA-Nesterov at train_steps=2850 or 2810 — push fixed-step further
-   - Aurora+EMA-Nesterov + Senpai #1532 beta2-pulse — Senpai-specific contribution test
-   - Aurora+EMA-Nesterov+Tail Phase Readout — combine the four PR #300-base modest-improvement mechanisms
-
-**In-flight observations (as of 02:50 UTC 2026-06-05):**
-- **🥇 Fern Arm A T3 at ~92.5%** (val=3.421 cooldown phase). Terminal imminent (~30 min). n=3 mean stands at 3.27830. For n=4 to beat PR #305: T3 ≤ 3.27765. For stat-sig clear: T3 ≤ 3.27708.
-- **Edward T3 finished** per student comment trail (n=3 mean 3.27852: T0=3.27895, T1=3.27822, T2=3.27838). Awaiting student SENPAI-RESULT with T3 confirmation. W&B subagent reads diverge from student-reported values — trusting student. If T3 ~3.279, n=4 mean ~3.278-3.279, **likely falsified** but close.
-- **Alphonse PR #2292: screen DONE at val=3.4947.** Confirm not yet launched — posted nudge comment. β2-pulse on PR #309 base composes cleanly (no step-1 crash), confirming aux-Adam mechanism is in different regime from Muon-side.
-- **Nezuko PR #2290:** screen DONE at val=3.4954, **confirm run `7frhd6u6` started 03:40 UTC at step 125/2890** — healthy. Student successfully debugged step-1 crash.
-- **Tanjiro PR #2293:** relaunch `kcdmyc6f` at step 275/1500 (18%), no crash.
-- **Askeladd PR #2291:** two parallel screens running (`jrrlurv1` 70%, `1itylpsc` 15%) — posted comment recommending kill the slower.
-- Frieren Arm A T1 — needs_rebase pending (low priority since Arm A is control).
-- Thorfinn Arm A NC — long road, no new terminals.
+**In-flight observations (as of 2026-06-05 04:40 UTC):**
+- **Fern PR #2284 (closing):** Arm A FALSIFIED; pod still at 100% GPU running either Arm B (Arbor-fixed) screen or Arm Z control. Comment posted requesting terminal SENPAI-RESULT + current-arm status.
+- **Nezuko PR #2290:** confirm `7frhd6u6` at step 1600/2930 (~55%), val/loss=3.531 — on healthy trajectory.
+- **Alphonse PR #2292:** confirm `1tegunyu` at step 1300/2930 (~44%), val/loss=3.586 — on healthy trajectory.
+- **Tanjiro PR #2293:** confirm `7eimwktx` at step 450/2930 (~15%), val/loss=3.980 — healthy past prior step-1 crashes.
+- **Askeladd PR #2291:** confirm `ar3yhz6f` at step 600/2930 (~20%), val/loss=3.823 — healthy.
+- **Edward PR #2294:** screen `78gqxnp3` at step 75/1500, very early warmup; W&B group naming flagged in comment for n=4 confirm.
+- **Frieren PR #2289:** `wd1aaqtr` at T2 step 1377/2930 (~47%), val/loss=3.553 — still on Arm A control replication.
+- **Thorfinn PR #2288:** `5wirp0h4` at T3 step 1535/2930 (~52%), val/loss=4.103 — Arm A NC progress slow, val/loss elevated; suspect this NC variant is regressing.
 
 **🚨 PR #309-base + Muon-side mechanism step-1 crash pattern (3-of-3):**
 - nezuko PR #2290 (NC pre-NS): 3 step-1 crashes
@@ -140,8 +120,6 @@ This matrix gives us: (1) β2-pulse robustness on PR #309 base, (2) PMuon on PR 
 **Resolved prior turns:**
 - Closed nezuko PR #2286 + askeladd PR #2282.
 - Reassigned PR #2290 (nezuko, Aurora+EMA-Nesterov+NC), PR #2291 (askeladd, Aurora+EMA-Nesterov+Circuit-Muon).
-
-## Research focus
 
 ## Research focus
 
