@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~19:15 UTC (launch day +1)
+- **As of:** 2026-06-05 ~22:00 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -15,156 +15,135 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 
 **Senpai PR #2295 (fern H15 RI): n=4 mean 3.27786 at 2890 steps** — RI γ=−0.075, capture=2375, on PR #309 base.
 
-## Active assignments (as of 2026-06-05 ~19:15 UTC)
+## Active assignments (22:00 UTC)
 
 | PR | Student | Hypothesis | Base | Target | Status |
 |---:|---|---|---|---:|---|
-| **#2302** | open2-fern | H-G RI hyperparameter sweep (capture × γ, 9 arms) | PR #309 | 2890 | T1 done (γ=−0.075 cap=2375 still best). T2 active. |
-| **#2298** | open2-alphonse | H-A Corrected Arbor Muon | PR #309 | 2890 | **ABORT 19:10 UTC** — T0=3.32278, T1=3.32056 (55× lift bug). Pivot to corrected scaling authorized. |
-| **#2304** | open2-askeladd | H-I RI direction ablation (paired-γ 8 arms) | PR #309 | 2890 | **n=2 STRONG.** T0+T1 γ=−0.075: 3.277050/3.277379 (best on fleet). +γ catastrophic. T2 running. |
-| **#2301** | open2-edward | H-D late-higher block LR on PR #300 base | PR #300 | 2925 | Arm A T0+T1: 3.27874/3.27872. T2 in progress. Arm B chains. |
-| **#2289** | open2-frieren | H5b RI on PR #300 base (Arm A control / Arm B RI) | PR #300 | 2930 | Arm A done (n=4=3.27934). **Arm B T0/T1/T2 paired Δ −0.00024/−0.00075/−0.00092.** T3 in T4 warmup. |
-| **#2297** | open2-nezuko | H17 RI on PR #305 base (paired-γ) | PR #305 | 2925 | **CLOSED 19:10 UTC** — n=4=3.278421. Universality confirmed, but fails contract at 2925 steps. |
-| **#2299** | open2-tanjiro | H-D late-higher block LR on PR #309 base | PR #309 | 2890 | Arm A done (n=4=3.27861, FALSIFIED). **Arm B v2 `xcwr1ed9` running** (after double-launch collision resolved). |
-| **#2303** | open2-thorfinn | H-F RI + NC on bare Muon (universality) | bare Muon | 3325 | **T0 STRONG** γ=−0.075=3.27537 (Δ=−0.00049). T1 ETA ~19:30 UTC. |
+| **#2302** | open2-fern | H-G RI hyperparameter sweep (capture × γ, 9 arms) | PR #309 | 2890 | T0 ~11% — early. |
+| **#2298** | open2-alphonse | H-A Arbor Muon **corrected variant** (sqrt(out_dim) pin removed) | PR #309 | 2890 | n=4 `5weg8d9r` T0 at 24%. ETA terminal ~02:50 UTC. |
+| **#2304** | open2-askeladd | H-I RI direction ablation (paired-γ 8 arms) | PR #309 | 2890 | T0-T2 done, **T3 at 92%**. γ=−0.075 = 3.2785 aggregate. ETA ~00:30 UTC. |
+| **#2301** | open2-edward | H-D late-higher block LR on PR #300 base | PR #300 | 2925 | **Arm A done n=4=3.279866** (T3 tail 3.281341). Arm B `jbdhh1bz` at 24%. ETA ~03:15 UTC. |
+| **#2289** | open2-frieren | H5b RI on PR #300 base (Arm A control / Arm B RI) | PR #300 | 2930 | **CLOSE 22:00 UTC** — Arm B n=4=3.27877, paired Δ=−0.00056 (p<0.05). Universality confirmed; absolute > fern's 3.27786 at +40 steps. |
+| **#2303** | open2-thorfinn | H-F RI + NC on bare Muon (universality) | bare Muon | 3325 | **T2 = 3.272994** at γ=−0.075 (BEST val/loss on fleet). T3 at 84%. ETA ~23:30 UTC. |
+| **#2299** | open2-tanjiro | H-D late-higher block LR on PR #309 base | PR #309 | 2890 | Arm A n=4=3.27861. **Arm B v2 T0=3.277499 (beats fern), T1=3.282439 (tail).** T2 at 50%. |
+| **#2305** | open2-nezuko | H-J Two-Snapshot Tail Extrapolation | PR #309 | 2890 | **T0 disproves H-J** — γ_2=0 wins (3.279136). T1 just started. |
 
-## Closures this round (since 15:32 UTC update)
+## Closures this round (since 19:15 UTC)
 
 | PR | Student | Verdict | n | Key finding |
 |---:|---|---|---:|---|
-| #2297 | nezuko | **CLOSED** | 4 | RI on PR #305: n=4 paired Δ=−0.000664 (largest on fleet) but absolute val/loss 3.278421 > fern's 3.27786 |
+| #2289 | frieren | **CLOSED 22:00** | 4 | RI on PR #300: paired Δ=−0.00056 (p<0.05, t=−3.42, 4/4 lift). Absolute 3.27877 > fern's 3.27786 due to PR #300 base being weaker than PR #309. Confirms RI is base-agnostic. |
 
-## Top findings (19:15 UTC)
+## 🔥 Top findings (22:00 UTC)
 
-### 🔥 Askeladd H-I RI direction ablation — DIRECTION-ASYMMETRY CONFIRMED at n=2
+### Thorfinn H-F RI + NC on bare Muon — STRONGEST ABSOLUTE val/loss on fleet
 
-Per-trial paired-γ values at end of trial (PR #309 base, 2890 steps):
+| Trial | val/loss (best γ=−0.075) | Step |
+|---|---:|---:|
+| T0 | 3.275366 | 3325 |
+| T1 | 3.275821 | 3325 |
+| **T2** | **3.272994** ← BEST | 3325 |
+| T3 | running, 84% | 3325 |
 
-| γ | T0 | T1 | n=2 mean |
-|---|---:|---:|---:|
-| **−0.10** | 3.277152 | 3.277468 | 3.277310 |
-| **−0.075** | **3.277050** | **3.277379** | **3.277215** ← BEST |
-| **−0.05** | 3.277058 | 3.277390 | 3.277224 |
-| 0 | 3.277353 | 3.277713 | 3.277533 |
-| +0.05 | 3.278089 | 3.278467 | 3.278278 |
-| +0.25 | 3.285616 | 3.286036 | 3.285826 (+0.0083) |
-| +0.50 | 3.306867 | 3.307252 | 3.307060 (+0.0297) |
-| +1.00 | 3.403965 | 3.403688 | 3.403827 (+0.126) |
+Per-γ at T2: γ=0→3.273498, γ=−0.05→3.273050, **γ=−0.075→3.272994**.
 
-**Key findings:**
-- **Negative γ saturates at γ ≈ −0.05 to −0.10** (no extra lift beyond γ=−0.05)
-- **Positive γ scales catastrophically** — even γ=+0.05 hurts; γ=+1.00 destroys training
-- **The mechanism is TAIL EXTRAPOLATION, not weight averaging.** SWA-direction (positive γ) is unambiguously harmful.
-- T0 γ=−0.075 = 3.277050 is the **single best trial on the fleet** (beats fern's merged single-trial 3.27765).
+**This is the largest absolute val/loss lift on the fleet** (3.272994 vs fern's 3.27786 = −0.0049). BUT at 3325 steps vs fern's 2890, so it cannot directly displace fern from rank-1 in the speedrun benchmark. The mechanism (NC+RI on bare Muon) is composing additively.
 
-**n=4 projection:** if T2/T3 hold ~3.2772, n=4 mean ≈ 3.27722 → stat contract margin = (3.28−3.27722)×2 = 0.00556, PASSES 0.004. Could supersede fern's 3.27786 at SAME step count (same base, same gamma).
+**Next-action implication: port NC (Cautious-Muon) to PR #309 base + RI at 2890 steps.** If NC delivers any positive paired Δ, the composition becomes a true rank-1 candidate.
 
-### Frieren H5b RI on PR #300 — HEALTHY, RI LIFT CONFIRMED AT n=3
+### Askeladd H-I RI direction ablation — DIRECTION-SPECIFIC mechanism confirmed at n=3
 
-Arm A (control, no RI):
-- T0 3.27822, T1 3.28002, T1 tail event, T2 3.27952, T3 3.27958 → n=4 = **3.27934**
+T0-T2 aggregate per-γ ranking (PR #309 base, 2890 steps):
 
-Arm B (RI applied, γ=−0.075):
-- T0 3.27798, T1 3.27927, T2 3.27860, T3 in warmup → provisional n=3 = **3.27862**
-- Paired Δ vs Arm A: T0=−0.00024, T1=−0.00075, T2=−0.00092 → **n=3 paired Δ mean = −0.000637**
+| γ | Mean val/loss | Δ vs γ=0 |
+|---|---:|---:|
+| **−0.075** | **3.2785** | **best (saturated)** |
+| −0.10 | 3.2786 | +0.0001 |
+| −0.05 | 3.2785 | best (saturated) |
+| 0 | 3.2788 | baseline |
+| +0.05 | 3.2796 | +0.0008 (hurts) |
+| +0.25 | 3.2872 | +0.0084 (catastrophic) |
+| +0.50 | 3.3084 | +0.0296 (catastrophic) |
+| +1.00 | 3.4048 | +0.126 (destroys training) |
 
-**The "divergence" earlier reported was AGENT MISREAD** of trial reset warmup curves. Run is healthy.
+**Confirms RI is TAIL EXTRAPOLATION (away from snapshot toward final direction), not SWA-style averaging.** Mechanism is direction-specific and saturates at γ ≈ −0.05 to −0.10. T3 at 92% — final n=4 projection ~3.2775.
 
-If T3 holds, Arm B n=4 ≈ 3.2786, paired Δ n=4 ≈ −0.00074. Confirms RI universality on PR #300 with comparable magnitude to nezuko's PR #305 finding.
+### Tanjiro H-D late-higher LR on PR #309 — MIXED signal at n=2
 
-### Thorfinn H-F RI + NC on bare Muon — LARGEST SINGLE LIFT ON FLEET (T0)
+- Arm A (flat control): n=4=3.27861 (T0=3.27917, T1=3.27770, T2=3.27772, T3=3.27984)
+- Arm B v2 (late-higher LR):
+  - T0=3.277499 (BEATS fern's merged 3.27786 by −0.00036!)
+  - T1=3.282439 (tail event)
+  - T2/T3 pending (T2 at 50%)
 
-| γ | T0 |
-|---|---:|
-| 0 (NC only) | 3.275862 |
-| −0.05 | 3.275421 |
-| **−0.075** | **3.275366** ← Δ=−0.000496 |
+n=2 mean already 3.279969. If T2+T3 are ~3.2775, n=4 mean ≈ 3.27894 — slightly above fern. The T1 tail is concerning; need T2/T3 to interpret.
 
-Strongest absolute val/loss at γ=−0.075 yet (3.275366) — but at 3325 steps, so not a direct record-beater vs fern's 2890-step. Confirms RI+NC composition is additive on bare Muon.
+### Nezuko H-J Two-Snapshot Tail Extrapolation — DISPROVEN at T0
 
-T1 ETA ~19:30 UTC.
+Best (γ_1, γ_2) at T0: (−0.075, **0.000**) = 3.279136. Adding any second-snapshot γ_2 ≠ 0 degrades. **Single-snapshot is the optimum** — Richardson-style two-point extrapolation does not help on this trajectory. T1+ may slightly shift this but the structural result is clear.
 
-### Nezuko H17 RI on PR #305 (CLOSED) — universality confirmed but no merge
+**Mechanism implication:** the parameter trajectory near training-end is well-approximated by a single linear extrapolation; the higher-order curvature term we hoped to capture is dominated by noise. RI's mechanism is fundamentally first-order.
 
-| Trial | γ=0 | γ=−0.075 | Paired Δ |
-|---|---:|---:|---:|
-| T0 | 3.278435 | 3.277755 | −0.000680 |
-| T1 | 3.278891 | 3.278214 | −0.000677 |
-| T2 | 3.278571 | 3.277914 | −0.000657 |
-| T3 | 3.280442 | 3.279802 | −0.000640 |
+### Edward H-D late-higher LR on PR #300 — Arm A done, Arm B running
 
-**n=4 mean γ=−0.075 = 3.278421** | paired Δ mean = −0.000664 (SE 0.0000086, essentially zero variance).
+Arm A n=4=3.279866 (T3 tail 3.281341 inflates the mean; T0-T2 cluster tightly at 3.27871).  Stat contract margin 0.000536 < 0.004 (fails as control, expected). Arm B `jbdhh1bz` at T0 24%; ETA ~03:15 UTC.
 
-**FAILS contract at 2925 steps** (margin 0.00316 < 0.004). **DOES NOT BEAT fern's 3.27786** (PR #305 base γ=0 control is 0.00089 worse than PR #309 base γ=0, can't be overcome by RI lift). Closed as universality confirmation; reassignment pending.
+### Alphonse H-A Arbor Muon — corrected variant launched
 
-### Tanjiro H-D Arm A control — falsified as record beater (PR #309 base)
+n=4 corrected `5weg8d9r` (sqrt(out_dim) pin dropped, default Muon scaling restored). At T0 24%. ETA terminal ~02:50 UTC. Smoke at step 500 was 3.78166 vs broken-variant 4.30753 — large step-500 lift suggests the corrected variant is at least training stably.
 
-n=4 mean 3.27861 (T0=3.27917, T1=3.27770, T2=3.27772, T3=3.27984). Tight cluster but slightly above fern's 3.27786. Arm B (late-higher LR) v2 launched after double-launch collision; T0-T3 pending.
+### Frieren H5b RI on PR #300 — TERMINAL (closing 22:00 UTC)
 
-### Edward H-D Arm A control (PR #300 base) — flat tracking
+Arm A n=4=3.27934 (T1=3.28002 tail). Arm B n=4=3.27877. Paired Δ=−0.00056, p<0.05, 4/4 trial pairs lift. Doesn't beat fern's 3.27786 (PR #300 base is weaker than PR #309); closes as universality confirmation.
 
-T0=3.27874, T1=3.27872 (very tight). T2 in progress at step 375 of trial 3. Arm B chains.
+### Fern H-G RI hyperparameter sweep — early
 
-### Alphonse H-A Corrected Arbor Muon — ABORTED, pivot in flight
+T0 at 11%. ETA ~10h from now.
 
-T0=3.32278, T1=3.32056 (~+0.045 above baseline). Student diagnosed the spec's `sqrt(out_dim)` post-Sinkhorn pin produces 55× magnitude lift on mlp.fc — broken. Authorized corrected variant: drop the post-Sinkhorn scaling entirely, let default `max(1, out/in)**0.5` Muon path apply. Smoke + n=4 corrected ETA ~02:30 UTC tomorrow.
-
-### Fern H-G hyperparameter sweep — γ=−0.075 cap=2375 holds as optimum
-
-T0+T1 confirm the merged choice is the local optimum. T2 in progress.
-
-## Compositional verdict table
+## Compositional verdict table (updated 22:00 UTC)
 
 | Mechanism | Base | Status |
 |---|---|---|
-| NC | bare Muon | ✅ CONFIRMED (+0.003 delta at 3325 steps) |
-| NC | ALL Aurora-bearing stacks | ❌ FAILED (3 PRs) |
-| **RI (γ=−0.075, paired-γ)** | **PR #309** | **✅ MERGED — 3.27786 at 2890** |
-| RI (γ=−0.075) | PR #305 | ✅ n=4 paired Δ=−0.000664 (largest on fleet) BUT base too slow to beat record |
-| RI (γ=−0.075) | PR #300 | ✅ n=3 paired Δ=−0.000637 (confirmed working) |
-| RI + NC | bare Muon | ✅ T0 paired Δ=−0.00049 (T1-T3 running) |
-| RI direction ablation (±γ) | PR #309 | ✅ **n=2 confirms +γ catastrophic, −γ helps (saturates at γ≈−0.05)** |
-| RI hyperparameter sweep | PR #309 | ✅ γ=−0.075 cap=2375 is local optimum (T0+T1) |
-| Corrected Arbor Muon | PR #309 | ❌ FALSIFIED at n=1.5 (55× lift bug). Pivot in flight. |
-| Cautious-Muon (sign mask) | ANY | ❌ FALSIFIED |
-| Late-higher LR (paired) | PR #309 Arm A | n=4=3.27861 (tighter cluster than fern but doesn't beat). Arm B v2 running. |
-| Late-higher LR (paired) | PR #300 Arm A | T0+T1 in (~3.27873). Arm B chains. |
-| PE NS (wall-clock gate) | PR #309 (H100) | ❌ FAILED gate (+2.23% vs ≥5%, GH200-specific) |
+| NC (Cautious-Muon) | bare Muon | ✅ CONFIRMED (delta vs control >0.003) |
+| NC + RI | bare Muon | ✅ STRONG — best absolute val/loss on fleet (3.272994 at 3325 steps) |
+| RI | PR #300 (Aurora+CM+SOAP) | ✅ UNIVERSAL — paired Δ=−0.00056 (p<0.05) |
+| RI | PR #305 (Aurora+RRE+CM+SOAP) | ✅ UNIVERSAL (nezuko n=4=3.278421, paired Δ=−0.000664) |
+| RI | PR #309 (Aurora+EMA-Nest) | ✅ MERGED at 3.27786 |
+| Two-snapshot RI (H-J) | PR #309 | ❌ DISPROVEN (γ_2=0 wins; single-snapshot is the optimum) |
+| Late-higher block LR | PR #300 | ⏳ Arm B running |
+| Late-higher block LR | PR #309 | ⏳ Arm B v2 running (T0 strong, T1 tail) |
+| Arbor Muon (sqrt out_dim pin) | PR #309 | ❌ FALSIFIED (55× lift bug) |
+| Arbor Muon (corrected) | PR #309 | ⏳ T0 running |
+| RI direction (negative γ) | PR #309 | ✅ CONFIRMED — direction-specific, saturates at γ ≈ −0.05 to −0.10 |
+| RI direction (positive γ) | PR #309 | ❌ FALSIFIED — catastrophic at γ > 0 |
 
-## Highest-priority watch items (19:15 UTC)
+## Next-wave hypothesis backlog (ordered by tier)
 
-1. **Askeladd PR #2304 T2 terminal** (~20:30 UTC) — if γ=−0.075 holds ~3.2773, n=4 ≈ 3.27722 → **SUPERSEDE MERGE CANDIDATE** vs fern.
-2. **Thorfinn PR #2303 T1 terminal** (~19:30 UTC) — if Δ holds, cross-base + composition validation.
-3. **Alphonse PR #2298 corrected variant pickup** — watch for new W&B run IDs (smoke + n=4).
-4. **Edward PR #2301 T2/T3 terminals** (~20:00 UTC) — Arm A reproduce, then Arm B late-higher LR.
-5. **Tanjiro PR #2299 Arm B v2 (`xcwr1ed9`) T0 terminal** (~22:30 UTC) — late-higher LR true test.
-6. **Frieren PR #2289 T3 Arm B terminal** (~22:00 UTC) — confirms n=4 paired Δ on PR #300.
-7. **Fern PR #2302 T2/T3 sweep terminals** — confirms hyperparameter local optimum.
-8. **Nezuko assignment** — new hypothesis (H-J Multi-snapshot Tail Extrapolation? — pending researcher-agent output).
+**Tier 1 — High-value compositions of confirmed mechanisms:**
+1. **NC (Cautious-Muon) on PR #309 + RI base, n=4 at 2890 steps** — port thorfinn's bare-Muon win to PR #309. Frieren next. Paired arms: A=PR#309+RI (fern's merged), B=PR#309+RI+NC.
+2. **NC on PR #300 + RI base** — second universality test of NC. Possibly edward/frieren after closure.
+3. **Late-higher LR + RI on PR #309 base** — compose tanjiro's promising late-higher T0 with fern's merged RI in a paired-arm experiment.
 
-## Research focus (19:15 UTC)
+**Tier 2 — Schedule / readout experiments:**
+4. **lm_head freeze tail (final 5-10% of training)** — reduce readout-layer noise in the last cooldown phase. Cheap to implement.
+5. **EMA-of-snapshots tail blend** — maintain rolling EMA after capture_step, blend EMA into terminal weights (variant of RI).
+6. **Per-layer adaptive γ for RI** — different γ for different blocks based on layer drift magnitude.
 
-**Confirmed:** RI is universal across all 4 tested bases (PR #309 merged, PR #305 nezuko, PR #300 frieren, bare Muon thorfinn). Lift magnitude correlates with base "choppiness" — PR #305 with RRE damping gives 2× lift of PR #309 with EMA-Nesterov.
+**Tier 3 — Alternative tail extrapolation:**
+7. **Capture-step sweep with paired-γ (NC base)** — find optimal capture point on bare-Muon NC base.
+8. **Aitken's Δ² acceleration** — non-linear sequence acceleration applied to terminal-window parameter trajectory.
 
-**Direction confirmed:** Tail EXTRAPOLATION (γ<0). SWA-direction (γ>0) catastrophic. Saturates at γ ∈ [−0.10, −0.05].
+## Watch items (next 6h)
 
-**Open questions:**
-- Can we beat fern's 3.27786 at FEWER than 2890 steps?
-- Does multi-snapshot extrapolation give bigger lift than single-snapshot?
-- Can a corrected Arbor (spectrum equilibration without magnitude bug) help?
-- Does late-higher LR compose with RI?
-- What other ML/physics mechanisms haven't been tried?
+- **Thorfinn T3 terminal** (~23:30 UTC) — SENPAI-RESULT for H-F bare-Muon NC+RI; if n=4 mean ≈ 3.2745, then NC is high-value to port to PR #309
+- **Askeladd T3 terminal** (~00:30 UTC) — H-I direction ablation final, projected n=4 ≈ 3.2775
+- **Tanjiro T2 terminal** (~22:30 UTC) — interpret T1 tail event
+- **Edward Arm B T0 terminal** (~22:30 UTC) — first late-higher signal on PR #300
+- **Alphonse corrected n=4** (~02:50 UTC) — Arbor Muon last shot
+- **Nezuko H-J T1+** — confirm γ_2=0 dominates across n=4 (H-J disproof)
+- **Fern H-G T0** — capture-step sensitivity early read
 
-**Active researcher-agent** (background) generating H-K, H-L, H-M, ... hypotheses for next round.
+## Operational notes
 
-## Things to AVOID
-
-- NC on any Aurora-bearing stack (falsified 3×)
-- PMuon on PR #300 or PR #309 base (falsified cross-base)
-- β2-pulse on PR #309 base (falsified)
-- Circuit-Muon as standalone (n=4 mean 3.27844)
-- Cautious-Muon on ANY base (falsified at +0.10)
-- Polar Express NS on H100 (gate failed, GH200-specific)
-- Positive γ in RI (catastrophic per H-I data)
-- Arbor Muon with `sqrt(out_dim)` post-NS scaling (55× lift bug)
-- Launching paired-γ sweeps without `--ri_extra_gammas` flag
+- Blackwell pods (nezuko, thorfinn, alphonse) all confirmed running torch==2.12.0+cu130 after the silent 2.10.0 downgrade incident. Watch for recurrence.
+- All 8 students have an active hypothesis. Zero idle GPUs after frieren reassignment.

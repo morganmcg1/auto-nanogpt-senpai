@@ -9,6 +9,41 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-05 22:00 — PR #2289: H5b RI on PR #300 base — universality confirmed, no merge
+
+- Branch: `open2-frieren/h5b-ri-pr300-no-rre`
+- Hypothesis: Does Tail Reference Interpolation (γ=−0.075, capture=2375) port to PR #300 base (Aurora+Contra-Muon+SOAP, no RRE)?
+- Status: **CLOSED** — Universality confirmed; absolute val/loss > merged record at higher step
+- W&B runs: `wd1aaqtr` (Arm A, control), `fvf4tu59` (Arm B, RI)
+- Mechanism: same RI implementation as fern's merged H15, paired arms (γ=0 vs γ=−0.075) at 2930 steps
+
+### Results
+
+| Trial | Arm A (control) | Arm B (RI) | Paired Δ (B−A) |
+|---|---:|---:|---:|
+| T0 | 3.27822 | 3.27798 | −0.00024 |
+| T1 | 3.28002 | 3.27927 | −0.00075 |
+| T2 | 3.27952 | 3.27860 | −0.00092 |
+| T3 | 3.27958 | 3.27925 | −0.00033 |
+| **n=4 mean** | **3.27934** | **3.27877** | **−0.00056** |
+| sd | 0.000776 | 0.000615 | 0.000327 |
+
+**Paired t-test:** t = −3.424 (df=3), p < 0.05 → **statistically significant lift, 4/4 trial pairs improve**.
+
+Statistical contract at Arm B: `(3.28 − 3.27877) × √4 = 0.00246` — **FAILS 0.004 threshold**.
+
+### Analysis
+
+RI is now confirmed universal across **4 distinct optimizer bases**: PR #309 (fern, merged 3.27786), PR #305 (nezuko, 3.278421), PR #300 (frieren, 3.27877), and bare Muon (thorfinn, trending ~3.2747 at 3325 steps). Paired Δ ranges from −0.00033 (fern) to −0.00066 (nezuko) — all 4 bases show consistent O(10⁻³) lift in the same direction. The lift is direction-specific (askeladd H-I confirms negative γ only) and saturates at γ ≈ −0.05 to −0.10.
+
+**Why this PR doesn't merge:** absolute val/loss 3.27877 at 2930 steps exceeds fern's merged 3.27786 at 2890 steps by +0.00091, driven entirely by PR #300 base being weaker than PR #309 base (no EMA-Nesterov). The mechanism is healthy; the base choice is suboptimal for record competition.
+
+### Suggested follow-ups (assigned to frieren as H-K)
+
+NC (Cautious-Muon) on PR #309 + RI base at 2890 steps — port thorfinn's NC+RI bare-Muon composition to fern's merged stack. Thorfinn's T2 = 3.272994 (at 3325 steps) is the strongest absolute val/loss on the fleet; if NC delivers any positive paired Δ on PR #309+RI base, that's a clear rank-1 candidate.
+
+---
+
 ## 2026-06-05 19:10 — PR #2297: H17 RI on PR #305 base — universality confirmed, no merge
 
 - Branch: `open2-nezuko/h17-ri-pr305-base`
