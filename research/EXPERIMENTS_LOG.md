@@ -9,6 +9,42 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-05 02:10 — PR #2281: H1 Normalized Correction on PR #305 base (Aurora + RRE + Contra-Muon)
+
+- Branch: `open2-alphonse/normalized-correction-pr305-base`
+- Hypothesis: Add NC (PR #295 row/col pre-NS normalization) on top of the official PR #305 stack (Aurora row-balanced polar + RRE late-step extrapolation + Contra-Muon ramp to 2500). n=4 @ train_steps=2925. Test whether NC composes with the merged sub-2925 baseline.
+- Status: **Closed — clear falsification (not merged).**
+
+### Results
+
+| Trial | best_val_loss @ 2925 | first_step_to_target |
+|---:|---:|---:|
+| 0 | 3.27688 | 2880 |
+| 1 | 3.28211 | -1 (never) |
+| 2 | 3.28238 | -1 (never) |
+| 3 | 3.27806 | 2895 |
+| **n=4 mean** | **3.279857** | — |
+| σ | 0.002424 | — |
+
+- W&B run: `oeftnbeo` (group `open2-alphonse/nc-pr305-base`)
+- Margin: `(3.28 − 3.279857) × √4 = +0.000285` (contract requires ≥ +0.004 → FAIL by −0.003715)
+- Vs PR #305 (3.27813 @ 2925, n=16): worse by +0.00173 on raw mean
+- Vs fern Arm A NC + PR #300 base (n=2 mean 3.27794, no RRE): worse by +0.00192
+
+### Analysis
+
+- **Bimodal distribution:** T0 (3.27688) and T3 (3.27806) cleared the 3.28 target; T1 (3.28211) and T2 (3.28238) plateau just above ceiling. σ=0.00242 is 13× larger than nezuko #2286's T0-T2 σ=0.00018, indicating discrete seed-to-seed basin selection rather than smooth noise.
+- **Discriminating composition variable: RRE.** Both alphonse (NC + Aurora + RRE + Contra-Muon, FAILS) and fern Arm A (NC + Aurora + Contra-Muon, no RRE, n=2 mean 3.27794 LEADS) include Contra-Muon, but only alphonse includes RRE. The hypothesis that NC + Contra-Muon interfere is rejected; instead **NC + RRE interfere**: RRE's late-step weight extrapolation operates on accumulated updates that NC has already row/col-normalized, cancelling NC's directional adjustment.
+- **Implication for the compositional rule:** "Mechanisms that touch the same NS-norm regime do NOT stack" still holds, but the actual conflict is at the *post-NS update aggregation* level (RRE re-extrapolates from NC-normalized updates), not the pre-NS adjustment level (Contra-Muon).
+- Student noted training trajectory was healthy across all trials — no NaN, no divergence; this is a worse-conditioned optimum, not a numerical failure.
+
+### Per-trial observations
+
+- T1/T2 plateau at 3.282 — flagged for potential follow-up (seed-sensitivity ablation), low priority vs the RRE-vs-NC composition direction.
+- T0 outlier-low (3.27688) misled early read; n=1 sampling deceived the contract.
+
+---
+
 ## 2026-06-05 01:25 — PR #2286: Replicate PR #309 EMA-Nesterov + Aurora at 2890 steps
 
 - Branch: `open2-nezuko/replicate-pr309-ema-aurora`
