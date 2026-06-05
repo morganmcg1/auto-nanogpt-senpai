@@ -73,6 +73,44 @@ Cross-base verification verdict: RI is confirmed universal across PR #309, PR #3
 
 ---
 
+## 2026-06-05 22:55 — PR #2304: H-I RI direction ablation TERMINAL n=4 (CLOSED)
+
+- Branch: `open2-askeladd/h-i-ri-direction-ablation-n4`
+- Hypothesis: Is RI lift direction-specific (negative γ = tail extrapolation) or symmetric (any γ helps)?
+- Status: **CLOSED** — Mechanism characterization complete; no merge (n=4 best-γ 3.27872 > fern's 3.27786)
+- W&B run: `kyihnden` (n=4 × 2890 steps × 8 paired γ from one capture_step=2375)
+
+### Full 8-γ × 4-trial table
+
+| γ | T0 | T1 | T2 | T3 | n=4 mean | std | paired Δ vs γ=0 |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| −0.100 | 3.27715 | 3.27747 | 3.27858 | 3.28205 | **3.27881** | 0.00224 | −0.00022 |
+| **−0.075** (primary) | 3.27705 | 3.27738 | 3.27849 | 3.28195 | **3.27872** | 0.00224 | **−0.00032** |
+| −0.050 | 3.27706 | 3.27739 | 3.27850 | 3.28194 | **3.27872** | 0.00223 | −0.00031 |
+| **0.000** (no-RI) | 3.27735 | 3.27771 | 3.27883 | 3.28224 | 3.27903 | 0.00223 | 0 |
+| +0.050 | 3.27809 | 3.27847 | 3.27960 | 3.28298 | 3.27978 | 0.00222 | +0.00075 |
+| +0.250 | 3.28562 | 3.28604 | 3.28717 | 3.29040 | 3.28731 | 0.00216 | +0.00827 |
+| +0.500 | 3.30687 | 3.30725 | 3.30842 | 3.31140 | 3.30849 | 0.00205 | +0.02945 |
+| +1.000 | 3.40397 | 3.40369 | 3.40484 | 3.40645 | 3.40474 | 0.00115 | +0.12569 |
+
+### Analysis
+
+**Headline finding:** RI is strictly tail extrapolation — negative γ helps, positive γ catastrophic. Mechanism asymmetry is sharp, reproducible across all 4 trials, and consistent with extrapolation physics rather than SWA-style averaging.
+
+Negative γ ∈ {−0.05, −0.075, −0.10} all give similar paired Δ ≈ −0.00022 to −0.00032 (saturation at γ ≈ −0.05).
+
+Positive γ damage is monotone and accelerates: +0.05 already hurts (+0.00075), +0.25 adds 8 mnat, +0.50 adds 29 mnat, +1.00 (pure snapshot) destroys training (+126 mnat).
+
+**Mechanism conclusion:** the eval-time optimum is PAST the terminal weights along the recent drift direction, NOT between them and any earlier checkpoint. SWA / Polyak averaging style mechanisms cannot recover this lift.
+
+T3 = 3.28195 tail event drives n=4 mean above fern's merged 3.27786. Re-running with different seed bucket wouldn't add scientific value; mechanism is characterized.
+
+### Suggested follow-ups (assigned to askeladd as H-L, PR #2307)
+
+**lm_head freeze tail (paired arms at n=4 on PR #309 + RI base):** the recurrent T3 tail event in this dataset (askeladd T3=3.28195, frieren Arm A T3 tails, tanjiro T3=3.27984, fern T3=3.27984) suggests the readout layer is a noise source in the final 10% of training. Freezing lm_head from step 2600 onward (last ~10% of 2890) tests whether the tail variance can be reduced without disturbing the validated merged stack.
+
+---
+
 ## 2026-06-05 19:15 — PR #2304: H-I RI direction ablation (provisional n=2) — DIRECTION ASYMMETRY CONFIRMED
 
 - Branch: `open2-askeladd/h-i-ri-direction-ablation-n4`
