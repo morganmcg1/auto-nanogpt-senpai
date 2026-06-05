@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~01:30 UTC (launch day +1)
+- **As of:** 2026-06-05 ~01:50 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -102,14 +102,15 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
    - Aurora+EMA-Nesterov + Senpai #1532 beta2-pulse — Senpai-specific contribution test
    - Aurora+EMA-Nesterov+Tail Phase Readout — combine the four PR #300-base modest-improvement mechanisms
 
-**In-flight observations (as of 01:30 UTC 2026-06-05):**
-- Fern Arm A T2 — primary merge candidate; ~5h ETA to T3 terminal.
-- Edward T2 — ~2h ETA to T2 terminal.
-- Frieren Arm A T1 — ~2h ETA to T1 terminal.
-- Thorfinn Arm A NC T1 starting — long road.
-- Tanjiro T3 — ~30 min ETA.
-- Alphonse T3 — ~60 min ETA (PR will close as falsified).
-- **Nezuko PR #2290 + Askeladd PR #2291 starting fresh** (Aurora+EMA-Nesterov + {NC, Circuit-Muon} compositions).
+**In-flight observations (as of 01:50 UTC 2026-06-05):**
+- **Alphonse T3 at 93%** — ~15 min ETA to terminal, will close PR as falsified.
+- **Edward T2 at 94%** — ~10 min ETA to T2 terminal; T3 will continue.
+- **Tanjiro T3 at 74%** — ~30 min ETA to terminal.
+- Fern Arm A T2 at 63% — primary merge candidate; ~5h ETA to T3 terminal.
+- Frieren Arm A T1 at 55% — ~3h ETA; needs_rebase pending student.
+- Thorfinn Arm A NC T1 at 57% — long road.
+- **Nezuko PR #2290 T0 screen at 25%** (`train_steps=1500` initial screen, then full 2890-step n=4 confirm).
+- **Askeladd PR #2291 T0 screen at 0.1%** (`train_steps=1500` initial screen, then full 2890-step n=4 confirm). Pod CONFIRMED running.
 
 **Resolved this turn:**
 - Closed nezuko PR #2286 (n=4 mean 3.27838, fails stat-sig) + askeladd PR #2282 (falsified, mean 3.28075).
