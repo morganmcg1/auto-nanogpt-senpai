@@ -9,6 +9,32 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-05 15:06 — PR #2300: H-E Polar Express NS timing gate on PR #309 base (FALSIFIED — gate)
+
+- Branch: `open2-askeladd/h-e-polar-express-ns-pr309`
+- Hypothesis: Does Polar Express NS (KellerJordan PR #254, doubly-exponential convergence NS) deliver ≥5% per-step wall-clock speedup on H100, sufficient to justify n=4 quality confirmation?
+- Status: **GATE FAILED** — +2.23% speedup vs ≥5% threshold. Correct call to close; gate protocol worked exactly as designed.
+- W&B runs: `p11xlm0l` (baseline), `mxwc0v28` (PE gate)
+
+### Results
+
+| Run | step_avg_ms | Speedup vs baseline |
+|---|---:|---:|
+| Baseline NS5 | 2023.47ms | — |
+| Polar Express NS | 1978.45ms | **+2.23%** |
+| **Gate threshold** | — | **≥5.00%** |
+| **Gate decision** | — | **FAILS by 2.8 pp** |
+
+PE val_loss numerically correct (reached 3.27893 at terminal), no NaN, no OOM.
+
+### Analysis
+
+PE NS is GH200-profiled. On GH200, +5–10% speedup reported. On H100 the `torch.compile(dynamic=False, fullgraph=True)` annotations and `_pe_tall_*` paths don't translate due to different SM count, L2, and cuBLAS heuristics. Mechanism is algorithmically correct but hardware-specific.
+
+**Verdict:** H100 should not pursue PE for the rest of this launch wave. Locked OUT.
+
+---
+
 ## 2026-06-05 14:13 — PR #2296: H16 Cautious-Muon on bare Muon (FALSIFIED)
 
 - Branch: `open2-thorfinn/h16-cautious-muon-pr305-aurora-rre`
