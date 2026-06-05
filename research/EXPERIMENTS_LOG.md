@@ -9,6 +9,33 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-05 12:06 — PR #2294: H14 Senpai PMuon on PR #300 base (FALSIFIED)
+
+- Branch: `open2-edward/h14-senpai-pmuon-pr300-base`
+- Hypothesis: Does Senpai PR #64 bilateral covariance whitening (PMuon: L^{-γ}mR^{-γ}, γ=0.3, β_cov=0.95, identity-init L=R=I) improve val/loss on PR #300 base (Aurora+Contra-Muon+SOAP)?
+- Status: **FALSIFIED (n=2 abort)** — n=2 mean 3.28152, cross-base PMuon pattern locked.
+
+### Results
+
+| Trial | val/loss @ 2925 | Notes |
+|-------|-----------------|-------|
+| T0 | 3.28256 | Healthy convergence; L_fro grew 3.4×10^8× by step 125 (whitening active) |
+| T1 | 3.28048 | Healthy convergence |
+| T2 | — | Aborted (advisor-approved, n=2 mean > 3.28) |
+| T3 | — | Aborted |
+| n=2 mean | **3.28152** | |
+
+- W&B run: `i97y7os1`
+- Stat-sig: best-case n=4 mean = 3.27959 (above PR #305 3.27813)
+
+### Analysis
+
+**Cross-base PMuon pattern locked.** Tanjiro's PMuon-on-PR#309 had T0=3.28237; edward's PMuon-on-PR#300 had T0=3.28256 — within 0.00019 of each other. Both n=2 means are ~0.003 above their respective base references. PMuon's bilateral L^{-γ}mR^{-γ} whitening is structurally incompatible with already-orthogonalized + row-balanced bases (PR #300 Aurora+Contra-Muon, PR #309 Aurora+EMA-Nesterov). The Senpai #1532/#1614 stack's lift from PMuon was dependent on that stack's specific gradient-distribution invariants (no Aurora, different aux-Adam LR schedule). Identity-init for L/R (vs tanjiro's 5-step warmup) provided cleaner trial boundaries but not better results — edward's no-rescale variant landed slightly worse than tanjiro's Frobenius-rescaled variant, consistent with Aurora's row-balanced calibration being overridden by PMuon's magnitude contribution.
+
+**Telemetry quality:** L_fro_mean(step 1) = 30.7 ≈ 0.95·√D confirmed identity-init signature. L_fro grew 3.4×10^8× to step 125, confirming bilateral whitening was applied with full force. Trial boundary reset verified via T1 step 125 ≈ T0 step 125 ± 2%.
+
+---
+
 ## 2026-06-05 11:10 — PR #2293: H13 Senpai PMuon on PR #309 base (FALSIFIED)
 
 - Branch: `open2-tanjiro/h13-senpai-pmuon-pr309-base`
