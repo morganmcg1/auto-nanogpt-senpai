@@ -133,7 +133,7 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 4. **β2-pulse on PR #309 base** (alphonse H12, `1tegunyu`, ~10:26 UTC) — Senpai ingredient; T0=3.27971 not promising
 5. **PMuon on PR #309 base** (tanjiro H13, `7eimwktx`, T1 step 1625/2930, ~10:30 UTC) — T0=3.28237 already above falsification; per pre-approved abort, T1 ≥ 3.27950 triggers early stop
 6. **PMuon on PR #300 base** (edward H14, `i97y7os1`, T1 step 375/2930) — T0=3.28256 also above falsification; mirrors tanjiro pattern; PMuon weakness on multiple bases concerning
-7. **Cautious-Muon on BARE MUON (pivot #2)** (thorfinn H16, PR #2296, 3325 steps) — Blackwell pod cannot run any Aurora-bearing stack; redirected to C-Muon on bare Muon, 2 arms (normalized/unnormalized) × n=4; iteration 59 launched 09:00:40, training run not yet visible in W&B
+7. **Cautious-Muon on BARE MUON (pivot #2)** (thorfinn H16, PR #2296, 3325 steps) — **CRASHED at step 75 in run `up0oe44d`** (launched 09:17 UTC). `cautious/mask_rate=0.0` across all 23 readings → mask construction broken; with `cautious_normalize=1`, divide-by-near-zero in `mask/(mask.mean()+1e-8)` injects inf, propagates to NS, weights go NaN. Posted diagnostic asking: (1) run unnormalized arm first to isolate normalize bug; (2) cast `g_orth*buf` to fp32 before `.gt(0)` to dodge Blackwell bf16 underflow; (3) verify mask uses post-Nesterov-lerp momentum. ~90 min diagnostic cycle.
 
 **🟢 Frieren PR #2289 Arm A complete (09:13 UTC):**
 - Arm A control n=4 mean **3.27934** (sd 0.000776), T0=3.27822, T1=3.28002 (tail), T2=3.27952, T3=3.27958
