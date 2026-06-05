@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~04:40 UTC (launch day +1)
+- **As of:** 2026-06-05 ~05:15 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -84,15 +84,15 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
    - **Backup 3:** push Aurora+EMA-Nesterov to train_steps=2810 with proven stack
    - **Backup 4:** outer-Nesterov wrapper (PR #277 MuLoCo) or Polar Express (PR #254) as architectural fallback
 
-**In-flight observations (as of 2026-06-05 04:40 UTC):**
-- **Fern PR #2284 (closing):** Arm A FALSIFIED; pod still at 100% GPU running either Arm B (Arbor-fixed) screen or Arm Z control. Comment posted requesting terminal SENPAI-RESULT + current-arm status.
-- **Nezuko PR #2290:** confirm `7frhd6u6` at step 1600/2930 (~55%), val/loss=3.531 — on healthy trajectory.
-- **Alphonse PR #2292:** confirm `1tegunyu` at step 1300/2930 (~44%), val/loss=3.586 — on healthy trajectory.
-- **Tanjiro PR #2293:** confirm `7eimwktx` at step 450/2930 (~15%), val/loss=3.980 — healthy past prior step-1 crashes.
-- **Askeladd PR #2291:** confirm `ar3yhz6f` at step 600/2930 (~20%), val/loss=3.823 — healthy.
-- **Edward PR #2294:** screen `78gqxnp3` at step 75/1500, very early warmup; W&B group naming flagged in comment for n=4 confirm.
-- **Frieren PR #2289:** `wd1aaqtr` at T2 step 1377/2930 (~47%), val/loss=3.553 — still on Arm A control replication.
-- **Thorfinn PR #2288:** `5wirp0h4` at T3 step 1535/2930 (~52%), val/loss=4.103 — Arm A NC progress slow, val/loss elevated; suspect this NC variant is regressing.
+**In-flight observations (as of 2026-06-05 05:15 UTC):**
+- **🚨 THORFINN NC bare-Muon at 3325 steps WINNING:** T0=3.27461, T1=3.27582, T2=3.27628 all complete (n=3 mean 3.27557, margin 0.00767). T3 at step 1375/3325 (~41%), ETA ~06:11 UTC. **Not directly sub-2900 mergeable** (wrong step budget) but a foundational finding: NC's lift requires absence of row-aware refinement upstream. Reframe NC: redundant with Aurora; positive on bare Muon.
+- **Fern PR #2284 (closing):** Arm A FALSIFIED. Arm B (Arbor-fixed) screen `k6zzht60` at step ~800/1500 (~53%) — early trajectory healthy. ETA ~05:37 UTC. Awaiting screen number then close + assign H-A.
+- **Nezuko PR #2290:** confirm `7frhd6u6` at T0 step 2500/2930 (~85%), val/loss=3.323. T0 terminal in ~30 min.
+- **Alphonse PR #2292:** confirm `1tegunyu` at T0 step 2250/2930 (~77%), val/loss=3.362. **β2-pulse FIRED correctly at step 970** (0.95→0.99 transition logged via `aux_b2/current`). T0 terminal in ~45 min.
+- **Askeladd PR #2291:** confirm `ar3yhz6f` at T0 step 1500/2930 (~51%), val/loss=3.530.
+- **Tanjiro PR #2293:** confirm `7eimwktx` at T0 step 875/2930 (~30%), val/loss=3.692. No further crashes.
+- **Edward PR #2294:** original screen `78gqxnp3` had val/loss=10.826 at step ~75 — investigating whether this was a real crash on PR #300+PMuon (first such crash, would change PR #300-base robustness framing) or a sentinel artifact. Relaunched `cgm4s7j3` at step 375/1500 (~25%), healthy.
+- **Frieren PR #2289:** `wd1aaqtr` at T2 step 2002/2930 (~68%), val/loss=3.420. Trial 0=3.27822, Trial 1=3.28002 (tail event already at n=2).
 
 **🚨 PR #309-base + Muon-side mechanism step-1 crash pattern (3-of-3):**
 - nezuko PR #2290 (NC pre-NS): 3 step-1 crashes
