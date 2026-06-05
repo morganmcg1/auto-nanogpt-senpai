@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~07:20 UTC (launch day +1)
+- **As of:** 2026-06-05 ~08:00 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -61,14 +61,18 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 
 2. **NC compositional verdict FINAL (06:20 UTC):** NC confirmed on bare Muon (thorfinn n=4 mean 3.27537, margin 0.00926) and falsified on ALL Aurora-bearing stacks. Rule: NC is structurally redundant with Aurora's row-balanced polar refinement. NC-only future hypothesis must start from bare Muon.
 
-3. **PR #309-base composition T0/T1 pattern (07:17 UTC update):** **All three** PR #309-base composition arms now have T1 better than T0, with two of them landing T1 BELOW the saturated base (3.27800):
+3. **PR #309-base composition T0/T1 pattern CONFIRMED 3-of-3 (08:00 UTC):** All three mechanisms have T1 sub-base, with T0 above base:
     - nezuko (NC):       T0=3.27938, T1=3.27753 → n=2 mean **3.278455**
-    - alphonse (β2):     T0=3.27971, T1=3.27775 → n=2 mean **3.27873**
-    - askeladd (C-Muon): T0=3.27958, T1=in-flight at 80% (val/best 3.3605 @ 2250, weaker trajectory)
+    - alphonse (β2):     T0=3.27971, T1=3.27775 → n=2 mean **3.278730**
+    - askeladd (Circuit-Muon): T0=3.27958, T1=**3.27726** ← lowest T1 of the three → n=2 mean **3.278420**
 
-    Both nezuko T1 and alphonse T1 are sub-base, and the T0/T1 range (~0.00185, ~0.00196) is much wider than typical PR #309 base trial-to-trial variance (~0.00018). Pattern strongly suggests seed=0 is unusually bad for perturbed PR #309 bases (T0 regresses), while seed=1 normalizes (T1 recovers below base). Wait for T2/T3 across all three: if T2/T3 follow seed=1 behavior, **NC and β2-pulse are real wins on PR #309 base**, not falsifications.
+    Earlier 07:35 read of askeladd at val/best 3.36 @ 2250 was just mid-trial descent — final landed sub-base. All three n=2 means are within 0.00031 of each other (3.27842 to 3.27873), and all hover at/near PR #309 base (3.27800). T0/T1 ranges (~0.00185 to ~0.00232) are 10–13× the typical PR #309 base trial-to-trial variance (~0.00018).
 
-    The remaining hedge: **fern's RI (g32gn44z, paired gamma sweep)** — a strictly post-hoc eval-time transform that does NOT touch training dynamics. T0 ETA ~08:15 UTC.
+    **Strong working hypothesis:** PR #309 base + ANY perturbation introduces high seed-dependent variance, with seed=0 unusually bad and seed=1 unusually good. If T2/T3 are average, n=4 means will hover near base, making all three mechanisms statistically indistinguishable from PR #309 base alone. If T2/T3 follow seed=1 behavior, all three are wins. Need n=4 means to disambiguate. ETAs: nezuko ~08:35 UTC, alphonse ~08:54 UTC, askeladd ~09:19 UTC.
+
+    **Tanjiro H13 PMuon on PR #309 base is the exception:** T0=3.28237 did NOT reach the 3.28 target. PMuon may not compose with PR #309 base — only mechanism in this round that genuinely regresses.
+
+    The remaining hedge: **fern's RI (g32gn44z, paired gamma sweep)** — strictly post-hoc eval-time transform. T0 ETA ~08:16 UTC.
 
 4. **New next-wave (thorfinn H16):** Cautious-Muon on PR #305 base — post-NS sign mask from Liu et al. ICLR 2026. Different mechanism class from NC (sign-agreement direction control vs. spectrum normalization). PR #296 (open2-thorfinn) just assigned.
 
