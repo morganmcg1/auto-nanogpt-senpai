@@ -22,7 +22,7 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | **#2289** | open2-frieren | H5b RI on PR #300 base (no RRE) | PR #300 | 2930 | Arm A done (n=4 mean 3.27934); **Arm B (RI) fvf4tu59 running, ETA ~20:45 UTC** |
 | **#2297** | open2-nezuko | H17 RI on PR #305 base (paired-gamma) | PR #305 | 2925 | Running (12:04 UTC pickup), ETA ~18:30 UTC |
 | **#2299** | open2-tanjiro | H-D Senpai late-higher block LR on PR #309 base (paired arms) | PR #309 | 2890 | Arm A (flat control) running (11:29 UTC, run wpk68f5v) |
-| **#2296** | open2-thorfinn | H16 Cautious-Muon on bare Muon (sign() fix posted) | bare Muon | 3325 | **IDLE 2h+** — final warning posted 12:20 UTC; close + pivot to H-F if no response by 12:45 UTC |
+| **#2296** | open2-thorfinn | H16 Cautious-Muon on bare Muon (normalized vs unnormalized) | bare Muon | 3325 | **Arm A n=4 RUNNING** (run 26jalgru, started 12:24 UTC, ETA ~19:30 UTC). Root cause of 2h idle: silent torch downgrade 2.12.0→2.10.0 on pod overnight. Fixed. |
 
 ## Recent closures (this round)
 
@@ -68,7 +68,7 @@ Every mechanism tested on PR #309 base shows ~1 tail event per 3-4 trials at val
 | RI (γ=−0.075) | PR #300 | Running (frieren Arm B, ETA 20:45 UTC) |
 | RI (γ=−0.075) | PR #305 | Running (nezuko H17, ETA ~18:30 UTC) |
 | Corrected Arbor Muon | PR #309 | Running (alphonse H-A, screen k8cexswv) |
-| Cautious-Muon (sign mask) | bare Muon | Debugging (thorfinn PR #2296, 12:45 UTC deadline) |
+| Cautious-Muon (sign mask) | bare Muon | Running (thorfinn PR #2296 Arm A, n=4 @ 3325 steps, ETA ~19:30 UTC) |
 | late-higher block LR | PR #309 | Running (tanjiro H-D, Arm A wpk68f5v) |
 | late-higher block LR | PR #300 | Just assigned (edward H-D PR #2301, 12:22 UTC) |
 | Polar Express NS (wall-clock) | PR #309 | Running timing gate (askeladd H-E, p11xlm0l) |
@@ -76,11 +76,14 @@ Every mechanism tested on PR #309 base shows ~1 tail event per 3-4 trials at val
 ### cuDNN SDPA fix (fleet-wide)
 `torch.backends.cuda.enable_cudnn_sdp(False)` — required for RTX PRO 6000 Blackwell pods (nezuko, thorfinn). H100 pods unaffected but fix is harmless.
 
+### PyTorch version warning (Blackwell pods)
+Thorfinn's pod silently downgraded from torch==2.12.0 to torch==2.10.0+cu128 overnight (2026-06-05), causing NaN at step 3 even on pristine base code. Fix: reinstall torch==2.12.0+cu130. Verify torch version before launching on Blackwell pods.
+
 ## Highest-priority watch items (12:25 UTC)
 
 1. **🟢 Fern PR #2295 T3 (ETA ~12:30 UTC)**: MERGE IMMEDIATELY on terminal SENPAI-RESULT. n=3 best-γ mean = 3.27741 — already beats PR #305 by 0.00072.
 
-2. **Thorfinn PR #2296 (12:45 UTC deadline)**: If no response by 12:45, close and assign H-F (RI on bare Muon at 3325 steps, body at /tmp/thorfinn-h-f-ri-bare-muon-body.md).
+2. **Thorfinn PR #2296 Arm A T0 (~16:00 UTC)**: Sign() fix working. Arm A running. Check T0 intermediate — abort threshold 3.282, promising threshold 3.277. Arm B (unnormalized) follows if Arm A mean < 3.277.
 
 3. **Frieren PR #2289 Arm B (ETA ~20:45 UTC)**: RI on PR #300 base. Student notified to rebase after completion.
 
