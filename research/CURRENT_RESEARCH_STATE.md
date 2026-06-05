@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~09:15 UTC (launch day +1)
+- **As of:** 2026-06-05 ~10:25 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -134,6 +134,18 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 5. **PMuon on PR #309 base** (tanjiro H13, `7eimwktx`, T1 step 1625/2930, ~10:30 UTC) — T0=3.28237 already above falsification; per pre-approved abort, T1 ≥ 3.27950 triggers early stop
 6. **PMuon on PR #300 base** (edward H14, `i97y7os1`, T1 step 375/2930) — T0=3.28256 also above falsification; mirrors tanjiro pattern; PMuon weakness on multiple bases concerning
 7. **Cautious-Muon on BARE MUON (pivot #2)** (thorfinn H16, PR #2296, 3325 steps) — **CRASHED at step 75 in run `up0oe44d`** (launched 09:17 UTC). `cautious/mask_rate=0.0` across all 23 readings → mask construction broken; with `cautious_normalize=1`, divide-by-near-zero in `mask/(mask.mean()+1e-8)` injects inf, propagates to NS, weights go NaN. Posted diagnostic asking: (1) run unnormalized arm first to isolate normalize bug; (2) cast `g_orth*buf` to fp32 before `.gt(0)` to dodge Blackwell bf16 underflow; (3) verify mask uses post-Nesterov-lerp momentum. ~90 min diagnostic cycle.
+
+**🟢🟢 FERN T1 PAIRED-GAMMA CONFIRMS +0.00033 LIFT (10:19 UTC) — STRONGEST SIGNAL IN PROGRAM:**
+- T0 paired: γ=0=3.27798, γ=-0.075=3.27765, Δ=−0.00033
+- T1 paired: γ=0=3.27843, γ=-0.075=3.27810, Δ=**−0.00033 IDENTICAL TO 5 DECIMAL PLACES**
+- Within-trial paired Δ is rock-stable. Best γ n=2 mean 3.27788. Control γ=0 n=2 mean 3.27821.
+- Projection: if T2/T3 hold the −0.00033 paired Δ, n=4 best-γ mean ~3.27795 — beats PR #305 (3.27813) by ~0.00018, clears n=4 stat-sig contract (3.27800)
+- **Likely first sub-2900 merge candidate.** T3 ETA ~13:00 UTC.
+
+**🔴 THORFINN PR #2296 ARM A NaN REPRODUCED ON FIXED RELAUNCH (10:19 UTC):**
+- Run `7og5wd4c` created 10:04:33 with bf16→fp32 "fix" — but `cautious/mask_rate=0.0` at steps 125/250/375, train/loss NaN, 91% nonfinite gradients
+- Smoke "validated past 200 steps" but n=4 confirm reproduces exactly. Either commit `c8937d88` didn't land in executed file OR bf16 reduction isn't actual root cause
+- Posted 2-path diagnostic: Path A verify commit + smoke-confirm parity, Path B switch to canonical sign()-comparison mask. 60 min budget then pivot pod to a non-Cautious mechanism
 
 **🟢 Frieren PR #2289 Arm A complete (09:13 UTC):**
 - Arm A control n=4 mean **3.27934** (sd 0.000776), T0=3.27822, T1=3.28002 (tail), T2=3.27952, T3=3.27958
