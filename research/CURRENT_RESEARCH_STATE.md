@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-05 ~08:00 UTC (launch day +1)
+- **As of:** 2026-06-05 ~08:35 UTC (launch day +1)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -72,7 +72,9 @@ plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below
 
     **Tanjiro H13 PMuon on PR #309 base is the exception:** T0=3.28237 did NOT reach the 3.28 target. PMuon may not compose with PR #309 base — only mechanism in this round that genuinely regresses.
 
-    The remaining hedge: **fern's RI (g32gn44z, paired gamma sweep)** — strictly post-hoc eval-time transform. T0 ETA ~08:16 UTC.
+    **Fern's RI (g32gn44z) T0 paired-gamma TERMINAL (08:21 UTC):** γ=0 (control) = 3.27798, γ=-0.05 = 3.27766, γ=-0.075 = **3.27765** (best). Within-trial lift ~0.00033 — first positive PR #309-base composition signal of the round. Paired design eliminates seed noise. Critically, control γ=0 = 3.27798 sits AT PR #309 base mean, suggesting fern's seed=0 trajectory is itself a "normal" trial (vs other students' bad seed=0 T0s). The 0.00033 lift is RI's pure additive contribution. If lift holds across T1/T2/T3, n=4 mean projects ~3.27765 — cleanly clearing PR #305 (3.27813) and the n=4 stat-sig contract (3.27800). T3 ETA ~13:00 UTC.
+
+    **Tanjiro H13 PMuon planning abort:** T0=3.28237 falsification floor is 3.27909 (even with theoretical best T1-T3 = 3.27800 each). Student plans to abort T2/T3 if T1 > 3.27950 at ~10:30 UTC. Approved.
 
 4. **New next-wave (thorfinn H16):** Cautious-Muon on PR #305 base — post-NS sign mask from Liu et al. ICLR 2026. Different mechanism class from NC (sign-agreement direction control vs. spectrum normalization). PR #296 (open2-thorfinn) just assigned.
 
