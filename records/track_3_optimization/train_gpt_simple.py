@@ -1146,7 +1146,8 @@ if dist.get_rank() == 0:
             "ema_nesterov_rest_steps": EMA_NESTEROV_REST_STEPS,
             "ri_gamma": args.ri_gamma,
             "ri_capture_step": args.ri_capture_step,
-            "ri_enabled": args.ri_gamma != 0.0,
+            "ri_enabled": args.ri_gamma != 0.0 or len(args.ri_extra_gammas) > 0,
+            "ri_extra_gammas": list(args.ri_extra_gammas),
         },
     )
 
