@@ -7,9 +7,10 @@ contract: `(3.28 - mu) * sqrt(n) >= 0.004` across `n` non-cherry-picked seeds.
 
 | Rank | Source | Step | n | Mean val/loss | Margin | Notes |
 |---:|---|---:|---:|---:|---:|---|
-| 1 | KellerJordan PR #305 (merged) | **2925** | 8 | 3.27812750 | 0.005297 | Aurora + late capped RRE + Contra-Muon extended. Current official public record. |
-| 2 | Senpai PR #1532/#1614 (internal audit) | 2905 | 32 | 3.279022187 | 0.005531 | Aux Adam beta2 pulse + PMuon/LR/EMA stack. Best internal but not on track-3-open-sota-v2 tag. |
-| 3 | KellerJordan PR #300 (merged) | 2930 | 16 | 3.27844375 | — | Aurora row-balanced polar on `mlp.proj` + Contra-Muon ramp to 2500 + Muon momentum warmup/cooldown. |
+| 1 | **Senpai PR #2295 (fern H15 RI, merged 2026-06-05)** | **2890** | **4** | **3.27786** | **0.00427** | Tail Reference Interpolation γ=−0.075, capture_step=2375, on PR #309 base (Aurora+EMA-Nesterov). W&B: g32gn44z. |
+| 2 | KellerJordan PR #305 (merged, previous rank-1) | 2925 | 8 | 3.27812750 | 0.005297 | Aurora + late capped RRE + Contra-Muon extended. Previous official public record. |
+| 3 | Senpai PR #1532/#1614 (internal audit) | 2905 | 32 | 3.279022187 | 0.005531 | Aux Adam beta2 pulse + PMuon/LR/EMA stack. Best internal but not on track-3-open-sota-v2 tag. |
+| 4 | KellerJordan PR #300 (merged) | 2930 | 16 | 3.27844375 | — | Aurora row-balanced polar on `mlp.proj` + Contra-Muon ramp to 2500 + Muon momentum warmup/cooldown. |
 
 The PR #305 result is treated as the launch baseline for "official, fully
 auditable, fixed-step" comparisons. PR #1532/#1614 is the strongest internal
