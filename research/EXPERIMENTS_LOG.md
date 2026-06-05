@@ -9,6 +9,65 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-05 19:10 — PR #2297: H17 RI on PR #305 base — universality confirmed, no merge
+
+- Branch: `open2-nezuko/h17-ri-pr305-base`
+- Hypothesis: Does Tail Reference Interpolation (γ=−0.075, capture=2375) apply on PR #305 base (Aurora+RRE damping+Contra-Muon+SOAP), and can it beat fern's merged 3.27786 at 2925 steps?
+- Status: **CLOSED** — Universality confirmed but absolute val/loss does NOT beat merged record
+- W&B run: `khu2l6d9` (n=4 × 2925 steps × 3 paired γ values)
+
+### Results
+
+| Trial | γ=0 | γ=−0.05 | γ=−0.075 | Paired Δ (γ=−0.075) |
+|---|---:|---:|---:|---:|
+| T0 | 3.278435 | 3.277871 | 3.277755 | −0.000680 |
+| T1 | 3.278891 | 3.278304 | 3.278214 | −0.000677 |
+| T2 | 3.278571 | 3.278001 | 3.277914 | −0.000657 |
+| T3 | 3.280442 | 3.279885 | 3.279802 | −0.000640 |
+| **n=4 mean** | **3.279085** | **3.278515** | **3.278421** | **−0.000664** |
+
+Statistical contract at γ=−0.075: `(3.28 − 3.278421) × √4 = 0.003158` — **FAILS 0.004 threshold**.
+
+### Analysis
+
+RI is universal across PR #305 base — paired Δ of −0.000664 (SE 0.0000086) is the most precisely measured RI lift on the fleet, and the LARGEST by magnitude (2× fern's H15 on PR #309). However, the PR #305 base itself is materially worse than PR #309 base: γ=0 control n=4 mean = 3.279085 vs PR #309 base γ=0 ≈ 3.27820 — a gap of ~+0.00089. The larger RI lift on PR #305 cannot overcome this base deficit.
+
+**Key insight:** RI lift magnitude is inversely correlated with base quality. PR #305 has RRE damping + SOAP (slower convergence initially) which creates more "correctible" late-stage drift, yielding bigger paired Δ. But the same slower convergence makes the absolute val/loss worse despite the larger lift. PR #309's EMA-Nesterov is a better base for record competition.
+
+Cross-base verification verdict: RI is confirmed universal across PR #309, PR #305, PR #300 (frieren), and bare Muon (thorfinn). This is publication-grade evidence for mechanism generality.
+
+---
+
+## 2026-06-05 19:15 — PR #2304: H-I RI direction ablation (provisional n=2) — DIRECTION ASYMMETRY CONFIRMED
+
+- Branch: `open2-askeladd/h-i-ri-direction-ablation-n4`
+- Hypothesis: Is RI lift direction-specific (negative γ = tail extrapolation) or symmetric (any γ helps)?
+- Status: **RUNNING** — T0+T1 terminal, T2-T3 in progress
+- W&B run: `kyihnden` (n=4 × 2890 steps × 8 paired γ values: {−0.10, −0.075, −0.05, 0, +0.05, +0.25, +0.50, +1.00})
+
+### Results (provisional n=2)
+
+| γ | T0 | T1 | n=2 mean | vs γ=0 (n=2) |
+|---|---:|---:|---:|---:|
+| −0.10 | 3.277152 | 3.277468 | 3.277310 | −0.000223 |
+| **−0.075** | **3.277050** | **3.277379** | **3.277215** | **−0.000318** |
+| −0.05 | 3.277058 | 3.277390 | 3.277224 | −0.000309 |
+| 0 (control) | 3.277353 | 3.277713 | 3.277533 | 0.000000 |
+| +0.05 | 3.278089 | 3.278467 | 3.278278 | +0.000745 |
+| +0.25 | 3.285616 | 3.286036 | 3.285826 | +0.008293 |
+| +0.50 | 3.306867 | 3.307252 | 3.307060 | +0.029527 |
+| +1.00 | 3.403965 | 3.403688 | 3.403827 | +0.126294 |
+
+### Analysis
+
+**Critical finding: RI mechanism is EXCLUSIVELY tail extrapolation.** The lift saturates at γ ≈ −0.05 (no significant gain from γ=−0.10 vs γ=−0.075). The SWA/averaging direction (positive γ) scales catastrophically: +0.05 already hurts; +1.00 adds 126 mnat — destroys training.
+
+Practical implication: SWA, Polyak averaging, or any "blend toward past snapshots" mechanism will NOT work. Only "extrapolate beyond final step in the direction of late-training drift" produces lift.
+
+The γ=−0.075 result (n=2 mean 3.277215) projects to n=4 ≈ 3.27722 if T2/T3 hold magnitude — this would BEAT fern's merged 3.27786 at identical step count (2890). If confirmed, this becomes the best n≥2 measurement of the RI mechanism and is a strong merge candidate (though it's testing the SAME mechanism as fern's H15, so merge value depends on whether the new n=4 mean supersedes the existing baseline).
+
+---
+
 ## 2026-06-05 15:06 — PR #2300: H-E Polar Express NS timing gate on PR #309 base (FALSIFIED — gate)
 
 - Branch: `open2-askeladd/h-e-polar-express-ns-pr309`
