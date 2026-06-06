@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~11:05 UTC (launch day +2)
+- **As of:** 2026-06-06 ~11:25 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,18 +18,37 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 - W&B: `5weg8d9r`. Contract margin 0.00524.
 - **Cleanup PR #2313 merged 04:30 UTC:** Arbor is now always-on (no flag). Removed broken sqrt variant.
 
-## Active assignments (11:05 UTC, 2026-06-06)
+## Active assignments (11:25 UTC, 2026-06-06)
 
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN** — Issue #2319 waiting on human team. |
-| **#2322** | open2-frieren | H-Z: Arbor − EMA-Nesterov baseline (no NC) | 2890 | **ASSIGNED 11:05 UTC**. Control arm to tanjiro H-Y. |
-| **#2307** | open2-askeladd | H-L: freeze tail paired arms | 2890 | Arm B T1=3.279970 (+0.003003 vs Arm A). T2 at step ~25 just started. ETA T3 terminal ~14:04 UTC. |
-| **#2320** | open2-fern | H-X: RI capture_step ablation | 2890 | n=4 active (run 0ygp3njz, step 475 at 10:27 UTC). ETA ~16:54 UTC. |
-| **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | Arm A n=4=3.27894. Arm B T0=3.2805 (+0.0009 vs control). T1 running. ETA ~15:30 UTC. |
-| **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | ASSIGNED 10:46 UTC. Tests if removing EN unlocks NC composition. |
-| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | T0=**3.27671** (below baseline −0.00067). T1 at 78% → terminal ~11:20 UTC. |
-| **#2314** | open2-thorfinn | H-R: Arbor + RI eval composition | 2890 | **n=3 mean 3.276519** (T0=3.27617, T1=3.27659, T2=3.27679). T3 running, ETA ~12:40 UTC. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN** — Issue #2319 open ~3h31m, no human response. |
+| **#2322** | open2-frieren | H-Z: Arbor − EMA-Nesterov baseline (no NC) | 2890 | Smoke at step ~50/250 (11:25 UTC). Fast pickup. ETA smoke done ~11:36 UTC, then n=4 launch. |
+| **#2307** | open2-askeladd | H-L: freeze tail paired arms | 2890 | Arm B T1=3.27997 (+0.003003 vs Arm A) — confirms freeze tail negative. T2 in progress. ETA T3 ~14:04 UTC. |
+| **#2320** | open2-fern | H-X: RI capture_step ablation | 2890 | n=4 active (run 0ygp3njz, step 471 at 10:46 UTC). ETA ~17:16 UTC. |
+| **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | Arm A n=4=3.27894. Arm B T0=3.28048 (+0.00085 vs control). T1 running ETA ~12:18 UTC, T3 ~15:33 UTC. |
+| **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | **n=4 LAUNCHED** by 11:25 UTC (smoke=4.087 passed). T0 at step ~250/2890. ETA T3 ~17:30 UTC. Fast pickup. |
+| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | T0=**3.27671** (below baseline −0.00067). T1 at step 2225/2890 (77%) → terminal ~12:20 UTC. |
+| **#2314** | open2-thorfinn | H-R: Arbor + RI eval composition | 2890 | **n=3 mean 3.276518** (T0=3.276168, T1=3.276595, T2=3.27679). T3 at step 867/2890 (30%), ETA ~12:38 UTC. |
+
+## 🔬 11:25 UTC: Thorfinn T2 lands clean + Tanjiro H-Y already in n=4
+
+**Thorfinn H-R T2 = 3.27679 — n=3 mean = 3.276518, std 0.000311:**
+- T0=3.276168, T1=3.276595, T2=3.27679. Very tight cluster. T3 ETA ~12:38 UTC.
+- **Recalibrated Arbor+RI floor:** new mechanisms must beat ~3.2765 (not 3.27738) to be genuine winners.
+
+**Tanjiro H-Y fast pickup — n=4 already running:**
+- Smoke completed at val/loss=4.087 (consistent with launch baseline)
+- n=4 T0 at step ~250/2890 by 11:25 UTC. Code change + smoke + n=4 in <40 minutes — excellent execution.
+- Tanjiro PR #2321 has the `--disable_ema_nesterov` flag implementation; frieren can adopt.
+
+**Frieren H-Z smoke running:**
+- Smoke at step ~50/250 at 11:25 UTC. Healthy startup (val=10.826 ln(50257) sentinel at step 0).
+- Will use tanjiro's flag implementation when n=4 launches.
+
+**Askeladd H-L freeze tail — third paired Δ confirms direction:**
+- Arm B T0 Δ = +0.002305, T1 Δ = +0.003003 — both substantially negative
+- Combined with frieren H-T n=2 (+0.00225 above baseline), freeze tail is conclusively dead
 
 ## 🔬 11:05 UTC: Frieren H-T ABORTED + H-Z assigned; thorfinn n=3=3.276519
 
