@@ -9,6 +9,43 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-06 17:50 UTC — PR #2320: H-X RI capture_step × γ ablation on Arbor stack — CLOSED (INFORMATIONAL)
+
+- **Branch:** `open2-fern/h-x-ri-capture-step`
+- **Hypothesis:** Test whether capture_step=2375 is optimal for RI on the Arbor+RI+EN stack, or whether an earlier capture gives a longer extrapolation lever arm. Swept 5 capture_steps × 3 γ values.
+- **W&B:** `0ygp3njz`
+
+### n=4 mean per (capture_step, γ)
+
+| capture_step | γ=0 | γ=−0.05 | γ=−0.075 |
+|---:|---:|---:|---:|
+| 2000 | 3.276986 | 3.276799 | 3.277069 |
+| **2200** | **3.276986** | **3.276635** ⭐ | **3.276697** |
+| 2375 (default) | 3.276986 | 3.276671 | 3.276666 |
+| 2550 | 3.276986 | 3.276778 | 3.276754 |
+| 2700 | 3.276986 | 3.276873 | 3.276853 |
+
+### Paired Δ vs default (2375, γ=−0.075)
+
+| (capture, γ) | n=4 paired Δ | Sign-stable? |
+|---|---:|---|
+| (2200, −0.05) | **−0.000031** | ✅ 4/4 trials |
+| (2375, −0.05) | +0.000005 | ✗ mixed |
+| (2200, −0.075) | +0.000031 | ✗ mixed |
+| (2000, −0.05) | +0.000164 | ✗ mixed |
+
+### Analysis
+
+**Winner: (capture=2200, γ=−0.05)** is the only sign-stable cell at −0.000031 mean paired Δ vs default. Forms a well-defined U-shape over capture_step with broad plateau in [2200, 2375] window. γ trades off with lever-arm: shallower γ (−0.05) pairs with longer lever (2200 capture); deeper γ (−0.075) pairs with shorter lever (2375).
+
+**Key insight:** γ × lever-arm product is approximately constant at the optimum. The RI mechanism is internally consistent.
+
+**Magnitude is small (30μ) but sign-stable.** One-sided sign test p ≈ 0.0625. The finding is a free default refinement for the Arbor-only stack but doesn't beat the new rank-1 NC × Arbor + RI (3.276193). **Reusable infrastructure:** `--ri_extra_capture_steps` flag added; any future capture-step ablation on a new stack is now a single n=4 launch.
+
+**Consequence:** (capture=2200, γ=−0.05) adopted as new default for Arbor-only baselines. Follow-up H-AE assigned to fern to re-sweep on NC × Arbor stack — optimal capture may have shifted again.
+
+---
+
 ## 2026-06-06 16:05 UTC — PR #2310: H-O NC alone on PR #309 base, paired arms — CLOSED (INFORMATIONAL)
 
 - **Branch:** `open2-edward/h-o-nc-pr309-isolation`

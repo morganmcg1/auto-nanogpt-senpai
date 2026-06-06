@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~16:10 UTC (launch day +2)
+- **As of:** 2026-06-06 ~17:50 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -21,23 +21,24 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 
 Previous rank-1: **PR #2298 (alphonse H-A Corrected Arbor Muon) = 3.27738** (W&B: 5weg8d9r)
 
-## Active assignments (16:10 UTC, 2026-06-06)
+## Active assignments (17:50 UTC, 2026-06-06)
 
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN — Issue #2319 open ~8h, no human team response.** Stuck on pod 7t946p. |
-| **#2322** | open2-frieren | H-Z: Arbor − EN baseline (no NC) | 2890 | T1=3.279692, T0=3.278932, n=2 mean=3.279312. T2 in flight. **EN confirmed load-bearing independently of NC.** Closure ETA ~21:00 UTC. No rebase needed (informational closure). |
-| **#2324** | open2-askeladd | H-AB: SWA tail on Arbor+RI base | 2890 | **Sent back for rebase + add --nc 1.** Hadn't launched. New run will use NC × Arbor + RI as control baseline. SWA tests orthogonal mechanism. |
-| **#2320** | open2-fern | H-X: RI capture_step ablation (pre-NC stack) | 2890 | T2 landed (~15:45 UTC), T3 in flight. Ranking so far: capture=2375 best. Informational closure on pre-NC stack. ETA T3 ~17:23 UTC. |
-| **#2326** | open2-edward | **H-AD: RI γ ablation on NC × Arbor stack** | 2890 | **NEWLY ASSIGNED 16:10 UTC.** Extended γ sweep: {0, −0.025, −0.050, −0.075, −0.100, −0.125, −0.150} via `ri_extra_gammas`, n=4. Tests if optimal γ shifts with NC. |
-| **#2321** | open2-tanjiro | H-Y: Drop EN from Arbor + NC + RI | 2890 | T0=3.279331, T1=3.277918, mean=3.278625. T2 in flight. Closure trajectory — EN load-bearing even with NC. ETA T3 ~18:40 UTC. |
-| **#2325** | open2-nezuko | H-AC: NC cleanup — make NC always-on | — | **NEWLY ASSIGNED 16:00 UTC (PR #2325).** Smoke only. Remove `--nc` CLI flag, always-on. |
-| **#2323** | open2-thorfinn | H-AA: Arbor warmup (skip Sinkhorn first N steps) | 2890 | N=0 n=4 in flight (`fiixr3ft`). ETA terminal ~21:00 UTC. Then N=500, N=1000 arms. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN — Issue #2319 open ~10h, no human team response.** Stuck on pod 7t946p. |
+| **#2322** | open2-frieren | H-Z: Arbor − EN baseline (no NC) | 2890 | T0=3.27893, T1=3.27969, T2=3.27924. T3 in flight (step ~458 at 17:27). n=3 mean 3.279287. **EN confirmed load-bearing; closing ~18:57 UTC.** |
+| **#2324** | open2-askeladd | H-AB: SWA tail on NC × Arbor + RI | 2890 | Arm A (`w0h4r1um`) at step 1628+ (NC enabled). Interrupt after n=2 (~19:30 UTC); Arm B launches with `--nc 1 --swa_tail_window 290`. Full n=4 ETA ~00:30 UTC. |
+| **#2327** | open2-fern | **H-AE: capture_step × γ re-sweep on NC × Arbor + RI stack** | 2890 | **NEWLY ASSIGNED 17:50 UTC.** Same multi-capture infrastructure from H-X, with `--nc 1` added. Primary: (capture=2200, γ=−0.05) vs current default. ETA ~00:30 UTC. |
+| **#2326** | open2-edward | H-AD: RI γ ablation on NC × Arbor stack | 2890 | Run `485nt9tt` live (step ~325 at 16:30 UTC). Multi-γ sweep {0,−0.025,−0.05,−0.075,−0.10,−0.125,−0.15} at capture=2375. n=4 ETA ~23:00 UTC. |
+| **#2321** | open2-tanjiro | H-Y: Drop EN from Arbor + NC + RI | 2890 | T0=3.279331, T1=3.277918, T2=3.278490. n=3 mean 3.278580. **Confirming refutation — EN load-bearing.** T3 ETA ~18:30 UTC. |
+| **#2325** | open2-nezuko | H-AC: NC cleanup — make NC always-on | — | Code ready (4 edits, working tree modified), no commits yet. 2 advisor nudges sent. Smoke + commit pending. |
+| **#2323** | open2-thorfinn | H-AA: Arbor warmup (skip Sinkhorn first N steps) | 2890 | N=0 n=4 running (`fiixr3ft`, 100% GPU). ETA terminal ~21:00 UTC. Then N=500, N=1000 arms if N=0 looks competitive. |
 
-## ✅ Recent closures (16:10 UTC, 2026-06-06)
+## ✅ Recent closures (17:50 UTC, 2026-06-06)
 
-- **PR #2310 (edward H-O) CLOSED 16:05 UTC** — NC alone on PR #309: n=4 paired Δ=+0.000425 (NC adverse). **Mechanism confirmed: NC requires Arbor to compose.** W&B: `zyfbkso7`/`js0yjia2`.
-- **PR #2307 (askeladd H-L) CLOSED 14:30 UTC** — lm_head freeze tail ×RI: n=4 paired Δ=+0.002587 (freeze breaks RI prior). Falsified.
+- **PR #2320 (fern H-X) CLOSED 17:48 UTC** — capture_step ablation on Arbor-only stack: (2200, −0.05) sign-stable winner (n=4 Δ=−0.000031 vs default). Doesn't beat NC × Arbor rank-1. H-AE follow-up assigned (re-sweep on NC × Arbor stack).
+- **PR #2310 (edward H-O) CLOSED 16:05 UTC** — NC alone on PR #309: n=4 paired Δ=+0.000425 (NC adverse). **Mechanism confirmed: NC requires Arbor to compose.**
+- **PR #2307 (askeladd H-L) CLOSED 14:30 UTC** — lm_head freeze tail: n=4 paired Δ=+0.002587 (freeze breaks RI prior). Falsified.
 
 ## Key mechanism table (NC × Arbor + RI stack)
 
