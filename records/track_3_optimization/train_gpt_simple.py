@@ -140,6 +140,10 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--nc", type=int, default=0,
+                        help="Normalized Correction (KellerJordan/modded-nanogpt PR #295). "
+                             "1 = NC on, 0 = off. Equalises per-row and per-column l2 norms of "
+                             "the Nesterov+SOAP update tensor before NS5 orthogonalisation.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -846,7 +850,14 @@ def contra_coeff_for_step(step: int) -> float:
 def soft_blend_for_step(step: int) -> float:
     return min(SOFT_MUON_CEIL, _linear_ramp(step, NORMAL_TO_SOFT_START_STEP, NORMAL_TO_SOFT_END_STEP))
 
-def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, use_soft=True):
+def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, use_soft=True, nc=False):
+    if nc:
+        # Normalized Correction (KellerJordan/modded-nanogpt PR #295):
+        # equalise per-row and per-column l2 norms before NS5 to stabilise
+        # singular-value spread on the Nesterov+SOAP update.
+        r_norm = update.norm(dim=-1, keepdim=True)
+        c_norm = update.norm(dim=-2, keepdim=True)
+        update = update / torch.sqrt(torch.clamp(r_norm * c_norm, min=1e-12))
     normalized_grad = scale_to_unit_operator_norm(update.clone())
     ns_update = zeropower_via_newtonschulz5(update)
     update_norm_estimate = gram_frobenius_norm_estimate(ns_update)
@@ -877,7 +888,7 @@ def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, u
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95, nc=False):
         assert isinstance(named_params, list) and len(named_params) >= 1
         self.soap_params = {p for n, p in named_params if should_soap_param(n)}
         self.attn_soap_params = {p for n, p in named_params if should_soap_param(n) and is_attn_param(n)}
@@ -885,6 +896,7 @@ class Muon(torch.optim.Optimizer):
         self.v_params = {p for n, p in named_params if is_v_param(n)}
         self.no_contra_params = {p for n, p in named_params if param_matches_spec(n, NO_CONTRA_PARAM)}
         self.no_soft_params = {p for n, p in named_params if param_matches_spec(n, NO_SOFTMUON_PARAM)}
+        self.nc = bool(nc)
         self.step_count = 0
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
@@ -949,6 +961,7 @@ class Muon(torch.optim.Optimizer):
                         self.step_count,
                         use_contra=p not in self.no_contra_params,
                         use_soft=p not in self.no_soft_params,
+                        nc=self.nc,
                     )
                     update = scale_radial_update(update, p)
                     p_fro = p.float().norm().clamp_min(1e-8)
@@ -1147,6 +1160,7 @@ if dist.get_rank() == 0:
             "ri_gamma": args.ri_gamma,
             "ri_capture_step": args.ri_capture_step,
             "ri_enabled": args.ri_gamma != 0.0,
+            "nc": int(bool(args.nc)),
         },
     )
 
@@ -1197,7 +1211,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU,
+                      nc=bool(args.nc))
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     inner_optimizers = [optimizer1, optimizer2]
     optimizer_ema = EMA_Nesterov(
