@@ -9,6 +9,47 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-06 15:43 UTC — PR #2317: H-W NC × Arbor + RI on merged Arbor base — MERGED (NEW RANK-1)
+
+- **Branch:** `open2-nezuko/h-w-nc-arbor-ri-pr309-2890`
+- **Hypothesis:** Cautious-Muon (NC: per-row × per-col L2 equalization on gradient update before Nesterov-Schulz 5) composes additively with Corrected Arbor (Sinkhorn row/col equilibration) + Tail Reference Interpolation (γ=−0.075, capture_step=2375). Prediction: Sinkhorn equilibration may rescue NC from the EMA-Nesterov saturation that blocked NC on the non-Arbor PR #309 base.
+- **W&B:** `vk0jtb3z`
+
+### Per-trial table (paired γ-RI at step 2375)
+
+| Trial | val/loss γ=0 | val/ri_loss γ=−0.05 | val/ri_loss γ=−0.075 | paired Δ(γ=−0.075 vs γ=0) | first_step_to_target |
+|---:|---:|---:|---:|---:|---:|
+| T0 | 3.277064 | 3.276739 | 3.276712 | −0.000352 | 2850 |
+| T1 | 3.275825 | 3.275501 | 3.275501 | −0.000324 | 2825 |
+| T2 | 3.277158 | 3.276849 | 3.276849 | −0.000309 | 2850 |
+| T3 | 3.276025 | 3.275719 | **3.275708** | −0.000317 | 2850 |
+| **n=4 mean** | **3.276518** | **3.276202** | **3.276193** | **−0.000325** | **2843.75** |
+
+### Statistical verdict
+
+- n=4 mean γ=−0.075 = **3.276193** vs PR #2298 baseline 3.27738 → **−0.001187** BELOW ✓
+- vs recalibrated Arbor+RI floor (thorfinn n=4, 3.276890) → **−0.000697** BELOW ✓
+- Stat contract: (3.28 − 3.276193) × √4 = **0.007615** ✓ (>> 0.004 requirement)
+- Paired Δ mean −0.000325, std 0.000019 — extremely tight (NC×EN suppression band ~−0.0003)
+
+### Mechanism
+
+NC lifts absolute val_loss even though the RI paired Δ stays in the NC×EN-suppressed band (~−0.0003 vs normal ~−0.0005-0.0006). The decoupling: NC's row/col equalization reshapes the optimizer's noise floor, providing an independent absolute lift on Arbor, even though EN saturation still compresses the RI marginal contribution. Both operators pull val_loss down independently; they share the compressed RI budget.
+
+**Refined compositional mechanism table (from n=4 data):**
+
+| Component | Absolute val/loss effect |
+|---|---:|
+| Arbor (Sinkhorn) alone vs PR #309 baseline | −0.00049 |
+| + EMA-Nesterov (EN required, independent of NC) | −0.0028 |
+| + RI γ=−0.075 | −0.00032 (paired Δ) |
+| + NC (row/col equalization on Arbor+EN+RI stack) | −0.00069 |
+| **Combined: NC × Arbor + RI on EN base** | **3.276193 (n=4 mean)** |
+
+EN and NC contribute independently; Arbor's Sinkhorn is the required base that enables NC's composition.
+
+---
+
 ## 2026-06-06 14:30 UTC — PR #2307: H-L lm_head freeze tail × RI on PR #309 base — CLOSED (FALSIFIED)
 
 - **Branch:** `open2-askeladd/h-l-lm-head-freeze-tail`

@@ -7,8 +7,9 @@ contract: `(3.28 - mu) * sqrt(n) >= 0.004` across `n` non-cherry-picked seeds.
 
 | Rank | Source | Step | n | Mean val/loss | Margin | Notes |
 |---:|---|---:|---:|---:|---:|---|
-| 1 | **Senpai PR #2298 (alphonse H-A Corrected Arbor Muon, merged 2026-06-06)** | **2890** | **4** | **3.27738** | **0.00524** | Sinkhorn spectrum equilibration (corrected variant, sqrt(out_dim) pin removed) on PR #309 base (Aurora+EMA-Nesterov). W&B: 5weg8d9r. |
-| 2 | Senpai PR #2295 (fern H15 RI, merged 2026-06-05, previous rank-1) | 2890 | 4 | 3.27786 | 0.00427 | Tail Reference Interpolation γ=−0.075, capture_step=2375, on PR #309 base. W&B: g32gn44z. |
+| 1 | **Senpai PR #2317 (nezuko H-W NC × Arbor + RI, merged 2026-06-06 15:43 UTC)** | **2890** | **4** | **3.276193** | **0.007615** | Cautious-Muon (NC: per-row × per-col L2 equalization before NS5) on merged Arbor+RI base (Aurora+EMA-Nesterov+Sinkhorn+RI γ=−0.075 capture=2375). W&B: `vk0jtb3z`. Best trial T3=3.275708. Paired Δ=−0.000325. |
+| 2 | Senpai PR #2298 (alphonse H-A Corrected Arbor Muon, merged 2026-06-06, previous rank-1) | 2890 | 4 | 3.27738 | 0.00524 | Sinkhorn spectrum equilibration (corrected variant, sqrt(out_dim) pin removed) on PR #309 base (Aurora+EMA-Nesterov). W&B: 5weg8d9r. |
+| 3 | Senpai PR #2295 (fern H15 RI, merged 2026-06-05) | 2890 | 4 | 3.27786 | 0.00427 | Tail Reference Interpolation γ=−0.075, capture_step=2375, on PR #309 base. W&B: g32gn44z. |
 | 3 | KellerJordan PR #305 (merged) | 2925 | 8 | 3.27812750 | 0.005297 | Aurora + late capped RRE + Contra-Muon extended. Previous official public record. |
 | 4 | Senpai PR #1532/#1614 (internal audit) | 2905 | 32 | 3.279022187 | 0.005531 | Aux Adam beta2 pulse + PMuon/LR/EMA stack. Best internal but not on track-3-open-sota-v2 tag. |
 | 5 | KellerJordan PR #300 (merged) | 2930 | 16 | 3.27844375 | — | Aurora row-balanced polar on `mlp.proj` + Contra-Muon ramp to 2500 + Muon momentum warmup/cooldown. |

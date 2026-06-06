@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~15:30 UTC (launch day +2)
+- **As of:** 2026-06-06 ~15:45 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -11,12 +11,15 @@
 
 Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed) plus prior Senpai PR #1532/#1614, then push the Track 3 fixed-step record below 2900. Prime Intellect public auto-speedrun materials are also allowed sources.
 
-## 🏆 BASELINE (merged 2026-06-06 03:45 UTC)
+## 🏆 BASELINE — UPDATED (merged 2026-06-06 15:43 UTC)
 
-**Senpai PR #2298 (alphonse H-A Corrected Arbor Muon): n=4 mean 3.27738 at 2890 steps**
-- Sinkhorn row/column equilibration (corrected: sqrt(out_dim) pin removed) on PR #309 base (Aurora+EMA-Nesterov+RI from PR #2295)
-- W&B: `5weg8d9r`. Contract margin 0.00524.
-- **Cleanup PR #2313 merged 04:30 UTC:** Arbor is now always-on (no flag). Removed broken sqrt variant.
+**Senpai PR #2317 (nezuko H-W NC × Arbor + RI): n=4 mean 3.276193 at 2890 steps** ← NEW RANK-1
+- Cautious-Muon (NC: per-row × per-col L2 equalization before NS5) + Corrected Arbor (Sinkhorn) + EMA-Nesterov + RI (γ=−0.075, capture=2375)
+- W&B: `vk0jtb3z`. Contract margin 0.007615. Best trial T3=3.275708.
+- vs previous rank-1 PR #2298 (3.27738): **−0.001187** improvement
+- **CLEANUP PR NEEDED:** make `--nc` always-on (default), drop the CLI flag
+
+Previous rank-1: **PR #2298 (alphonse H-A Corrected Arbor Muon) = 3.27738** (W&B: 5weg8d9r)
 
 ## Active assignments (13:25 UTC, 2026-06-06)
 
@@ -28,7 +31,7 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | **#2320** | open2-fern | H-X: RI capture_step ablation | 2890 | T2 at step 2427/2890. Partial val/ri_loss(γ=−0.075, capture=2375) = **3.275764** (best arm). Ranking: 2375<2200<2550<2700<2000. T2 ETA ~15:45 UTC. T3 ETA ~17:15 UTC. |
 | **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | **Arm B n=3 paired Δ=+0.00107**, T0=3.28048, T1=3.27933, T2=3.27882, T3 at step 2100/2890 (73%), ETA ~16:22 UTC. Informational closure pending T3. Rebase then close. |
 | **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | T0=3.279331, T1=3.277918 (recovery), mean(T0,T1)=3.278625. Paired Δ ≈ −0.000441. T2 at step 677/2890. T2 ETA ~17:00 UTC, T3 ~18:40 UTC. Closure trajectory. |
-| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | **🏆 NEW RANK-1**: T3 RI=3.276849 (best-checkpoint, W&B confirmed), **n=4 mean = 3.276478** ± std 0.000597. SENPAI-RESULT marker pending (run still in teardown at 15:30 UTC). **vs PR #2298 baseline (3.27738) = −0.000902.** Contract margin 0.00704 ✓. **MERGE on SENPAI-RESULT.** |
+| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | **✅ MERGED 15:43 UTC** — n=4 mean = **3.276193** (T3=3.275708). NEW RANK-1. Cleanup PR to be assigned: make NC always-on. |
 | **#2323** | open2-thorfinn | H-AA: Arbor warmup — skip Sinkhorn first N steps | 2890 | N=0 n=4 launched 14:32 UTC (`fiixr3ft`). ETA terminal ~21:00 UTC. Then N=500, N=1000 follow-up arms. |
 
 ## 🚀 14:00 UTC: FRIEREN H-Z T0 = 3.278932 — EN is INDEPENDENTLY load-bearing for Arbor (NOT just NC×Arbor)
