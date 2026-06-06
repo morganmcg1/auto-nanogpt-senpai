@@ -146,16 +146,25 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--ri_extra_capture_steps", type=str, default="",
+                        help="Comma-separated extra capture steps to evaluate at the final step using "
+                             "the SAME trajectory. Each (capture_step, gamma) pair is logged separately "
+                             "as val/ri_loss_capture_<step>_gamma_<g>. Enables capture-step ablation in "
+                             "a single training run. Each extra snapshot costs ~700MB of GPU memory.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     args.ri_extra_gammas = [float(g.strip()) for g in args.ri_extra_gammas.split(",") if g.strip()]
+    args.ri_extra_capture_steps = [int(s.strip()) for s in args.ri_extra_capture_steps.split(",") if s.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
     if args.train_steps < 1:
         raise ValueError("--train_steps must be positive")
     if args.ri_capture_step < 0 or args.ri_capture_step >= args.train_steps:
         raise ValueError(f"--ri_capture_step must be in [0, train_steps); got {args.ri_capture_step}")
+    for s in args.ri_extra_capture_steps:
+        if s < 0 or s >= args.train_steps:
+            raise ValueError(f"--ri_extra_capture_steps entries must be in [0, train_steps); got {s}")
     return args
 
 
@@ -1217,6 +1226,7 @@ if dist.get_rank() == 0:
             "ema_nesterov_rest_steps": EMA_NESTEROV_REST_STEPS,
             "ri_gamma": args.ri_gamma,
             "ri_capture_step": args.ri_capture_step,
+            "ri_extra_capture_steps": list(args.ri_extra_capture_steps),
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
@@ -1337,15 +1347,18 @@ for trial_idx in range(args.num_trials):
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
     # H15 Tail Reference Interpolation buffers (PR #307). Lazily populated at
-    # ri_capture_step after the inner optimizer step completes. The snapshot is
+    # each capture step after the inner optimizer step completes. Snapshots are
     # taken whenever any non-zero gamma is requested (primary or extra), so that
     # gamma=0 can also be evaluated from the same trajectory for paired comparison.
+    # H-X (PR #2320 / H-AE): supports multiple capture steps via --ri_extra_capture_steps.
     ri_gammas_all = [args.ri_gamma] + list(args.ri_extra_gammas)
     ri_enabled = any(g != 0.0 for g in ri_gammas_all)
-    ri_snapshot: dict[str, Tensor] | None = None
+    ri_all_capture_steps = sorted(set([args.ri_capture_step] + list(args.ri_extra_capture_steps)))
+    ri_snapshots: dict[int, dict[str, Tensor]] = {}
     ri_pre_val_loss: float | None = None
     ri_delta_norm: float | None = None
     ri_per_gamma_losses: dict[float, float] = {}
+    ri_per_capture_gamma_losses: dict[tuple[int, float], float] = {}
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -1362,57 +1375,70 @@ for trial_idx in range(args.num_trials):
             # H15 Tail Reference Interpolation: extrapolate from snapshot before final eval.
             # theta_eval = theta_final + gamma * (theta_final - theta_capture).
             # If multiple gammas were requested, evaluate each from the same final
-            # snapshot for a paired-comparison ablation. The PRIMARY gamma's val_loss
-            # becomes val_loss_float and feeds into best_val_loss.
+            # snapshot for a paired-comparison ablation. The PRIMARY (ri_capture_step,
+            # ri_gamma) loss becomes val_loss_float and feeds into best_val_loss.
+            # H-X (PR #2320 / H-AE): also loop over multiple capture_steps so a single
+            # run ablates the snapshot timing.
             ri_applied = False
             ri_per_gamma_losses = {}
-            if step == train_steps and ri_enabled and ri_snapshot is not None:
+            ri_per_capture_gamma_losses = {}
+            if step == train_steps and ri_enabled and len(ri_snapshots) > 0:
                 # Take a fresh snapshot of the final post-step-train_steps weights so we
-                # can repeatedly apply different gammas and restore between evaluations.
+                # can repeatedly apply different (capture, gamma) pairs and restore between
+                # evaluations.
                 with torch.no_grad():
                     final_snapshot = {name: p.detach().clone() for name, p in model.named_parameters()}
-                # Helper: in-place set p.data = final + gamma*(final - capture).
+                # Helper: in-place set p.data = final + gamma*(final - capture_snapshot).
                 # gamma=0 == restore to final unchanged.
-                delta_sq_sum = 0.0
-                def _apply_gamma(g):
+                def _apply_gamma_capture(g, snap):
                     nonlocal_delta = 0.0
                     with torch.no_grad():
                         for name, p in model.named_parameters():
                             final = final_snapshot.get(name)
-                            ref = ri_snapshot.get(name)
+                            ref = snap.get(name)
                             if final is None or ref is None:
                                 continue
                             delta = final - ref
                             p.data.copy_(final).add_(delta, alpha=g)
                             nonlocal_delta += float(delta.float().pow(2).sum().item())
                     return nonlocal_delta ** 0.5
-                # Pre-RI val_loss == gamma=0 eval (no perturbation from final).
-                model.eval()
-                pre_val_loss = torch.zeros((), device=device)
-                with torch.no_grad():
-                    for i in range(len(val_inputs) // mbs):
-                        pre_val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
-                dist.all_reduce(pre_val_loss, op=dist.ReduceOp.SUM)
-                pre_val_loss /= val_tokens
-                ri_pre_val_loss = float(pre_val_loss.item())
-                ri_per_gamma_losses[0.0] = ri_pre_val_loss
-                # Evaluate every requested gamma (extras first, primary last so the
-                # model ends in primary-gamma state for the val_loss measurement below).
-                seen_gammas = {0.0}
-                for g in list(args.ri_extra_gammas):
-                    if g in seen_gammas:
-                        continue
-                    seen_gammas.add(g)
-                    d_norm = _apply_gamma(g)
-                    ev_loss = torch.zeros((), device=device)
+                def _eval_current():
+                    ev = torch.zeros((), device=device)
                     with torch.no_grad():
                         for i in range(len(val_inputs) // mbs):
-                            ev_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
-                    dist.all_reduce(ev_loss, op=dist.ReduceOp.SUM)
-                    ev_loss /= val_tokens
-                    ri_per_gamma_losses[g] = float(ev_loss.item())
-                # Finally apply primary gamma; the val_loss below picks it up.
-                ri_delta_norm = _apply_gamma(float(args.ri_gamma))
+                            ev += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                    dist.all_reduce(ev, op=dist.ReduceOp.SUM)
+                    ev /= val_tokens
+                    return float(ev.item())
+                # Pre-RI val_loss == gamma=0 eval (no perturbation from final). Model is
+                # currently at final state. gamma=0 is identical across capture_steps.
+                model.eval()
+                ri_pre_val_loss = _eval_current()
+                ri_per_gamma_losses[0.0] = ri_pre_val_loss
+                for cap_step in ri_all_capture_steps:
+                    ri_per_capture_gamma_losses[(cap_step, 0.0)] = ri_pre_val_loss
+                # Loop over all non-primary (capture, gamma) pairs. Skip gamma=0 (already
+                # done) and skip the primary pair (saved for last so the model state ends
+                # in primary configuration for the val_loss measurement below).
+                primary_cap = int(args.ri_capture_step)
+                primary_g = float(args.ri_gamma)
+                for cap_step in ri_all_capture_steps:
+                    snap = ri_snapshots.get(cap_step)
+                    if snap is None:
+                        continue
+                    for g in ri_gammas_all:
+                        if g == 0.0:
+                            continue
+                        if cap_step == primary_cap and g == primary_g:
+                            continue  # primary saved for last
+                        _ = _apply_gamma_capture(g, snap)
+                        ev_loss_float = _eval_current()
+                        ri_per_capture_gamma_losses[(cap_step, g)] = ev_loss_float
+                        if cap_step == primary_cap:
+                            ri_per_gamma_losses[g] = ev_loss_float
+                # Finally apply primary (capture, gamma) so val_loss below picks it up.
+                primary_snap = ri_snapshots.get(primary_cap)
+                ri_delta_norm = _apply_gamma_capture(primary_g, primary_snap)
                 ri_applied = True
                 # Free the per-trial final snapshot.
                 del final_snapshot
@@ -1426,10 +1452,11 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
-            # Record primary gamma's val loss into the per-gamma table (overwrite gamma=0
-            # entry if primary==0; otherwise add primary).
+            # Record primary (capture, gamma) val loss into the per-gamma and per-capture-gamma
+            # tables (overwrite gamma=0 entry if primary==0; otherwise add primary).
             if ri_applied:
                 ri_per_gamma_losses[float(args.ri_gamma)] = val_loss_float
+                ri_per_capture_gamma_losses[(int(args.ri_capture_step), float(args.ri_gamma))] = val_loss_float
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -1461,6 +1488,11 @@ for trial_idx in range(args.num_trials):
                         slug = f"{g:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
                         metrics[f"val/ri_loss_gamma_{slug}"] = loss
                         metrics[f"val/ri_delta_gamma_{slug}"] = loss - (ri_pre_val_loss or 0.0)
+                    # H-X (PR #2320 / H-AE): per-capture-step × per-gamma logging.
+                    for (cap_step, g), loss in ri_per_capture_gamma_losses.items():
+                        g_slug = f"{g:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
+                        metrics[f"val/ri_loss_capture_{cap_step}_gamma_{g_slug}"] = loss
+                        metrics[f"val/ri_delta_capture_{cap_step}_gamma_{g_slug}"] = loss - (ri_pre_val_loss or 0.0)
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -1533,22 +1565,28 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             opt.step()
         # H15 Tail Reference Interpolation: snapshot params after the optimizer.step that
-        # completes ri_capture_step. Snapshot is per-rank but params are all-gathered inside
+        # completes a capture step. Snapshot is per-rank but params are all-gathered inside
         # the Muon.step (and AdamW is replicated), so every rank has the same post-step
-        # params here.
-        if ri_enabled and train_step == args.ri_capture_step:
+        # params here. H-X (PR #2320 / H-AE): supports multiple capture steps so a single
+        # training run can ablate the capture step at zero extra training cost.
+        if ri_enabled and train_step in ri_all_capture_steps:
             with torch.no_grad():
-                ri_snapshot = {name: p.detach().clone() for name, p in model.named_parameters()}
+                ri_snapshots[train_step] = {name: p.detach().clone() for name, p in model.named_parameters()}
             if dist.get_rank() == 0:
-                snap_norm_sq = sum(float(t.float().pow(2).sum().item()) for t in ri_snapshot.values())
+                snap_norm_sq = sum(float(t.float().pow(2).sum().item()) for t in ri_snapshots[train_step].values())
                 snap_norm = snap_norm_sq ** 0.5
-                wandb.log({
+                is_primary = (train_step == args.ri_capture_step)
+                snap_metrics = {
                     "trial": trial_idx,
                     "train/step": train_step,
-                    "val/ri_snapshot_step": train_step,
-                    "val/ri_snapshot_norm": snap_norm,
-                }, step=wandb_step)
-                print0(f"step:{train_step} captured RI snapshot (gamma={args.ri_gamma}, norm={snap_norm:.4f})",
+                    f"val/ri_snapshot_norm_capture_{train_step}": snap_norm,
+                }
+                if is_primary:
+                    snap_metrics["val/ri_snapshot_step"] = train_step
+                    snap_metrics["val/ri_snapshot_norm"] = snap_norm
+                wandb.log(snap_metrics, step=wandb_step)
+                tag = "PRIMARY" if is_primary else "EXTRA"
+                print0(f"step:{train_step} captured RI snapshot [{tag}] (norm={snap_norm:.4f})",
                        console=True)
         if dist.get_rank() == 0 and telemetry_due:
             arbor_extra = dict(optimizer2.last_arbor_diag)
@@ -1592,13 +1630,18 @@ for trial_idx in range(args.num_trials):
             final_metrics["speedrun/final_ri_post_val_loss"] = val_loss_history[-1][1] if val_loss_history else float("nan")
             final_metrics["speedrun/final_ri_delta_norm"] = ri_delta_norm or 0.0
             final_metrics["speedrun/final_ri_gamma"] = float(args.ri_gamma)
+            final_metrics["speedrun/final_ri_capture_step"] = int(args.ri_capture_step)
             for g, loss in ri_per_gamma_losses.items():
                 slug = f"{g:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
                 final_metrics[f"speedrun/final_ri_loss_gamma_{slug}"] = loss
+            # H-X (PR #2320 / H-AE): per-capture-step × per-gamma final logging.
+            for (cap_step, g), loss in ri_per_capture_gamma_losses.items():
+                g_slug = f"{g:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
+                final_metrics[f"speedrun/final_ri_loss_capture_{cap_step}_gamma_{g_slug}"] = loss
         wandb.log(final_metrics, step=(trial_idx + 1) * (train_steps + 1) - 1)
-    # Free the snapshot before the next trial allocates a fresh one.
-    if ri_snapshot is not None:
-        ri_snapshot = None
+    # Free the snapshots before the next trial allocates fresh ones.
+    if ri_snapshots:
+        ri_snapshots.clear()
         torch.cuda.empty_cache()
 
 if dist.get_rank() == 0:
