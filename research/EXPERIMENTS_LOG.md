@@ -9,6 +9,42 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-06 19:53 UTC — PR #2330: H-AH EMA-Nesterov β ablation — ASSIGNED
+
+- **Branch:** `open2-frieren/h-ah-ema-beta-nc-arbor`
+- **Hypothesis:** EN is confirmed load-bearing (−0.003 absolute lift, independent of NC). But β=0.95 has never been ablated on the NC × Arbor stack. Testing β ∈ {0.90, 0.98} as 2-arm n=2 screen, then n=4 on winner.
+- **Status:** NEWLY ASSIGNED.
+
+---
+
+## 2026-06-06 19:53 UTC — PR #2322: H-Z Arbor − EN baseline (no NC) — CLOSED (REFUTED)
+
+- **Branch:** `open2-frieren/h-z-arbor-no-en`
+- **Hypothesis:** EN might be load-bearing specifically because of NC composition, not independently. Tested Arbor + RI without EN (no NC) as clean control arm.
+- **W&B run:** `9y3k8kea` (FINISHED, runtime ~27h)
+- **Results:**
+
+| Trial | val/loss |
+|---:|---:|
+| T0 | 3.278932 |
+| T1 | 3.279692 |
+| T2 | 3.279236 |
+| T3 | 3.280024 |
+| **n=4 mean** | **3.279471** |
+
+- **Verdict:** n=4 mean 3.279471 = **+0.003278 above rank-1** (3.276193). EN is independently load-bearing, regardless of NC presence.
+- **Combined with tanjiro H-Y** (Arbor + NC + RI no EN, n=4=3.278702, +0.002509): both configurations without EN land in the +0.0025–+0.0033 range. EN's absolute lift ≈ −0.003, INDEPENDENT of NC condition.
+
+---
+
+## 2026-06-06 19:47 UTC — CODE DISCOVERY: Current NS iteration count is NS12, not NS5
+
+- **Source:** Nezuko PR #2328 flagged discrepancy before launch
+- **Finding:** PR #2295 (H15 RI) changed `_ns_inner(X)` to use `for _ in range(12)` instead of 5. Both `zeropower_via_newtonschulz5()` and `soft_via_newtonschulz5()` route through `_ns_inner`. The merged rank-1 (PR #2317, 3.276193) was trained with NS12.
+- **Impact:** H-AF spec was wrong. Revised to NS10 single arm (conservative 17% reduction). NS12 may be overkill; NS10 will establish whether the extra iterations are load-bearing.
+
+---
+
 ## 2026-06-06 18:43 UTC — PR #2329: H-AG LR × WD retune on NC × Arbor + RI — ASSIGNED
 
 - **Branch:** `open2-tanjiro/h-ag-lr-wd-retune`
