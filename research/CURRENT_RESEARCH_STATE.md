@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~11:25 UTC (launch day +2)
+- **As of:** 2026-06-06 ~12:00 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -23,13 +23,27 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
 | **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN** — Issue #2319 open ~3h31m, no human response. |
-| **#2322** | open2-frieren | H-Z: Arbor − EMA-Nesterov baseline (no NC) | 2890 | Smoke at step ~50/250 (11:25 UTC). Fast pickup. ETA smoke done ~11:36 UTC, then n=4 launch. |
+| **#2322** | open2-frieren | H-Z: Arbor − EMA-Nesterov baseline (no NC) | 2890 | **n=4 LAUNCHED** (run `9y3k8kea`, step 75 T0). Second smoke `slvja2cs` confirmed clean. ETA T3 ~18:30 UTC. |
 | **#2307** | open2-askeladd | H-L: freeze tail paired arms | 2890 | Arm B T1=3.27997 (+0.003003 vs Arm A) — confirms freeze tail negative. T2 in progress. ETA T3 ~14:04 UTC. |
 | **#2320** | open2-fern | H-X: RI capture_step ablation | 2890 | n=4 active (run 0ygp3njz, step 471 at 10:46 UTC). ETA ~17:16 UTC. |
 | **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | Arm A n=4=3.27894. Arm B T0=3.28048 (+0.00085 vs control). T1 running ETA ~12:18 UTC, T3 ~15:33 UTC. |
-| **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | **n=4 LAUNCHED** by 11:25 UTC (smoke=4.087 passed). T0 at step ~250/2890. ETA T3 ~17:30 UTC. Fast pickup. |
-| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | T0=**3.27671** (below baseline −0.00067). T1 at step 2225/2890 (77%) → terminal ~12:20 UTC. |
+| **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | n=4 run `5an0slvc` at step 775/2890 (T0, val=3.71). step_avg ~2017ms. ETA T0 ~13:18, T3 ~17:30 UTC. |
+| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | **T1 RI = 3.275501** (below recalibrated baseline −0.001). T0 val_loss=3.27671. T2 at step ~175/2890. **POTENTIAL RANK-1** — clean per-trial table pending. |
 | **#2314** | open2-thorfinn | H-R: Arbor + RI eval composition | 2890 | **n=3 mean 3.276518** (T0=3.276168, T1=3.276595, T2=3.27679). T3 at step 867/2890 (30%), ETA ~12:38 UTC. |
+
+## 🚨 12:00 UTC: NEZUKO H-W T1 RI = 3.275501 — POTENTIAL NEW RANK-1 CANDIDATE
+
+**W&B `vk0jtb3z` summary after T1 (NC × Arbor + RI on merged Arbor base):**
+- val/ri_loss_gamma_neg0p0750 = **3.275501** (T1 RI)
+- T0 val/loss (γ=0) was 3.27671 — n=2 RI mean likely ~3.276 range
+- T2 running at step ~175/2890. T3 ETA ~15:08 UTC.
+
+**This contradicts the "NC × EN closed" verdict at the absolute-value level:**
+- Earlier mechanism finding: NC on PR #309 base alone gives +0.002 absolute hurt (paired Δ compressed −0.0003).
+- BUT NC × Arbor + RI lands BELOW recalibrated baseline (3.276518).
+- **Hypothesis:** Sinkhorn equilibration changes the noise structure enough to rescue NC composition. NC is closed on raw PR #309 but **may compose on Arbor**.
+
+**Requested clean per-trial table from nezuko (paired γ).** T2/T3 are decisive — if n=4 mean ≤ 3.276, NEW RANK-1.
 
 ## 🔬 11:25 UTC: Thorfinn T2 lands clean + Tanjiro H-Y already in n=4
 
