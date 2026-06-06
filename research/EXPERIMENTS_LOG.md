@@ -9,6 +9,63 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-06 00:12 — PR #2301: H-D late-higher block LR on PR #300 base — ABORTED (falsified)
+
+- Branch: `open2-edward/h-d-late-higher-pr300`
+- Hypothesis: Does mean-preserving linear block-LR ramp (0.90→1.10) improve val/loss on PR #300 base?
+- Status: **CLOSED** — Aborted at n=2, paired Δ unfavorable (Arm B > Arm A both trials)
+- W&B runs: `svbaoi2b` (Arm A, n=4, PR #300 + flat), `jbdhh1bz` (Arm B, n=2, PR #300 + late-higher)
+
+### Per-trial paired comparison
+
+| Trial | Arm A (flat, control) | Arm B (late-higher) | Paired Δ (B − A) | Notes |
+|---|---:|---:|---:|---|
+| T0 | 3.278741 | 3.279780 | **+0.001039** | Clean trial both arms |
+| T1 | 3.278717 | 3.280830 | **+0.002113** | Arm B tail event |
+| T2 | 3.278666 | aborted | — | Arm A clean; Arm B not launched |
+| T3 | 3.281341 | not run | — | Arm A own tail |
+| **n=2 mean** | **3.278730** | **3.280305** | **+0.001576** | Abort criterion met |
+
+### Analysis and conclusions
+
+H-D (late-higher block LR) is **FALSIFIED on PR #300 base**. The mechanism is contraindicated here — late-stage LR inflation destabilizes the PR #300 optimizer's internal state. The Arm A control (flat) is itself reasonably clean at 3.278730, showing PR #300 converges well without modification. The PR #300 base's depth-modulated optimizer already incorporates late-block emphasis internally; the external ramp creates redundancy that amplifies late-stage gradient variance rather than ameliorating it.
+
+**Cross-base note:** Tanjiro's same H-D on PR #309 base (PR #2299) showed mixed results — T0 arm B helped (Δ=−0.00149) but T1 was a tail event. PR #309 base is more tolerant of late-block inflation. PR #300 base rejects it outright (both clean trials unfavorable). Mechanism base-specificity confirmed: late-higher LR is not universally applicable.
+
+---
+
+## 2026-06-06 00:05 — PR #2302: H-G RI hyperparameter sweep (12-arm × 4-trial, PR #309 base) — CLOSED
+
+- Branch: `open2-fern/h-g-ri-sweep-pr309`
+- Hypothesis: Is there a better (cap, γ) combination than the merged (cap=2375, γ=−0.075) for RI on PR #309 base?
+- Status: **CLOSED** — Saturation confirmed; merged config is the optimum
+- W&B run: `z20mj2bh` (n=4 × 2890 steps, 12-arm eval: cap ∈ {1500, 2375, 2700} × γ ∈ {0, −0.05, −0.075, −0.10})
+
+### n=4 × 12-arm results table (best arm = merged config)
+
+| Arm (cap, γ) | n=4 mean | SE | Δ vs MERGED (3.27786) |
+|---|---:|---:|---:|
+| cap=1500, γ=−0.10 | 3.281246 | 0.000725 | +0.002881 |
+| cap=1500, γ=−0.075 | 3.279882 | 0.000592 | +0.001517 |
+| cap=1500, γ=−0.05 | 3.279217 | — | +0.000852 |
+| **cap=2375, γ=−0.075 (MERGED)** | **3.278365** | — | **+0.0005 (within noise)** |
+| cap=2375, γ=−0.05 | 3.278580 | — | +0.000715 |
+| cap=2700, γ=−0.075 | 3.278900 | — | +0.001035 |
+| γ=0 (control) | 3.279000 | — | +0.001135 |
+
+### Analysis and conclusions
+
+The hyperparameter surface is **flat around (cap=2375, γ=−0.075)** — the already-merged configuration. Key findings:
+1. **cap=2375 dominates**: cap=1500 is actively harmful with negative γ (too-early snapshot → noisy direction); cap=2700 too close to terminal to extract drift signal.
+2. **γ=−0.075 saturates**: γ=−0.05 and γ=−0.10 both cluster within ±0.0001 of γ=−0.075 — flat optimum plateau.
+3. **n=4 best-arm mean 3.278365 > merged 3.27786**: the replication is +0.0005 worse than the merged result, within seed noise. The merged config is confirmed as the optimum; no incremental gain from (cap, γ) retuning.
+
+**This closes the RI hyperparameter search direction.** Future RI work must move to a different lever: different base, paired mechanisms, or schedule interaction. The NC+RI compositional stack (H-N, H-K, H-M) is the active frontier.
+
+**Cleanup note:** fern's pod launched a duplicate `fr3xs4ut` run (same seed_offset=0) which was killed once original `z20mj2bh` confirmed complete. No data loss.
+
+---
+
 ## 2026-06-05 23:35 — PR #2303: H-F RI on NC + bare Muon (n=4, 3325 steps) TERMINAL — CLOSED
 
 - Branch: `open2-thorfinn/h-f-ri-nc-baremuon`

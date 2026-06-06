@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~00:10 UTC (launch day +2)
+- **As of:** 2026-06-06 ~00:45 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -15,28 +15,30 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 
 **Senpai PR #2295 (fern H15 RI): n=4 mean 3.27786 at 2890 steps** — RI γ=−0.075, capture=2375, on PR #309 base.
 
-## Active assignments (00:10 UTC, 2026-06-06)
+## Active assignments (00:45 UTC, 2026-06-06)
 
 | PR | Student | Hypothesis | Base | Target | Status |
 |---:|---|---|---|---:|---|
-| **#2302** | open2-fern | H-G RI hyperparameter sweep (capture × γ, 9 arms) | PR #309 | 2890 | Newest trial at step 2775/11563 (24%). ETA ~5.5h. |
-| **#2298** | open2-alphonse | H-A Arbor Muon **corrected variant** (sqrt(out_dim) pin removed) | PR #309 | 2890 | **T0 = 3.27749, T1 = 3.27633 — n=2 mean 3.27691, BEST 2-trial state on fleet.** T2 starting (step 0). ETA T2 ~01:35 UTC, T3 ~03:15 UTC. **MERGE CANDIDATE.** |
-| **#2307** | open2-askeladd | **H-L lm_head freeze tail (paired arms, n=4)** | PR #309+RI | 2890 | Dual smoke runs `530jmjal` (step 500), `n6qab2r8` (step 100). Smoke gate pending. |
-| **#2301** | open2-edward | H-D late-higher block LR on PR #300 base | PR #300 | 2925 | Arm A done n=4=3.279866. **Arm B T0=3.27978 vs Arm A T0=3.278741 → paired Δ_T0=+0.001 UNFAVORABLE.** T1 at 49% (5776/11700). |
-| **#2306** | open2-frieren | **H-K NC (Cautious-Muon) on PR #309 + RI base** | PR #309 | 2890 | **n=4 run `hv1l0vsn` LIVE.** ETA T0 ~06:00 UTC. 🔥 Most critical overnight experiment. |
-| **#2308** | open2-thorfinn | **H-M NC + RI on bare Muon at 2890 steps** (speedrun adaptation) | bare Muon | 2890 | **Smoke `thyonabe` LIVE at step 175/1500.** Normal training. ETA smoke pass ~01:00 UTC, n=4 launch ~01:00, T0 ~03:00 UTC. |
-| **#2299** | open2-tanjiro | H-D late-higher block LR on PR #309 base | PR #309 | 2890 | Arm A n=4=3.27861. **Arm B v2 T0=3.277499, T1=3.282439 (tail), T2=3.27671 (BEATS fern by −0.00115).** Arm B T3 step 8823/11560 (76%). ETA T3 ~01:10 UTC. **MERGE CANDIDATE.** |
-| **#2305** | open2-nezuko | H-J Two-Snapshot Tail Extrapolation | PR #309 | 2890 | n=4 `r2kim5fg` at step 6582/11560 (57%), best val_loss 3.27782 (~at fern baseline). ETA T3 ~02:30 UTC. |
+| **#2298** | open2-alphonse | H-A Arbor Muon corrected variant | PR #309 | 2890 | **T0=3.27749, T1=3.27633 → n=2 mean 3.27691.** T2 mid-run. ETA T2 ~01:35, T3 ~03:15 UTC. **TOP MERGE CANDIDATE.** |
+| **#2299** | open2-tanjiro | H-D late-higher LR Arm B v2 | PR #309 | 2890 | Arm B: T0=3.27750, T1=3.28244 (tail), T2=3.27671. T3 running. ETA ~01:10 UTC. **MERGE CANDIDATE (T3 decides).** |
+| **#2305** | open2-nezuko | H-J Two-Snapshot RI | PR #309 | 2890 | **FALSIFIED** at n=2 (γ₂=0 dominates; Richardson null). n=4 mean ~3.27848, above fern. T3 ETA ~02:30 UTC. Close after SENPAI-RESULT. |
+| **#2306** | open2-frieren | H-K NC + RI on PR #300 base | PR #300 | 2930 | Smoke passed. n=4 run `hv1l0vsn` LIVE. T0 ETA ~06:00 UTC. Most critical overnight experiment. |
+| **#2307** | open2-askeladd | H-L lm_head freeze tail (paired arms) | PR #309+RI | 2890 | Dual smoke runs in progress (530jmjal step 500, n6qab2r8 step 100). Smoke gate pending. |
+| **#2308** | open2-thorfinn | H-M NC + RI at 2890 steps (speedrun adaptation) | bare Muon | 2890 | Smoke running. ETA smoke pass ~01:00 UTC, n=4 ~01:00, T0 ~03:00 UTC. |
+| **#2309** | open2-fern | **H-N NC + RI compositional stack on PR #309** | PR #309+RI | 2890 | **NEWLY ASSIGNED** (00:40 UTC). Smoke + n=4 confirm. ETA T0 ~08:30 UTC. |
+| **#2310** | open2-edward | **H-O NC alone on PR #309 (isolation test)** | PR #309 | 2890 | **NEWLY ASSIGNED** (00:44 UTC). Arm A (control) + Arm B (NC). ETA T0 ~08:30 UTC. |
 
-## Closures this round (since 19:15 UTC)
+## Closures this round (since 19:15 UTC, 2026-06-05)
 
 | PR | Student | Verdict | n | Key finding |
 |---:|---|---|---:|---|
 | #2289 | frieren | **CLOSED 22:00** | 4 | RI on PR #300: paired Δ=−0.00056 (p<0.05, t=−3.42, 4/4 lift). Absolute 3.27877 > fern's 3.27786 due to PR #300 base being weaker than PR #309. Confirms RI is base-agnostic. |
-| #2304 | askeladd | **CLOSED 22:55** | 4 | H-I direction ablation: γ=−0.075 n=4=3.27872 (T3=3.28195 tail). Direction-specific RI mechanism confirmed: negative γ saturates at −0.05/−0.075/−0.10; positive γ catastrophic from +0.05 onward (+1.00 destroys training, +0.126). RI is strictly **tail extrapolation**, not SWA. |
-| #2303 | thorfinn | **CLOSED 23:35** | 4 | H-F NC+RI on bare Muon: **n=4 best-γ 3.274723**, paired Δ=−0.000504 (SE 3.1e-6, deterministic). Universality confirmed (4th base). step_to_target=3243.75 > fern's 2890 → cannot displace fern in speedrun. LOW tail variance (no T3 tail, σ(Δ)=6.4e-6). |
+| #2304 | askeladd | **CLOSED 22:55** | 4 | H-I direction ablation: γ=−0.075 n=4=3.27872 (T3=3.28195 tail). Direction-specific RI confirmed: negative γ saturates at −0.05/−0.075/−0.10; positive γ catastrophic from +0.05 onward. RI is strictly **tail extrapolation**, not SWA. |
+| #2303 | thorfinn | **CLOSED 23:35** | 4 | H-F NC+RI on bare Muon: **n=4 best-γ 3.274723**, paired Δ=−0.000504 (SE 3.1e-6, deterministic). Universality confirmed (4th base). step_to_target=3243.75 > fern's 2890 → cannot displace fern in speedrun. LOW tail variance. |
+| #2302 | fern | **CLOSED 00:20** | 4 | H-G RI hyperparameter sweep: 12-arm × n=4. Best arm (cap=2375, γ=−0.075) n=4 mean 3.278365 — **matches merged baseline within seed noise**. Surface flat around optimum. Closes (cap, γ) search direction. |
+| #2301 | edward | **CLOSED 00:20** | 2 (aborted) | H-D late-higher LR on PR #300: paired Δ n=2=+0.001576 (both trials unfavorable). FALSIFIED on PR #300 base (PR #300 optimizer internally saturates late-block emphasis). |
 
-## 🔥 Top findings (00:10 UTC, 2026-06-06)
+## 🔥 Top findings (00:45 UTC, 2026-06-06)
 
 ### 🎯 THREE PARALLEL MERGE CANDIDATES BELOW FERN BASELINE — overnight watch
 
@@ -129,7 +131,7 @@ Arm A n=4=3.27934 (T1=3.28002 tail). Arm B n=4=3.27877. Paired Δ=−0.00056, p<
 
 T0 at 11%. ETA ~10h from now.
 
-## Compositional verdict table (updated 22:00 UTC)
+## Compositional verdict table (updated 00:45 UTC, 2026-06-06)
 
 | Mechanism | Base | Status |
 |---|---|---|
@@ -138,53 +140,58 @@ T0 at 11%. ETA ~10h from now.
 | RI | PR #300 (Aurora+CM+SOAP) | ✅ UNIVERSAL — paired Δ=−0.00056 (p<0.05) |
 | RI | PR #305 (Aurora+RRE+CM+SOAP) | ✅ UNIVERSAL (nezuko n=4=3.278421, paired Δ=−0.000664) |
 | RI | PR #309 (Aurora+EMA-Nest) | ✅ MERGED at 3.27786 |
-| Two-snapshot RI (H-J) | PR #309 | ❌ DISPROVEN (γ_2=0 wins; single-snapshot is the optimum) |
-| Late-higher block LR | PR #300 | ⏳ Arm B running |
-| Late-higher block LR | PR #309 | ⏳ Arm B v2 running (T0 strong, T1 tail) |
+| Two-snapshot RI (H-J) | PR #309 | ❌ DISPROVEN (γ_2=0 wins; Richardson null at n=2) |
+| Late-higher block LR | PR #300 | ❌ FALSIFIED (both trials unfavorable, aborted at n=2) |
+| Late-higher block LR | PR #309 | ⏳ Arm B v2 T3 running (T0 strong, T1 tail, T2 below fern) |
 | Arbor Muon (sqrt out_dim pin) | PR #309 | ❌ FALSIFIED (55× lift bug) |
-| Arbor Muon (corrected) | PR #309 | ⏳ T0 running |
+| Arbor Muon (corrected) | PR #309 | ⏳ n=4 in progress (T0=3.27749, T1=3.27633 → n=2=3.27691 ✅) |
+| NC alone | PR #309 | ⏳ ASSIGNED to edward (H-O PR #2310) — ETA ~08:30 UTC |
+| NC + RI | PR #309 | ⏳ ASSIGNED to fern (H-N PR #2309) — ETA ~08:30 UTC |
 | RI direction (negative γ) | PR #309 | ✅ CONFIRMED — direction-specific, saturates at γ ≈ −0.05 to −0.10 |
 | RI direction (positive γ) | PR #309 | ❌ FALSIFIED — catastrophic at γ > 0 |
 
 ## Next-wave hypothesis backlog (ordered by tier)
 
-**Tier 1 — High-value compositions of confirmed mechanisms (ASSIGNED):**
-1. **NC (Cautious-Muon) on PR #309 + RI base, n=4 at 2890 steps** — ASSIGNED to frieren as H-K (PR #2306). Smoke running.
-2. **lm_head freeze tail on PR #309 + RI base (paired arms)** — ASSIGNED to askeladd as H-L (PR #2307).
-3. **Arbor Muon corrected variant on PR #309 base** — Alphonse H-A (PR #2298), T0=3.27749 already beats fern.
+**Tier 1 — Active (fully assigned):**
+1. **NC + RI on PR #309 base at 2890** — fern H-N (PR #2309). NEWLY ASSIGNED.
+2. **NC alone on PR #309 at 2890 (isolation test)** — edward H-O (PR #2310). NEWLY ASSIGNED.
+3. **lm_head freeze tail on PR #309+RI base (paired arms)** — askeladd H-L (PR #2307).
+4. **NC + RI on PR #300 base at 2930** — frieren H-K (PR #2306). n=4 running.
+5. **NC + RI on bare Muon at 2890** — thorfinn H-M (PR #2308). Smoke running.
+6. **Corrected Arbor Muon on PR #309 at 2890** — alphonse H-A (PR #2298). T3 ETA ~03:15.
 
-**Tier 2 — Unassigned (next idle-student picks):**
-4. **NC on PR #309 base alone (no RI)** — disentangles NC mechanism from RI; tests if NC independently helps on EMA-Nesterov stack. Assign to nezuko after H-J completes.
-5. **NC on PR #300 + RI base** — second universality test of NC. Assign to edward after H-D closes.
-6. **Late-higher LR + RI composition on PR #309** — compose tanjiro's arm-B T0 with RI in single paired run.
-7. **EMA-of-snapshots tail blend** — rolling EMA after capture_step, blend into terminal weights.
-8. **Combined NC + Arbor on PR #309 + RI** — if alphonse H-A n=4 confirms Arbor+RI beats fern, compose NC+Arbor+RI as next-level stack.
+**Tier 2 — Next idle-student candidates (when nezuko/tanjiro terminate):**
+7. **NC on PR #300 + RI base (NC universality on PR #300)** — frieren becomes idle after H-K; pivot to NC on PR #300 base specifically.
+8. **Triple stack NC + Arbor + RI on PR #309** — if both alphonse (Arbor) and fern (NC+RI) win, full triple composition is next.
+9. **Late-higher LR + RI composition on PR #309** — isolated test of compose tanjiro arm-B mechanism with RI in single run (not paired arms).
+10. **EMA-of-snapshots tail blend** — rolling EMA after capture_step, blend into terminal weights; contrast with single-snapshot RI extrapolation.
 
-**Tier 3 — Alternative tail extrapolation / training-curve mechanisms:**
-8. **Capture-step sweep with paired-γ (NC base)** — find optimal capture point on bare-Muon NC base.
-9. **Aitken's Δ² acceleration** — non-linear sequence acceleration applied to terminal-window parameter trajectory.
-10. **Combined RI+Arbor (if both T0+T1 hold individually)** — orthogonality test of two top mechanisms.
+**Tier 3 — Bold bets if current stacks plateau:**
+11. **Aitken's Δ² acceleration** — non-linear sequence acceleration applied to terminal-window parameter trajectory.
+12. **Warmup fraction sweep** — sweep warmup from 5% to 10% at 2890 steps; fern's merged uses default ~250/2890=8.6%.
+13. **Per-layer RI capture** — different capture_step per transformer layer (early layers converge faster than late layers).
 
-## Watch items (next 6h, from 00:10 UTC 2026-06-06)
+## Watch items (next 8h, from 00:45 UTC 2026-06-06)
 
-**CRITICAL: 3 parallel merge candidates may land overnight.**
+**CRITICAL: 2 parallel merge candidates + 1 borderline — all landing overnight.**
 
-- **Tanjiro Arm B T3 terminal** (~01:10 UTC) — earliest of the three merge candidates. n=4 mean depends heavily on T3: if T3 ≤ 3.278, Arm B n=4 likely beats fern. If T3 tails to 3.282, n=4 mean drifts to ~3.279 (no merge).
-- **Alphonse T2 terminal** (~01:35 UTC) — Arbor n=3 should still be in 3.276 territory; if T2 = 3.276 then n=3 mean ~3.27680 → strong projection for T3 merge.
-- **Nezuko H-J T3 terminal** (~02:30 UTC) — current best 3.27782 ~= fern baseline. Result is borderline merge.
-- **Alphonse T3 SENPAI-RESULT** (~03:15 UTC) — likely cleanest of the three (n=2 no tail event). Immediate merge if ≤ 3.27786.
-- **Thorfinn H-M smoke pass + n=4 launch** (~01:00 UTC smoke, ~07:00 UTC T0).
-- **Frieren H-K n=4 T0 terminal** (~06:00 UTC) — NC+RI on PR #309 base at 2890 steps. If NC gives additive paired Δ on top of fern's merged RI, it's new rank-1.
-- **Edward Arm B T1+** — late-higher LR on PR #300. T0 paired Δ unfavorable; T1 reveals if effect is real or seed noise.
-- **Askeladd H-L smoke pass** + n=4 launch decision.
-- **Fern H-G T2/T3** — confirms cap=2375 optimal in the 9-arm sweep.
+| Time | Event | Action |
+|---|---|---|
+| ~01:10 UTC | **Tanjiro H-D Arm B T3** (PR #2299) | If T3 ≤ 3.278: n=4 mean may beat fern despite T1 tail. Immediate preflight merge if SENPAI-RESULT ≤ 3.27786. |
+| ~01:35 UTC | **Alphonse T2** (PR #2298) | Expect T2 in 3.276 band. If T2=3.276, n=3 mean ~3.27670 → T3 will almost certainly merge. |
+| ~02:30 UTC | **Nezuko H-J T3** (PR #2305) | FALSIFIED — close, assign next hypothesis. |
+| ~03:15 UTC | **Alphonse T3 SENPAI-RESULT** (PR #2298) | **Highest-priority merge** if ≤ 3.27786. n=2 mean 3.27691 cleanest on fleet. |
+| ~03:15 UTC | **Thorfinn H-M smoke pass** (PR #2308) | Authorize n=4 if smoke passes (no NaN, RI direction negative). |
+| ~06:00 UTC | **Frieren H-K T0** (PR #2306) | NC+RI on PR #300. If paired Δ < −0.0001 AND n=4 mean < 3.27786 → new rank-1. |
+| ~08:30 UTC | **Fern H-N / Edward H-O pod pickup** (#2309, #2310) | Smoke launches for NC+RI and NC-alone on PR #309 base. |
 
-**Merge-conflict-of-interest:** if multiple PRs land terminal within minutes, merge **lowest n=4 mean first** (best margin). Alphonse projects lowest, tanjiro second, nezuko third.
+**Merge priority:** alphonse > tanjiro (by projected margin). If both land terminal within minutes, merge alphonse first.
 
 ## Operational notes
 
 - Blackwell pods (nezuko, thorfinn, alphonse) all confirmed running torch==2.12.0+cu130 after the silent 2.10.0 downgrade incident. Watch for recurrence.
-- All 8 students have active hypotheses. Zero idle GPUs.
-- **Edward PR #2301 has merge conflict** (DIRTY/CONFLICTING) but is mid-experiment (Arm B T1 running) — do NOT rebase until Arm B terminal. If Arm B paired Δ is unfavorable, close without merge (rebase unnecessary).
-- **Askeladd H-L has two parallel smoke runs** (dual processes, GPU at 74GB). Intentional paired Arm A/B smoke. n=4 launch pending both smokes passing.
-- **Frieren H-K n=4 run `hv1l0vsn` is the most critical active experiment** — NC composition on fern's merged base.
+- All 8 students have active hypotheses (PRs #2298, #2299, #2305, #2306, #2307, #2308, #2309, #2310). Zero idle GPUs.
+- **Frieren H-K n=4 run `hv1l0vsn` is the most critical active experiment** — NC composition on PR #300 base. T0 ETA ~06:00 UTC.
+- **Askeladd H-L has two parallel smoke runs** (dual processes). n=4 launch pending smoke gate.
+- **Alphonse PR #2298 is the top merge candidate** — n=2 mean 3.27691, no tail events in first two trials. Monitor closely for T3 SENPAI-RESULT at ~03:15 UTC.
+- **Tanjiro PR #2299 Arm B T3 decides merge eligibility** — T1 tail event (3.282) makes n=4 mean very sensitive to T3; merge only if n=4 mean ≤ 3.27786.
