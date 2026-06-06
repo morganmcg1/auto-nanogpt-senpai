@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~18:30 UTC (launch day +2)
+- **As of:** 2026-06-06 ~18:43 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -21,21 +21,22 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 
 Previous rank-1: **PR #2298 (alphonse H-A Corrected Arbor Muon) = 3.27738** (W&B: 5weg8d9r)
 
-## Active assignments (18:30 UTC, 2026-06-06)
+## Active assignments (18:43 UTC, 2026-06-06)
 
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN — Issue #2319 open ~10.5h, no human team response.** Stuck on pod 7t946p. |
-| **#2322** | open2-frieren | H-Z: Arbor − EN baseline (no NC) | 2890 | T0=3.27893, T1=3.27969, T2=3.27924. T3 in flight (~16% at 17:27). n=3 mean 3.279287. **EN confirmed load-bearing; closing ~21:00 UTC.** |
-| **#2324** | open2-askeladd | H-AB: SWA tail on NC × Arbor + RI | 2890 | Arm A T0=3.276844 (reproduces baseline ✓). Interrupt A after n=2 (~19:30 UTC); Arm B (SWA) launches after. Full ETA ~00:30 UTC. |
-| **#2327** | open2-fern | **H-AE: capture_step × γ re-sweep on NC × Arbor + RI stack** | 2890 | Assigned 17:50 UTC. Not yet picked up. Primary: (capture=2200, γ=−0.05) on NC × Arbor stack. ETA ~00:30 UTC. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN — Issue #2319 open ~11h, no human team response.** Stuck on pod 7t946p. |
+| **#2322** | open2-frieren | H-Z: Arbor − EN baseline (no NC) | 2890 | T0=3.27893, T1=3.27969, T2=3.27924. T3 in flight (~28% est). n=3 mean 3.279287. **EN confirmed load-bearing; closing ~21:00 UTC.** |
+| **#2324** | open2-askeladd | H-AB: SWA tail on NC × Arbor + RI | 2890 | Arm A T0=3.276844 (baseline reproduced ✓). T1 running. Interrupt after n=2 (~19:45 UTC); **rebase then** launch Arm B (SWA). Rebase note posted. |
+| **#2327** | open2-fern | H-AE: capture_step × γ re-sweep on NC × Arbor + RI | 2890 | Assigned 17:50 UTC. Not yet picked up. Primary: (capture=2200, γ=−0.05) on NC × Arbor stack. ETA ~00:30 UTC. |
 | **#2326** | open2-edward | H-AD: RI γ ablation on NC × Arbor stack | 2890 | Run `485nt9tt` live; `--ri_extra_gammas` multi-γ sweep confirmed. NC enabled ✓. n=4 ETA ~23:00 UTC. |
-| **#2321** | open2-tanjiro | H-Y: Drop EN from Arbor + NC + RI | 2890 | T0=3.279331, T1=3.277918, T2=3.278490. n=3 mean 3.278580. T3 at step 1337 (~18:30 UTC). **EN load-bearing confirmed; closing ~18:40 UTC.** |
-| **#2328** | open2-nezuko | **H-AF: Newton-Schulz iteration count ablation on NC × Arbor + RI** | 2890 | **NEWLY ASSIGNED 18:30 UTC.** Single arm NS6 (n=4). Smoke gate first (50 steps). Tests whether NS5 is the optimal iteration count on the equilibrated NC×Arbor stack. |
-| **#2323** | open2-thorfinn | H-AA: Arbor warmup (skip Sinkhorn first N steps) | 2890 | N=0 n=4 running (`fiixr3ft`, 100% GPU, launched 14:31 UTC). ETA terminal ~21:00 UTC. Then N=500, N=1000 arms if N=0 competitive. |
+| **#2329** | open2-tanjiro | **H-AG: LR × WD retune on NC × Arbor + RI** | 2890 | **NEWLY ASSIGNED 18:43 UTC.** 2-arm screen: LR=0.0015 vs LR=0.0022 at WD=0.1. n=2 first, then n=4 on winner. Smoke gate first. |
+| **#2328** | open2-nezuko | H-AF: Newton-Schulz iteration count ablation | 2890 | Assigned 18:30 UTC. Not yet picked up. Single arm NS6 (n=4). Smoke gate first (50 steps). |
+| **#2323** | open2-thorfinn | H-AA: Arbor warmup (skip Sinkhorn first N steps) | 2890 | N=0 n=4 running (`fiixr3ft`, 100% GPU, launched 14:31 UTC). ETA terminal ~21:00 UTC. N=500/N=1000 arms follow if N=0 competitive. |
 
-## ✅ Recent closures / merges (18:30 UTC, 2026-06-06)
+## ✅ Recent closures / merges (18:43 UTC, 2026-06-06)
 
+- **PR #2321 (tanjiro H-Y) CLOSED 18:43 UTC** — Drop EN from NC × Arbor + RI: n=4 mean 3.278702 (+0.002509 above rank-1). EN is load-bearing even with NC present — independent of NC condition. Tanjiro reassigned H-AG (LR/WD retune).
 - **PR #2325 (nezuko H-AC) MERGED 18:18 UTC** — NC cleanup: always-on, `--nc` flag removed. +2/−7 diff, clean smoke. NC is now the default throughout the codebase.
 - **PR #2320 (fern H-X) CLOSED 17:48 UTC** — capture_step ablation on Arbor-only stack: (2200, −0.05) sign-stable winner (n=4 Δ=−0.000031 vs default). Doesn't beat NC × Arbor rank-1. H-AE follow-up assigned (re-sweep on NC × Arbor stack).
 - **PR #2310 (edward H-O) CLOSED 16:05 UTC** — NC alone on PR #309: n=4 paired Δ=+0.000425 (NC adverse). **Mechanism confirmed: NC requires Arbor to compose.**

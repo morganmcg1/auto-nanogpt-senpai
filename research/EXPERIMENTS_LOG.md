@@ -9,6 +9,34 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-06 18:43 UTC — PR #2329: H-AG LR × WD retune on NC × Arbor + RI — ASSIGNED
+
+- **Branch:** `open2-tanjiro/h-ag-lr-wd-retune`
+- **Hypothesis:** LR=0.0018 and WD=0.1 were inherited from PR #309 base without re-validation on NC × Arbor stack. NC's per-row × per-col L2 equalization + Arbor's Sinkhorn rescaling both change the effective update magnitude. Testing LR ∈ {0.0015, 0.0022} (2-arm n=2 screen), then n=4 on winner.
+- **Status:** NEWLY ASSIGNED.
+
+---
+
+## 2026-06-06 18:43 UTC — PR #2321: H-Y Drop EN from Arbor + NC + RI — CLOSED (REFUTED)
+
+- **Branch:** `open2-tanjiro/h-y-arbor-no-en-nc`
+- **Hypothesis:** EN might not be load-bearing when NC is present; NC's L2 equalization might compensate for EN's momentum smoothing. Tested Arbor + NC + RI without EMA-Nesterov.
+- **W&B run:** `5an0slvc` (open2-tanjiro/h-y-arbor-no-en-nc-n4, runtime 7.25h)
+- **Results:**
+
+| Trial | val/ri_loss_γ=-0.075 | paired Δ vs γ=0 |
+|---:|---:|---:|
+| T0 | 3.279332 | −0.000450 |
+| T1 | 3.277918 | −0.000433 |
+| T2 | 3.278490 | −0.000443 |
+| T3 | 3.279066 | — |
+| **n=4 mean** | **3.278702** | **−0.000440** |
+
+- **Verdict:** n=4 mean 3.278702 = **+0.002509 above rank-1** (3.276193). EN is load-bearing even with NC present. Closing H-Y.
+- **Combined with frieren H-Z** (Arbor + RI, no EN, no NC) at ~3.279: EN's ~−0.003 absolute lift is INDEPENDENT of NC condition. EMA-Nesterov is a primary mechanism, not a secondary enabler.
+
+---
+
 ## 2026-06-06 18:30 UTC — PR #2328: H-AF Newton-Schulz iteration count ablation — ASSIGNED
 
 - **Branch:** `open2-nezuko/h-af-ns-iters-nc-arbor`
