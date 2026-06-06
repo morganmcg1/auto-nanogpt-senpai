@@ -9,6 +9,25 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-06 12:55 UTC — PR #2314: H-R Arbor+RI Recalibration (thorfinn)
+
+- **Branch:** `open2-thorfinn/h-r-arbor-ri-pr309-2890`
+- **Hypothesis:** Run merged Arbor+RI on 4 fresh seeds to calibrate the true n=4 mean and set the recalibrated merge bar.
+- **W&B:** `ahv8kj7m`
+- **Code changes:** NONE (calibration-only PR)
+
+| Trial | val/loss γ=−0.075 | val/loss γ=0 | paired Δ | first_step_to_target |
+|---:|---:|---:|---:|---:|
+| T0 | 3.276168 | 3.276485 | −0.000317 | 2850 |
+| T1 | 3.276595 | 3.276890 | −0.000295 | 2850 |
+| T2 | 3.276790 | 3.277112 | −0.000322 | 2850 |
+| T3 | 3.278008 | 3.278358 | −0.000350 | 2875 |
+| **n=4 mean** | **3.276890** | **3.277211** | **−0.000321** | **2856.25** |
+
+**Analysis:** Calibration result on merged Arbor+RI (identical to PR #2298 code). Pooled n=8 estimate ~3.27713. Recalibrated merge bar: n=4 ≤ 3.2762 for genuine lift. RI paired Δ −0.000321 ± 0.000023 fully active. Closed without code merge; Thorfinn reassigned H-AA (Arbor warmup, PR #2323).
+
+---
+
 ## 2026-06-06 10:38 — PR #2311: H-P NC + RI on PR #305 base at 2925 steps — CLOSED (mechanism boundary confirmed, NOT mergeable)
 
 - Branch: `open2-tanjiro/h-p-nc-ri-pr305-stack`

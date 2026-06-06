@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~12:00 UTC (launch day +2)
+- **As of:** 2026-06-06 ~13:00 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,7 +18,7 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 - W&B: `5weg8d9r`. Contract margin 0.00524.
 - **Cleanup PR #2313 merged 04:30 UTC:** Arbor is now always-on (no flag). Removed broken sqrt variant.
 
-## Active assignments (11:25 UTC, 2026-06-06)
+## Active assignments (13:00 UTC, 2026-06-06)
 
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
@@ -29,7 +29,18 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | Arm A n=4=3.27894. Arm B T0=3.28048 (+0.00085 vs control). T1 running ETA ~12:18 UTC, T3 ~15:33 UTC. |
 | **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | n=4 run `5an0slvc` at step 775/2890 (T0, val=3.71). step_avg ~2017ms. ETA T0 ~13:18, T3 ~17:30 UTC. |
 | **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | **T1 RI = 3.275501** (below recalibrated baseline −0.001). T0 val_loss=3.27671. T2 at step ~175/2890. **POTENTIAL RANK-1** — clean per-trial table pending. |
-| **#2314** | open2-thorfinn | H-R: Arbor + RI eval composition | 2890 | **n=3 mean 3.276518** (T0=3.276168, T1=3.276595, T2=3.27679). T3 at step 867/2890 (30%), ETA ~12:38 UTC. |
+| **#2323** | open2-thorfinn | H-AA: Arbor warmup — skip Sinkhorn first N steps | 2890 | **ASSIGNED 12:58 UTC**. H-R CLOSED (calibration-only, n=4=3.276890). Smoke sweep N∈{0,250,500,1000} then n=4. |
+
+## 🔬 13:00 UTC: Thorfinn H-R CLOSED (calibration) + H-AA assigned; Edward Arm B T1=+0.00141
+
+**Thorfinn H-R PR #2314 CLOSED — n=4 = 3.276890, CALIBRATION ONLY:**
+- Zero code changes. Recalibrated true Arbor+RI mean: pooled n=8 ≈ 3.27713.
+- Recalibrated merge bar: n=4 ≤ **3.2762** to claim genuine mechanism lift.
+- Thorfinn reassigned H-AA: Arbor warmup (PR #2323). Sweep skip-Sinkhorn-first-N steps.
+
+**Edward H-O Arm B T1=3.27933 — n=2 paired Δ = +0.00113 (NC DEFINITIVELY HURTS without Arbor):**
+- T0 Δ=+0.00085, T1 Δ=+0.00141. NC alone on PR #309 base consistently destructive.
+- Key contrast: NC × Arbor + RI (nezuko) HELPS. NC alone (edward) HURTS. → Arbor rescues NC.
 
 ## 🚨 12:00 UTC: NEZUKO H-W T1 RI = 3.275501 — POTENTIAL NEW RANK-1 CANDIDATE
 
