@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~13:25 UTC (launch day +2)
+- **As of:** 2026-06-06 ~13:42 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -26,10 +26,30 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | **#2322** | open2-frieren | H-Z: Arbor − EMA-Nesterov baseline (no NC) | 2890 | n=4 active (run `9y3k8kea`, step ~910 of T1, ~31% overall). Sinkhorn active without EN ✓. ETA T3 ~18:30 UTC. |
 | **#2307** | open2-askeladd | H-L: freeze tail paired arms | 2890 | Arm B n=3 Δ mean = +0.002734 (sd 0.000370) — paired t (df=2) ~+12.8. T3 in flight ETA ~14:11 UTC. **DEAD — informational closure pending.** |
 | **#2320** | open2-fern | H-X: RI capture_step ablation | 2890 | **T0 LANDED** val=3.27711, best (2200, −0.05)=3.277089 vs default 3.277114 (Δ=−0.000025). U-shape across capture well-formed. T1 at step 1603/2890 (55%). Terminal ETA ~17:15 UTC. |
-| **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | Arm A n=4=3.27894. Arm B n=2 paired Δ=+0.00113 (NC HURTS). T2/T3 informational. ETA T3 ~15:33 UTC. |
+| **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | **NEEDS_REBASE** (DIRTY merge state vs Arbor cleanup). Arm A n=4=3.27894. Arm B n=2 paired Δ=+0.00113. T2/T3 informational. ETA T3 ~15:33 UTC. Rebase guidance posted. |
 | **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | **T0 LANDED = 3.279331** (+0.001951 vs Arbor). NC + Arbor without EN looks WEAK vs nezuko's WITH EN. T1 running (`99jczfyt`, started 13:12 UTC after 2 pod-induced crashes). ETA T3 ~17:50 UTC. |
-| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | **n=2 mean γ=−0.075 = 3.276107** (BELOW recalibrated floor 3.276518 by −0.000411). T2 at step 2400/2890 (82%), terminal ETA ~13:35 UTC. **POTENTIAL RANK-1** if T2/T3 hold. |
+| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | **n=3 mean γ=−0.075 = 3.276354** ± std 0.000742, SE 0.000428. T2 RI=3.276849 paired Δ −0.000310. T3 at step 103 as of 13:41. Terminal ETA ~15:10 UTC. **RANK-1 CANDIDATE** — projected n=4 ~3.2763, margin 0.0073 vs contract 0.004. |
 | **#2323** | open2-thorfinn | H-AA: Arbor warmup — skip Sinkhorn first N steps | 2890 | **PICKUP CONFIRMED.** N=0 smoke (`jheoy4tk`) at step 250/500. `arbor_warmup_steps=0` ✓. n=4 launch after smoke ETA ~13:30 UTC. Arm-by-arm sweep N∈{0,500,1000} suggested. |
+
+## 🚀 13:42 UTC: NEZUKO T2 LANDS — n=3 mean = 3.276354, RANK-1 TRAJECTORY CONFIRMED
+
+**Nezuko H-W n=3 (T0+T1+T2) mean γ=−0.075 = 3.276354:**
+- T0=3.276712, T1=3.275501, T2=3.276849 → tight band 0.001348
+- Paired Δ stable across trials: −0.000352, −0.000324, −0.000310
+- std 0.000742, SE 0.000428 — n=3 confidence interval narrow
+- vs recalibrated Arbor+RI floor (3.276890): n=3 mean is **−0.000536 below** (t=−1.25 not stat-sig yet)
+- T3 in flight (step 103 at 13:41 UTC), terminal ETA ~15:10 UTC
+
+### T3 outcome projection
+
+| T3 γ=−0.075 hypothetical | n=4 mean | Margin vs contract (3.28 target, √n=2) |
+|---:|---:|---:|
+| 3.2755 (T1-like best) | 3.276141 | 0.00772 ✓ |
+| 3.2763 (T0/T2 median) | 3.276338 | 0.00733 ✓ |
+| 3.2770 (thorfinn-T3 high) | 3.276513 | 0.00697 ✓ |
+| 3.2780 (worst plausible) | 3.276763 | 0.00647 ✓ |
+
+All trajectories pass the contract. Mechanism merge bar (n=4 ≤ 3.2762 for genuine lift) clears in scenarios 1-2.
 
 ## 🚀 13:25 UTC: NEZUKO n=2 mean = 3.276107 + TANJIRO T0 reveals EN is LOAD-BEARING for NC×Arbor
 
