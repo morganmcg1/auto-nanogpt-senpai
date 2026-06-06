@@ -140,6 +140,14 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--freeze_lm_head_tail", type=int, default=0,
+                        help="H-L: if 1, zero model.proj.weight.grad in the tail of training "
+                             "starting at --freeze_lm_head_from_step (uses loop step index, "
+                             "i.e. effectively freezes the optimizer.step() that produces "
+                             "train_step = freeze_lm_head_from_step + 1 onward).")
+    parser.add_argument("--freeze_lm_head_from_step", type=int, default=2600,
+                        help="H-L: loop-step index from which to begin zeroing lm_head grad "
+                             "when --freeze_lm_head_tail=1. Default 2600 = last ~10pct of 2890.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1418,6 +1426,12 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        # H-L lm_head freeze tail: zero readout grad in the final tail of training.
+        # AdamW β1=0.8 means lm_head momentum decays to ~10^-29 within 30 steps, so
+        # this is effectively a hard freeze of model.proj.weight from this point on.
+        freeze_lm_head_now = bool(args.freeze_lm_head_tail and step >= args.freeze_lm_head_from_step)
+        if freeze_lm_head_now:
+            model.proj.weight.grad.zero_()
         # set optimization hyperparameters and take a step
         set_hparams(step)
         train_step = step + 1
@@ -1443,6 +1457,8 @@ for trial_idx in range(args.num_trials):
                     optimizer_ema.it >= EMA_NESTEROV_PREFILL_STEPS
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
                 ),
+                "train/freeze_lm_head_active": int(freeze_lm_head_now),
+                "train/freeze_lm_head_from_step": int(args.freeze_lm_head_from_step),
             }
             log_training_telemetry(
                 model=model,
