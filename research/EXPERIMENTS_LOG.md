@@ -9,6 +9,41 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-06 14:30 UTC — PR #2307: H-L lm_head freeze tail × RI on PR #309 base — CLOSED (FALSIFIED)
+
+- **Branch:** `open2-askeladd/h-l-lm-head-freeze-tail`
+- **Hypothesis:** Freezing lm_head from step 2600 (last 290 / 10% of training) on PR #309 + RI base will reduce tail noise without breaking the RI prior. Paired arms (Arm A no freeze, Arm B freeze) test mechanism Δ at n=4.
+- **W&B:** Arm A `v7pfq024`, Arm B `j4nsivel`
+
+### Per-trial val/loss (γ=−0.075 RI @ step 2890)
+
+| Trial | Arm A | Arm B | Δ (B−A) | Arm A fst | Arm B fst |
+|---:|---:|---:|---:|---:|---:|
+| T0 | 3.277565 | 3.279870 | +0.002305 | 2875 | 2890 |
+| T1 | 3.276967 | 3.279970 | +0.003003 | 2850 | 2890 |
+| T2 | 3.276846 | 3.279740 | +0.002894 | 2850 | 2890 |
+| T3 | 3.279358 | 3.281521 | +0.002164 | 2890 | **−1 (MISS)** |
+| **n=4 mean** | **3.277684** | **3.280275** | **+0.002587** | — | — |
+
+### Statistical verdict
+
+- Paired Δ mean +0.002587, sd 0.000419, paired t(df=3) = +12.35, p ≈ 0.0011 (two-tailed)
+- Arm B n=4 mean (3.280275) ABOVE the 3.28 target — stat contract margin **−0.00055** (FAILS)
+- All 4 per-trial Δ positive; smallest Δ (+0.00216) is 5.1× SE above zero — structural, not tail event
+- T3 Arm B missed target entirely (fst=−1), confirming destabilization not stabilization
+
+### Mechanism (provisional, from askeladd's analysis)
+
+Freeze tail breaks the RI prior. RI captures `last-N-step delta` at step 2375 and projects (snaps back) at step 2890 along γ = −0.075. The captured direction `Δ = w(2375) − w(2890)` includes lm_head motion from steps 2375 → 2890 in full-flow training. In Arm B, freeze engages at step 2600, so steps 2600 → 2890 contribute zero lm_head motion; the captured Δ contains lm_head motion only from steps 2375 → 2600. RI extrapolation along γ < 0 thus pushes lm_head in a partially stale direction, breaking the local linear approximation.
+
+**Implication:** Future tail-stabilization hypotheses must preserve continuous lm_head motion through the RI capture window. Smooth LR cooldown, Polyak-Ruppert / SWA tail averaging, or velocity damping are candidates — abrupt freeze is not.
+
+### Cross-reference
+
+Aligns with frieren H-T closure (freeze tail × Arbor + RI): n=2 mean +0.00225 above baseline. Three independent freeze-tail experiments (askeladd Arm B, frieren H-T n=2, askeladd Arm B reproduction) all confirm the +0.0025 absolute hurt.
+
+---
+
 ## 2026-06-06 12:55 UTC — PR #2314: H-R Arbor+RI Recalibration (thorfinn)
 
 - **Branch:** `open2-thorfinn/h-r-arbor-ri-pr309-2890`
