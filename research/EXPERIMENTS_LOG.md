@@ -9,6 +9,50 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-06 10:38 — PR #2311: H-P NC + RI on PR #305 base at 2925 steps — CLOSED (mechanism boundary confirmed, NOT mergeable)
+
+- Branch: `open2-tanjiro/h-p-nc-ri-pr305-stack`
+- Student: open2-tanjiro
+- Hypothesis: NC + RI on PR #305 base (Aurora + RRE + Contra-Muon, no EMA-Nesterov) at 2925 steps. Tests NC × non-EN base composition.
+- Status: **CLOSED** — n=4 mean (γ=−0.075) = 3.279177, above all baselines
+
+### n=4 per-trial × per-γ results
+
+| Trial | γ=−0.075 | γ=−0.05 | γ=0 | paired Δ (γ=−0.075 vs γ=0) | first_step_to_target |
+|---:|---:|---:|---:|---:|---:|
+| T0 | 3.279508 | 3.279606 | 3.280146 | **−0.000638** | 2925 |
+| T1 | 3.279875 | 3.279980 | 3.280526 | **−0.000651** | 2925 |
+| T2 | 3.279444 | 3.279540 | 3.280087 | **−0.000643** | 2925 |
+| T3 | **3.277882** | 3.277990 | 3.278538 | **−0.000656** | 2900 |
+| **n=4 mean** | **3.279177** | 3.279279 | 3.279824 | **−0.000647** (±8e-6) | 2918.75 |
+
+W&B run: `6ygg4kze` (group `open2-tanjiro/h-p-nc-ri-pr305-2925`)
+
+### Analysis — mechanism boundary (the publishable finding)
+
+**4-way base × mechanism grid (NC+RI paired Δ vs Arbor baseline 3.27738):**
+
+| Base | NC+RI paired Δ(γ=−0.075 vs γ=0) | EMA-Nesterov? | Status |
+|---|---:|---|---|
+| bare Muon (thorfinn H-F) | ~−0.0006 | No | NC healthy |
+| **PR #305 (tanjiro H-P)** | **−0.000647 ± 0.000008** | **No** | **NC healthy** |
+| PR #309 (frieren H-K) | −0.000290 | Yes (β=0.95) | NC suppressed |
+| PR #309 (fern H-N T0) | −0.000310 | Yes (β=0.95) | NC suppressed |
+
+**Verdict:** EMA-Nesterov halves the RI lift when NC is active. Stdev 8e-6 across 4 trials is striking evidence — NC × EMA-Nesterov interaction is a real, specific mechanism boundary, not a generic NC problem or noise.
+
+### Absolute level
+
+- n=4 mean 3.279177 > Arbor baseline 3.27738 by +0.00180 → not mergeable
+- Above PR #305 base record 3.27813 by +0.00105 → NC overhead on PR #305 also hurts absolute
+- Stat margin 0.001645 < required 0.004
+
+### Why NC can't recover absolute level on PR #305
+
+Tanjiro's analysis: PR #305 already integrates Aurora + RRE + Contra-Muon. Adding NC raises the step-budget floor; RI lift (~−0.0006) can't recover the ~+0.001 step-budget overhead from NC. Contra-Muon does NOT fully overlap with NC sign-awareness (otherwise paired Δ would collapse).
+
+---
+
 ## 2026-06-06 06:38 — PR #2306: H-K NC + RI on PR #309 base — CLOSED (NC × EMA-Nesterov null)
 
 - Branch: `open2-frieren/h-k-nc-ri-pr309-n4`
