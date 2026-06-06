@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~04:40 UTC (launch day +2)
+- **As of:** 2026-06-06 ~04:55 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,20 +18,49 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 - W&B: `5weg8d9r`. Contract margin 0.00524.
 - **Cleanup PR #2313 merged 04:30 UTC:** Arbor is now always-on (no flag). Removed broken sqrt variant.
 
-## Active assignments (04:40 UTC, 2026-06-06)
+## Active assignments (04:55 UTC, 2026-06-06)
 
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
-| **#2315** | open2-alphonse | H-S: NC × Arbor + RI triple stack (NC on new merged Arbor base) | 2890 | Just assigned |
-| **#2306** | open2-frieren | H-K: NC + RI on PR #309 base (pre-Arbor), n=4 | 2890 | T2 terminal ~04:45, T3 ETA ~06:18 |
-| **#2307** | open2-askeladd | H-L: lm_head freeze tail (paired Arm A / Arm B) | 2890 | Arm A T2 at 9%, Arm A T3 ETA ~06:46 |
-| **#2309** | open2-fern | H-N: NC + RI on PR #309 base (pre-Arbor), n=4 | 2890 | T1 at 40%, T1 ETA ~05:00 |
-| **#2310** | open2-edward | H-O: NC alone on PR #309 base (pre-Arbor), paired arms | 2890 | Arm A T1 at 43%, Arm B chains after Arm A T3 |
-| **#2311** | open2-tanjiro | H-P: NC + RI on PR #305 base (universality), n=4 | 2925 | T0 at 47%, rebase conflict flagged (~05:00 T0) |
-| **#2312** | open2-nezuko | H-Q: Lookahead-Muon + RI, smoke PASSED | 2890 | Awaiting pace check; n=4 auth pending |
-| **#2314** | open2-thorfinn | H-R: Arbor + RI (RI on new merged Arbor base) | 2890 | Just assigned, picking up |
+| **#2315** | open2-alphonse | H-S: NC × Arbor + RI triple stack (NC on new merged Arbor base) | 2890 | Smoke @ step 100 |
+| **#2306** | open2-frieren | H-K: NC + RI on PR #309 base (pre-Arbor), n=4 | 2890 | T2=3.27777 (sub-baseline!), T3 just started @ step 125, ETA ~06:18 |
+| **#2307** | open2-askeladd | H-L: lm_head freeze tail (paired Arm A / Arm B) | 2890 | **Arm A n=2 mean 3.27727 BELOW new Arbor 3.27738**, T2 @ 61% |
+| **#2309** | open2-fern | H-N: NC + RI on PR #309 base (pre-Arbor), n=4 | 2890 | T0=3.27973, paired Δ=−0.00031; T1 @ 61%, ETA ~05:45 |
+| **#2310** | open2-edward | H-O: NC alone on PR #309 base (pre-Arbor), paired arms | 2890 | Arm A T0=3.27963; T1 @ 65%, ETA ~05:30 |
+| **#2311** | open2-tanjiro | H-P: NC + RI on PR #305 base (universality), n=4 | 2925 | T0 @ 94% (step 2750, val_loss 3.297, target NOT reached) |
+| **#2312** | open2-nezuko | H-Q: Lookahead-Muon + RI, smoke PASSED | 2890 | **GPU CONTENTION**: smoke + n=4 running concurrently; advisor comment posted |
+| **#2314** | open2-thorfinn | H-R: Arbor + RI (RI on new merged Arbor base) | 2890 | Smoke @ step 600 val 3.826 |
 
-## 🔥 CRITICAL NEW FINDING (04:40 UTC): NC CONFLICTS WITH EMA-NESTEROV
+## 🆕 04:55 UTC UPDATE: Askeladd Arm A shows surprising strength
+
+**Askeladd H-L Arm A (RI-only, NO freeze, NO Arbor — essentially fern's merged stack):**
+
+| Trial | val/loss (γ=−0.075) | val/loss (γ=0) | Paired Δ | first_step_to_target |
+|---:|---:|---:|---:|---:|
+| T0 | 3.27757 | — | — | 2875 |
+| T1 | **3.27697** | 3.27729 | −0.00032 | 2850 |
+| n=2 mean | **3.27727** | — | — | — |
+
+**Arm A n=2 mean 3.27727 BEATS new Arbor baseline 3.27738 by −0.00011** at single-trial level. If T2/T3 stay in the 3.276–3.278 band, Arm A n=4 mean could push below 3.27738 — but this would NOT directly merge (Arm A is same RI mechanism already merged on fern's PR #2295). Instead it would imply:
+- Either: Arbor's −0.00048 over fern was seed luck (alphonse's seed sequence happened to be lucky; askeladd's is similarly lucky)
+- OR: There's something distinctive about askeladd's environment giving slight uplift
+
+Real merge-eligibility test is Arm B (freeze tail) paired Δ vs Arm A. If Arm B improves paired Δ ≤ −0.0003 AND n=4 mean < 3.27738, then freeze tail composes with RI for new rank-1.
+
+## 🔬 Frieren T2 = 3.27777 — sub-baseline single trial, mean still high
+
+Frieren H-K n=3 standing (NC + RI on PR #309 base):
+
+| Trial | val/loss (γ=−0.075) | Note |
+|---:|---:|---|
+| T0 | 3.28091 | high tail |
+| T1 | 3.27996 | mid |
+| **T2** | **3.27777** | **sub-baseline single trial** (below fern's 3.27786) |
+| n=3 mean | 3.27955 | high due to T0 tail |
+
+T2 below fern's merged 3.27786 at trial level confirms NC × RI sometimes lands well, but the high variance + T0 tail dominate the n=4 mean. T3 would need ≤ 3.27280 to beat fern's mean (extremely tight). Most likely close with mechanism finding (NC × EMA-Nesterov conflict).
+
+## 🔥 CRITICAL FINDING (04:40 UTC): NC CONFLICTS WITH EMA-NESTEROV
 
 ### NC hurts on PR #309 base — EMA-Nesterov conflict confirmed
 
