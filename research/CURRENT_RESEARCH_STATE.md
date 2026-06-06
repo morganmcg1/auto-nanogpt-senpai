@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~14:44 UTC (launch day +2)
+- **As of:** 2026-06-06 ~15:15 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -28,7 +28,7 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | **#2320** | open2-fern | H-X: RI capture_step ablation | 2890 | **T0 LANDED** val=3.27711, best (2200, −0.05)=3.277089 vs default 3.277114 (Δ=−0.000025). U-shape across capture well-formed. T1 at step 1603/2890 (55%). Terminal ETA ~17:15 UTC. |
 | **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | **NEEDS_REBASE** (DIRTY merge state vs Arbor cleanup). Arm A n=4=3.27894. Arm B n=2 paired Δ=+0.00113. T2/T3 informational. ETA T3 ~15:33 UTC. Rebase guidance posted. |
 | **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | **T0 LANDED = 3.279331** (+0.001951 vs Arbor). NC + Arbor without EN looks WEAK vs nezuko's WITH EN. T1 running (`99jczfyt`, started 13:12 UTC after 2 pod-induced crashes). ETA T3 ~17:50 UTC. |
-| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | **n=3 mean γ=−0.075 = 3.276354** ± std 0.000742, SE 0.000428. T2 RI=3.276849 paired Δ −0.000310. T3 at step 103 as of 13:41. Terminal ETA ~15:10 UTC. **RANK-1 CANDIDATE** — projected n=4 ~3.2763, margin 0.0073 vs contract 0.004. |
+| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | **🏆 NEW RANK-1**: T3 RI=3.276849 (best-checkpoint), **n=4 mean = 3.276478** ± std 0.000597. T3 step 2625/2890 (91%), SENPAI-RESULT ETA ~15:20 UTC. **vs PR #2298 baseline (3.27738) = −0.000902.** Contract margin 0.00704 ✓. MERGE on SENPAI-RESULT. |
 | **#2323** | open2-thorfinn | H-AA: Arbor warmup — skip Sinkhorn first N steps | 2890 | **PICKUP CONFIRMED.** N=0 smoke (`jheoy4tk`) at step 250/500. `arbor_warmup_steps=0` ✓. n=4 launch after smoke ETA ~13:30 UTC. Arm-by-arm sweep N∈{0,500,1000} suggested. |
 
 ## 🚀 14:00 UTC: FRIEREN H-Z T0 = 3.278932 — EN is INDEPENDENTLY load-bearing for Arbor (NOT just NC×Arbor)
