@@ -117,6 +117,9 @@ def parse_args():
     parser.add_argument("--train_steps", type=int, default=FINAL_TRAIN_STEPS)
     parser.add_argument("--seed_offset", type=int, default=0,
                         help="Base seed for trial loop; trial t uses seed_offset + t.")
+    parser.add_argument("--nc", type=int, default=0,
+                        help="Enable Normalized Correction (PR #295, 'Cautious-Muon'). 1 = on, 0 = off. "
+                             "Applied inside muon_update before scaling/NS: divides by sqrt(row_norm * col_norm).")
     parser.add_argument("--wandb_name", default=os.environ.get("WANDB_NAME", ""))
     parser.add_argument("--wandb_group", default=os.environ.get("WANDB_RUN_GROUP", ""))
     parser.add_argument("--wandb_project", default=os.environ.get("WANDB_PROJECT", "modded-nanogpt-senpai"))
@@ -154,6 +157,12 @@ def parse_args():
 
 
 args = parse_args()
+
+# H-N: optional Normalized Correction (PR #295) inside muon_update. When enabled,
+# the post-momentum update is element-wise divided by sqrt(row_norm * col_norm)
+# before scaling/NS, stabilising singular-value spread. Compositional test on the
+# PR #309 base after fern's RI merge (#2295) and thorfinn's NC+RI bare-Muon (#2303).
+NC_ENABLED = bool(args.nc)
 
 
 def clean_metric_name(name: str) -> str:
@@ -847,6 +856,10 @@ def soft_blend_for_step(step: int) -> float:
     return min(SOFT_MUON_CEIL, _linear_ramp(step, NORMAL_TO_SOFT_START_STEP, NORMAL_TO_SOFT_END_STEP))
 
 def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, use_soft=True):
+    if NC_ENABLED:
+        r_norm = update.norm(dim=-1, keepdim=True)
+        c_norm = update.norm(dim=-2, keepdim=True)
+        update = update / torch.sqrt(torch.clamp(r_norm * c_norm, min=1e-12))
     normalized_grad = scale_to_unit_operator_norm(update.clone())
     ns_update = zeropower_via_newtonschulz5(update)
     update_norm_estimate = gram_frobenius_norm_estimate(ns_update)
@@ -1146,7 +1159,9 @@ if dist.get_rank() == 0:
             "ema_nesterov_rest_steps": EMA_NESTEROV_REST_STEPS,
             "ri_gamma": args.ri_gamma,
             "ri_capture_step": args.ri_capture_step,
-            "ri_enabled": args.ri_gamma != 0.0,
+            "ri_extra_gammas": list(args.ri_extra_gammas),
+            "ri_enabled": (args.ri_gamma != 0.0) or any(g != 0.0 for g in args.ri_extra_gammas),
+            "nc": int(NC_ENABLED),
         },
     )
 
