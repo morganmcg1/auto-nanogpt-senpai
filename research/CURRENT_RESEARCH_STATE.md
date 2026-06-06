@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~09:20 UTC (launch day +2)
+- **As of:** 2026-06-06 ~09:36 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,18 +18,18 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 - W&B: `5weg8d9r`. Contract margin 0.00524.
 - **Cleanup PR #2313 merged 04:30 UTC:** Arbor is now always-on (no flag). Removed broken sqrt variant.
 
-## Active assignments (09:20 UTC, 2026-06-06)
+## Active assignments (09:36 UTC, 2026-06-06)
 
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
 | **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN** — environmental NaN persists. Issue #2319 (07:54 UTC) waiting. |
-| **#2316** | open2-frieren | H-T: lm_head freeze tail × Arbor + RI | 2890 | **T0 LANDED: 3.278676** (+0.00130 above baseline). paired Δ=−0.000544 normal. T1 just started. Likely abort after T1 if direction confirms. |
-| **#2307** | open2-askeladd | H-L: freeze tail (Arm A done, Arm B running) | 2890 | **Arm B T0 LANDED: paired Δ=+0.002305 vs Arm A** (freeze HURTS). T1 at step 325. **Two independent arms confirm freeze tail negative.** |
-| **#2309** | open2-fern | H-N: NC + RI on PR #309 base, n=4 | 2890 | **FINISHED: n=4 mean = 3.278737** (+0.00136 above Arbor). NOT mergeable. 4th NC×EMA-Nesterov confirmation. Awaiting SENPAI-RESULT post. |
-| **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | **Arm A FINISHED. Tentative n=4 ~3.27894** above baseline. Awaiting SENPAI-RESULT + Arm B watchdog. |
-| **#2311** | open2-tanjiro | H-P: NC + RI on PR #305 base (universality), n=4 | 2925 | T2 at step ~1500/2925 (~50%). Paired Δ=−0.000644 confirms PR #305 mechanism boundary; absolute above Arbor. T3 ETA ~10:30 UTC. |
-| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | T0 at step 1450/2890 (~50%), val/loss 3.5596, no anomalies. T0 terminal ETA ~10:30 UTC. |
-| **#2314** | open2-thorfinn | H-R: Arbor + RI eval composition | 2890 | **T1 LANDED: 3.276595!** n=2 mean = **3.276382 (−0.001 BELOW Arbor baseline 3.27738!)** T2 just started. T2 terminal ~10:50 UTC. |
+| **#2316** | open2-frieren | H-T: lm_head freeze tail × Arbor + RI | 2890 | **T0 LANDED: 3.278676** (+0.00130 above baseline). T1 running. Abort decision ~10:50 UTC. |
+| **#2307** | open2-askeladd | H-L: freeze tail (Arm A done, Arm B running) | 2890 | **Arm B T0 paired Δ=+0.002305 vs Arm A** (freeze HURTS). T1 running. ETA ~10:30 UTC. |
+| **#2320** | open2-fern | H-X: RI capture_step ablation on merged Arbor base | 2890 | **ASSIGNED 09:36 UTC**. Add `--ri_extra_capture_steps` flag, sweep {2000,2200,2375,2550,2700}. Zero extra training cost. ETA ~7h. |
+| **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | **Arm A n=4 done: 3.27894** (above baseline). Arm B (NC=1) launched ~09:02 UTC (run js0yjia2), ETA terminal T0 ~11:00 UTC. |
+| **#2311** | open2-tanjiro | H-P: NC + RI on PR #305 base (universality), n=4 | 2925 | T2/T3 running. Paired Δ=−0.000644 confirms PR #305 mechanism boundary. T3 ETA ~10:30 UTC. |
+| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | T0 ~50% at 09:15 UTC. T0 terminal ETA ~10:30 UTC. |
+| **#2314** | open2-thorfinn | H-R: Arbor + RI eval composition | 2890 | **n=2 mean = 3.276382** (−0.001 below PR #2298!). T2 running, ETA ~10:50 UTC. T3 ETA ~12:40 UTC. |
 
 ## 🔬 09:15 UTC: MAJOR DATA DROP — 4 simultaneous terminals
 
