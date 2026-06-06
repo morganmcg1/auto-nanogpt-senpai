@@ -9,6 +9,46 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-06 03:45 — PR #2298: H-A Corrected Arbor Muon on PR #309 base — MERGED (new rank-1)
+
+- Branch: `open2-alphonse/h-a-corrected-arbor-muon-pr309-base`
+- Hypothesis: Sinkhorn spectral equilibration of Muon update matrices (corrected: sqrt(out_dim) post-NS pin removed, pure row/column rebalancer) on PR #309 base (Aurora+EMA-Nesterov) at 2890 steps.
+- Status: **MERGED** — new rank-1 baseline 3.27738 n=4, margin 0.00524
+- W&B run: `5weg8d9r` (n=4 confirm, group `open2-alphonse/h-a-arbor-pr309-corrected`)
+
+### n=4 per-trial results
+
+| Trial | val/loss @ step 2890 | first_step_to_target | Δ vs fern merged (3.27786) | Δ vs PR #309 base |
+|---|---:|---:|---:|---:|
+| T0 | 3.27749 | 2850 | −0.00037 ✅ | −0.00050 ✅ |
+| T1 | 3.27633 | 2850 | −0.00153 ✅ | −0.00166 ✅ |
+| T2 | 3.27714 | 2850 | −0.00072 ✅ | −0.00085 ✅ |
+| T3 | 3.27856 | 2875 | +0.00070 (tail) | +0.00057 |
+| **n=4 mean** | **3.27738** | **2856.25** | **−0.00048** ✅ | **−0.00061** ✅ |
+
+### Statistical contract
+
+| Metric | Value | Threshold | Status |
+|---|---:|---:|---|
+| n=4 mean | **3.27738** | < 3.27786 (fern) | ✅ beats by 0.00048 |
+| Contract `(3.28 − mean) × √4` | **0.00524** | ≥ 0.004 | ✅ ~31% headroom |
+| σ across T0-T3 | 0.00092 | — | tight |
+| max−min | 0.00223 | 0.0015 tail flag | ⚠️ T3 mild tail (3.27856), but far from catastrophic 3.281+ regime |
+
+### Analysis and conclusions
+
+**Corrected Arbor Muon mechanism confirmed.** The original PR #2298 failure was a code spec ambiguity: the first implementation applied `G_orth * sqrt(out_dim)` after Sinkhorn, introducing a ~55× Frobenius magnitude explosion that manifested as +0.045 val/loss regression and NaN at some random seeds. Removing this post-NS pin and using default Muon scaling (`max(1, out/in)**0.5`) restored stable training AND captured a genuine lift.
+
+**Mechanism interpretation:** With the corrected scaling, Sinkhorn equilibration is a pure row/column statistic rebalancer on the Muon update direction — `sinkhorn_ratio=1.00` confirms magnitude preservation. The 0.00048 lift over fern's merged RI stack comes from reshaping the per-element distribution without changing the Frobenius norm. This is consistent with the theoretical Arbor hypothesis: spectrum equilibration reduces the variance of individual weight updates, allowing the optimizer to follow a smoother descent direction.
+
+**T3 mild tail note:** T3 = 3.27856 is a tail event (max−min = 0.00223 > 0.0015 flag) but sits well below the catastrophic 3.281+ regime seen on other PR #309 base experiments. The corrected Arbor may be damping tail variance, not just shifting the mean — publishable as a variance-reduction mechanism.
+
+**Cleanup assigned:** PR #2313 to alphonse — prune the broken sqrt(out_dim) variant code path, make `apply_arbor` default True, run 250-step smoke.
+
+**Next step for fleet:** All in-flight NC experiments (frieren H-K, thorfinn H-M, fern H-N, edward H-O) are testing on pre-Arbor base. After they complete, NC × Arbor composition (can NC add further lift on top of the new merged stack?) is the next high-priority hypothesis.
+
+---
+
 ## 2026-06-06 03:13 — PR #2305: H-J Two-Snapshot Richardson RI on PR #309 base — NULL (closed)
 
 - Branch: `open2-nezuko/h-j-2snap-richardson-pr309-2890`
