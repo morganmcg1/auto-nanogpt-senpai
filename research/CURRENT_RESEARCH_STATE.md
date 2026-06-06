@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~09:36 UTC (launch day +2)
+- **As of:** 2026-06-06 ~10:46 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,18 +18,37 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 - W&B: `5weg8d9r`. Contract margin 0.00524.
 - **Cleanup PR #2313 merged 04:30 UTC:** Arbor is now always-on (no flag). Removed broken sqrt variant.
 
-## Active assignments (09:36 UTC, 2026-06-06)
+## Active assignments (10:46 UTC, 2026-06-06)
 
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN** — environmental NaN persists. Issue #2319 (07:54 UTC) waiting. |
-| **#2316** | open2-frieren | H-T: lm_head freeze tail × Arbor + RI | 2890 | **T0 LANDED: 3.278676** (+0.00130 above baseline). T1 running. Abort decision ~10:50 UTC. |
-| **#2307** | open2-askeladd | H-L: freeze tail (Arm A done, Arm B running) | 2890 | **Arm B T0 paired Δ=+0.002305 vs Arm A** (freeze HURTS). T1 running. ETA ~10:30 UTC. |
-| **#2320** | open2-fern | H-X: RI capture_step ablation on merged Arbor base | 2890 | **ASSIGNED 09:36 UTC**. Add `--ri_extra_capture_steps` flag, sweep {2000,2200,2375,2550,2700}. Zero extra training cost. ETA ~7h. |
-| **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | **Arm A n=4 done: 3.27894** (above baseline). Arm B (NC=1) launched ~09:02 UTC (run js0yjia2), ETA terminal T0 ~11:00 UTC. |
-| **#2311** | open2-tanjiro | H-P: NC + RI on PR #305 base (universality), n=4 | 2925 | T2/T3 running. Paired Δ=−0.000644 confirms PR #305 mechanism boundary. T3 ETA ~10:30 UTC. |
-| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | T0 ~50% at 09:15 UTC. T0 terminal ETA ~10:30 UTC. |
-| **#2314** | open2-thorfinn | H-R: Arbor + RI eval composition | 2890 | **n=2 mean = 3.276382** (−0.001 below PR #2298!). T2 running, ETA ~10:50 UTC. T3 ETA ~12:40 UTC. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN** — environmental NaN persists. Issue #2319 waiting. |
+| **#2316** | open2-frieren | H-T: lm_head freeze tail × Arbor + RI | 2890 | T0=3.278676 (+0.00130). T1 at 96% → terminal ~10:52 UTC. **Abort likely after T1 confirms.** |
+| **#2307** | open2-askeladd | H-L: freeze tail paired arms | 2890 | Arm B T1 at 99.8% — terminal imminent. Arm B T0=3.27987, T1=3.2810. Both above baseline. **Closing after T1 posted.** |
+| **#2320** | open2-fern | H-X: RI capture_step ablation | 2890 | **n=4 LAUNCHED 10:29 UTC** (run 0ygp3njz step 475). ETA ~16:54 UTC. |
+| **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | Arm A n=4=3.27894 (above). Arm B T0=**3.2805** (NC hurts +0.0009 vs control). T1 started. Arm B ETA ~15:30 UTC. |
+| **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | **ASSIGNED 10:46 UTC**. Tests whether removing EN unlocks NC composition. |
+| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | T0=**3.27671** (below baseline by −0.00067). T1 ~50% at 10:11 UTC. T1 ETA ~12:10 UTC. |
+| **#2314** | open2-thorfinn | H-R: Arbor + RI eval composition | 2890 | n=2=3.276382. T2 at 96% → terminal ~10:52 UTC. T3 ETA ~12:40 UTC. |
+
+## 🔬 10:38 UTC: Tanjiro H-P n=4 CLOSED + NC×EN table finalized
+
+**Tanjiro H-P PR #2311 CLOSED — n=4 = 3.279177, NOT mergeable**
+
+**4-way mechanism boundary grid (NC+RI paired Δ):**
+
+| Base | Paired Δ | EMA-Nesterov? |
+|---|---:|---|
+| bare Muon (thorfinn H-F) | ~−0.0006 | No |
+| PR #305 (tanjiro H-P) | **−0.000647 ± 8e-6** | No |
+| PR #309 (frieren H-K) | −0.000290 | Yes |
+| PR #309 (fern H-N T0) | −0.000310 | Yes |
+
+**Conclusion: EN specifically halves NC×RI lift.** Tanjiro reassigned H-Y (drop EN from merged Arbor, retest NC composition).
+
+## 🔬 10:27 UTC: Edward Arm B T0=3.2805 — NC hurts +0.0009 vs control on PR #309
+
+Edward H-O paired arms: Arm A (no NC) T0=3.27963, Arm B (NC=1) T0=3.2805. Δ=+0.0009 — NC hurts on merged Arbor base (EN present). Consistent with NC×EN suppression pattern.
 
 ## 🔬 09:15 UTC: MAJOR DATA DROP — 4 simultaneous terminals
 
