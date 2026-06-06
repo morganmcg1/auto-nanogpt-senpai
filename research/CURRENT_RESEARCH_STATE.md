@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~13:00 UTC (launch day +2)
+- **As of:** 2026-06-06 ~13:25 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,18 +18,47 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 - W&B: `5weg8d9r`. Contract margin 0.00524.
 - **Cleanup PR #2313 merged 04:30 UTC:** Arbor is now always-on (no flag). Removed broken sqrt variant.
 
-## Active assignments (13:00 UTC, 2026-06-06)
+## Active assignments (13:25 UTC, 2026-06-06)
 
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN** — Issue #2319 open ~3h31m, no human response. |
-| **#2322** | open2-frieren | H-Z: Arbor − EMA-Nesterov baseline (no NC) | 2890 | **n=4 LAUNCHED** (run `9y3k8kea`, step 75 T0). Second smoke `slvja2cs` confirmed clean. ETA T3 ~18:30 UTC. |
-| **#2307** | open2-askeladd | H-L: freeze tail paired arms | 2890 | Arm B T1=3.27997 (+0.003003 vs Arm A) — confirms freeze tail negative. T2 in progress. ETA T3 ~14:04 UTC. |
-| **#2320** | open2-fern | H-X: RI capture_step ablation | 2890 | n=4 active (run 0ygp3njz, step 471 at 10:46 UTC). ETA ~17:16 UTC. |
-| **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | Arm A n=4=3.27894. Arm B T0=3.28048 (+0.00085 vs control). T1 running ETA ~12:18 UTC, T3 ~15:33 UTC. |
-| **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | n=4 run `5an0slvc` at step 775/2890 (T0, val=3.71). step_avg ~2017ms. ETA T0 ~13:18, T3 ~17:30 UTC. |
-| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | **T1 RI = 3.275501** (below recalibrated baseline −0.001). T0 val_loss=3.27671. T2 at step ~175/2890. **POTENTIAL RANK-1** — clean per-trial table pending. |
-| **#2323** | open2-thorfinn | H-AA: Arbor warmup — skip Sinkhorn first N steps | 2890 | **ASSIGNED 12:58 UTC**. H-R CLOSED (calibration-only, n=4=3.276890). Smoke sweep N∈{0,250,500,1000} then n=4. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN — 18th check, ~5h21m** since Issue #2319 filed. No human team response yet. |
+| **#2322** | open2-frieren | H-Z: Arbor − EMA-Nesterov baseline (no NC) | 2890 | n=4 active (run `9y3k8kea`, step ~910 of T1, ~31% overall). Sinkhorn active without EN ✓. ETA T3 ~18:30 UTC. |
+| **#2307** | open2-askeladd | H-L: freeze tail paired arms | 2890 | Arm B n=3 Δ mean = +0.002734 (sd 0.000370) — paired t (df=2) ~+12.8. T3 in flight ETA ~14:11 UTC. **DEAD — informational closure pending.** |
+| **#2320** | open2-fern | H-X: RI capture_step ablation | 2890 | **T0 LANDED** val=3.27711, best (2200, −0.05)=3.277089 vs default 3.277114 (Δ=−0.000025). U-shape across capture well-formed. T1 at step 1603/2890 (55%). Terminal ETA ~17:15 UTC. |
+| **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | Arm A n=4=3.27894. Arm B n=2 paired Δ=+0.00113 (NC HURTS). T2/T3 informational. ETA T3 ~15:33 UTC. |
+| **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | **T0 LANDED = 3.279331** (+0.001951 vs Arbor). NC + Arbor without EN looks WEAK vs nezuko's WITH EN. T1 running (`99jczfyt`, started 13:12 UTC after 2 pod-induced crashes). ETA T3 ~17:50 UTC. |
+| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | **n=2 mean γ=−0.075 = 3.276107** (BELOW recalibrated floor 3.276518 by −0.000411). T2 at step 2400/2890 (82%), terminal ETA ~13:35 UTC. **POTENTIAL RANK-1** if T2/T3 hold. |
+| **#2323** | open2-thorfinn | H-AA: Arbor warmup — skip Sinkhorn first N steps | 2890 | **PICKUP CONFIRMED.** N=0 smoke (`jheoy4tk`) at step 250/500. `arbor_warmup_steps=0` ✓. n=4 launch after smoke ETA ~13:30 UTC. Arm-by-arm sweep N∈{0,500,1000} suggested. |
+
+## 🚀 13:25 UTC: NEZUKO n=2 mean = 3.276107 + TANJIRO T0 reveals EN is LOAD-BEARING for NC×Arbor
+
+**Nezuko H-W n=2 (T0+T1) mean γ=−0.075 = 3.276107:**
+- T0 γ=−0.075 = 3.276712, T1 γ=−0.075 = 3.275501
+- T0 γ=0 = 3.277064, T1 γ=0 = 3.275825 → n=2 mean γ=0 = 3.276444
+- Paired Δ T0=−0.000352, T1=−0.000324 (consistent, NC-EN suppressed band)
+- **n=2 mean is −0.000411 BELOW recalibrated floor (3.276518)**
+- Sub-Arbor by −0.00127 already at n=2; clean rank-1 trajectory if T2/T3 hold within ±0.001
+- T2 terminal ETA ~13:35 UTC, T3 ETA ~15:10 UTC
+
+**Tanjiro H-Y T0 = 3.279331 — important counter-data:**
+- Same recipe as nezuko (NC + Arbor + RI) but with `disable_ema_nesterov=True`
+- Config verified: `nc_enabled=True`, `disable_ema_nesterov=True`, `ri_enabled=True`, Sinkhorn active ✓
+- T0=3.27933 vs nezuko T0=3.27671 → **dropping EN costs +0.00262 absolute at T0**
+- T1 running (`99jczfyt`, started 13:12 UTC after 2 pod-induced crashes)
+- Comparable to edward Arm B T0 (NC alone, no Arbor): 3.28048
+
+**Provisional mechanism table at T0 (γ=−0.075):**
+
+| Recipe | EN | NC | Arbor | T0 | vs Arbor (3.27738) |
+|---|:-:|:-:|:-:|---:|---:|
+| Arbor + RI | ✓ | ✗ | ✓ | thorfinn n=4=3.27689 | −0.00049 |
+| NC + Arbor + RI (nezuko) | ✓ | ✓ | ✓ | T0=3.27671 | −0.00067 |
+| NC + Arbor + RI **no EN** (tanjiro) | ✗ | ✓ | ✓ | T0=3.27933 | **+0.00195** |
+| NC alone on PR #309 (edward Arm B) | ✓ | ✓ | ✗ | T0=3.28048 | +0.00310 |
+| Arbor + RI **no EN** (frieren H-Z) | ✗ | ✗ | ✓ | T1 in flight | TBD |
+
+**Read:** EN appears critical to the NC×Arbor lift. Frieren H-Z (no EN, no NC) is the cleanest disambiguator — if Frieren also lands at ~3.279, the penalty is from removing EN alone (Arbor needs EN); if frieren stays near 3.27738, then NC×−EN specifically destroys the composition.
 
 ## 🔬 13:00 UTC: Thorfinn H-R CLOSED (calibration) + H-AA assigned; Edward Arm B T1=+0.00141
 
