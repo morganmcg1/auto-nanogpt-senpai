@@ -18,17 +18,17 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 - W&B: `5weg8d9r`. Contract margin 0.00524.
 - **Cleanup PR #2313 merged 04:30 UTC:** Arbor is now always-on (no flag). Removed broken sqrt variant.
 
-## Active assignments (06:50 UTC, 2026-06-06)
+## Active assignments (07:22 UTC, 2026-06-06)
 
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
-| **#2315** | open2-alphonse | H-S: NC × Arbor + RI triple stack | 2890 | **BLOCKED — environmental NaN on Blackwell GPU (CC 12.0 pod)**. Soft recovery window open (15-min). Close + reassign pending if pod unrecoverable. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **NEWLY ASSIGNED** (07:20 UTC). PR #2315 (H-S) closed as environmental NaN. Smoke first — same pod may still have GPU issue. γ ∈ {−0.05, −0.075, −0.10, −0.125, −0.15, −0.20} ablation. |
 | **#2316** | open2-frieren | H-T: lm_head freeze tail × Arbor + RI | 2890 | **NEWLY ASSIGNED** (06:38 UTC). `--freeze_lm_head_tail 1 --freeze_lm_head_from_step 2600`. Smoke → n=4 pipeline. |
 | **#2307** | open2-askeladd | H-L: lm_head freeze tail (Arm A control + Arm B freeze) | 2890 | **T3 in progress** (step ~2053/2890, 71%). Arm A n=3 mean **3.27713 — BEATING Arbor baseline 3.27738!** T3 ETA ~07:20 UTC. |
 | **#2309** | open2-fern | H-N: NC + RI on PR #309 base, n=4 | 2890 | T2 in progress (~70%), T0/T1 both ~3.27834 paired Δ pattern confirming NC×EMA-Nesterov. |
 | **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | Arm A T2 in progress (~72%). T0=3.27963, T1 TBD. |
 | **#2311** | open2-tanjiro | H-P: NC + RI on PR #305 base (universality), n=4 | 2925 | T1 nearly done (was 93% at 06:00 UTC). T0=3.27951, paired Δ=−0.0006 (normal, no EMA-Nesterov conflict on PR #305). |
-| **#2312** | open2-nezuko | H-Q: Lookahead-Muon + RI on PR #309 base | 2890 | T0=3.29391 (**VERY BAD** — Lookahead-Muon failing). T1 at ~40%. Direction unlikely. |
+| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | **NEWLY ASSIGNED** (07:05 UTC). H-Q (Lookahead-Muon) aborted after T0=3.29391. NC × Arbor tests whether Sinkhorn equilibration changes EMA-Nesterov/NC interaction. |
 | **#2314** | open2-thorfinn | H-R: Arbor + RI eval composition | 2890 | T0 at step ~1775/2890 (61%). No terminal yet, on pace. |
 
 ## 🔬 06:38 UTC: Frieren H-K CLOSED — NC × EMA-Nesterov confirmed n=4
@@ -126,17 +126,21 @@ Lookahead k=10, α=0.5 on PR #309 base: T0 = 3.29391. This is ~0.016 above the 3
 - Dynamic β schedule: anneal EMA-Nesterov β from 0.95 → 0.85 in last 10% of training
 - NC after Sinkhorn (reversed composition — NC operates on already-equilibrated updates)
 
-## Watch items (next 4h from 06:50 UTC)
+## Watch items (next 4h from 07:22 UTC)
 
 | Time | Event | Expected |
 |---|---|---|
-| ~06:55 | Alphonse pod recovery response | One of: recovered / request restart / in-progress |
-| ~07:20 | Askeladd H-L Arm A T3 terminal | n=4 mean expected ~3.2771 (sub-baseline!); Arm B chain after |
-| ~07:30 | Tanjiro H-P T1 terminal | NC+RI on PR #305 T1; paired Δ confirmation |
-| ~08:30 | Thorfinn H-R T0 terminal | First Arbor+RI post-merge result |
-| ~09:00 | Edward H-O Arm A T2 terminal | NC-alone on PR #309 T2 |
-| ~09:00 | Fern H-N T2 terminal | NC+RI on PR #309 T2 |
-| ~10:00 | Frieren H-T smoke | Freeze tail flag gate: no NaN + arbor/sinkhorn_fro_ratio |
+| ~07:27 | Thorfinn H-R T0 terminal | First Arbor+RI post-merge result — mechanistic confirmation |
+| ~07:31 | Askeladd H-L Arm A T3 terminal | n=4 mean expected ~3.2772 (sub-baseline variance); Arm B chain after |
+| ~07:40 | Fern H-N T2 terminal | NC+RI on PR #309 T2 — paired Δ trajectory |
+| ~08:30 | Edward H-O Arm A T2 terminal | NC-alone on PR #309 T2 |
+| ~08:30+ | Alphonse H-V smoke | May fail with same GPU NaN — if so escalate to pod restart |
+| ~09:00+ | Tanjiro H-P T3 terminal | NC+RI on PR #305, T1 terminal missed, T2/T3 in progress |
+| ~10:00+ | Nezuko H-W smoke | NC × Arbor implementation smoke gate |
+| ~12:00+ | Frieren H-T smoke | Freeze tail flag gate on merged Arbor base |
+
+### ⚠️ Askeladd Arm A MERGE NOTE
+Arm A n=3 mean 3.27713 is sub-baseline, but **Arm A uses pre-Arbor PR #309 code**. Do NOT merge Arm A — it would regress to pre-Arbor code over the merged baseline. Arm A data is mechanistic context only (confirms RI-alone baseline for Arm B Δ calculation). Only Arm B (freeze tail + RI on pre-Arbor code) is relevant for Arm B vs Arm A Δ; the MERGE-ELIGIBLE test is frieren H-T (freeze tail on merged Arbor base).
 
 ## Operational notes (06:50 UTC)
 
