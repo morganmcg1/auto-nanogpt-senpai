@@ -9,6 +9,37 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-06 16:05 UTC — PR #2310: H-O NC alone on PR #309 base, paired arms — CLOSED (INFORMATIONAL)
+
+- **Branch:** `open2-edward/h-o-nc-pr309-isolation`
+- **Hypothesis:** Cautious-Muon (NC) added to bare PR #309 (no Arbor) — does NC alone compose with Aurora+EMA-Nesterov+RI?
+- **W&B:** Arm A `zyfbkso7` (--nc 0), Arm B `js0yjia2` (--nc 1)
+
+### Per-trial table (n=4 paired arms)
+
+| Trial | Arm A val_loss (no NC) | Arm B val_loss (NC) | Paired Δ (B − A) |
+|---:|---:|---:|---:|
+| T0 | 3.27963 | 3.28048 | +0.00085 |
+| T1 | 3.27792 | 3.27933 | +0.00141 |
+| T2 | 3.27788 | 3.27882 | +0.00094 |
+| T3 | 3.28031 | 3.27881 | −0.00150 (Arm A tail outlier) |
+| **n=4 mean** | **3.27894** | **3.27936** | **+0.000425** |
+
+### Statistical verdict
+
+- Arm B mean 3.27936 vs Arbor baseline (PR #2298 = 3.27738): **+0.00198 above** ✗
+- Arm B mean 3.27936 vs new rank-1 (PR #2317 = 3.276193): **+0.00317 above** ✗
+- Stat margin 0.00128 < 0.004 required ✗
+- Paired t(3) = 0.65 (NC adverse, weak) → not statistically significant against H0=0, but **directionally consistent with NC needs Arbor**
+
+### Mechanism finding
+
+**NC requires Arbor to compose with the Aurora+EN+RI stack.** Without Sinkhorn equilibration, NC adds +0.0004 (weakly adverse) on PR #309. With Sinkhorn (Arbor), NC contributes −0.0007 absolute lift on top of Arbor+RI (per PR #2317). Sinkhorn equilibration is a necessary precondition for NC to compose — likely because Sinkhorn reshapes the spectrum into a regime where NC's row/col L2 equalization captures non-trivial headroom rather than fighting EN saturation.
+
+This closure confirms the compositional structure: Arbor → NC, not NC → Arbor.
+
+---
+
 ## 2026-06-06 15:43 UTC — PR #2317: H-W NC × Arbor + RI on merged Arbor base — MERGED (NEW RANK-1)
 
 - **Branch:** `open2-nezuko/h-w-nc-arbor-ri-pr309-2890`

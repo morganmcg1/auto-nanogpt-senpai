@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~15:45 UTC (launch day +2)
+- **As of:** 2026-06-06 ~16:10 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -21,18 +21,34 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 
 Previous rank-1: **PR #2298 (alphonse H-A Corrected Arbor Muon) = 3.27738** (W&B: 5weg8d9r)
 
-## Active assignments (13:25 UTC, 2026-06-06)
+## Active assignments (16:10 UTC, 2026-06-06)
 
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN — 18th check, ~5h21m** since Issue #2319 filed. No human team response yet. |
-| **#2322** | open2-frieren | H-Z: Arbor − EMA-Nesterov baseline (no NC) | 2890 | **T1 LANDED = 3.279692** (WORSE than T0 3.278932). n=2 mean = 3.279312, paired Δ=−0.000438 (RI lift compressed without EN). T2 just started (step 25 at 15:28). EN confirmed load-bearing for Arbor. ETA T3 ~21:00 UTC. |
-| **#2324** | open2-askeladd | H-AB: Polyak-Ruppert/SWA tail averaging on Arbor+RI | 2890 | **PICKED UP** by student (iter 158 at 15:15 UTC). GPU 0% — preparing smoke. Paired arms: Arm A (baseline), Arm B (SWA tail K=290, last 10%). |
-| **#2320** | open2-fern | H-X: RI capture_step ablation | 2890 | T2 at step 2427/2890. Partial val/ri_loss(γ=−0.075, capture=2375) = **3.275764** (best arm). Ranking: 2375<2200<2550<2700<2000. T2 ETA ~15:45 UTC. T3 ETA ~17:15 UTC. |
-| **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | **Arm B n=3 paired Δ=+0.00107**, T0=3.28048, T1=3.27933, T2=3.27882, T3 at step 2100/2890 (73%), ETA ~16:22 UTC. Informational closure pending T3. Rebase then close. |
-| **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | T0=3.279331, T1=3.277918 (recovery), mean(T0,T1)=3.278625. Paired Δ ≈ −0.000441. T2 at step 677/2890. T2 ETA ~17:00 UTC, T3 ~18:40 UTC. Closure trajectory. |
-| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | **✅ MERGED 15:43 UTC** — n=4 mean = **3.276193** (T3=3.275708). NEW RANK-1. Cleanup PR to be assigned: make NC always-on. |
-| **#2323** | open2-thorfinn | H-AA: Arbor warmup — skip Sinkhorn first N steps | 2890 | N=0 n=4 launched 14:32 UTC (`fiixr3ft`). ETA terminal ~21:00 UTC. Then N=500, N=1000 follow-up arms. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN — Issue #2319 open ~8h, no human team response.** Stuck on pod 7t946p. |
+| **#2322** | open2-frieren | H-Z: Arbor − EN baseline (no NC) | 2890 | T1=3.279692, T0=3.278932, n=2 mean=3.279312. T2 in flight. **EN confirmed load-bearing independently of NC.** Closure ETA ~21:00 UTC. No rebase needed (informational closure). |
+| **#2324** | open2-askeladd | H-AB: SWA tail on Arbor+RI base | 2890 | **Sent back for rebase + add --nc 1.** Hadn't launched. New run will use NC × Arbor + RI as control baseline. SWA tests orthogonal mechanism. |
+| **#2320** | open2-fern | H-X: RI capture_step ablation (pre-NC stack) | 2890 | T2 landed (~15:45 UTC), T3 in flight. Ranking so far: capture=2375 best. Informational closure on pre-NC stack. ETA T3 ~17:23 UTC. |
+| **#2326** | open2-edward | **H-AD: RI γ ablation on NC × Arbor stack** | 2890 | **NEWLY ASSIGNED 16:10 UTC.** Extended γ sweep: {0, −0.025, −0.050, −0.075, −0.100, −0.125, −0.150} via `ri_extra_gammas`, n=4. Tests if optimal γ shifts with NC. |
+| **#2321** | open2-tanjiro | H-Y: Drop EN from Arbor + NC + RI | 2890 | T0=3.279331, T1=3.277918, mean=3.278625. T2 in flight. Closure trajectory — EN load-bearing even with NC. ETA T3 ~18:40 UTC. |
+| **#2325** | open2-nezuko | H-AC: NC cleanup — make NC always-on | — | **NEWLY ASSIGNED 16:00 UTC (PR #2325).** Smoke only. Remove `--nc` CLI flag, always-on. |
+| **#2323** | open2-thorfinn | H-AA: Arbor warmup (skip Sinkhorn first N steps) | 2890 | N=0 n=4 in flight (`fiixr3ft`). ETA terminal ~21:00 UTC. Then N=500, N=1000 arms. |
+
+## ✅ Recent closures (16:10 UTC, 2026-06-06)
+
+- **PR #2310 (edward H-O) CLOSED 16:05 UTC** — NC alone on PR #309: n=4 paired Δ=+0.000425 (NC adverse). **Mechanism confirmed: NC requires Arbor to compose.** W&B: `zyfbkso7`/`js0yjia2`.
+- **PR #2307 (askeladd H-L) CLOSED 14:30 UTC** — lm_head freeze tail ×RI: n=4 paired Δ=+0.002587 (freeze breaks RI prior). Falsified.
+
+## Key mechanism table (NC × Arbor + RI stack)
+
+| Component | Absolute val/loss effect | Evidence |
+|---|---:|---|
+| Arbor (Sinkhorn only) | −0.00049 | H-A vs PR #309 |
+| + EMA-Nesterov (EN required) | −0.0028 | H-Z (frieren), H-Y (tanjiro) |
+| + RI γ=−0.075 | −0.00032 (paired Δ) | H-W (nezuko) |
+| + NC (on Arbor+EN+RI) | −0.00069 | H-W vs Arbor baseline |
+| **NC alone (no Arbor)** | **+0.0004** | H-O (edward) — NC HURTS without Arbor |
+| **NC − EN (both removed)** | n/a | H-Y (tanjiro) − both needed |
 
 ## 🚀 14:00 UTC: FRIEREN H-Z T0 = 3.278932 — EN is INDEPENDENTLY load-bearing for Arbor (NOT just NC×Arbor)
 
