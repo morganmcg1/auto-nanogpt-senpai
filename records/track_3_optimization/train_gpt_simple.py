@@ -146,6 +146,9 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--nc", type=int, default=0,
+                        help="Cautious-Muon normalization (NC): 1 enables per-row x per-col L2 "
+                             "equalization on update BEFORE NS5; 0 disables. H-W tests NC x Arbor + RI.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -890,7 +893,11 @@ def arbor_sinkhorn_equilibrate(G: Tensor, n_iters: int = ARBOR_ITERS,
 
 
 def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, use_soft=True,
-                apply_arbor: bool = False):
+                apply_arbor: bool = False, apply_nc: bool = False):
+    if apply_nc and update.dim() >= 2:
+        r_norm = update.norm(dim=-1, keepdim=True)
+        c_norm = update.norm(dim=-2, keepdim=True)
+        update = update / torch.sqrt(torch.clamp(r_norm * c_norm, min=1e-12))
     normalized_grad = scale_to_unit_operator_norm(update.clone())
     ns_update = zeropower_via_newtonschulz5(update)
     if apply_arbor:
@@ -1012,6 +1019,7 @@ class Muon(torch.optim.Optimizer):
                         use_contra=p not in self.no_contra_params,
                         use_soft=p not in self.no_soft_params,
                         apply_arbor=p_apply_arbor,
+                        apply_nc=(args.nc == 1),
                     )
                     if p_apply_arbor and arbor_diag:
                         param_name = self.arbor_param_names.get(p, "unknown")
@@ -1216,6 +1224,7 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "nc_enabled": args.nc == 1,
         },
     )
 
