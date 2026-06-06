@@ -9,6 +9,42 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-06 01:39 — PR #2299: H-D late-higher block LR on PR #309 base — NULL result (closed)
+
+- Branch: `open2-tanjiro/h-d-late-higher-block-lr-pr309-base`
+- Hypothesis: Does mean-preserving linear block-LR ramp (0.90→1.10) improve val/loss on PR #309 base vs flat control?
+- Status: **CLOSED** — n=4 null result; T1 tail event inflates SE, no detectable signal
+- W&B runs: `wpk68f5v` (Arm A, flat), `xcwr1ed9` (Arm B, late-higher v2)
+
+### Per-trial × per-arm val/loss table
+
+| Trial | Arm A (flat) | Arm B (late-higher) | Paired Δ (B − A) | first_step_to_target |
+|---|---:|---:|---:|---:|
+| T0 | 3.27917 | 3.27750 | **−0.00167** | Arm B = 2850 |
+| T1 | 3.27770 | 3.28244 | **+0.00474** ← tail | Arm B = −1 (missed target) |
+| T2 | 3.27772 | 3.27671 | **−0.00101** | Arm B = 2850 |
+| T3 | 3.27984 | 3.27968 | **−0.00016** | Arm B = 2890 |
+| **n=4 mean** | **3.27861** | **3.27908** | **+0.000475** | |
+| SD | 0.00107 | 0.00257 | 0.00291 | |
+| SE | 0.000536 | 0.001283 | 0.001455 | |
+
+Paired t = 0.326, df = 3, one-sided p (Arm B < Arm A) = 0.617. Welch's two-sample p = 0.625.
+
+### Analysis and conclusions
+
+**H-D is NULL on PR #309 base.** 3 of 4 trials favor Arm B (T0, T2, T3 all negative Δ) but T1 alone (+0.00474 swing) inflates SE to 0.00146 — larger than the estimated effect (−0.0010 excluding T1). With mean Δ of +0.000475 sitting 0.33σ above zero, the data is fully consistent with no late-higher effect.
+
+**Mechanism interpretation:** PR #309 base (Aurora + EMA-Nesterov + Contra-Muon ramp to step 2500) already incorporates depth-conditional learning behavior. The late-higher external ramp is mechanistically redundant with the internal Contra-Muon ramp, saturating the depth-differentiation budget. No headroom remains for the linear external modifier.
+
+**Cross-base verdict (complete):**
+- PR #309 (tanjiro): NULL (paired Δ +0.000475, p=0.62, n=4)
+- PR #300 (edward): FALSIFIED (paired Δ +0.001576, n=2 aborted)
+- **Late-higher block LR is CLOSED across all tested bases. Not a viable composable mechanism.**
+
+**Suggested follow-up by student:** NC+RI on PR #305 — assigned as H-P to tanjiro (PR #2311).
+
+---
+
 ## 2026-06-06 00:12 — PR #2301: H-D late-higher block LR on PR #300 base — ABORTED (falsified)
 
 - Branch: `open2-edward/h-d-late-higher-pr300`

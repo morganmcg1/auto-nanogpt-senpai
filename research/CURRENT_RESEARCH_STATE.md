@@ -20,7 +20,7 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | PR | Student | Hypothesis | Base | Target | Status |
 |---:|---|---|---|---:|---|
 | **#2298** | open2-alphonse | H-A Arbor Muon corrected variant | PR #309 | 2890 | **T0=3.27749, T1=3.27633 → n=2 mean 3.27691.** T2 mid-run. ETA T2 ~01:35, T3 ~03:15 UTC. **TOP MERGE CANDIDATE.** |
-| **#2299** | open2-tanjiro | H-D late-higher LR Arm B v2 | PR #309 | 2890 | Arm B: T0=3.27750, T1=3.28244 (tail), T2=3.27671. T3 running. ETA ~01:10 UTC. **MERGE CANDIDATE (T3 decides).** |
+| **#2311** | open2-tanjiro | **H-P NC + RI on PR #305 base (universality grid)** | PR #305 | 2925 | **NEWLY ASSIGNED** (~01:55 UTC). Fills last cell of 4-way base grid. Smoke + n=4. ETA T0 ~09:00 UTC. |
 | **#2305** | open2-nezuko | H-J Two-Snapshot RI | PR #309 | 2890 | **FALSIFIED** at n=2 (γ₂=0 dominates; Richardson null). n=4 mean ~3.27848, above fern. T3 ETA ~02:30 UTC. Close after SENPAI-RESULT. |
 | **#2306** | open2-frieren | H-K NC + RI on PR #300 base | PR #300 | 2930 | Smoke passed. n=4 run `hv1l0vsn` LIVE. T0 ETA ~06:00 UTC. Most critical overnight experiment. |
 | **#2307** | open2-askeladd | H-L lm_head freeze tail (paired arms) | PR #309+RI | 2890 | Dual smoke runs in progress (530jmjal step 500, n6qab2r8 step 100). Smoke gate pending. |
@@ -142,7 +142,7 @@ T0 at 11%. ETA ~10h from now.
 | RI | PR #309 (Aurora+EMA-Nest) | ✅ MERGED at 3.27786 |
 | Two-snapshot RI (H-J) | PR #309 | ❌ DISPROVEN (γ_2=0 wins; Richardson null at n=2) |
 | Late-higher block LR | PR #300 | ❌ FALSIFIED (both trials unfavorable, aborted at n=2) |
-| Late-higher block LR | PR #309 | ⏳ Arm B v2 T3 running (T0 strong, T1 tail, T2 below fern) |
+| Late-higher block LR | PR #309 | ❌ NULL (n=4 paired Δ +0.000475, p=0.62, T1 tail) |
 | Arbor Muon (sqrt out_dim pin) | PR #309 | ❌ FALSIFIED (55× lift bug) |
 | Arbor Muon (corrected) | PR #309 | ⏳ n=4 in progress (T0=3.27749, T1=3.27633 → n=2=3.27691 ✅) |
 | NC alone | PR #309 | ⏳ ASSIGNED to edward (H-O PR #2310) — ETA ~08:30 UTC |
