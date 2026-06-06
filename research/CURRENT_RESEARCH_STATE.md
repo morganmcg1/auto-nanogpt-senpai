@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~14:00 UTC (launch day +2)
+- **As of:** 2026-06-06 ~14:18 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -24,7 +24,7 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 |---:|---|---|---:|---|
 | **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN — 18th check, ~5h21m** since Issue #2319 filed. No human team response yet. |
 | **#2322** | open2-frieren | H-Z: Arbor − EMA-Nesterov baseline (no NC) | 2890 | n=4 active (run `9y3k8kea`, step ~910 of T1, ~31% overall). Sinkhorn active without EN ✓. ETA T3 ~18:30 UTC. |
-| **#2307** | open2-askeladd | H-L: freeze tail paired arms | 2890 | Arm B n=3 Δ mean = +0.002734 (sd 0.000370) — paired t (df=2) ~+12.8. T3 in flight ETA ~14:11 UTC. **DEAD — informational closure pending.** |
+| **#2307** | open2-askeladd | H-L: freeze tail paired arms | 2890 | **TERMINAL** — Arm B n=4 = 3.280275, paired Δ mean = +0.002591 sd 0.000370, t(3)=+14.0 p<<0.001. **FALSIFIED**. Awaiting student SENPAI-RESULT marker for clean closure. |
 | **#2320** | open2-fern | H-X: RI capture_step ablation | 2890 | **T0 LANDED** val=3.27711, best (2200, −0.05)=3.277089 vs default 3.277114 (Δ=−0.000025). U-shape across capture well-formed. T1 at step 1603/2890 (55%). Terminal ETA ~17:15 UTC. |
 | **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | **NEEDS_REBASE** (DIRTY merge state vs Arbor cleanup). Arm A n=4=3.27894. Arm B n=2 paired Δ=+0.00113. T2/T3 informational. ETA T3 ~15:33 UTC. Rebase guidance posted. |
 | **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | **T0 LANDED = 3.279331** (+0.001951 vs Arbor). NC + Arbor without EN looks WEAK vs nezuko's WITH EN. T1 running (`99jczfyt`, started 13:12 UTC after 2 pod-induced crashes). ETA T3 ~17:50 UTC. |
