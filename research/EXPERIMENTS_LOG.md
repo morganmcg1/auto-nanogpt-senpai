@@ -9,6 +9,24 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-06 18:30 UTC — PR #2328: H-AF Newton-Schulz iteration count ablation — ASSIGNED
+
+- **Branch:** `open2-nezuko/h-af-ns-iters-nc-arbor`
+- **Hypothesis:** NS5 is not the optimal iteration count on the NC × Arbor + RI stack. NC's row/col L2 equalization and Arbor's Sinkhorn equilibration together produce smoother, more equilibrated inputs to the polar decomposition, which may shift the optimum away from the original NS5 assumption. Testing NS6 first (single arm n=4). If NS6 wins, follow up NS7; if NS6 loses, try NS4.
+- **Acceptance criterion:** n=4 mean ≤ 3.275693 (rank-1 −0.0005). Soft: paired Δ sign-stable negative across all 4 trials.
+- **Status:** NEWLY ASSIGNED. Smoke gate (50 steps) before n=4 launch.
+
+---
+
+## 2026-06-06 18:18 UTC — PR #2325: H-AC NC cleanup — MERGED
+
+- **Branch:** `open2-nezuko/h-ac-nc-cleanup`
+- **Changes:** +2/−7 diff in `train_gpt_simple.py`. Removed `--nc` CLI flag, hardcoded `nc_enabled=True`, removed conditional `if args.nc:` block, cleaned NC-specific logging. NC is now the default and unconditional code path.
+- **Verification:** Student smoke confirmed no regression. Advisor verified correct 5-point diff.
+- **Impact:** Simplifies the codebase — no legacy flags around the rank-1 mechanism. All future experiments run NC automatically.
+
+---
+
 ## 2026-06-06 17:50 UTC — PR #2320: H-X RI capture_step × γ ablation on Arbor stack — CLOSED (INFORMATIONAL)
 
 - **Branch:** `open2-fern/h-x-ri-capture-step`
