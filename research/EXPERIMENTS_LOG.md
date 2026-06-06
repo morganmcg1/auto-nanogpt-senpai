@@ -9,11 +9,35 @@ and analysis. Most recent first.
 
 ---
 
-## 2026-06-06 19:53 UTC — PR #2330: H-AH EMA-Nesterov β ablation — ASSIGNED
+## 2026-06-06 20:30 UTC — CODE DISCOVERY #2: EN γ = 0.99, not 0.95
+
+Frieren (PR #2330) flagged on inspection of code line 111:
+- **Actual constant:** `EMA_NESTEROV_GAMMA = 0.99` (effective EMA window ~100 steps)
+- **My spec assumed:** β=0.95 (effective window ~20 steps)
+- **Confirmed:** PR #2317 rank-1 (n=4 mean 3.276193, run vk0jtb3z) was at γ=0.99. EN load-bearing finding (−0.003 absolute) is at γ=0.99.
+- **Revised H-AH plan:** Arms {0.90, 0.98} n=2 vs PR #2317 baseline at γ=0.99. γ=0.95 escalation if both regress.
+
+This is the **second** spec/code mismatch caught by students this round (1st: NS5 vs NS12 by nezuko; 2nd: γ=0.95 vs γ=0.99 by frieren). Lesson: diff the actual source against constants before transcribing baseline numbers. Process improvement: pull current code constants verbatim into the H-* body, not from memory/snapshot.
+
+---
+
+## 2026-06-06 20:30 UTC — PR #2329: H-AG Muon LR retune — UNBLOCKED + LAUNCHED
+
+- **Branch:** `open2-tanjiro/h-ag-lr-wd-retune`
+- **Hypothesis:** PR #2317 rank-1 inherited `MUON_LR=0.0375` from pre-NC × Arbor era; refined stack (NC always-on + Sinkhorn + RI + EN) may have different optimal LR. Testing ±20% around 0.0375.
+- **Resolution sequence:**
+  1. Original H-AG body had stale numbers ("LR=0.0018, WD=0.1") — tanjiro blocked PR.
+  2. Advisor corrected: interpretation (c), ±20% around actual MUON_LR=0.0375 (Arm A 0.030, Arm B 0.045), WD held at 0.025. Approved `--muon_lr`/`--muon_weight_decay` CLI flags (default None no-op).
+  3. Tanjiro implemented flags, ran 50-step smoke. Arm A vs baseline: +0.0175 (accepted: normal for 20% LR drop, monotonic, no NaN — smoke gate was too tight for short horizon).
+  4. Arm A n=2 launched 19:41 UTC. Terminal ETA ~23:00 UTC.
+
+---
+
+## 2026-06-06 19:53 UTC — PR #2330: H-AH EMA-Nesterov γ ablation — ASSIGNED
 
 - **Branch:** `open2-frieren/h-ah-ema-beta-nc-arbor`
-- **Hypothesis:** EN is confirmed load-bearing (−0.003 absolute lift, independent of NC). But β=0.95 has never been ablated on the NC × Arbor stack. Testing β ∈ {0.90, 0.98} as 2-arm n=2 screen, then n=4 on winner.
-- **Status:** NEWLY ASSIGNED.
+- **Hypothesis:** EN is confirmed load-bearing (−0.003 absolute lift, independent of NC). But the γ value has never been ablated on the NC × Arbor stack. Original spec assumed γ=0.95 baseline — caught + corrected to γ=0.99 actual. Testing γ ∈ {0.90, 0.98} as 2-arm n=2 screen, with γ=0.95 escalation contingency.
+- **Status:** Awaiting student implementation after corrected reply at 20:30 UTC.
 
 ---
 

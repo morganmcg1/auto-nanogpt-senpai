@@ -26,11 +26,11 @@ Previous rank-1: **PR #2298 (alphonse H-A Corrected Arbor Muon) = 3.27738** (W&B
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
 | **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN — Issue #2319 open ~12h, no human team response.** Stuck on pod 7t946p. |
-| **#2330** | open2-frieren | **H-AH: EMA-Nesterov β ablation on NC × Arbor + RI** | 2890 | Assigned 19:53 UTC. Pod picked up branch at iter 181 (19:20 UTC), exits/relaunches on heartbeat. Smoke launch expected next iteration. 2-arm screen: β=0.90 vs β=0.98 at n=2. |
+| **#2330** | open2-frieren | **H-AH: EMA-Nesterov γ ablation on NC × Arbor + RI** | 2890 | **20:30 UTC: BLOCKED-then-UNBLOCKED.** Student flagged 2nd spec/code mismatch — actual code has `EMA_NESTEROV_GAMMA = 0.99` (line 111), NOT 0.95. Corrected reply sent: γ=0.99 IS the baseline (PR #2317 mean 3.276193, run vk0jtb3z, no re-run). Arms {0.90, 0.98} n=2; γ=0.95 escalation if both regress. Sent back to status:wip. |
 | **#2324** | open2-askeladd | H-AB: SWA tail on NC × Arbor + RI | 2890 | Arm A T1 in flight, run `w0h4r1um` at step 5492/11563 (≈ T1 step 2602/2890, ~95% T1). T1 terminal ETA ~20:15 UTC. After T1 SENPAI-RESULT: interrupt → rebase (drop `--nc 1`) → launch Arm B (SWA K=290). |
 | **#2327** | open2-fern | H-AE: capture_step × γ re-sweep on NC × Arbor + RI | 2890 | Run `5kgku0hv` live at step 1950/11563 (mid-T0). Primary: (capture=2200, γ=−0.05) on NC × Arbor stack. ETA n=4 terminal ~02:00 UTC. |
 | **#2326** | open2-edward | H-AD: RI γ ablation on NC × Arbor stack | 2890 | Run `485nt9tt` at step 4866/11563 (≈ T1 mid). Interim γ readings: γ=−0.075 → 3.27839 vs γ=0 → 3.27870 (Δ=−0.00031 marginal). n=4 terminal ETA ~01:00 UTC. |
-| **#2329** | open2-tanjiro | H-AG: LR × WD retune on NC × Arbor + RI | 2890 | **20:30 UTC: BLOCKED-then-UNBLOCKED.** Student flagged PR-vs-code mismatch (no `--learning_rate` flag). Corrected spec sent: interpretation (c), ±20% around actual `MUON_LR=0.0375` → Arm A 0.030, Arm B 0.045, WD held at 0.025. Approved minimal CLI flag refactor (`--muon_lr`, `--muon_weight_decay`). Awaiting student smoke. |
+| **#2329** | open2-tanjiro | H-AG: LR retune (Muon LR) on NC × Arbor + RI | 2890 | **Arm A n=2 LAUNCHED 19:41 UTC.** Student implemented `--muon_lr`/`--muon_weight_decay` CLI flags (default `None` no-op). 50-step smoke +0.0175 vs baseline (accepted: normal for 20% LR reduction, monotonic, no NaN). Arm A (LR=0.030, WD=0.025) terminal ETA ~23:00 UTC; Arm B (LR=0.045) follows. |
 | **#2328** | open2-nezuko | **H-AF: NS iteration ablation (NS10 vs NS12)** | 2890 | Spec corrected (NS12, not NS5, is baseline). Smoke `ea0n8iwj` at step 75 (smoke startup). Testing NS10 single arm n=4. |
 | **#2323** | open2-thorfinn | H-AA: Arbor warmup (skip Sinkhorn first N steps) | 2890 | N=0 n=4 running (`fiixr3ft`), step 8157/11563 (≈ T2 step 2557 or T3 start). T0=3.276551, T1=3.278726. T3 terminal ETA ~21:00-21:30 UTC. |
 
@@ -54,8 +54,8 @@ Previous rank-1: **PR #2298 (alphonse H-A Corrected Arbor Muon) = 3.27738** (W&B
 | + NC (on Arbor+EN+RI) | −0.00069 | H-W vs Arbor baseline |
 | **NC alone (no Arbor)** | **+0.0004** | H-O (edward) — NC HURTS without Arbor |
 | **NS iteration count** | **TBD** | Current default: **NS12** (not NS5). H-AF testing NS10. |
-| **EN β coefficient** | **TBD** | Current default: β=0.95. H-AH testing β=0.90 vs 0.98. |
-| **LR / WD** | **TBD** | Current: LR=0.0018, WD=0.1 (from PR #309, never retuned for NC×Arbor). H-AG testing LR=0.0015 vs 0.0022. |
+| **EN γ coefficient** | **TBD** | Current default: **γ=0.99** (line 111, NOT 0.95). H-AH testing γ=0.90 vs 0.98; γ=0.95 escalation if both regress. |
+| **Muon LR / WD** | **TBD** | Current: `MUON_LR=0.0375`, `MUON_WEIGHT_DECAY=0.025`. H-AG testing LR=0.030 vs 0.045 (±20%) at WD=0.025. |
 
 ## 🚀 14:00 UTC: FRIEREN H-Z T0 = 3.278932 — EN is INDEPENDENTLY load-bearing for Arbor (NOT just NC×Arbor)
 
