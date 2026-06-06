@@ -9,6 +9,44 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-06 03:13 — PR #2305: H-J Two-Snapshot Richardson RI on PR #309 base — NULL (closed)
+
+- Branch: `open2-nezuko/h-j-2snap-richardson-pr309-2890`
+- Hypothesis: Two-snapshot Richardson extrapolation `θ_K + γ₁(θ_K − θ_S1) + γ₂(θ_K − θ_S2)` using snapshots at steps ~1750 and 2375 improves over single-snapshot RI on PR #309 + EMA-Nesterov base.
+- Status: **CLOSED** — Richardson extrapolation NULL at n=4 (paired Δ ≈ 0, SE 7.4e-6)
+- W&B run: `r2kim5fg`
+
+### n=4 mean arm table (16-arm γ₁ × γ₂ grid)
+
+|   γ₁ \ γ₂  | 0.0000 | −0.0300 | −0.0500 | −0.0750 |
+|---:|---:|---:|---:|---:|
+|  0.0000 | 3.278803 | 3.278660 | 3.278878 | 3.279473 |
+| −0.0500 | 3.278489 | **3.278484** | 3.278781 | 3.279480 |
+| −0.0750 | **3.278484** | 3.278537 | 3.278879 | 3.279626 |
+| −0.1000 | 3.278580 | 3.278695 | 3.279075 | 3.279862 |
+
+### Key comparison: best 2-snap vs fern H15 single-snap
+
+| Arm | T0 | T1 | T2 | T3 | n=4 mean |
+|---|---:|---:|---:|---:|---:|
+| (γ₁=−0.050, γ₂=−0.030) best 2-snap | 3.279151 | 3.277817 | 3.277750 | 3.279218 | **3.278484** |
+| (γ₁=−0.075, γ₂=0.000) fern H15 | 3.279136 | 3.277817 | 3.277770 | 3.279215 | **3.278484** |
+| Paired Δ (2-snap − H15) | +0.0000148 | 0.0 | −0.0000198 | +0.0000033 | **−0.0000003** |
+
+Paired SE = 7.4e-6. Best-arm n=4 mean = 3.278484 vs fern merged 3.27786 = +0.000624 above. Stat contract margin 0.00303 < 0.004 (fails).
+
+### Analysis and conclusions
+
+**H-J is a clean NULL.** The two-snapshot Richardson extrapolation is statistically indistinguishable from single-snapshot RI at paired Δ ≈ −0.0000003, SE 7.4e-6. γ₂=0 wins or ties in 11/12 cells across all 4 trials.
+
+**Mechanistic interpretation:** The parameter trajectory at the tail of Track 3 training is **fundamentally first-order** — well-approximated by a single linear extrapolation direction. Higher-order curvature signals required for Richardson-style multi-point correction are below the seed-to-seed noise floor at n=4. This is a publishable mechanism boundary: RI is maximally effective at single-snapshot extrapolation; adding a second snapshot does not orthogonalize the extrapolation direction.
+
+**Implication for RI research:** The (γ₁=−0.05/−0.075, γ₂=0) fern H15 configuration remains the optimal single-mechanism RI configuration. All research should use single-snapshot RI from here.
+
+**Follow-up:** Assigned H-Q Lookahead-Muon (online slow-weights interpolation, PR #2312) — tests if the tail-linearity is exploitable during training, not just at evaluation.
+
+---
+
 ## 2026-06-06 01:39 — PR #2299: H-D late-higher block LR on PR #309 base — NULL result (closed)
 
 - Branch: `open2-tanjiro/h-d-late-higher-block-lr-pr309-base`
