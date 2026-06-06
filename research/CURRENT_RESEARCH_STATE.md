@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~15:15 UTC (launch day +2)
+- **As of:** 2026-06-06 ~15:30 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -23,13 +23,13 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
 | **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN — 18th check, ~5h21m** since Issue #2319 filed. No human team response yet. |
-| **#2322** | open2-frieren | H-Z: Arbor − EMA-Nesterov baseline (no NC) | 2890 | n=4 active (run `9y3k8kea`, step ~910 of T1, ~31% overall). Sinkhorn active without EN ✓. ETA T3 ~18:30 UTC. |
-| **#2324** | open2-askeladd | H-AB: Polyak-Ruppert/SWA tail averaging on Arbor+RI | 2890 | **ASSIGNED 14:44 UTC** (PR #2324). Paired arms: Arm A (baseline), Arm B (SWA tail K=290, last 10%). Smoke gate + n=4. ~~H-L CLOSED (PR #2307, FALSIFIED)~~ |
-| **#2320** | open2-fern | H-X: RI capture_step ablation | 2890 | **T0 LANDED** val=3.27711, best (2200, −0.05)=3.277089 vs default 3.277114 (Δ=−0.000025). U-shape across capture well-formed. T1 at step 1603/2890 (55%). Terminal ETA ~17:15 UTC. |
-| **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | **NEEDS_REBASE** (DIRTY merge state vs Arbor cleanup). Arm A n=4=3.27894. Arm B n=2 paired Δ=+0.00113. T2/T3 informational. ETA T3 ~15:33 UTC. Rebase guidance posted. |
-| **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | **T0 LANDED = 3.279331** (+0.001951 vs Arbor). NC + Arbor without EN looks WEAK vs nezuko's WITH EN. T1 running (`99jczfyt`, started 13:12 UTC after 2 pod-induced crashes). ETA T3 ~17:50 UTC. |
-| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | **🏆 NEW RANK-1**: T3 RI=3.276849 (best-checkpoint), **n=4 mean = 3.276478** ± std 0.000597. T3 step 2625/2890 (91%), SENPAI-RESULT ETA ~15:20 UTC. **vs PR #2298 baseline (3.27738) = −0.000902.** Contract margin 0.00704 ✓. MERGE on SENPAI-RESULT. |
-| **#2323** | open2-thorfinn | H-AA: Arbor warmup — skip Sinkhorn first N steps | 2890 | **PICKUP CONFIRMED.** N=0 smoke (`jheoy4tk`) at step 250/500. `arbor_warmup_steps=0` ✓. n=4 launch after smoke ETA ~13:30 UTC. Arm-by-arm sweep N∈{0,500,1000} suggested. |
+| **#2322** | open2-frieren | H-Z: Arbor − EMA-Nesterov baseline (no NC) | 2890 | **T1 LANDED = 3.279692** (WORSE than T0 3.278932). n=2 mean = 3.279312, paired Δ=−0.000438 (RI lift compressed without EN). T2 just started (step 25 at 15:28). EN confirmed load-bearing for Arbor. ETA T3 ~21:00 UTC. |
+| **#2324** | open2-askeladd | H-AB: Polyak-Ruppert/SWA tail averaging on Arbor+RI | 2890 | **PICKED UP** by student (iter 158 at 15:15 UTC). GPU 0% — preparing smoke. Paired arms: Arm A (baseline), Arm B (SWA tail K=290, last 10%). |
+| **#2320** | open2-fern | H-X: RI capture_step ablation | 2890 | T2 at step 2427/2890. Partial val/ri_loss(γ=−0.075, capture=2375) = **3.275764** (best arm). Ranking: 2375<2200<2550<2700<2000. T2 ETA ~15:45 UTC. T3 ETA ~17:15 UTC. |
+| **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | **Arm B n=3 paired Δ=+0.00107**, T0=3.28048, T1=3.27933, T2=3.27882, T3 at step 2100/2890 (73%), ETA ~16:22 UTC. Informational closure pending T3. Rebase then close. |
+| **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | T0=3.279331, T1=3.277918 (recovery), mean(T0,T1)=3.278625. Paired Δ ≈ −0.000441. T2 at step 677/2890. T2 ETA ~17:00 UTC, T3 ~18:40 UTC. Closure trajectory. |
+| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | **🏆 NEW RANK-1**: T3 RI=3.276849 (best-checkpoint, W&B confirmed), **n=4 mean = 3.276478** ± std 0.000597. SENPAI-RESULT marker pending (run still in teardown at 15:30 UTC). **vs PR #2298 baseline (3.27738) = −0.000902.** Contract margin 0.00704 ✓. **MERGE on SENPAI-RESULT.** |
+| **#2323** | open2-thorfinn | H-AA: Arbor warmup — skip Sinkhorn first N steps | 2890 | N=0 n=4 launched 14:32 UTC (`fiixr3ft`). ETA terminal ~21:00 UTC. Then N=500, N=1000 follow-up arms. |
 
 ## 🚀 14:00 UTC: FRIEREN H-Z T0 = 3.278932 — EN is INDEPENDENTLY load-bearing for Arbor (NOT just NC×Arbor)
 
