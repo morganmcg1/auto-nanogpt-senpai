@@ -146,6 +146,13 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--freeze_lm_head_tail", type=int, default=0,
+                        help="If 1, zero the gradient of model.proj (lm_head) weight and bias for all "
+                             "training steps >= freeze_lm_head_from_step. Disabled by default.")
+    parser.add_argument("--freeze_lm_head_from_step", type=int, default=2600,
+                        help="First training step (1-indexed, matches train_step) at which the lm_head "
+                             "gradient is zeroed when --freeze_lm_head_tail=1. Default 2600 corresponds "
+                             "to the last ~10pct of a 2890-step run.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -156,6 +163,10 @@ def parse_args():
         raise ValueError("--train_steps must be positive")
     if args.ri_capture_step < 0 or args.ri_capture_step >= args.train_steps:
         raise ValueError(f"--ri_capture_step must be in [0, train_steps); got {args.ri_capture_step}")
+    if args.freeze_lm_head_tail not in (0, 1):
+        raise ValueError(f"--freeze_lm_head_tail must be 0 or 1; got {args.freeze_lm_head_tail}")
+    if args.freeze_lm_head_from_step < 1:
+        raise ValueError(f"--freeze_lm_head_from_step must be >= 1; got {args.freeze_lm_head_from_step}")
     return args
 
 
@@ -1216,6 +1227,8 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "freeze_lm_head_tail": args.freeze_lm_head_tail,
+            "freeze_lm_head_from_step": args.freeze_lm_head_from_step,
         },
     )
 
@@ -1490,6 +1503,17 @@ for trial_idx in range(args.num_trials):
         # set optimization hyperparameters and take a step
         set_hparams(step)
         train_step = step + 1
+        # H-T: freeze lm_head (model.proj) gradient in the training tail. Zero after
+        # all-reduce so DDP semantics are unchanged; before opt.step so the optimizer
+        # sees a zero update for this param. Bias is zeroed alongside the weight.
+        freeze_lm_head_now = args.freeze_lm_head_tail == 1 and train_step >= args.freeze_lm_head_from_step
+        if freeze_lm_head_now:
+            model.proj.weight.grad.zero_()
+            if model.proj.bias is not None and model.proj.bias.grad is not None:
+                model.proj.bias.grad.zero_()
+            if dist.get_rank() == 0 and train_step == args.freeze_lm_head_from_step:
+                print0(f"step:{train_step} lm_head freeze engaged "
+                       f"(freeze_lm_head_from_step={args.freeze_lm_head_from_step})", console=True)
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
@@ -1512,6 +1536,7 @@ for trial_idx in range(args.num_trials):
                     optimizer_ema.it >= EMA_NESTEROV_PREFILL_STEPS
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
                 ),
+                "train/freeze_lm_head_active": int(freeze_lm_head_now),
             }
             log_training_telemetry(
                 model=model,
