@@ -4,19 +4,21 @@ train_gpt_simple.py
 This file descends from the [NanoGPT speedrun](https://github.com/KellerJordan/modded-nanogpt).
 It was prepared as a simplified version of the speedrun for use in neural net optimization research.
 
-Reproduction of KellerJordan/modded-nanogpt PR #309 (EMA-Nesterov + Aurora @ 2890 steps).
-The optimizer stack is Aurora row-balanced polar + Contra-Muon (extended ramp to 2500) +
-EMA-Nesterov lookahead, with NorMuon-lite disabled via NOR_BETA2=1.0.
+H-A: PR #309 base (Aurora row-balanced polar + EMA-Nesterov, Contra-Muon DISABLED) +
+Arbor Muon's corrected 2-iter Sinkhorn row/column equilibration on mlp.fc and mlp.proj
+weights only. Simultaneous (not alternating) row/col, relative clamp (mean ± 3·std).
+The original spec's sqrt(out_dim) post-NS norm pin was a 55× magnitude lift that
+destabilized training (T0=3.32278, T1=3.32056 on the broken variant); the corrected
+variant drops that pin and lets the default max(1, out/in)**0.5 Muon scaling apply.
 
-H15 addition: Tail Reference Interpolation (RI) from KellerJordan/modded-nanogpt PR #307
-applied at the final eval as a single-scalar post-hoc weight extrapolation:
-    theta_eval = theta_final + gamma * (theta_final - theta_capture)
-This is a training-graph-invisible eval-time transformation gated by --ri_gamma
-(0.0 disables, PR #307 default -0.075). Snapshot is captured after the
-optimizer.step() that completes --ri_capture_step.
+H15 Tail Reference Interpolation (RI) from KellerJordan PR #307 remains wired as an
+eval-time transformation: theta_eval = theta_final + gamma * (theta_final - theta_capture).
+Gated by --ri_gamma (default 0.0 = disabled); not part of the H-A hypothesis but kept
+intact for paired-comparison ablations.
 
 Public sources:
-- https://github.com/KellerJordan/modded-nanogpt/pull/309 (PR #309 base)
+- https://github.com/KellerJordan/modded-nanogpt/pull/309 (Aurora + EMA-Nesterov)
+- https://github.com/KellerJordan/modded-nanogpt/pull/310 (Arbor Muon Sinkhorn equilibration)
 - https://github.com/KellerJordan/modded-nanogpt/pull/307 (RI)
 - https://github.com/KellerJordan/modded-nanogpt/pull/312 (RI on Aurora+EMA-Nesterov)
 """
@@ -57,7 +59,10 @@ MUON_POWER_C = 3.3169534699576625e-06
 FINAL_MUON_WD = 0.025
 
 # Optimizer constants from PR #309.
-CONTRA_MUON_COEFF = -0.2
+# H-A: Contra-Muon DISABLED per assignment ("DO NOT include Contra-Muon"). Aurora +
+# EMA-Nesterov on the Muon path. All other PR #309 inheritance (SOAP, Trustlight,
+# PowerCool, Radial brake, CGI, DI-fc, mu schedule) stays.
+CONTRA_MUON_COEFF = 0.0
 SOFT_MUON_P = 0.1
 SOFT_MUON_SCALE = "none"
 SOFT_MUON_INPUT_NORM = "frobenius_schatten4"
@@ -117,6 +122,13 @@ def parse_args():
     parser.add_argument("--train_steps", type=int, default=FINAL_TRAIN_STEPS)
     parser.add_argument("--seed_offset", type=int, default=0,
                         help="Base seed for trial loop; trial t uses seed_offset + t.")
+    # H-A: Arbor Muon corrected Sinkhorn equilibration on mlp.fc and mlp.proj.
+    parser.add_argument("--apply_arbor", type=int, default=1,
+                        help="If 1 (default), apply Arbor 2-iter Sinkhorn equilibration on mlp.fc and mlp.proj after NS.")
+    parser.add_argument("--arbor_iters", type=int, default=2,
+                        help="Number of simultaneous-row-col Sinkhorn iterations (PR #310 default: 2).")
+    parser.add_argument("--arbor_clamp_k", type=float, default=3.0,
+                        help="Relative clamp range for row/col norms: clamp to mean ± k·std (PR #310 default: 3).")
     parser.add_argument("--wandb_name", default=os.environ.get("WANDB_NAME", ""))
     parser.add_argument("--wandb_group", default=os.environ.get("WANDB_RUN_GROUP", ""))
     parser.add_argument("--wandb_project", default=os.environ.get("WANDB_PROJECT", "modded-nanogpt-senpai"))
@@ -342,6 +354,7 @@ def log_weight_telemetry(
     trial_idx: int,
     step: int,
     wandb_step: int,
+    extra_metrics: dict | None = None,
 ):
     weights = [(name, p.data) for name, p in model.named_parameters()]
     weight_stats = aggregate_stats(weights)
@@ -358,6 +371,8 @@ def log_weight_telemetry(
         metrics.update(prefixed(f"train/weight_type/{module_type}", aggregate_stats(tensors)))
     for name, weight in weights:
         metrics.update(prefixed(f"train/weight_param/{clean_metric_name(name)}", tensor_stats(weight)))
+    if extra_metrics:
+        metrics.update(extra_metrics)
     wandb.log(metrics, step=wandb_step)
 
 
@@ -846,9 +861,49 @@ def contra_coeff_for_step(step: int) -> float:
 def soft_blend_for_step(step: int) -> float:
     return min(SOFT_MUON_CEIL, _linear_ramp(step, NORMAL_TO_SOFT_START_STEP, NORMAL_TO_SOFT_END_STEP))
 
-def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, use_soft=True):
+def arbor_sinkhorn_equilibrate(G: Tensor, n_iters: int, clamp_k: float, eps: float = 1e-8) -> tuple[Tensor, dict[str, float]]:
+    """2-iter Sinkhorn row/col equilibration (corrected variant).
+
+    Simultaneous (row-then-col inside each iter), relative clamp by mean ± k·std.
+    The sqrt(out_dim) post-NS norm pin from the original spec was a 55× magnitude
+    lift that destabilized training; corrected variant returns the equilibrated
+    matrix and lets the default max(1, out/in)**0.5 Muon scaling apply downstream.
+    """
+    diag: dict[str, float] = {}
+    pre_fro = G.float().norm()
+    G_work = G.float()
+    for it in range(n_iters):
+        row_norms = G_work.norm(dim=-1, keepdim=True).clamp_min(eps)
+        rn_mean = row_norms.mean()
+        rn_std = row_norms.std()
+        row_norms_clamped = row_norms.clamp(rn_mean - clamp_k * rn_std, rn_mean + clamp_k * rn_std)
+        G_work = G_work / row_norms_clamped
+        if it == n_iters - 1:
+            diag["arbor/last_row_mean"] = float(rn_mean.item())
+            diag["arbor/last_row_std"] = float(rn_std.item())
+        col_norms = G_work.norm(dim=-2, keepdim=True).clamp_min(eps)
+        cn_mean = col_norms.mean()
+        cn_std = col_norms.std()
+        col_norms_clamped = col_norms.clamp(cn_mean - clamp_k * cn_std, cn_mean + clamp_k * cn_std)
+        G_work = G_work / col_norms_clamped
+        if it == n_iters - 1:
+            diag["arbor/last_col_mean"] = float(cn_mean.item())
+            diag["arbor/last_col_std"] = float(cn_std.item())
+    post_sinkhorn_fro = G_work.norm()
+    diag["arbor/pre_fro"] = float(pre_fro.item())
+    diag["arbor/post_sinkhorn_fro"] = float(post_sinkhorn_fro.item())
+    diag["arbor/sinkhorn_fro_ratio"] = float((post_sinkhorn_fro / pre_fro.clamp_min(eps)).item())
+    return G_work.to(G.dtype), diag
+
+
+def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, use_soft=True,
+                apply_arbor: bool = False, arbor_iters: int = 2, arbor_clamp_k: float = 3.0):
     normalized_grad = scale_to_unit_operator_norm(update.clone())
     ns_update = zeropower_via_newtonschulz5(update)
+    if apply_arbor:
+        ns_update, arbor_diag = arbor_sinkhorn_equilibrate(ns_update, arbor_iters, arbor_clamp_k)
+    else:
+        arbor_diag = {}
     update_norm_estimate = gram_frobenius_norm_estimate(ns_update)
 
     contra_coeff = contra_coeff_for_step(step) if use_contra else 0.0
@@ -873,11 +928,14 @@ def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, u
     update = update * second_moment.clamp_min(1e-10).rsqrt().to(update.dtype)
     vnorm_new = gram_frobenius_norm_estimate(update)
     update = update * (vnorm / vnorm_new)
-    return update
+    return update, arbor_diag
+
+
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
+                 apply_arbor: bool = False, arbor_iters: int = 2, arbor_clamp_k: float = 3.0):
         assert isinstance(named_params, list) and len(named_params) >= 1
         self.soap_params = {p for n, p in named_params if should_soap_param(n)}
         self.attn_soap_params = {p for n, p in named_params if should_soap_param(n) and is_attn_param(n)}
@@ -885,6 +943,23 @@ class Muon(torch.optim.Optimizer):
         self.v_params = {p for n, p in named_params if is_v_param(n)}
         self.no_contra_params = {p for n, p in named_params if param_matches_spec(n, NO_CONTRA_PARAM)}
         self.no_soft_params = {p for n, p in named_params if param_matches_spec(n, NO_SOFTMUON_PARAM)}
+        # Arbor applies ONLY to mlp.fc and mlp.proj per PR #310 scope. Attention
+        # weights (q, k, v, attn.proj) are explicitly excluded.
+        if apply_arbor:
+            self.arbor_params = {
+                p for n, p in named_params
+                if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
+            }
+            self.arbor_param_names = {
+                p: n for n, p in named_params
+                if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
+            }
+        else:
+            self.arbor_params = set()
+            self.arbor_param_names = {}
+        self.arbor_iters = arbor_iters
+        self.arbor_clamp_k = arbor_clamp_k
+        self.last_arbor_diag: dict[str, float] = {}
         self.step_count = 0
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
@@ -943,13 +1018,21 @@ class Muon(torch.optim.Optimizer):
                             momentum_update = norm_preserving_blend(momentum_update, soap_update, gate)
                         else:
                             momentum_update = soap_precondition_momentum(momentum_update, state, blend=SOAP_BLEND)
-                    update = muon_update(
+                    p_apply_arbor = p in self.arbor_params
+                    update, arbor_diag = muon_update(
                         momentum_update,
                         state["second_moment"],
                         self.step_count,
                         use_contra=p not in self.no_contra_params,
                         use_soft=p not in self.no_soft_params,
+                        apply_arbor=p_apply_arbor,
+                        arbor_iters=self.arbor_iters,
+                        arbor_clamp_k=self.arbor_clamp_k,
                     )
+                    if p_apply_arbor and arbor_diag:
+                        param_name = self.arbor_param_names.get(p, "unknown")
+                        for diag_key, diag_val in arbor_diag.items():
+                            self.last_arbor_diag[f"{diag_key}/{clean_metric_name(param_name)}"] = diag_val
                     update = scale_radial_update(update, p)
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -1091,7 +1174,7 @@ model.compile(dynamic=False)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
-    tags = ["track-3-optimization", "senpai", "pr309-replica"] + args.wandb_tags
+    tags = ["track-3-optimization", "senpai", "h-a-corrected-arbor-muon-pr309-base"] + args.wandb_tags
     if os.environ.get("RESEARCH_TAG"):
         tags.append(os.environ["RESEARCH_TAG"])
     if os.environ.get("STUDENT_NAME"):
@@ -1105,8 +1188,8 @@ if dist.get_rank() == 0:
         mode=args.wandb_mode,
         config={
             "benchmark": "modded-nanogpt-track-3-optimization",
-            "experiment": "pr309-ema-nesterov-aurora",
-            "public_source": "KellerJordan/modded-nanogpt PR #309",
+            "experiment": "h-a-corrected-arbor-muon-pr309-base",
+            "public_source": "KellerJordan/modded-nanogpt PR #309 + PR #310 (Arbor)",
             "target_val_loss": TARGET_VAL_LOSS,
             "stat_sig_delta": STAT_SIG_DELTA,
             "num_trials": args.num_trials,
@@ -1147,6 +1230,9 @@ if dist.get_rank() == 0:
             "ri_gamma": args.ri_gamma,
             "ri_capture_step": args.ri_capture_step,
             "ri_enabled": args.ri_gamma != 0.0,
+            "apply_arbor": bool(args.apply_arbor),
+            "arbor_iters": args.arbor_iters,
+            "arbor_clamp_k": args.arbor_clamp_k,
         },
     )
 
@@ -1197,7 +1283,10 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU,
+                      apply_arbor=bool(args.apply_arbor),
+                      arbor_iters=args.arbor_iters,
+                      arbor_clamp_k=args.arbor_clamp_k)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     inner_optimizers = [optimizer1, optimizer2]
     optimizer_ema = EMA_Nesterov(
@@ -1443,6 +1532,9 @@ for trial_idx in range(args.num_trials):
                     optimizer_ema.it >= EMA_NESTEROV_PREFILL_STEPS
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
                 ),
+                "apply_arbor": int(bool(args.apply_arbor)),
+                "arbor_iters": args.arbor_iters,
+                "arbor_clamp_k": args.arbor_clamp_k,
             }
             log_training_telemetry(
                 model=model,
@@ -1478,12 +1570,14 @@ for trial_idx in range(args.num_trials):
                 print0(f"step:{train_step} captured RI snapshot (gamma={args.ri_gamma}, norm={snap_norm:.4f})",
                        console=True)
         if dist.get_rank() == 0 and telemetry_due:
+            arbor_extra = dict(optimizer2.last_arbor_diag) if bool(args.apply_arbor) else {}
             log_weight_telemetry(
                 model=model,
                 module_types=module_types,
                 trial_idx=trial_idx,
                 step=train_step,
                 wandb_step=wandb_step,
+                extra_metrics=arbor_extra,
             )
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
