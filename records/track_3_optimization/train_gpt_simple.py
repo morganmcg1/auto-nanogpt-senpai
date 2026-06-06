@@ -146,6 +146,16 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--swa_tail_window", type=int, default=0,
+                        help="H-AB Polyak-Ruppert/SWA tail averaging. If K>0, maintain a running fp32 sum "
+                             "of model parameters over the last K training steps (train_step in "
+                             "[train_steps-K+1, train_steps]). At each validation event after the window "
+                             "opens, params are swapped to swa_mean=swa_sum/swa_count before the val pass "
+                             "(swap-eval-swap-back); val/loss reports the SWA val. At the final eval, "
+                             "swa_mean replaces the actual final-step weights as the base of RI "
+                             "extrapolation, so val/loss = RI(swa_mean). Per-window evals are also "
+                             "logged as val/loss_swa_K_<K> and val/ri_loss_swa_K_<K>_gamma_<g>. "
+                             "K=0 disables (Arm A control).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -156,6 +166,12 @@ def parse_args():
         raise ValueError("--train_steps must be positive")
     if args.ri_capture_step < 0 or args.ri_capture_step >= args.train_steps:
         raise ValueError(f"--ri_capture_step must be in [0, train_steps); got {args.ri_capture_step}")
+    if args.swa_tail_window < 0:
+        raise ValueError(f"--swa_tail_window must be >= 0; got {args.swa_tail_window}")
+    if args.swa_tail_window >= args.train_steps:
+        raise ValueError(
+            f"--swa_tail_window ({args.swa_tail_window}) must be < train_steps ({args.train_steps})"
+        )
     return args
 
 
@@ -1218,6 +1234,9 @@ if dist.get_rank() == 0:
             "ri_gamma": args.ri_gamma,
             "ri_capture_step": args.ri_capture_step,
             "ri_enabled": args.ri_gamma != 0.0,
+            "swa_tail_window": args.swa_tail_window,
+            "swa_enabled": args.swa_tail_window > 0,
+            "swa_start_step": (args.train_steps - args.swa_tail_window + 1) if args.swa_tail_window > 0 else -1,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
         },
@@ -1346,6 +1365,15 @@ for trial_idx in range(args.num_trials):
     ri_pre_val_loss: float | None = None
     ri_delta_norm: float | None = None
     ri_per_gamma_losses: dict[float, float] = {}
+    # H-AB SWA tail averaging: maintain a running fp32 sum of params over the last K training
+    # steps. Buffer is kept in fp32 to avoid bf16 precision loss when summing K iterates
+    # (bf16 sum of K=290 values can lose >1% relative precision). At eval time, swap params
+    # to swa_mean = swa_buffer / swa_count, run val, swap back. At final eval with RI, the
+    # swa_mean replaces the actual final-step weights as the RI base.
+    swa_enabled = args.swa_tail_window > 0
+    swa_start_step = (train_steps - args.swa_tail_window + 1) if swa_enabled else -1
+    swa_buffer: dict[str, Tensor] | None = None
+    swa_count = 0
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -1364,13 +1392,32 @@ for trial_idx in range(args.num_trials):
             # If multiple gammas were requested, evaluate each from the same final
             # snapshot for a paired-comparison ablation. The PRIMARY gamma's val_loss
             # becomes val_loss_float and feeds into best_val_loss.
+            # H-AB SWA: when swa_count > 0, swa_mean = swa_buffer/swa_count replaces the
+            # base. At intermediate evals (no RI), we save current params, set p=swa_mean,
+            # run the standard val pass, then restore. At the final eval with RI, swa_mean
+            # is the final_snapshot for RI extrapolation so val/loss = RI(swa_mean).
             ri_applied = False
             ri_per_gamma_losses = {}
+            swa_eval_active = swa_enabled and swa_buffer is not None and swa_count > 0
+            saved_for_swa: dict[str, Tensor] | None = None
             if step == train_steps and ri_enabled and ri_snapshot is not None:
-                # Take a fresh snapshot of the final post-step-train_steps weights so we
-                # can repeatedly apply different gammas and restore between evaluations.
+                # Build the RI base. With SWA active, the base is swa_mean (not the
+                # actual final-step weights), and we set model.params = swa_mean so the
+                # gamma=0 eval below evaluates the pure SWA mean.
                 with torch.no_grad():
-                    final_snapshot = {name: p.detach().clone() for name, p in model.named_parameters()}
+                    if swa_eval_active:
+                        final_snapshot = {}
+                        for name, p in model.named_parameters():
+                            buf = swa_buffer.get(name) if swa_buffer is not None else None
+                            if buf is not None:
+                                final_snapshot[name] = (buf / float(swa_count)).to(p.dtype)
+                            else:
+                                final_snapshot[name] = p.detach().clone()
+                        for name, p in model.named_parameters():
+                            if name in final_snapshot:
+                                p.data.copy_(final_snapshot[name])
+                    else:
+                        final_snapshot = {name: p.detach().clone() for name, p in model.named_parameters()}
                 # Helper: in-place set p.data = final + gamma*(final - capture).
                 # gamma=0 == restore to final unchanged.
                 delta_sq_sum = 0.0
@@ -1417,6 +1464,15 @@ for trial_idx in range(args.num_trials):
                 # Free the per-trial final snapshot.
                 del final_snapshot
                 model.train()
+            elif swa_eval_active:
+                # SWA-only swap (intermediate eval, or final eval without RI). Save the
+                # actual params so we can restore for continued training after the val pass.
+                with torch.no_grad():
+                    saved_for_swa = {name: p.detach().clone() for name, p in model.named_parameters()}
+                    for name, p in model.named_parameters():
+                        buf = swa_buffer.get(name) if swa_buffer is not None else None
+                        if buf is not None:
+                            p.data.copy_((buf / float(swa_count)).to(p.dtype))
             model.eval()
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -1426,6 +1482,15 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+            # Restore the actual current params after SWA-only swap, so training continues
+            # from the un-averaged trajectory (SWA does not feed back into training).
+            if saved_for_swa is not None:
+                with torch.no_grad():
+                    for name, p in model.named_parameters():
+                        if name in saved_for_swa:
+                            p.data.copy_(saved_for_swa[name])
+                del saved_for_swa
+                saved_for_swa = None
             # Record primary gamma's val loss into the per-gamma table (overwrite gamma=0
             # entry if primary==0; otherwise add primary).
             if ri_applied:
@@ -1461,6 +1526,19 @@ for trial_idx in range(args.num_trials):
                         slug = f"{g:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
                         metrics[f"val/ri_loss_gamma_{slug}"] = loss
                         metrics[f"val/ri_delta_gamma_{slug}"] = loss - (ri_pre_val_loss or 0.0)
+                if swa_eval_active:
+                    metrics["val/swa_count"] = swa_count
+                    metrics["val/swa_window_K"] = args.swa_tail_window
+                    # val/loss_swa_K_<K>: the pure SWA val loss (no RI). When RI is layered
+                    # on top at the final step, ri_pre_val_loss IS the gamma=0 eval on
+                    # swa_mean. Otherwise val_loss_float was measured on swa_mean directly
+                    # (intermediate eval, or RI-disabled final eval).
+                    swa_val = ri_pre_val_loss if ri_applied else val_loss_float
+                    metrics[f"val/loss_swa_K_{args.swa_tail_window}"] = swa_val
+                    if ri_applied:
+                        for g, loss in ri_per_gamma_losses.items():
+                            slug = f"{g:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
+                            metrics[f"val/ri_loss_swa_K_{args.swa_tail_window}_gamma_{slug}"] = loss
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -1550,6 +1628,33 @@ for trial_idx in range(args.num_trials):
                 }, step=wandb_step)
                 print0(f"step:{train_step} captured RI snapshot (gamma={args.ri_gamma}, norm={snap_norm:.4f})",
                        console=True)
+        # H-AB SWA tail averaging: accumulate the running fp32 sum of params over the last
+        # K training steps. Buffer is allocated lazily at swa_start_step and accumulated each
+        # step through train_steps inclusive. Same all-gather invariant as the RI snapshot
+        # holds, so the per-rank buffer is consistent across ranks.
+        if swa_enabled and swa_start_step <= train_step <= train_steps:
+            with torch.no_grad():
+                if swa_buffer is None:
+                    swa_buffer = {name: p.detach().clone().float()
+                                  for name, p in model.named_parameters()}
+                else:
+                    for name, p in model.named_parameters():
+                        if name in swa_buffer:
+                            swa_buffer[name].add_(p.detach().float())
+            swa_count += 1
+            if dist.get_rank() == 0 and (train_step == swa_start_step or train_step == train_steps):
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "val/swa_window_K": args.swa_tail_window,
+                    "val/swa_start_step": swa_start_step,
+                    "val/swa_count": swa_count,
+                }, step=wandb_step)
+                if train_step == swa_start_step:
+                    print0(f"step:{train_step} SWA window opened (K={args.swa_tail_window}, "
+                           f"start_step={swa_start_step})", console=True)
+                if train_step == train_steps:
+                    print0(f"step:{train_step} SWA window closed (count={swa_count})", console=True)
         if dist.get_rank() == 0 and telemetry_due:
             arbor_extra = dict(optimizer2.last_arbor_diag)
             log_weight_telemetry(
@@ -1595,10 +1700,28 @@ for trial_idx in range(args.num_trials):
             for g, loss in ri_per_gamma_losses.items():
                 slug = f"{g:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
                 final_metrics[f"speedrun/final_ri_loss_gamma_{slug}"] = loss
+        if swa_enabled:
+            final_metrics["speedrun/final_swa_window_K"] = args.swa_tail_window
+            final_metrics["speedrun/final_swa_count"] = swa_count
+            final_metrics["speedrun/final_swa_start_step"] = swa_start_step
+            if ri_applied and swa_count > 0:
+                # When SWA was active at final eval and RI was applied, ri_pre_val_loss IS
+                # the pure SWA val (gamma=0 on swa_mean). The primary val_loss_float is
+                # RI(swa_mean). Surface as a single speedrun summary line for the harvest.
+                final_metrics[f"speedrun/final_loss_swa_K_{args.swa_tail_window}"] = ri_pre_val_loss
+                for g, loss in ri_per_gamma_losses.items():
+                    slug = f"{g:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
+                    final_metrics[
+                        f"speedrun/final_ri_loss_swa_K_{args.swa_tail_window}_gamma_{slug}"
+                    ] = loss
         wandb.log(final_metrics, step=(trial_idx + 1) * (train_steps + 1) - 1)
     # Free the snapshot before the next trial allocates a fresh one.
     if ri_snapshot is not None:
         ri_snapshot = None
+        torch.cuda.empty_cache()
+    if swa_buffer is not None:
+        swa_buffer = None
+        swa_count = 0
         torch.cuda.empty_cache()
 
 if dist.get_rank() == 0:
