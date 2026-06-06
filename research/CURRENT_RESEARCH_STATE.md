@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~19:53 UTC (launch day +2)
+- **As of:** 2026-06-06 ~20:30 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -21,18 +21,18 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 
 Previous rank-1: **PR #2298 (alphonse H-A Corrected Arbor Muon) = 3.27738** (W&B: 5weg8d9r)
 
-## Active assignments (19:53 UTC, 2026-06-06)
+## Active assignments (20:30 UTC, 2026-06-06)
 
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
 | **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN — Issue #2319 open ~12h, no human team response.** Stuck on pod 7t946p. |
-| **#2330** | open2-frieren | **H-AH: EMA-Nesterov β ablation on NC × Arbor + RI** | 2890 | **NEWLY ASSIGNED 19:53 UTC.** 2-arm screen: β=0.90 vs β=0.98 at n=2. EN confirmed load-bearing; now test whether β=0.95 is optimal. |
-| **#2324** | open2-askeladd | H-AB: SWA tail on NC × Arbor + RI | 2890 | Arm A T1 at step 1975 (68% at 19:47 UTC). Terminal ~20:45 UTC. After T1: interrupt, rebase (drop --nc 1), launch Arm B (SWA). |
-| **#2327** | open2-fern | H-AE: capture_step × γ re-sweep on NC × Arbor + RI | 2890 | Assigned 17:50 UTC. Not yet picked up. Primary: (capture=2200, γ=−0.05) on NC × Arbor stack. ETA ~00:30 UTC. |
-| **#2326** | open2-edward | H-AD: RI γ ablation on NC × Arbor stack | 2890 | Run `485nt9tt` live; `--ri_extra_gammas` multi-γ sweep confirmed. NC enabled ✓. n=4 ETA ~23:00 UTC. |
-| **#2329** | open2-tanjiro | H-AG: LR × WD retune on NC × Arbor + RI | 2890 | Assigned 18:43 UTC. Not yet picked up. 2-arm screen: LR=0.0015 vs LR=0.0022 at WD=0.1. n=2 first. |
-| **#2328** | open2-nezuko | **H-AF: NS iteration ablation (revised: NS10 vs NS12)** | 2890 | Spec corrected (NS12, not NS5, is baseline!). Student flagged discrepancy. Testing NS10 single arm n=4. Smoke gate first. Awaiting student launch. |
-| **#2323** | open2-thorfinn | H-AA: Arbor warmup (skip Sinkhorn first N steps) | 2890 | N=0 n=4 running (`fiixr3ft`). T0=3.276551 (competitive!), T1=3.278726, T2 at step 1725/2890 (59.7% at 19:47). ETA terminal ~21:30 UTC. |
+| **#2330** | open2-frieren | **H-AH: EMA-Nesterov β ablation on NC × Arbor + RI** | 2890 | Assigned 19:53 UTC. Pod picked up branch at iter 181 (19:20 UTC), exits/relaunches on heartbeat. Smoke launch expected next iteration. 2-arm screen: β=0.90 vs β=0.98 at n=2. |
+| **#2324** | open2-askeladd | H-AB: SWA tail on NC × Arbor + RI | 2890 | Arm A T1 in flight, run `w0h4r1um` at step 5492/11563 (≈ T1 step 2602/2890, ~95% T1). T1 terminal ETA ~20:15 UTC. After T1 SENPAI-RESULT: interrupt → rebase (drop `--nc 1`) → launch Arm B (SWA K=290). |
+| **#2327** | open2-fern | H-AE: capture_step × γ re-sweep on NC × Arbor + RI | 2890 | Run `5kgku0hv` live at step 1950/11563 (mid-T0). Primary: (capture=2200, γ=−0.05) on NC × Arbor stack. ETA n=4 terminal ~02:00 UTC. |
+| **#2326** | open2-edward | H-AD: RI γ ablation on NC × Arbor stack | 2890 | Run `485nt9tt` at step 4866/11563 (≈ T1 mid). Interim γ readings: γ=−0.075 → 3.27839 vs γ=0 → 3.27870 (Δ=−0.00031 marginal). n=4 terminal ETA ~01:00 UTC. |
+| **#2329** | open2-tanjiro | H-AG: LR × WD retune on NC × Arbor + RI | 2890 | **20:30 UTC: BLOCKED-then-UNBLOCKED.** Student flagged PR-vs-code mismatch (no `--learning_rate` flag). Corrected spec sent: interpretation (c), ±20% around actual `MUON_LR=0.0375` → Arm A 0.030, Arm B 0.045, WD held at 0.025. Approved minimal CLI flag refactor (`--muon_lr`, `--muon_weight_decay`). Awaiting student smoke. |
+| **#2328** | open2-nezuko | **H-AF: NS iteration ablation (NS10 vs NS12)** | 2890 | Spec corrected (NS12, not NS5, is baseline). Smoke `ea0n8iwj` at step 75 (smoke startup). Testing NS10 single arm n=4. |
+| **#2323** | open2-thorfinn | H-AA: Arbor warmup (skip Sinkhorn first N steps) | 2890 | N=0 n=4 running (`fiixr3ft`), step 8157/11563 (≈ T2 step 2557 or T3 start). T0=3.276551, T1=3.278726. T3 terminal ETA ~21:00-21:30 UTC. |
 
 ## ✅ Recent closures / merges (18:43 UTC, 2026-06-06)
 
