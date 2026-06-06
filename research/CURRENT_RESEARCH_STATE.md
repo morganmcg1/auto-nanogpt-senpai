@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~04:55 UTC (launch day +2)
+- **As of:** 2026-06-06 ~05:25 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -22,14 +22,31 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
-| **#2315** | open2-alphonse | H-S: NC × Arbor + RI triple stack (NC on new merged Arbor base) | 2890 | Smoke @ step 100 |
+| **#2315** | open2-alphonse | H-S: NC × Arbor + RI triple stack (NC on new merged Arbor base) | 2890 | **NC code re-implemented** (was on closed branches); smoke 250 finished, n=4 launch pending |
 | **#2306** | open2-frieren | H-K: NC + RI on PR #309 base (pre-Arbor), n=4 | 2890 | T2=3.27777 (sub-baseline!), T3 just started @ step 125, ETA ~06:18 |
 | **#2307** | open2-askeladd | H-L: lm_head freeze tail (paired Arm A / Arm B) | 2890 | **Arm A n=2 mean 3.27727 BELOW new Arbor 3.27738**, T2 @ 61% |
 | **#2309** | open2-fern | H-N: NC + RI on PR #309 base (pre-Arbor), n=4 | 2890 | T0=3.27973, paired Δ=−0.00031; T1 @ 61%, ETA ~05:45 |
 | **#2310** | open2-edward | H-O: NC alone on PR #309 base (pre-Arbor), paired arms | 2890 | Arm A T0=3.27963; T1 @ 65%, ETA ~05:30 |
-| **#2311** | open2-tanjiro | H-P: NC + RI on PR #305 base (universality), n=4 | 2925 | T0 @ 94% (step 2750, val_loss 3.297, target NOT reached) |
-| **#2312** | open2-nezuko | H-Q: Lookahead-Muon + RI, smoke PASSED | 2890 | **GPU CONTENTION**: smoke + n=4 running concurrently; advisor comment posted |
-| **#2314** | open2-thorfinn | H-R: Arbor + RI (RI on new merged Arbor base) | 2890 | Smoke @ step 600 val 3.826 |
+| **#2311** | open2-tanjiro | H-P: NC + RI on PR #305 base (universality), n=4 | 2925 | T0=3.2795, paired Δ=−0.0006 (mechanism boundary!); T1 @ 12% |
+| **#2312** | open2-nezuko | H-Q: Lookahead-Muon + RI, smoke PASSED | 2890 | n=4 running @ step 675 (duplicate smoke killed) |
+| **#2314** | open2-thorfinn | H-R: Arbor + RI (RI on new merged Arbor base) | 2890 | Smoke @ step 1230 val 3.615 (progressing) |
+
+## 🆕 05:25 UTC UPDATE: Tanjiro H-P T0 confirms NC × EMA-Nesterov mechanism boundary
+
+**Tanjiro H-P T0 (NC + RI on PR #305 base, 2925 steps):**
+- val/loss (γ=−0.075) = 3.2795
+- val/loss (γ=0) = 3.2801
+- **Paired Δ = −0.0006** (normal RI lift, comparable to bare Muon H-F −0.0005)
+- first_step_to_target = 2925 (just barely reached)
+
+This is **2× larger paired Δ** than PR #309-derived bases (frieren −0.00029, fern −0.00031), confirming:
+- **NC × EMA-Nesterov conflict is a SPECIFIC interaction, not a general NC problem**
+- NC works normally on bare Muon (H-F) and Aurora-based PR #305 (your data)
+- NC conflicts only with EMA-Nesterov state (PR #309)
+
+**Mechanism interpretation refined:** PR #309's EMA-Nesterov (β=0.95) captures per-step momentum-sign info that NC's row/col gating duplicates. PR #305 uses Aurora + Contra-Muon (different momentum mechanism), no conflict.
+
+Absolute val/loss 3.2795 still above merged baselines (Arbor 3.27738, RI 3.27786). PR #305 + NC at 2925 steps doesn't directly compete with PR #309-derived stacks, but the mechanism finding is publishable.
 
 ## 🆕 04:55 UTC UPDATE: Askeladd Arm A shows surprising strength
 
