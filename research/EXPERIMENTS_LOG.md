@@ -9,6 +9,31 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-06 04:13 — PR #2308: H-M NC + RI on bare Muon at 2890 steps — CLOSED (step-budget null)
+
+- Branch: `open2-thorfinn/h-m-nc-ri-2890-speedrun`
+- Hypothesis: Can NC+RI compress the step budget sufficiently to make bare Muon competitive at 2890 steps? (H-F showed NC+RI on bare Muon reaches 3.274 at 3325 steps.)
+- Status: **CLOSED** — bare Muon at 2890 steps cannot reach 3.28 val/loss target (experiment aborted at T2 start)
+- W&B run: `7qcq1iwa`
+
+### n=2 results (T0, T1 before abort)
+
+| Trial | val/loss (γ=−0.075) | val/loss (γ=0) | Paired Δ | Reaches 3.28 target? |
+|---|---:|---:|---:|---|
+| T0 | 3.29757 | 3.29816 | −0.000592 | ❌ NO |
+| T1 | 3.29760 | ~3.29820 | ~−0.0006 | ❌ NO |
+| n=2 mean | ~3.29758 | — | — | ❌ |
+
+### Analysis
+
+**Bare Muon at 2890 steps cannot reach the 3.28 target or compete with the PR #309-based stack (3.27738).** The NC+RI paired Δ of ~−0.0006 is actually stronger than the H-F result at 3325 steps (−0.000504), confirming mechanism robustness. But the base val/loss is ~3.298, requiring ~0.018 of additional lift to reach target — far beyond what NC+RI provides.
+
+**Implication:** The NC+RI mechanism requires a strong optimizer base (Aurora+EMA-Nesterov or similar) to deliver competitive absolute val/loss. Bare Muon's weaker base trajectory means even with NC+RI, you stay above the 3.28 target at 2890 steps. H-F confirmed 3325 steps is feasible but not competitive with the 2890-step PR #309 stack.
+
+**Thorfinn reassigned to H-R (Arbor + RI)** — the high-priority composition test.
+
+---
+
 ## 2026-06-06 03:45 — PR #2298: H-A Corrected Arbor Muon on PR #309 base — MERGED (new rank-1)
 
 - Branch: `open2-alphonse/h-a-corrected-arbor-muon-pr309-base`
