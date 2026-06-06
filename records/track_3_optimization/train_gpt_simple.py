@@ -146,6 +146,14 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--nc", type=int, default=0,
+                        help="Enable Normalized Correction (NC, PR #295) inside Muon's update path. "
+                             "Equalises per-row and per-column ℓ₂ norms of the momentum update "
+                             "before NS orthogonalisation. 0 disables (default), 1 enables.")
+    parser.add_argument("--disable_ema_nesterov", action="store_true",
+                        help="Surgically remove the EMA-Nesterov outer optimizer (PR #309). Inner Muon+AdamW "
+                             "still run normally; only the lookahead perturb / accumulate is bypassed. "
+                             "Used to test whether NC×EN interaction is unlocked when EN is removed (H-Y).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -890,7 +898,12 @@ def arbor_sinkhorn_equilibrate(G: Tensor, n_iters: int = ARBOR_ITERS,
 
 
 def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, use_soft=True,
-                apply_arbor: bool = False):
+                apply_arbor: bool = False, use_nc: bool = False):
+    if use_nc:
+        # NC (PR #295): equalise per-row and per-column ℓ₂ norms before NS orthogonalisation.
+        r_norm = update.norm(dim=-1, keepdim=True)
+        c_norm = update.norm(dim=-2, keepdim=True)
+        update = update / torch.sqrt(torch.clamp(r_norm * c_norm, min=1e-12))
     normalized_grad = scale_to_unit_operator_norm(update.clone())
     ns_update = zeropower_via_newtonschulz5(update)
     if apply_arbor:
@@ -927,7 +940,7 @@ def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, u
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95, use_nc=False):
         assert isinstance(named_params, list) and len(named_params) >= 1
         self.soap_params = {p for n, p in named_params if should_soap_param(n)}
         self.attn_soap_params = {p for n, p in named_params if should_soap_param(n) and is_attn_param(n)}
@@ -945,6 +958,7 @@ class Muon(torch.optim.Optimizer):
             p: n for n, p in named_params
             if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
         }
+        self.use_nc = use_nc
         self.last_arbor_diag: dict[str, float] = {}
         self.step_count = 0
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
@@ -1012,6 +1026,7 @@ class Muon(torch.optim.Optimizer):
                         use_contra=p not in self.no_contra_params,
                         use_soft=p not in self.no_soft_params,
                         apply_arbor=p_apply_arbor,
+                        use_nc=self.use_nc,
                     )
                     if p_apply_arbor and arbor_diag:
                         param_name = self.arbor_param_names.get(p, "unknown")
@@ -1216,6 +1231,8 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "nc_enabled": bool(args.nc),
+            "disable_ema_nesterov": bool(args.disable_ema_nesterov),
         },
     )
 
@@ -1266,19 +1283,23 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU, use_nc=bool(args.nc))
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     inner_optimizers = [optimizer1, optimizer2]
-    optimizer_ema = EMA_Nesterov(
-        [p for p in model.parameters()],
-        inner_optimizers,
-        lookahead_stepsize=EMA_NESTEROV_LOOKAHEAD,
-        use_scheduled_lookahead_stepsize=True,
-        lookahead_ema=EMA_NESTEROV_GAMMA,
-        prefill_steps=EMA_NESTEROV_PREFILL_STEPS,
-        rest_steps=EMA_NESTEROV_REST_STEPS,
-    )
-    optimizers = [optimizer_ema]
+    if args.disable_ema_nesterov:
+        optimizer_ema = None
+        optimizers = inner_optimizers
+    else:
+        optimizer_ema = EMA_Nesterov(
+            [p for p in model.parameters()],
+            inner_optimizers,
+            lookahead_stepsize=EMA_NESTEROV_LOOKAHEAD,
+            use_scheduled_lookahead_stepsize=True,
+            lookahead_ema=EMA_NESTEROV_GAMMA,
+            prefill_steps=EMA_NESTEROV_PREFILL_STEPS,
+            rest_steps=EMA_NESTEROV_REST_STEPS,
+        )
+        optimizers = [optimizer_ema]
     assert set(p for opt in inner_optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in inner_optimizers:
@@ -1474,7 +1495,8 @@ for trial_idx in range(args.num_trials):
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
         # PR #309 EMA-Nesterov: perturb to the lookahead point BEFORE forward+backward.
-        optimizer_ema.nesterov_step()
+        if optimizer_ema is not None:
+            optimizer_ema.nesterov_step()
         step_loss = torch.zeros((), device=device)
         for i in range(len(inputs) // mbs):
             loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
@@ -1505,14 +1527,19 @@ for trial_idx in range(args.num_trials):
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
             wandb.log(slope_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
-            ema_extras = {
-                "train/ema_nesterov/it": optimizer_ema.it,
-                "train/ema_nesterov/lookahead_stepsize": optimizer_ema.current_lookahead_stepsize,
-                "train/ema_nesterov/lookahead_active": int(
-                    optimizer_ema.it >= EMA_NESTEROV_PREFILL_STEPS
-                    and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
-                ),
-            }
+            if optimizer_ema is not None:
+                ema_extras = {
+                    "train/ema_nesterov/it": optimizer_ema.it,
+                    "train/ema_nesterov/lookahead_stepsize": optimizer_ema.current_lookahead_stepsize,
+                    "train/ema_nesterov/lookahead_active": int(
+                        optimizer_ema.it >= EMA_NESTEROV_PREFILL_STEPS
+                        and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
+                    ),
+                }
+            else:
+                ema_extras = {
+                    "train/ema_nesterov/disabled": 1,
+                }
             log_training_telemetry(
                 model=model,
                 optimizers=inner_optimizers,
