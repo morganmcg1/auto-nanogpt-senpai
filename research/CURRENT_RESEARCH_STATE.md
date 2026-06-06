@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~10:46 UTC (launch day +2)
+- **As of:** 2026-06-06 ~11:05 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,18 +18,33 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 - W&B: `5weg8d9r`. Contract margin 0.00524.
 - **Cleanup PR #2313 merged 04:30 UTC:** Arbor is now always-on (no flag). Removed broken sqrt variant.
 
-## Active assignments (10:46 UTC, 2026-06-06)
+## Active assignments (11:05 UTC, 2026-06-06)
 
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN** — environmental NaN persists. Issue #2319 waiting. |
-| **#2316** | open2-frieren | H-T: lm_head freeze tail × Arbor + RI | 2890 | T0=3.278676 (+0.00130). T1 at 96% → terminal ~10:52 UTC. **Abort likely after T1 confirms.** |
-| **#2307** | open2-askeladd | H-L: freeze tail paired arms | 2890 | Arm B T1 at 99.8% — terminal imminent. Arm B T0=3.27987, T1=3.2810. Both above baseline. **Closing after T1 posted.** |
-| **#2320** | open2-fern | H-X: RI capture_step ablation | 2890 | **n=4 LAUNCHED 10:29 UTC** (run 0ygp3njz step 475). ETA ~16:54 UTC. |
-| **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | Arm A n=4=3.27894 (above). Arm B T0=**3.2805** (NC hurts +0.0009 vs control). T1 started. Arm B ETA ~15:30 UTC. |
-| **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | **ASSIGNED 10:46 UTC**. Tests whether removing EN unlocks NC composition. |
-| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | T0=**3.27671** (below baseline by −0.00067). T1 ~50% at 10:11 UTC. T1 ETA ~12:10 UTC. |
-| **#2314** | open2-thorfinn | H-R: Arbor + RI eval composition | 2890 | n=2=3.276382. T2 at 96% → terminal ~10:52 UTC. T3 ETA ~12:40 UTC. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN** — Issue #2319 waiting on human team. |
+| **#2322** | open2-frieren | H-Z: Arbor − EMA-Nesterov baseline (no NC) | 2890 | **ASSIGNED 11:05 UTC**. Control arm to tanjiro H-Y. |
+| **#2307** | open2-askeladd | H-L: freeze tail paired arms | 2890 | Arm B T1=3.279970 (+0.003003 vs Arm A). T2 at step ~25 just started. ETA T3 terminal ~14:04 UTC. |
+| **#2320** | open2-fern | H-X: RI capture_step ablation | 2890 | n=4 active (run 0ygp3njz, step 475 at 10:27 UTC). ETA ~16:54 UTC. |
+| **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | Arm A n=4=3.27894. Arm B T0=3.2805 (+0.0009 vs control). T1 running. ETA ~15:30 UTC. |
+| **#2321** | open2-tanjiro | H-Y: Drop EMA-Nesterov from Arbor + NC + RI | 2890 | ASSIGNED 10:46 UTC. Tests if removing EN unlocks NC composition. |
+| **#2317** | open2-nezuko | H-W: NC × Arbor + RI on merged Arbor base | 2890 | T0=**3.27671** (below baseline −0.00067). T1 at 78% → terminal ~11:20 UTC. |
+| **#2314** | open2-thorfinn | H-R: Arbor + RI eval composition | 2890 | **n=3 mean 3.276519** (T0=3.27617, T1=3.27659, T2=3.27679). T3 running, ETA ~12:40 UTC. |
+
+## 🔬 11:05 UTC: Frieren H-T ABORTED + H-Z assigned; thorfinn n=3=3.276519
+
+**Frieren H-T PR #2316 ABORTED (n=2=3.279633, +0.00225 above baseline):**
+- T0=3.278676 (+0.00130), T1=3.28059 (+0.00321). Both confirm freeze tail × Arbor negative.
+- Mechanism: RI prior violated when lm_head frozen (pre-freeze trajectory included in RI snapshot).
+- frieren reassigned H-Z: Arbor − EN baseline (no NC), control arm to tanjiro H-Y.
+
+**Thorfinn H-R n=3 mean = 3.276519 — recalibrated Arbor+RI floor:**
+- T0=3.27617, T1=3.27659, T2=3.27679. Very consistent. T3 ETA ~12:40 UTC.
+- n=3 mean 3.276519, n=4 likely ~3.2765-3.2767
+
+**Freeze tail DEAD across both arms — close direction:**
+- Askeladd H-L Arm B T1 Δ = +0.003003 (vs Arm A), T0 Δ = +0.002305
+- Frieren H-T n=2 mean = +0.00225 above baseline
 
 ## 🔬 10:38 UTC: Tanjiro H-P n=4 CLOSED + NC×EN table finalized
 
