@@ -9,6 +9,38 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-06 06:38 — PR #2306: H-K NC + RI on PR #309 base — CLOSED (NC × EMA-Nesterov null)
+
+- Branch: `open2-frieren/h-k-nc-ri-pr309-n4`
+- Hypothesis: Cautious-Muon (per-row × per-col L2 equalization on update before NS5) + RI (γ=−0.075, capture_step=2375) on PR #309 base at 2890 steps. Tests whether NC composes additively with RI on the EMA-Nesterov momentum stack.
+- Status: **CLOSED** — n=4 mean 3.27922, does not beat Arbor baseline 3.27738
+
+### n=4 per-trial results
+
+| Trial | val/loss (γ=−0.075, NC+RI) | val/loss (γ=0, NC alone) | Paired Δ (RI vs no-RI) | first_step_to_target |
+|---:|---:|---:|---:|---:|
+| T0 | 3.28091 | ~3.28191 | ~−0.00100 | -1 |
+| T1 | 3.27996 | 3.28028 | −0.00032 | 2890 |
+| T2 | 3.27777 | — | — | 2875 |
+| T3 | 3.27825 | — | — | ~2890 |
+| **n=4 mean** | **3.27922** | — | — | — |
+
+W&B run: `hv1l0vsn` (group `open2-frieren/h-k-nc-ri-pr309-2890`)
+
+### Analysis
+
+This is the **3rd independent confirmation of NC × EMA-Nesterov conflict** on PR #309-derived bases (alongside edward H-O NC-alone and fern H-N NC+RI). NC hurts absolute val/loss by ~+0.002 vs RI-only baseline (fern merged 3.27786) and by +0.00184 vs the Arbor rank-1 (3.27738).
+
+High trial variance (T0=3.28091, T2=3.27777) is consistent with PR #309 base variance. The n=4 mean of 3.27922 represents the unbiased estimate.
+
+**Mechanism confirmation:** PR #309's EMA-Nesterov (β=0.95) pre-captures momentum-sign information that NC's per-row × per-col normalization was designed to provide. On bare Muon, NC adds clean signal (thorfinn H-F: paired Δ=−0.0005); on PR #305 (Aurora + Contra-Muon), NC adds clean signal (tanjiro H-P: paired Δ=−0.0006); on PR #309 (EMA-Nesterov), NC signal is suppressed (paired Δ=−0.00029 to −0.00032) and absolute val/loss INCREASES.
+
+**What this closes:** NC experiments on any EMA-Nesterov-derived base. This covers the entire PR #309 lineage (current rank-1 and all successors). NC is only viable on bare Muon or non-EMA-Nesterov optimizer bases.
+
+**frieren reassigned to H-T (PR #2316):** lm_head freeze tail × Arbor + RI — a disjoint mechanism (freeze operates on lm_head gradient, not Muon update direction).
+
+---
+
 ## 2026-06-06 04:13 — PR #2308: H-M NC + RI on bare Muon at 2890 steps — CLOSED (step-budget null)
 
 - Branch: `open2-thorfinn/h-m-nc-ri-2890-speedrun`

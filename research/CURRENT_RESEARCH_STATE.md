@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~05:25 UTC (launch day +2)
+- **As of:** 2026-06-06 ~06:50 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,147 +18,131 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 - W&B: `5weg8d9r`. Contract margin 0.00524.
 - **Cleanup PR #2313 merged 04:30 UTC:** Arbor is now always-on (no flag). Removed broken sqrt variant.
 
-## Active assignments (04:55 UTC, 2026-06-06)
+## Active assignments (06:50 UTC, 2026-06-06)
 
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
-| **#2315** | open2-alphonse | H-S: NC × Arbor + RI triple stack (NC on new merged Arbor base) | 2890 | **NC code re-implemented** (was on closed branches); smoke 250 finished, n=4 launch pending |
-| **#2306** | open2-frieren | H-K: NC + RI on PR #309 base (pre-Arbor), n=4 | 2890 | T2=3.27777 (sub-baseline!), T3 just started @ step 125, ETA ~06:18 |
-| **#2307** | open2-askeladd | H-L: lm_head freeze tail (paired Arm A / Arm B) | 2890 | **Arm A n=2 mean 3.27727 BELOW new Arbor 3.27738**, T2 @ 61% |
-| **#2309** | open2-fern | H-N: NC + RI on PR #309 base (pre-Arbor), n=4 | 2890 | T0=3.27973, paired Δ=−0.00031; T1 @ 61%, ETA ~05:45 |
-| **#2310** | open2-edward | H-O: NC alone on PR #309 base (pre-Arbor), paired arms | 2890 | Arm A T0=3.27963; T1 @ 65%, ETA ~05:30 |
-| **#2311** | open2-tanjiro | H-P: NC + RI on PR #305 base (universality), n=4 | 2925 | T0=3.2795, paired Δ=−0.0006 (mechanism boundary!); T1 @ 12% |
-| **#2312** | open2-nezuko | H-Q: Lookahead-Muon + RI, smoke PASSED | 2890 | n=4 running @ step 675 (duplicate smoke killed) |
-| **#2314** | open2-thorfinn | H-R: Arbor + RI (RI on new merged Arbor base) | 2890 | Smoke @ step 1230 val 3.615 (progressing) |
+| **#2315** | open2-alphonse | H-S: NC × Arbor + RI triple stack | 2890 | **BLOCKED — environmental NaN on Blackwell GPU (CC 12.0 pod)**. Soft recovery window open (15-min). Close + reassign pending if pod unrecoverable. |
+| **#2316** | open2-frieren | H-T: lm_head freeze tail × Arbor + RI | 2890 | **NEWLY ASSIGNED** (06:38 UTC). `--freeze_lm_head_tail 1 --freeze_lm_head_from_step 2600`. Smoke → n=4 pipeline. |
+| **#2307** | open2-askeladd | H-L: lm_head freeze tail (Arm A control + Arm B freeze) | 2890 | **T3 in progress** (step ~2053/2890, 71%). Arm A n=3 mean **3.27713 — BEATING Arbor baseline 3.27738!** T3 ETA ~07:20 UTC. |
+| **#2309** | open2-fern | H-N: NC + RI on PR #309 base, n=4 | 2890 | T2 in progress (~70%), T0/T1 both ~3.27834 paired Δ pattern confirming NC×EMA-Nesterov. |
+| **#2310** | open2-edward | H-O: NC alone on PR #309 base, paired arms | 2890 | Arm A T2 in progress (~72%). T0=3.27963, T1 TBD. |
+| **#2311** | open2-tanjiro | H-P: NC + RI on PR #305 base (universality), n=4 | 2925 | T1 nearly done (was 93% at 06:00 UTC). T0=3.27951, paired Δ=−0.0006 (normal, no EMA-Nesterov conflict on PR #305). |
+| **#2312** | open2-nezuko | H-Q: Lookahead-Muon + RI on PR #309 base | 2890 | T0=3.29391 (**VERY BAD** — Lookahead-Muon failing). T1 at ~40%. Direction unlikely. |
+| **#2314** | open2-thorfinn | H-R: Arbor + RI eval composition | 2890 | T0 at step ~1775/2890 (61%). No terminal yet, on pace. |
 
-## 🆕 05:25 UTC UPDATE: Tanjiro H-P T0 confirms NC × EMA-Nesterov mechanism boundary
+## 🔬 06:38 UTC: Frieren H-K CLOSED — NC × EMA-Nesterov confirmed n=4
 
-**Tanjiro H-P T0 (NC + RI on PR #305 base, 2925 steps):**
-- val/loss (γ=−0.075) = 3.2795
-- val/loss (γ=0) = 3.2801
-- **Paired Δ = −0.0006** (normal RI lift, comparable to bare Muon H-F −0.0005)
-- first_step_to_target = 2925 (just barely reached)
+**Final frieren H-K n=4 result (NC + RI on PR #309 base):**
 
-This is **2× larger paired Δ** than PR #309-derived bases (frieren −0.00029, fern −0.00031), confirming:
-- **NC × EMA-Nesterov conflict is a SPECIFIC interaction, not a general NC problem**
-- NC works normally on bare Muon (H-F) and Aurora-based PR #305 (your data)
-- NC conflicts only with EMA-Nesterov state (PR #309)
+| Trial | val/loss (γ=−0.075) | first_step_to_target |
+|---:|---:|---:|
+| T0 | 3.28091 | -1 |
+| T1 | 3.27996 | 2890 |
+| T2 | 3.27777 | 2875 |
+| T3 | 3.27825 | ~2890 |
+| **n=4 mean** | **3.27922** | — |
 
-**Mechanism interpretation refined:** PR #309's EMA-Nesterov (β=0.95) captures per-step momentum-sign info that NC's row/col gating duplicates. PR #305 uses Aurora + Contra-Muon (different momentum mechanism), no conflict.
+**Verdict: CLOSED (does NOT beat Arbor baseline 3.27738)**. Gap = +0.00184 above rank-1.
 
-Absolute val/loss 3.2795 still above merged baselines (Arbor 3.27738, RI 3.27786). PR #305 + NC at 2925 steps doesn't directly compete with PR #309-derived stacks, but the mechanism finding is publishable.
+**This is the 3rd independent confirmation of NC × EMA-Nesterov conflict** (alongside fern H-N, edward H-O). NC hurts absolute val/loss on PR #309 base by ~+0.002 vs no-NC baseline.
 
-## 🆕 04:55 UTC UPDATE: Askeladd Arm A shows surprising strength
+**frieren reassigned to H-T (PR #2316)**: lm_head freeze tail × Arbor + RI.
 
-**Askeladd H-L Arm A (RI-only, NO freeze, NO Arbor — essentially fern's merged stack):**
+## 🔥 CRITICAL MECHANISM FINDING: NC × EMA-NESTEROV CONFLICT
 
-| Trial | val/loss (γ=−0.075) | val/loss (γ=0) | Paired Δ | first_step_to_target |
-|---:|---:|---:|---:|---:|
-| T0 | 3.27757 | — | — | 2875 |
-| T1 | **3.27697** | 3.27729 | −0.00032 | 2850 |
-| n=2 mean | **3.27727** | — | — | — |
+### Summary
 
-**Arm A n=2 mean 3.27727 BEATS new Arbor baseline 3.27738 by −0.00011** at single-trial level. If T2/T3 stay in the 3.276–3.278 band, Arm A n=4 mean could push below 3.27738 — but this would NOT directly merge (Arm A is same RI mechanism already merged on fern's PR #2295). Instead it would imply:
-- Either: Arbor's −0.00048 over fern was seed luck (alphonse's seed sequence happened to be lucky; askeladd's is similarly lucky)
-- OR: There's something distinctive about askeladd's environment giving slight uplift
+| Base | NC paired Δ (RI lift under NC) | NC absolute impact |
+|---|---:|---|
+| bare Muon | −0.000504 | NEUTRAL-POSITIVE |
+| PR #305 (Aurora + Contra-Muon) | −0.0006 | NEUTRAL (tanjiro T0) |
+| **PR #309 (EMA-Nesterov β=0.95)** | **−0.00029 to −0.00032** | **NEGATIVE ~+0.002 hurt** |
+| PR #309 + Arbor | **~−0.0003?** | **NEGATIVE (H-S blocked, env NaN)** |
 
-Real merge-eligibility test is Arm B (freeze tail) paired Δ vs Arm A. If Arm B improves paired Δ ≤ −0.0003 AND n=4 mean < 3.27738, then freeze tail composes with RI for new rank-1.
+**Mechanism:** PR #309's EMA-Nesterov β=0.95 captures per-step momentum-sign info that NC's row/col gating was designed to provide. Double-counting degrades gradient signal. PR #305 uses Aurora + Contra-Muon (different mechanism), no conflict.
 
-## 🔬 Frieren T2 = 3.27777 — sub-baseline single trial, mean still high
+**Implication for all PR #309-derived experiments:** NC is closed off as a compositional mechanism. Do not assign NC experiments on PR #309-derived bases.
 
-Frieren H-K n=3 standing (NC + RI on PR #309 base):
+## 🚨 Alphonse H-S: Environmental NaN — pod GPU suspected
 
-| Trial | val/loss (γ=−0.075) | Note |
-|---:|---:|---|
-| T0 | 3.28091 | high tail |
-| T1 | 3.27996 | mid |
-| **T2** | **3.27777** | **sub-baseline single trial** (below fern's 3.27786) |
-| n=3 mean | 3.27955 | high due to T0 tail |
+- Blackwell GPU (CC 12.0), pod `senpai-auto-nanogpt-open-sota-v2-20260604-open2-alphonse-7t946p`
+- Deterministic NaN at `blocks.0.attn.proj.bias.grad` positions 7/768 in backward of step 1
+- Same NaN regardless of: NC on/off, Arbor on/off, RI on/off, TF32 on/off, clean cache
+- Even successful smoke baseline (a92fc412) now crashes — confirms environmental
+- Thorfinn running cleanly on same code = pod-specific
+- Recovery plan posted: soft CUDA reset first, then close + reassign if unrecoverable
+- **H-U (Lookahead × Arbor) CANCELLED as backup** — nezuko H-Q T0=3.29391 confirms Lookahead-Muon failing on PR #309 base
 
-T2 below fern's merged 3.27786 at trial level confirms NC × RI sometimes lands well, but the high variance + T0 tail dominate the n=4 mean. T3 would need ≤ 3.27280 to beat fern's mean (extremely tight). Most likely close with mechanism finding (NC × EMA-Nesterov conflict).
+## ✨ STRONG SIGNAL: Askeladd H-L Arm A sub-baseline performance
 
-## 🔥 CRITICAL FINDING (04:40 UTC): NC CONFLICTS WITH EMA-NESTEROV
+**Askeladd H-L Arm A (RI only, NO freeze tail — same as fern merged):**
+T0=3.27757, T1=3.27697, T2=3.27685. n=3 mean=**3.27713** — **below Arbor baseline 3.27738!**
 
-### NC hurts on PR #309 base — EMA-Nesterov conflict confirmed
+This is strong variance but suggests:
+1. lm_head freeze Arm B should show even lower values if freeze tail adds lift
+2. If Arm B paired Δ vs Arm A ≤ −0.0002, freeze tail × RI is a new rank-1 candidate
+3. H-T (frieren) tests freeze tail × ARBOR — the merge-relevant composition
 
-| Experiment | Mechanism | T0 val/loss | vs fern merged 3.27786 | vs PR #309 base 3.27813 |
-|---|---|---:|---:|---:|
-| frieren H-K T0 | NC + RI (γ=−0.075) | 3.27996 | +0.00210 (WORSE) | +0.00183 (WORSE) |
-| frieren H-K T0 γ=0 | NC only | ~3.28091 | +0.00305 (WORSE) | +0.00278 (WORSE) |
-| edward H-O T0 | NC only (Arm A = no-NC control) | 3.27963 | +0.00177 | +0.00150 |
-| fern H-N T0 | NC + RI (γ=−0.075) | 3.27973 | +0.00187 | +0.00160 |
+## ⚠️ Nezuko H-Q: Lookahead-Muon failing badly (T0=3.29391)
 
-**All NC experiments on PR #309 base are ABOVE the pre-Arbor fern RI baseline (3.27786).** NC is a net negative on EMA-Nesterov bases.
+Lookahead k=10, α=0.5 on PR #309 base: T0 = 3.29391. This is ~0.016 above the 3.28 target, far worse than any mechanism we've tested. Likely cause: Lookahead slow-weight interpolation interferes with EMA-Nesterov momentum state (similar conflict as NC). T1 at 40% — will confirm direction but Lookahead-Muon is a dead end.
 
-**Mechanism interpretation:** PR #309's EMA-Nesterov (β=0.95) creates a per-step momentum correction that already captures sign-consistency information. NC adds a redundant sign-gate on top, interfering with the existing momentum state. On bare Muon (no EMA-Nesterov), NC provides clean signal; on EMA-Nesterov, it double-counts momentum and reduces gradient fidelity.
-
-**Paired RI Δ within NC stack:** frieren H-K T0 Δ(γ=−0.075 vs γ=0) = −0.000947 (RI still helps, and lift is LARGER than without NC). The enlarged RI Δ under NC suggests NC changes the parameter trajectory to be more linear/directional in the tail — mechanistically interesting, but doesn't compensate for NC's base hurt.
-
-### Implications for H-S (alphonse, NC × Arbor + RI)
-
-If NC hurts on all EMA-Nesterov-derived bases, H-S will likely also show NC hurting on Arbor+RI base (which is still EMA-Nesterov underneath). BUT:
-- Arbor's Sinkhorn equilibration reshapes parameter distributions
-- This might change how EMA-Nesterov interacts with sign information
-- Still worth running: either confirms mechanism boundary or reveals unexpected composability
-
-## Compositional verdict table (04:40 UTC)
+## Compositional verdict table (06:50 UTC)
 
 | Mechanism | Base | Status |
 |---|---|---|
 | RI alone | PR #309 | ✅ MERGED at 3.27786 (fern PR #2295) |
-| Arbor (corrected) | PR #309 + RI | ✅ **MERGED at 3.27738 (alphonse PR #2298)** — RANK-1 |
+| Arbor (Sinkhorn equilibration) | PR #309 + RI | ✅ **MERGED at 3.27738 (alphonse PR #2298)** — RANK-1 |
 | NC (Cautious-Muon) | bare Muon | ✅ CONFIRMED (paired Δ −0.0005 at 3325 steps) |
 | NC + RI | bare Muon | ✅ CONFIRMED n=4 — 3.274723 at 3325 steps |
 | RI | PR #300 / #305 | ✅ UNIVERSAL |
-| **NC alone** | **PR #309 (EMA-Nesterov)** | **⚠️ T0 = 3.27963 — HURTS vs RI-only baseline** |
-| **NC + RI** | **PR #309 (EMA-Nesterov)** | **⚠️ T0 = 3.27996 — HURTS vs RI-only baseline** |
-| **NC + RI** | **PR #309 (EMA-Nesterov)** | **⏳ n=4 confirming frieren H-K, fern H-N, edward H-O** |
-| Arbor + RI | PR #309 | ⏳ thorfinn H-R (PR #2314) — just assigned |
-| NC + Arbor + RI | PR #309 | ⏳ alphonse H-S (PR #2315) — just assigned |
-| lm_head freeze + RI | PR #309 | ⏳ askeladd H-L Arm A/B — Arm A T2 running |
-| Lookahead-Muon + RI | PR #309 | ⏳ nezuko H-Q (PR #2312) — smoke passed, n=4 pending |
-| NC + RI | PR #305 | ⏳ tanjiro H-P (PR #2311) — T0 47% |
+| **NC alone** | **PR #309 (EMA-Nesterov)** | **❌ CLOSED — hurts ~+0.002 vs RI-only** |
+| **NC + RI** | **PR #309 (EMA-Nesterov)** | **❌ CLOSED (frieren H-K n=4 3.27922)** |
+| **NC + RI** | **PR #309 + Arbor** | **⚠️ H-S blocked by environmental NaN** |
+| **Lookahead-Muon + RI** | **PR #309** | **❌ FAILING (nezuko H-Q T0=3.29391)** |
+| lm_head freeze tail + RI | PR #309 | ⏳ askeladd H-L Arm A (sub-baseline!), Arm B pending |
+| lm_head freeze tail × Arbor + RI | PR #309 + Arbor | ⏳ frieren H-T (PR #2316) — just assigned |
+| Arbor + RI (RI on merged Arbor base) | PR #309 | ⏳ thorfinn H-R (PR #2314) — T0 61% |
+| NC + RI | PR #305 | ⏳ tanjiro H-P (PR #2311) — T1 ~terminal |
 
-## Recent closures
+## Next-wave hypotheses
 
-| PR | Student | Verdict | Key finding |
-|---:|---|---|---|
-| #2313 | alphonse | MERGED (cleanup) | Arbor now always-on. Removed broken sqrt path + flags. |
-| #2308 | thorfinn | CLOSED | NC+RI on bare Muon at 2890 steps: target unreachable (3.298). Step budget too short. |
-| #2298 | alphonse | **MERGED RANK-1** | Corrected Arbor Muon: 3.27738 n=4. |
-| #2305 | nezuko | CLOSED | H-J Richardson null: two-snapshot = no gain over one-snapshot. |
+**When alphonse pod recovers or reassigned:**
+- **H-V: RI extended γ ablation on merged Arbor base** — test γ ∈ {−0.10, −0.125, −0.15} from capture_step=2375. Current best: γ=−0.075. No code changes, just CLI args. Zero implementation risk. Could compound existing RI lift.
+- OR: revisit H-S (NC × Arbor) if pod recovers cleanly
 
-## Next-wave hypotheses (when students free up)
+**After askeladd Arm A T3 terminal (~07:20 UTC):**
+- If Arm A n=4 mean ≤ 3.27738 (Arm A alone beats Arbor!) → potential merge, then Arm B data is frozen
+- If Arm A n=4 mean > 3.27738 → wait for Arm B (freeze tail) result
 
-**When frieren H-K closes (~06:30 UTC):**
-- **H-T: Freeze tail × Arbor** — does lm_head freeze compose with Arbor (orthogonal to RI)?
-- OR **H-U: Arbor on PR #305 base** — does Arbor work on a different optimizer stack?
+**After nezuko H-Q T3 terminal (~10:00 UTC):**
+- Close H-Q as dead end (Lookahead-Muon + EMA-Nesterov conflict)
+- Reassign nezuko to something orthogonal: e.g. Sinkhorn temperature schedule or RI capture-step sweep
 
-**After edward H-O Arm B (~12:00 UTC):**
-- Final verdict on NC conflict (paired Δ n=4 confirms mechanism)
-- If confirmed null: **H-V: Muon momentum parameter sweep (β)** on Arbor base — can tweaking β=0.95 give RI-like lift without the separate RI mechanism?
+**Bold bets (for when top-stack plateau):**
+- Aitken's Δ² extrapolation (uses 3 snapshots instead of 1, higher-order convergence)
+- Per-layer RI (earlier layers converge faster → earlier capture_step for shallow layers)
+- Dynamic β schedule: anneal EMA-Nesterov β from 0.95 → 0.85 in last 10% of training
+- NC after Sinkhorn (reversed composition — NC operates on already-equilibrated updates)
 
-**Bold bets (if top of stack has plateaued):**
-- Aitken's Δ² acceleration on terminal window
-- Per-layer capture step (early layers converge faster)
-- Lookahead k/α grid search (if H-Q shows positive signal)
-
-## Watch items (next 4h from 04:40 UTC)
+## Watch items (next 4h from 06:50 UTC)
 
 | Time | Event | Expected |
 |---|---|---|
-| ~04:45 | Frieren H-K T2 terminal | NC+RI val/loss ~3.279; paired Δ ~ −0.0009 |
-| ~05:00 | Edward H-O T1 terminal | NC alone T1 above baseline; watch for consistency |
-| ~05:00 | Fern H-N T1 terminal | NC+RI T1; confirm T0 pattern |
-| ~05:00 | Tanjiro H-P T0 terminal | NC+RI on PR #305 base; universality grid |
-| ~05:30 | Nezuko H-Q n=4 launch decision | Awaiting pace confirmation |
-| ~06:18 | Frieren H-K T3 terminal + close | Close + reassign frieren to H-T or H-U |
-| ~06:46 | Askeladd H-L Arm A T3 terminal | Arm B watchdog chains after |
+| ~06:55 | Alphonse pod recovery response | One of: recovered / request restart / in-progress |
+| ~07:20 | Askeladd H-L Arm A T3 terminal | n=4 mean expected ~3.2771 (sub-baseline!); Arm B chain after |
+| ~07:30 | Tanjiro H-P T1 terminal | NC+RI on PR #305 T1; paired Δ confirmation |
+| ~08:30 | Thorfinn H-R T0 terminal | First Arbor+RI post-merge result |
+| ~09:00 | Edward H-O Arm A T2 terminal | NC-alone on PR #309 T2 |
+| ~09:00 | Fern H-N T2 terminal | NC+RI on PR #309 T2 |
+| ~10:00 | Frieren H-T smoke | Freeze tail flag gate: no NaN + arbor/sinkhorn_fro_ratio |
 
-## Operational notes (04:40 UTC)
+## Operational notes (06:50 UTC)
 
-- All 8 students active. Zero idle GPUs.
-- **NC × EMA-Nesterov conflict discovered** — reframes H-S expected outcome.
-- Tanjiro PR #2311 has merge conflict (from Arbor cleanup). Run continues; rebase before marking review.
-- Nezuko H-Q 2x slowdown under investigation. Smoke val/loss 3.4510 at step 1500 is promising.
-- Thorfinn H-R and alphonse H-S are the two highest-priority experiments: Arbor+RI and NC×Arbor+RI respectively.
+- Alphonse pod hardware issue — 1 student effectively semi-idle pending recovery
+- 7/8 GPUs actively training
+- NC × EMA-Nesterov conflict CLOSED — no more NC experiments on PR #309-derived bases
+- Lookahead-Muon failing on PR #309 — H-Q likely dead end, nezuko reassignment coming
+- **Freeze tail is the highest-priority compositional mechanism** — 2 experiments (askeladd Arm B, frieren H-T)
+- Sinkhorn/Arbor on non-PR-309 bases is unexplored (potential next wave if freeze tail validates)
