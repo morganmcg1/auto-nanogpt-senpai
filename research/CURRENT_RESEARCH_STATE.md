@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~20:30 UTC (launch day +2)
+- **As of:** 2026-06-06 ~21:25 UTC (launch day +2)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -21,18 +21,18 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 
 Previous rank-1: **PR #2298 (alphonse H-A Corrected Arbor Muon) = 3.27738** (W&B: 5weg8d9r)
 
-## Active assignments (20:30 UTC, 2026-06-06)
+## Active assignments (21:25 UTC, 2026-06-06)
 
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
 | **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN — Issue #2319 open ~12h, no human team response.** Stuck on pod 7t946p. |
-| **#2330** | open2-frieren | **H-AH: EMA-Nesterov γ ablation on NC × Arbor + RI** | 2890 | **20:30 UTC: BLOCKED-then-UNBLOCKED.** Student flagged 2nd spec/code mismatch — actual code has `EMA_NESTEROV_GAMMA = 0.99` (line 111), NOT 0.95. Corrected reply sent: γ=0.99 IS the baseline (PR #2317 mean 3.276193, run vk0jtb3z, no re-run). Arms {0.90, 0.98} n=2; γ=0.95 escalation if both regress. Sent back to status:wip. |
-| **#2324** | open2-askeladd | H-AB: SWA tail on NC × Arbor + RI | 2890 | Arm A T1 in flight, run `w0h4r1um` at step 5492/11563 (≈ T1 step 2602/2890, ~95% T1). T1 terminal ETA ~20:15 UTC. After T1 SENPAI-RESULT: interrupt → rebase (drop `--nc 1`) → launch Arm B (SWA K=290). |
-| **#2327** | open2-fern | H-AE: capture_step × γ re-sweep on NC × Arbor + RI | 2890 | Run `5kgku0hv` live at step 1950/11563 (mid-T0). Primary: (capture=2200, γ=−0.05) on NC × Arbor stack. ETA n=4 terminal ~02:00 UTC. |
-| **#2326** | open2-edward | H-AD: RI γ ablation on NC × Arbor stack | 2890 | Run `485nt9tt` at step 4866/11563 (≈ T1 mid). Interim γ readings: γ=−0.075 → 3.27839 vs γ=0 → 3.27870 (Δ=−0.00031 marginal). n=4 terminal ETA ~01:00 UTC. |
-| **#2329** | open2-tanjiro | H-AG: LR retune (Muon LR) on NC × Arbor + RI | 2890 | **Arm A n=2 LAUNCHED 19:41 UTC.** Student implemented `--muon_lr`/`--muon_weight_decay` CLI flags (default `None` no-op). 50-step smoke +0.0175 vs baseline (accepted: normal for 20% LR reduction, monotonic, no NaN). Arm A (LR=0.030, WD=0.025) terminal ETA ~23:00 UTC; Arm B (LR=0.045) follows. |
-| **#2328** | open2-nezuko | **H-AF: NS iteration ablation (NS10 vs NS12)** | 2890 | Spec corrected (NS12, not NS5, is baseline). Smoke `ea0n8iwj` at step 75 (smoke startup). Testing NS10 single arm n=4. |
-| **#2323** | open2-thorfinn | H-AA: Arbor warmup (skip Sinkhorn first N steps) | 2890 | N=0 n=4 running (`fiixr3ft`), step 8157/11563 (≈ T2 step 2557 or T3 start). T0=3.276551, T1=3.278726. T3 terminal ETA ~21:00-21:30 UTC. |
+| **#2330** | open2-frieren | **H-AH: EMA-Nesterov γ ablation on NC × Arbor + RI** | 2890 | **LAUNCHED.** Run `5bsuw8yt` at step 1925/2890 (~67% T0). γ=0.99 baseline is rank-1 PR #2317 (no re-run). Testing γ=0.90 Arm A first; T0 terminal ETA ~21:55 UTC. |
+| **#2324** | open2-askeladd | H-AB: SWA tail on NC × Arbor + RI | 2890 | Arm B SWA K=290 n=4 (`jnpvi24f`) launched 19:40 UTC, **step 2775/2890 (~95% T0)**. T0 SENPAI-RESULT ETA ~21:27 UTC. Arm A n=2 reproduction confirmed at 3.276408 (vs rank-1 3.276193). |
+| **#2327** | open2-fern | H-AE: capture_step × γ re-sweep on NC × Arbor + RI | 2890 | Run `5kgku0hv` at step ~5091 (T1 mid). T0 best: (capture=2200, γ=−0.05) = 3.27828. **21:23 UTC: posted non-blocking advisory** explaining needs_rebase (PR #2325 cleanup removed --nc; resolve at rebase by dropping --nc, keeping --ri_extra_capture_steps). Training is valid; don't abort. n=4 terminal ETA ~02:00 UTC. |
+| **#2326** | open2-edward | H-AD: RI γ ablation on NC × Arbor stack | 2890 | Run `485nt9tt` at step ~8032 (T2 mid). T0 student-reported: γ=−0.075 best at 3.27839 (inverted-U, γ=−0.075 ≈ γ=−0.05). T1 mid at step 2602 per 19:48 comment. n=4 terminal ETA ~23:20 UTC. |
+| **#2329** | open2-tanjiro | H-AG: LR retune (Muon LR) on NC × Arbor + RI | 2890 | **Arm A n=2 LAUNCHED 19:41 UTC.** Run `gh42uhjh` at step 2775/2890 (~95% T0). T0 SENPAI-RESULT ETA ~21:27 UTC. Arm A (LR=0.030, WD=0.025) terminal ETA ~23:00 UTC; Arm B (LR=0.045) follows. |
+| **#2328** | open2-nezuko | **H-AF: NS iteration ablation (NS10 vs NS12)** | 2890 | NS10 single arm n=4 (`ea0n8iwj`) LAUNCHED, at step ~3091 (T1 mid). **T0 W&B speedrun reading 3.27574** (but need terminal SENPAI-RESULT confirmation on contract metric val/ri_loss_gamma_neg0p0750). |
+| **#2323** | open2-thorfinn | H-AA: Arbor warmup (skip Sinkhorn first N steps) | 2890 | N=0 n=4 running (`fiixr3ft`), step ~11298 (T3 ~91%). T0=3.27715 (γ=−0.075). T3 SENPAI-RESULT ETA ~21:35-21:45 UTC. |
 
 ## ✅ Recent closures / merges (18:43 UTC, 2026-06-06)
 
