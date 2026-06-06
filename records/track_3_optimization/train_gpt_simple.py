@@ -4,19 +4,21 @@ train_gpt_simple.py
 This file descends from the [NanoGPT speedrun](https://github.com/KellerJordan/modded-nanogpt).
 It was prepared as a simplified version of the speedrun for use in neural net optimization research.
 
-Reproduction of KellerJordan/modded-nanogpt PR #309 (EMA-Nesterov + Aurora @ 2890 steps).
+Reproduction of KellerJordan/modded-nanogpt PR #305 (RRE + Aurora @ 2925 steps).
 The optimizer stack is Aurora row-balanced polar + Contra-Muon (extended ramp to 2500) +
-EMA-Nesterov lookahead, with NorMuon-lite disabled via NOR_BETA2=1.0.
+MLP+V SOAP preconditioning + a late capped Reduced Rank Extrapolation (RRE) overlay
+starting at step 2820 with a 4-checkpoint history and damping=0.875. No EMA-Nesterov.
 
-H15 addition: Tail Reference Interpolation (RI) from KellerJordan/modded-nanogpt PR #307
+H17 addition: Tail Reference Interpolation (RI) from KellerJordan/modded-nanogpt PR #307
 applied at the final eval as a single-scalar post-hoc weight extrapolation:
     theta_eval = theta_final + gamma * (theta_final - theta_capture)
-This is a training-graph-invisible eval-time transformation gated by --ri_gamma
-(0.0 disables, PR #307 default -0.075). Snapshot is captured after the
-optimizer.step() that completes --ri_capture_step.
+Training-graph-invisible. Multi-gamma paired ablation: --ri_gamma sets the PRIMARY
+gamma and --ri_extra_gammas adds extras evaluated from the same trajectory/snapshot,
+isolating the RI lift from seed/data variance (copy of fern's H15 design).
 
 Public sources:
-- https://github.com/KellerJordan/modded-nanogpt/pull/309 (PR #309 base)
+- https://github.com/KellerJordan/modded-nanogpt/pull/305 (PR #305 RRE base, merged)
+- https://github.com/KellerJordan/modded-nanogpt/pull/300 (PR #300 Aurora+Contra-Muon)
 - https://github.com/KellerJordan/modded-nanogpt/pull/307 (RI)
 - https://github.com/KellerJordan/modded-nanogpt/pull/312 (RI on Aurora+EMA-Nesterov)
 """
@@ -46,9 +48,12 @@ TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 
-# PR #309 hardcoded schedule constants.
-FINAL_TRAIN_STEPS = 2890
-FINAL_SCHEDULE_STEPS = 2980
+# PR #305 hardcoded schedule constants. FINAL_SCHEDULE_STEPS matches the
+# PR #305 reference (3050) so the LR at step 2925 is the same as the public
+# run, even though we terminate training at train_steps=2925 (vs PR #305's
+# 3020 train-loop tail).
+FINAL_TRAIN_STEPS = 2925
+FINAL_SCHEDULE_STEPS = 3050
 FINAL_LR_POWER = 1.2
 ADAM_EMBED_POWER_C = 4.976805410800738e-05
 ADAM_PROJ_POWER_C = 5.184172302917436e-07
@@ -56,7 +61,7 @@ ADAM_OTHER_POWER_C = 1.6589351369335795e-06
 MUON_POWER_C = 3.3169534699576625e-06
 FINAL_MUON_WD = 0.025
 
-# Optimizer constants from PR #309.
+# Optimizer constants from PR #305 (= PR #300 backbone).
 CONTRA_MUON_COEFF = -0.2
 SOFT_MUON_P = 0.1
 SOFT_MUON_SCALE = "none"
@@ -103,15 +108,20 @@ _MU_MAX = 0.95
 _MU_WARMUP_STEPS = 300
 _MU_COOLDOWN_STEPS = 100
 
-# EMA-Nesterov absolute schedule (per advisor spec for K=2890).
-EMA_NESTEROV_PREFILL_STEPS = 300
-EMA_NESTEROV_REST_STEPS = 1950   # rest window is [1950, K)
-EMA_NESTEROV_LOOKAHEAD = 0.3
-EMA_NESTEROV_GAMMA = 0.99
+# PR #305 RRE (Reduced Rank Extrapolation) overlay constants.
+EXTRAPOLATION_EVERY = 5
+EXTRAPOLATION_START_STEP = 2820
+EXTRAPOLATION_NUM_CHECKPOINTS = 4
+EXTRAPOLATION_REGULARIZATION = 1e-6
+EXTRAPOLATION_DAMPING = 0.875
+EXTRAPOLATION_MAX_REL = 0.001
+EXTRAPOLATION_STOP_STEP = 2925
+EXTRAPOLATION_AFTER_STOP_EVERY = 0
+EXTRAPOLATION_RESET_MOMENTUM = False
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer (PR #309 port)")
+    parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer (PR #305 port + RI)")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
     parser.add_argument("--num_trials", type=int, default=None)
     parser.add_argument("--train_steps", type=int, default=FINAL_TRAIN_STEPS)
@@ -136,14 +146,27 @@ def parse_args():
                         help="Comma-separated extra gammas to evaluate at the final step using the SAME "
                              "trajectory and snapshot. Each is logged separately as val/ri_loss_gamma_<g>. "
                              "Enables paired-comparison ablation in a single training run.")
-    parser.add_argument("--ri_capture_step", type=int, default=2375,
+    parser.add_argument("--ri_capture_step", "--ref_interp_capture_step", dest="ri_capture_step",
+                        type=int, default=2375,
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
-                             "PR #307 default is 2375 (~82pct of 2890 steps).")
+                             "PR #307 default is 2375 (~81pct of 2925 steps).")
+    parser.add_argument("--apply_ri", type=int, default=0,
+                        help="Convenience flag. When set to 1 and --ri_gamma stays at its default 0.0, "
+                             "fills in PR #305-base paired-gamma defaults: --ri_gamma=-0.075 plus "
+                             "--ri_extra_gammas=\"0,-0.05\".")
+    parser.add_argument("--nc", type=int, default=0,
+                        help="Enable Normalized Correction (NC, PR #295) inside Muon's update path. "
+                             "When 1, the post-Nesterov tensor is divided by sqrt(row_norm * col_norm) "
+                             "before NS orthogonalization, equalising singular-value spread. "
+                             "0 disables (default).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     args.ri_extra_gammas = [float(g.strip()) for g in args.ri_extra_gammas.split(",") if g.strip()]
+    if args.apply_ri and args.ri_gamma == 0.0 and not args.ri_extra_gammas:
+        args.ri_gamma = -0.075
+        args.ri_extra_gammas = [0.0, -0.05]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
     if args.train_steps < 1:
@@ -839,6 +862,44 @@ def _linear_ramp(step: int, start_step: int, end_step: int) -> float:
         return 1.0 if step >= end_step else 0.0
     return min(1.0, max(0.0, (step - start_step) / (end_step - start_step)))
 
+
+def rre_extrapolate(iterates, regularization=1e-6, damping=1.0):
+    """PR #305 Reduced Rank Extrapolation over a list of flattened parameter snapshots.
+
+    Solves G c = 1 with G = U U.T, U the matrix of successive differences,
+    forms a cumulative-sum step gamma and returns iterates[-1] - gamma @ U,
+    optionally lerp-damped toward iterates[-1]. Returns iterates[-1].clone() on
+    insufficient history, non-finite solve, or numerical failure.
+    """
+    k = len(iterates) - 1
+    if k < 2:
+        return iterates[-1].clone()
+
+    orig_dtype = iterates[0].dtype
+    iterates_f32 = [x.float() for x in iterates]
+    diffs = [iterates_f32[i + 1] - iterates_f32[i] for i in range(k)]
+    U = torch.stack(diffs)
+    G = U @ U.T
+    reg = regularization * torch.trace(G).clamp_min(0) / k + 1e-10
+    G = G + reg * torch.eye(k, device=G.device, dtype=G.dtype)
+    ones = torch.ones(k, dtype=G.dtype, device=G.device)
+
+    try:
+        coeffs = torch.linalg.solve(G, ones)
+        coeff_sum = coeffs.sum()
+        if not torch.isfinite(coeff_sum) or coeff_sum.abs() < 1e-12:
+            return iterates[-1].clone()
+        coeffs = coeffs / coeff_sum
+        gamma = torch.flip(torch.cumsum(torch.flip(coeffs, [0]), 0), [0])
+        extrapolated = iterates_f32[-1] - (gamma @ U)
+        if damping != 1.0:
+            extrapolated = iterates_f32[-1].lerp(extrapolated, damping)
+        if not torch.isfinite(extrapolated).all():
+            return iterates[-1].clone()
+        return extrapolated.to(orig_dtype)
+    except Exception:
+        return iterates[-1].clone()
+
 def contra_coeff_for_step(step: int) -> float:
     contra_to_normal = _linear_ramp(step, CONTRA_HOLD_END_STEP, CONTRA_TO_NORMAL_END_STEP)
     return CONTRA_MUON_COEFF * (1.0 - contra_to_normal)
@@ -846,7 +907,12 @@ def contra_coeff_for_step(step: int) -> float:
 def soft_blend_for_step(step: int) -> float:
     return min(SOFT_MUON_CEIL, _linear_ramp(step, NORMAL_TO_SOFT_START_STEP, NORMAL_TO_SOFT_END_STEP))
 
-def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, use_soft=True):
+def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, use_soft=True, use_nc=False):
+    if use_nc:
+        # NC (PR #295): equalise per-row and per-column ℓ₂ norms before NS orthogonalisation.
+        r_norm = update.norm(dim=-1, keepdim=True)
+        c_norm = update.norm(dim=-2, keepdim=True)
+        update = update / torch.sqrt(torch.clamp(r_norm * c_norm, min=1e-12))
     normalized_grad = scale_to_unit_operator_norm(update.clone())
     ns_update = zeropower_via_newtonschulz5(update)
     update_norm_estimate = gram_frobenius_norm_estimate(ns_update)
@@ -877,7 +943,7 @@ def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, u
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95, use_nc=False):
         assert isinstance(named_params, list) and len(named_params) >= 1
         self.soap_params = {p for n, p in named_params if should_soap_param(n)}
         self.attn_soap_params = {p for n, p in named_params if should_soap_param(n) and is_attn_param(n)}
@@ -885,10 +951,88 @@ class Muon(torch.optim.Optimizer):
         self.v_params = {p for n, p in named_params if is_v_param(n)}
         self.no_contra_params = {p for n, p in named_params if param_matches_spec(n, NO_CONTRA_PARAM)}
         self.no_soft_params = {p for n, p in named_params if param_matches_spec(n, NO_SOFTMUON_PARAM)}
+        self.use_nc = use_nc
         self.step_count = 0
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # PR #305 RRE overlay state. RRE acts on the union of Muon-managed params;
+        # the per-group history is a list of flattened snapshots taken after the
+        # in-group update at every EXTRAPOLATION_EVERY step, starting at
+        # EXTRAPOLATION_START_STEP and stopping at EXTRAPOLATION_STOP_STEP.
+        self.extrap_checkpoints: list[Tensor] = []
+        self.extrap_count = 0
+        self.last_extrap_rel = 0.0
+        self.last_handoff_mode = "none"
+
+    @staticmethod
+    def _flatten_params(params):
+        return torch.cat([p.detach().reshape(-1) for p in params])
+
+    @staticmethod
+    def _unflatten_params(params, flat_params):
+        offset = 0
+        for p in params:
+            numel = p.numel()
+            p.copy_(flat_params[offset:offset + numel].view_as(p))
+            offset += numel
+
+    def _reset_momentum(self, params):
+        for p in params:
+            state = self.state.get(p)
+            if state and "momentum" in state:
+                state["momentum"].zero_()
+
+    @torch.no_grad()
+    def _maybe_extrapolate(self, params):
+        if EXTRAPOLATION_EVERY <= 0:
+            return
+        next_step = self.step_count + 1
+        if next_step < EXTRAPOLATION_START_STEP:
+            return
+        after_stop = EXTRAPOLATION_STOP_STEP and next_step > EXTRAPOLATION_STOP_STEP
+        every = EXTRAPOLATION_AFTER_STOP_EVERY if after_stop else EXTRAPOLATION_EVERY
+        if after_stop and every <= 0:
+            return
+
+        current = self._flatten_params(params).detach().clone()
+        self.extrap_checkpoints.append(current)
+        if len(self.extrap_checkpoints) > EXTRAPOLATION_NUM_CHECKPOINTS:
+            self.extrap_checkpoints.pop(0)
+        if next_step % every != 0 or len(self.extrap_checkpoints) < EXTRAPOLATION_NUM_CHECKPOINTS:
+            return
+
+        extrapolated = rre_extrapolate(
+            self.extrap_checkpoints,
+            regularization=EXTRAPOLATION_REGULARIZATION,
+            damping=EXTRAPOLATION_DAMPING,
+        )
+        current_f32 = current.float()
+        delta = extrapolated.float() - current_f32
+        current_norm = current_f32.norm().clamp_min(1e-12)
+        extrap_rel = float(delta.norm() / current_norm)
+        if EXTRAPOLATION_MAX_REL > 0 and extrap_rel > EXTRAPOLATION_MAX_REL:
+            delta = delta * (EXTRAPOLATION_MAX_REL / max(extrap_rel, 1e-12))
+            extrapolated = (current_f32 + delta).to(current.dtype)
+            extrap_rel = float(delta.norm() / current_norm)
+        self.last_extrap_rel = extrap_rel
+        self._unflatten_params(params, extrapolated)
+        # Restart history from the new extrapolated point so the next window
+        # measures convergence away from the bounded RRE jump.
+        self.extrap_checkpoints = [extrapolated.detach().clone()]
+        final_extrap_before_stop = (
+            EXTRAPOLATION_STOP_STEP
+            and EXTRAPOLATION_AFTER_STOP_EVERY <= 0
+            and next_step + EXTRAPOLATION_EVERY > EXTRAPOLATION_STOP_STEP
+        )
+        if final_extrap_before_stop:
+            self.last_handoff_mode = "keep"
+        elif EXTRAPOLATION_RESET_MOMENTUM:
+            self._reset_momentum(params)
+            self.last_handoff_mode = "reset"
+        else:
+            self.last_handoff_mode = "keep"
+        self.extrap_count += 1
 
     @torch.no_grad()
     def step(self):
@@ -949,6 +1093,7 @@ class Muon(torch.optim.Optimizer):
                         self.step_count,
                         use_contra=p not in self.no_contra_params,
                         use_soft=p not in self.no_soft_params,
+                        use_nc=self.use_nc,
                     )
                     update = scale_radial_update(update, p)
                     p_fro = p.float().norm().clamp_min(1e-8)
@@ -963,90 +1108,8 @@ class Muon(torch.optim.Optimizer):
                     if use_soap and not SOAP_UPDATE_BEFORE_USE:
                         soap_update_preconditioner(grad, state)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+            self._maybe_extrapolate(params)
         self.step_count += 1
-
-
-class EMA_Nesterov(torch.optim.Optimizer):
-    """Following PR #309: x^{t+1} = A_t(x^t + β_t m^t); m^{t+1} = γ m^t + (1-γ)(x^{t+1} - x^t).
-    The inner optimizer is applied at the lookahead point (no restore).
-    """
-    def __init__(self, params, inner_optimizer, lookahead_stepsize=0,
-                 use_scheduled_lookahead_stepsize=True, lookahead_ema=0.9,
-                 prefill_steps=0, rest_steps=0):
-        if lookahead_stepsize < 0.0:
-            raise ValueError(f"Invalid momentum value: {lookahead_stepsize}")
-        super().__init__(params, {})
-        self.inner_optimizer = inner_optimizer
-        self.use_scheduled_lookahead_stepsize = use_scheduled_lookahead_stepsize
-        self.lookahead_stepsize = lookahead_stepsize
-        self.lookahead_ema = lookahead_ema
-        self.prefill_steps = prefill_steps
-        self.rest_steps = rest_steps
-        self.it = 0
-        self.lookahead_status = False
-        self.current_lookahead_stepsize = 0.0
-        self.initialize_buffers()
-
-    @torch.no_grad()
-    def initialize_buffers(self):
-        for group in self.param_groups:
-            for p in group['params']:
-                param_state = self.state[p]
-                if 'prev_params' not in param_state:
-                    param_state['prev_params'] = (p.clone(), self.it)
-                if 'lookahead_buffer' not in param_state:
-                    param_state['lookahead_buffer'] = (torch.zeros_like(p), -1)
-
-    def get_lr_lambda(self):
-        if isinstance(self.inner_optimizer, list):
-            inner = self.inner_optimizer[0]
-        else:
-            inner = self.inner_optimizer
-        return inner.param_groups[0]["lr"] / inner.param_groups[0]["initial_lr"]
-
-    @torch.no_grad()
-    def lookahead_step(self):
-        if self.use_scheduled_lookahead_stepsize:
-            lookahead_stepsize = self.lookahead_stepsize * self.get_lr_lambda()
-        else:
-            lookahead_stepsize = self.lookahead_stepsize
-        self.current_lookahead_stepsize = float(lookahead_stepsize)
-        for group in self.param_groups:
-            for p in group['params']:
-                lookahead = self.state[p]['lookahead_buffer'][0]
-                p.add_(lookahead, alpha=lookahead_stepsize)
-
-    @torch.no_grad()
-    def accum_lookahead(self):
-        lookahead_ema = self.lookahead_ema
-        for group in self.param_groups:
-            for p in group['params']:
-                param_state = self.state[p]
-                look = p.add(param_state['prev_params'][0], alpha=-1)
-                buf = param_state['lookahead_buffer'][0]
-                param_state['lookahead_buffer'] = (buf.lerp_(look, 1 - lookahead_ema), self.it)
-                param_state['prev_params'] = (param_state['prev_params'][0].copy_(p), self.it)
-
-    @torch.no_grad()
-    def nesterov_step(self):
-        if self.it + 1 > self.prefill_steps and self.it < self.rest_steps and not self.lookahead_status:
-            self.lookahead_step()
-        else:
-            self.current_lookahead_stepsize = 0.0
-        self.lookahead_status = True
-
-    @torch.no_grad()
-    def step(self):
-        if not self.lookahead_status:
-            raise ValueError("optimizer.nesterov_step() should be invoked before model forward pass.")
-        if isinstance(self.inner_optimizer, list):
-            for opt in self.inner_optimizer:
-                opt.step()
-        else:
-            self.inner_optimizer.step()
-        self.accum_lookahead()
-        self.lookahead_status = False
-        self.it += 1
 
 
 ########################################
@@ -1091,7 +1154,7 @@ model.compile(dynamic=False)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
-    tags = ["track-3-optimization", "senpai", "pr309-replica"] + args.wandb_tags
+    tags = ["track-3-optimization", "senpai", "pr305-replica", "rre"] + args.wandb_tags
     if os.environ.get("RESEARCH_TAG"):
         tags.append(os.environ["RESEARCH_TAG"])
     if os.environ.get("STUDENT_NAME"):
@@ -1105,8 +1168,8 @@ if dist.get_rank() == 0:
         mode=args.wandb_mode,
         config={
             "benchmark": "modded-nanogpt-track-3-optimization",
-            "experiment": "pr309-ema-nesterov-aurora",
-            "public_source": "KellerJordan/modded-nanogpt PR #309",
+            "experiment": "pr305-rre-aurora",
+            "public_source": "KellerJordan/modded-nanogpt PR #305",
             "target_val_loss": TARGET_VAL_LOSS,
             "stat_sig_delta": STAT_SIG_DELTA,
             "num_trials": args.num_trials,
@@ -1140,13 +1203,18 @@ if dist.get_rank() == 0:
             "radial_inward_scale": RADIAL_INWARD_SCALE,
             "aurora_k": _AURORA_K,
             "aurora_beta": _AURORA_BETA,
-            "ema_nesterov_lookahead": EMA_NESTEROV_LOOKAHEAD,
-            "ema_nesterov_gamma": EMA_NESTEROV_GAMMA,
-            "ema_nesterov_prefill_steps": EMA_NESTEROV_PREFILL_STEPS,
-            "ema_nesterov_rest_steps": EMA_NESTEROV_REST_STEPS,
+            "extrapolation_every": EXTRAPOLATION_EVERY,
+            "extrapolation_start_step": EXTRAPOLATION_START_STEP,
+            "extrapolation_num_checkpoints": EXTRAPOLATION_NUM_CHECKPOINTS,
+            "extrapolation_damping": EXTRAPOLATION_DAMPING,
+            "extrapolation_max_rel": EXTRAPOLATION_MAX_REL,
+            "extrapolation_stop_step": EXTRAPOLATION_STOP_STEP,
+            "extrapolation_regularization": EXTRAPOLATION_REGULARIZATION,
             "ri_gamma": args.ri_gamma,
+            "ri_extra_gammas": args.ri_extra_gammas,
             "ri_capture_step": args.ri_capture_step,
-            "ri_enabled": args.ri_gamma != 0.0,
+            "ri_enabled": args.ri_gamma != 0.0 or bool(args.ri_extra_gammas),
+            "nc_enabled": bool(args.nc),
         },
     )
 
@@ -1162,8 +1230,8 @@ for trial_idx in range(args.num_trials):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
 
-    # PR #309 init: torch defaults for all params, then zero everything with "proj" in name
-    # (covers both proj.weight and proj.bias). Re-init each trial so seeds differ.
+    # PR #305/PR #300 prior-lineage init: torch defaults for all params, then zero everything
+    # with "proj" in name (covers both proj.weight and proj.bias). Re-init each trial so seeds differ.
     for module in model.modules():
         if isinstance(module, (nn.Linear, nn.Embedding)):
             module.reset_parameters()
@@ -1173,7 +1241,7 @@ for trial_idx in range(args.num_trials):
         if "proj" in name:
             p.data.zero_()
 
-    # PR #309 depth-scaled mlp.fc init alpha=0.30.
+    # PR #305/PR #300 prior-lineage depth-scaled mlp.fc init alpha=0.30.
     _DI_FC_ALPHA = 0.30
     _NUM_BLOCKS = len(model.blocks)
     with torch.no_grad():
@@ -1182,7 +1250,7 @@ for trial_idx in range(args.num_trials):
             s_l = 1.0 - _DI_FC_ALPHA * ramp
             block.mlp.fc.weight.data.mul_(s_l)
 
-    # PR #309 CGI Rademacher channel-gain split alpha=0.14.
+    # PR #305/PR #300 prior-lineage CGI Rademacher channel-gain split alpha=0.14.
     _CGI_ALPHA = 0.14
     with torch.no_grad():
         for block in model.blocks:
@@ -1191,28 +1259,18 @@ for trial_idx in range(args.num_trials):
             block.norm1.gains.data.copy_((1.0 - _CGI_ALPHA * s).to(block.norm1.gains.dtype))
             block.norm2.gains.data.copy_((1.0 + _CGI_ALPHA * s).to(block.norm2.gains.dtype))
 
-    # Optimizers (PR #309: AdamW betas (0.8, 0.99)).
+    # Optimizers (PR #305: AdamW betas (0.8, 0.99) per PR #305 reference script).
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU, use_nc=bool(args.nc))
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    inner_optimizers = [optimizer1, optimizer2]
-    optimizer_ema = EMA_Nesterov(
-        [p for p in model.parameters()],
-        inner_optimizers,
-        lookahead_stepsize=EMA_NESTEROV_LOOKAHEAD,
-        use_scheduled_lookahead_stepsize=True,
-        lookahead_ema=EMA_NESTEROV_GAMMA,
-        prefill_steps=EMA_NESTEROV_PREFILL_STEPS,
-        rest_steps=EMA_NESTEROV_REST_STEPS,
-    )
-    optimizers = [optimizer_ema]
-    assert set(p for opt in inner_optimizers for group in opt.param_groups
+    optimizers = [optimizer1, optimizer2]
+    assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
-    for opt in inner_optimizers:
+    for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
     # Per-group power_c (PowerCool from PR #287).
@@ -1238,7 +1296,7 @@ for trial_idx in range(args.num_trials):
             return _MU_MAX
 
     def set_hparams(step):
-        for opt in inner_optimizers:
+        for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = _power_lr(step, group["initial_lr"], group["power_c"])
         mu_step = _muon_mu_at_step(step)
@@ -1404,8 +1462,6 @@ for trial_idx in range(args.num_trials):
         inputs, targets = next(train_loader)
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
-        # PR #309 EMA-Nesterov: perturb to the lookahead point BEFORE forward+backward.
-        optimizer_ema.nesterov_step()
         step_loss = torch.zeros((), device=device)
         for i in range(len(inputs) // mbs):
             loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
@@ -1436,27 +1492,27 @@ for trial_idx in range(args.num_trials):
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
             wandb.log(slope_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
-            ema_extras = {
-                "train/ema_nesterov/it": optimizer_ema.it,
-                "train/ema_nesterov/lookahead_stepsize": optimizer_ema.current_lookahead_stepsize,
-                "train/ema_nesterov/lookahead_active": int(
-                    optimizer_ema.it >= EMA_NESTEROV_PREFILL_STEPS
-                    and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
+            rre_extras = {
+                "train/rre/step_count": optimizer2.step_count,
+                "train/rre/extrap_count": optimizer2.extrap_count,
+                "train/rre/last_extrap_rel": optimizer2.last_extrap_rel,
+                "train/rre/checkpoints_buffered": len(optimizer2.extrap_checkpoints),
+                "train/rre/in_window": int(
+                    optimizer2.step_count + 1 >= EXTRAPOLATION_START_STEP
+                    and optimizer2.step_count + 1 <= EXTRAPOLATION_STOP_STEP
                 ),
             }
             log_training_telemetry(
                 model=model,
-                optimizers=inner_optimizers,
+                optimizers=optimizers,
                 module_types=module_types,
                 train_loss=train_loss,
                 trial_idx=trial_idx,
                 step=train_step,
                 train_steps=train_steps,
                 wandb_step=wandb_step,
-                extra_metrics=ema_extras,
+                extra_metrics=rre_extras,
             )
-        # PR #309 EMA-Nesterov: opt.step runs the inner optimizers at the lookahead point,
-        # then accumulates lookahead = γ * lookahead + (1-γ) * (p_after - prev_p).
         for opt in optimizers:
             opt.step()
         # H15 Tail Reference Interpolation: snapshot params after the optimizer.step that
