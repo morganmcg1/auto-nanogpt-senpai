@@ -146,6 +146,12 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--z_loss_weight", type=float, default=0.0,
+                        help="Weight for the z-loss auxiliary regularizer (raw-logit L2-squared mean). "
+                             "Default 0.0 is a no-op that preserves baseline reproducibility. "
+                             "Term is z_loss = w * raw_logits.square().mean() * num_tokens, added to "
+                             "the cross-entropy sum and only during training-mode forward passes so "
+                             "val_loss measurements remain pure CE.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -160,6 +166,8 @@ def parse_args():
 
 
 args = parse_args()
+
+Z_LOSS_WEIGHT = float(args.z_loss_weight)
 
 
 def clean_metric_name(name: str) -> str:
@@ -538,14 +546,21 @@ class GPT(nn.Module):
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        self.register_buffer("z_loss_per_token", torch.zeros((), dtype=torch.float32), persistent=False)
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
-        logits = self.proj(self.norm2(x)).float()
-        logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        logits_raw = self.proj(self.norm2(x)).float()
+        logits = 15 * logits_raw * (logits_raw.square() + 15**2).rsqrt()
+        ce = F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        if Z_LOSS_WEIGHT > 0.0 and self.training:
+            raw_sq_mean = logits_raw.square().mean()
+            z_loss = Z_LOSS_WEIGHT * raw_sq_mean * targets.numel()
+            self.z_loss_per_token.copy_(Z_LOSS_WEIGHT * raw_sq_mean.detach().float())
+            return ce + z_loss
+        return ce
 
 
 ########################################
@@ -1220,6 +1235,8 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "z_loss_weight": Z_LOSS_WEIGHT,
+            "z_loss_enabled": Z_LOSS_WEIGHT > 0.0,
         },
     )
 
@@ -1450,6 +1467,9 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                if Z_LOSS_WEIGHT > 0.0:
+                    metrics["train/z_loss_per_token"] = float(model.z_loss_per_token.item())
+                    metrics["train/z_loss_weight"] = Z_LOSS_WEIGHT
                 if ri_applied:
                     metrics["val/ri_pre_loss"] = ri_pre_val_loss
                     metrics["val/ri_post_loss"] = val_loss_float
@@ -1517,6 +1537,9 @@ for trial_idx in range(args.num_trials):
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
                 ),
             }
+            if Z_LOSS_WEIGHT > 0.0:
+                ema_extras["train/z_loss_per_token"] = float(model.z_loss_per_token.item())
+                ema_extras["train/z_loss_weight"] = Z_LOSS_WEIGHT
             log_training_telemetry(
                 model=model,
                 optimizers=inner_optimizers,
