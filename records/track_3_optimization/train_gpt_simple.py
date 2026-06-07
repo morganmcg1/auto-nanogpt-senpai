@@ -146,6 +146,13 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--muon_grad_noise_sigma0", type=float, default=0.0,
+                        help="H-AS (PR #2342): Initial Gaussian noise std sigma_0 added to Muon gradients "
+                             "with Neelakantan 2015 decayed schedule sigma_t = sigma_0 / (1+t)^gamma. "
+                             "0 = disabled (default).")
+    parser.add_argument("--muon_grad_noise_gamma", type=float, default=0.55,
+                        help="H-AS (PR #2342): Decay exponent gamma for the Muon gradient noise schedule. "
+                             "Neelakantan 2015 default 0.55.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -982,6 +989,18 @@ class Muon(torch.optim.Optimizer):
                             state["second_moment"] = torch.zeros((*p.shape[:-2], 1, p.shape[-1]),
                                 dtype=torch.float32, device=p.device)
                     grad = p.grad
+                    # H-AS (PR #2342): inject decayed Gaussian noise into the gradient before
+                    # the momentum lerp (Neelakantan et al. 2015 "Adding Gradient Noise Improves
+                    # Learning for Very Deep Networks"). sigma_t = sigma_0 / (1+t)^gamma.
+                    # Only one rank handles each parameter inside this loop, but we still seed
+                    # deterministically per (step, param) so re-runs and ablations are reproducible.
+                    if args.muon_grad_noise_sigma0 > 0:
+                        sigma_t = args.muon_grad_noise_sigma0 / (1 + self.step_count) ** args.muon_grad_noise_gamma
+                        gen = torch.Generator(device=grad.device).manual_seed(
+                            self.step_count * 999983 + (id(p) & 0x7FFFFFFF)
+                        )
+                        noise = torch.randn(grad.shape, generator=gen, dtype=grad.dtype, device=grad.device) * sigma_t
+                        grad = grad + noise
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     is_attn_soap = p in self.attn_soap_params
@@ -1517,6 +1536,13 @@ for trial_idx in range(args.num_trials):
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
                 ),
             }
+            if args.muon_grad_noise_sigma0 > 0:
+                # H-AS (PR #2342): Muon gradient noise schedule telemetry.
+                ema_extras["schedule/muon_grad_noise_sigma"] = (
+                    args.muon_grad_noise_sigma0 / (1 + optimizer2.step_count) ** args.muon_grad_noise_gamma
+                )
+                ema_extras["schedule/muon_grad_noise_sigma0"] = args.muon_grad_noise_sigma0
+                ema_extras["schedule/muon_grad_noise_gamma"] = args.muon_grad_noise_gamma
             log_training_telemetry(
                 model=model,
                 optimizers=inner_optimizers,
