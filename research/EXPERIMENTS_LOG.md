@@ -9,6 +9,58 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-07 04:12 UTC — PR #2332: H-AJ z-loss aux regularization on pre-cap logits — CLOSED FALSIFIED (edward)
+
+- **Branch:** `open2-edward/h-aj-z-loss-aux`
+- **Hypothesis:** z-loss auxiliary regularization (PaLM-style) reduces logit magnitude drift and restores gradient signal that the softsign cap suppresses in high-magnitude regimes.
+- **W&B runs:** Arm A `bgdn33vz` (w=1e-4), Arm B `ah62ac7w` (w=1e-3)
+- **Method:** Two-arm sweep of z-loss weight at decade spacing. Early-abort gate: T0 > 3.28 → kill T1.
+
+| Arm | w | T0 val/ri_loss | Δ vs rank-1 (3.276193) | Gate |
+|---|---:|---:|---:|:-:|
+| A | 1e-4 | 3.280289 | **+0.00410** | fired |
+| B | 1e-3 | 3.28924 (pre-RI) | **+0.01305** | fired |
+
+- **Analysis:** Monotone-bad slope across decade weight sweep (Δ(1e-3 − 1e-4) = +0.00895). Root cause: softsign cap is already keeping raw logits in a healthy linear regime at 124M params/2890 steps. Z-loss compresses legitimate dynamic range the model uses inside |raw| < 15, hurting rather than helping. PaLM's z-loss matters at 540B scale with millions of steps; this regime doesn't apply here. Gates saved ~3.2h GPU (both T1s killed). **6th saturated lever this session.**
+- **Decision:** CLOSED FALSIFIED — no further weight retuning warranted.
+
+---
+
+## 2026-06-07 04:11 UTC — PR #2333: H-AK Cautious-AdamW on embed + lm_head + scalars — CLOSED FAILED (fern)
+
+- **Branch:** `open2-fern/h-ak-cautious-adamw`
+- **Hypothesis:** Apply Liang et al. (2024) Cautious-AdamW masking to AdamW parameter groups (embed, lm_head, scalars) as a counterpart to Cautious-Muon already in rank-1.
+- **W&B run:** `bmbwlv2i`
+- **Method:** Pre-step hook applied mask (sign agreement between Adam update and gradient) with `scale = mask.mean()` rescale. Aborted at step 1194/2890.
+
+| step | val_loss | rank-1 baseline | Δ |
+|---:|---:|---:|---:|
+| 125 | 5.773 | 4.528 | +1.24 |
+| 500 | 6.853 | 3.827 | **+3.03** |
+| 1125 | 9.693 | 3.619 | **+6.07** |
+
+- **Mechanism finding:** The uniform Liang et al. recipe is incompatible with sparse-row gradient tensors. Embed weight has structurally-sparse gradients (only in-batch token rows get non-zero gradient); `mask.mean()` over the full tensor → scale ≈ 0.227 → 1/scale ≈ 4.4× LR amplification on active embed rows throughout training. Dense groups (lm_head, scalars) had well-conditioned mask fractions ≈ 0.50.
+- **Decision:** CLOSED FAILED (not retunable in this form). Reassigning fern to H-AK' (dense-only: lm_head + scalars, embed stays vanilla) per fern's own recommendation.
+
+---
+
+## 2026-06-07 04:25 UTC — PR #2337: H-AO Per-block Muon LR (early vs late multiplier) — ASSIGNED (edward)
+
+- **Branch:** `open2-edward/h-ao-per-block-muon-lr`
+- **Hypothesis:** Muon currently uses uniform lr=0.0375 across all 12 transformer blocks. Splitting into early (blocks 0-5) and late (blocks 6-11) param groups and testing differential multipliers (1.2/0.8 and 0.8/1.2) may extract lift that uniform shifts cannot.
+- **Arm A:** early_mult=1.2, late_mult=0.8 (n=2 first)
+- **Arm B:** early_mult=0.8, late_mult=1.2 (if Arm A fails)
+
+---
+
+## 2026-06-07 04:25 UTC — PR #2338: H-AK' Cautious-AdamW dense-only (lm_head + scalars, embed vanilla) — ASSIGNED (fern)
+
+- **Branch:** `open2-fern/h-ak-prime-cautious-dense`
+- **Hypothesis:** H-AK found uniform cautious recipe diverges via embed sparse-row pathology. Dense groups (lm_head mask_mean ≈ 0.50, scalars ≈ 0.50-0.63) are physiological for cautious rescale. Testing dense-only masking with embed on vanilla AdamW.
+- **Extended smoke gate:** 200 steps (50-step smoke insufficient per H-AK lesson — divergence appears at step 250+)
+
+---
+
 ## 2026-06-07 01:45 UTC — PR #2327: H-AE RI capture-step × γ sweep on NC × Arbor stack — CLOSED FALSIFIED (fern)
 
 - **Branch:** `open2-fern/h-ae-capture-sweep-nc-arbor`
