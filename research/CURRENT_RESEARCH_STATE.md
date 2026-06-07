@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-07 ~20:50 UTC (launch day +3)
+- **As of:** 2026-06-07 ~21:05 UTC (launch day +3)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,13 +18,13 @@
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
 | **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~40h. Student correctly waiting for pod recycle. |
-| **#2349** | open2-frieren | H-AY: AdamW eps sweep | **Arm B n=4 confirm in flight** (`nbptdumy`, step 1525/2890 ~53%). ETA ~02:23 UTC. Prior T1=3.275574 STRONG. MERGE CANDIDATE if confirmed. |
-| **#2356** | open2-edward | H-BJ: NS-iter × Muon LR coupling | **Arm A T0=3.277840 FALSIFIED** (+0.001647). T1 in flight (~22:17 UTC). Watchdog armed → auto-launch Arm B (NS16+LR×0.97) on Arm A exit. |
-| **#2357** | open2-thorfinn | H-BK: Cosine warm-restart Muon LR at step 2000 | `zs6jedkm` step 2600/2890 (~90%). T0 ETA ~21:15 UTC. |
-| **#2358** | open2-nezuko | H-BL: Embed LR decoupling | `k6p7wqy5` step 2475/2890 (~86%). T0 ETA ~21:30 UTC. Stale_wip flag, nudge posted 20:50 UTC. |
-| **#2359** | open2-askeladd | H-BM: lm_head LR decoupling | Smoke passed. Main `vn32x4gj` step 225/2890 (~8%). Arm A lm_head_lr=0.002. |
-| **#2360** | open2-tanjiro | H-BN: MUON_WEIGHT_DECAY sweep | `9tlotgem` step 200/2890 (~7%). Arm A WD=0.010. First Muon WD ablation. |
-| **#2361** | open2-fern | H-BO: AdamW (β₁, β₂) sweep | `j9lofncb` step 325/2890 (~11%). Arm A (β₁,β₂)=(0.9,0.95). First betas ablation. |
+| **#2349** | open2-frieren | H-AY: AdamW eps sweep | **Arm B n=4 in flight** (`nbptdumy`). T0=3.276387 INCONCLUSIVE (+0.000194). T1 at step ~501/2890 (~17%). 3 trials remaining, ETA ~4h38m (~01:43 UTC tomorrow). |
+| **#2356** | open2-edward | H-BJ: NS-iter × Muon LR coupling | **Arm A T0=3.277840 FALSIFIED**. T1 at step ~2401/2890 (~83%, ETA ~22:00 UTC). ⚠ **WATCHDOG STATUS UNCLEAR** — no Arm B main run detected on W&B as of 21:00; nudge posted. |
+| **#2357** | open2-thorfinn | H-BK: Cosine warm-restart Muon LR at step 2000 | **T0=3.287374 CATASTROPHIC** (+0.011182, ~22× noise floor). Abort directive posted 21:00 UTC. Awaiting SENPAI-RESULT. **36th lever pending close.** |
+| **#2358** | open2-nezuko | H-BL: Embed LR decoupling | **Arm A T0=3.277526 FALSIFIED** (+0.001333). T1 at ~50% (ETA ~21:30 UTC). Direction posted: launch Arm B (embed_lr=0.45) after T1 lands. |
+| **#2359** | open2-askeladd | H-BM: lm_head LR decoupling | `vn32x4gj` step 1734/2890 (~60%). Arm A lm_head_lr=0.002. T0 ETA ~22:30 UTC. |
+| **#2360** | open2-tanjiro | H-BN: MUON_WEIGHT_DECAY sweep | `9tlotgem` step 1925/2890 (~67%). Arm A WD=0.010. T0 ETA ~22:00 UTC. |
+| **#2361** | open2-fern | H-BO: AdamW (β₁, β₂) sweep | `j9lofncb` step 1850/2890 (~64%). Arm A (β₁,β₂)=(0.9,0.95). T0 ETA ~22:00 UTC. |
 
 ## Recent closures (this session, most recent first)
 
@@ -37,7 +37,12 @@
 | 2026-06-07 18:40 | #2352 (nezuko H-BF) | SNR-adaptive AdamW LR | **CLOSED FALSIFIED** | T0=3.278413 +0.002220. SNR saturates → flat 3× LR catastrophic. **31st lever.** |
 | 2026-06-07 18:25 | #2346 (edward H-AW) | EN REST_STEPS=2300 | **CLOSED FALSIFIED** | n=4 mean 3.276256 = +0.000063, σ=0.00126. **30th lever.** |
 
-## Saturated levers count: 35 (+1 pending: edward H-BJ Arm A T0=+0.001647)
+## Saturated levers count: 35 (+3 pending closure)
+
+**Pending close imminent:**
+- **edward H-BJ Arm A** (T0=3.277840 FALSIFIED, T1 ~83%)
+- **thorfinn H-BK** (T0=3.287374 CATASTROPHIC, T1 abort directive posted)
+- **nezuko H-BL Arm A** (T0=3.277526 FALSIFIED, T1 ~50%, then Arm B planned)
 
 (Levers 1-29 unchanged. Recent:)
 
@@ -92,6 +97,8 @@
 ## Open Operational Items
 
 - **Alphonse pod broken** (Issue #2319 ~40h). No new assignment until pod restored.
-- **Edward H-BJ T1 land** ~22:17 UTC, then watchdog → Arm B (NS16+LR×0.97) auto-launch.
-- **Three terminal events in next ~2.5h**: thorfinn H-BK (~21:15), nezuko H-BL (~21:30), edward H-BJ Arm A T1 (~22:17).
-- **Frieren H-AY n=4 confirm** ~02:23 UTC tomorrow — MERGE CANDIDATE if validates.
+- **Edward H-BJ watchdog status unclear** — Arm B main run not detected on W&B. Student nudged 21:00 UTC to verify watchdog or manually launch Arm B after T1.
+- **Thorfinn H-BK abort directive posted** — awaiting SENPAI-RESULT for close + next assignment (H-BU optimizer-state mechanism, NOT scalar).
+- **Nezuko H-BL Arm A FALSIFIED** — let T1 finish (~21:30 UTC), then Arm B (embed_lr=0.45) launch.
+- **Frieren H-AY n=4** ETA ~01:43 UTC tomorrow. T0=3.276387 INCONCLUSIVE. If T1-T3 trend similar → axis saturated (no merge).
+- **Per user directive**: bias next assignments toward optimizer-state mechanisms, preconditioners, readout ideas, NOT scalar hyperparameter tuning.
