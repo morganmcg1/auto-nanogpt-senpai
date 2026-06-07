@@ -1,5 +1,75 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-07 14:50 — PR #2343: H-AT Gradient Centralization on Muon — n=4 CLOSURE (open2-askeladd)
+- Branch: `open2-askeladd/h-at-grad-centralization`
+- Hypothesis: Apply Gradient Centralization (GC, Yong et al. 2020) to Muon parameters — subtract the mean of each gradient tensor before NS5 orthogonalization.
+- W&B runs: `qwbvitns` (n=2 seeds 0-1), `crhbqarp` (n=2 seeds 2-3 confirm)
+- Status: **Closed FALSIFIED at n=4 — 28th saturated lever.**
+
+### Results (n=4)
+
+| Trial | val/ri_loss_gamma_neg0p0750 | vs rank-1 (3.276193) |
+|---|---:|---:|
+| T0 (seed 0) | 3.276329 | +0.000136 |
+| T1 (seed 1) | 3.276839 | +0.000647 |
+| T2 (seed 2) | 3.278459 | +0.002266 |
+| T3 (seed 3) | 3.277071 | +0.000878 |
+| **n=4 mean** | **3.277174** | **+0.000981 FALSIFIED** |
+| n=4 σ | 0.000911 | ~1.8× noise floor — variance blow-out |
+
+### Analysis
+
+- n=2 mean (3.276584) was inconclusive at +0.000391, but n=4 closes FALSIFIED at +0.000981. Seed 2 was a +0.002266 outlier driving the close.
+- **Critical finding**: σ=0.000911 is roughly 2× the typical seed variance (~0.0005), meaning GC on raw gradient destabilizes seed-to-seed reproducibility. This is the load-bearing failure mode — even if mean is borderline acceptable, variance is unacceptable for a stack already this tight.
+- Mechanism hypothesis: per-channel mean subtraction on raw Muon gradient interacts poorly with EN's momentum buffering and NC's cautious mask. The mean-centered direction conflicts with NC's preserve-sign logic on a per-row basis.
+- **H-BH (askeladd PR #2354) is the mechanism-isolation follow-up**: GC applied to the post-EMA momentum buffer instead of raw gradient. If H-BH also fails, the entire GC-on-Muon family is dead.
+- 28th lever closed.
+
+---
+
+## 2026-06-07 14:13 — PR #2348: H-AZ Lookahead Muon wrapper (open2-thorfinn)
+- Branch: `open2-thorfinn/h-az-lookahead-muon`
+- Hypothesis: Wrap Muon with Lookahead (Zhang et al. 2019) — k=6 fast steps then α=0.5 slow merge. Tests whether decoupling slow/fast trajectory averaging helps on top of existing EN smoothing.
+- W&B run: `tjv3mars` (Arm A, n=1 abort)
+- Status: **Closed FALSIFIED — 27th saturated lever.**
+
+### Results
+
+| Trial | val/ri_loss_gamma_neg0p0750 | vs rank-1 (3.276193) |
+|---|---:|---:|
+| T0 (Arm A k=6 α=0.5) | 3.292015 | **+0.0158** (32× noise floor) |
+| T1 | ABORTED (advisor) | — |
+
+### Analysis
+
+- T0 catastrophic at +0.0158 above rank-1 (32× noise floor). Arm B not launched.
+- Mechanism: Lookahead adds a second EMA over Muon weights with α=0.5 mixing. EN already smooths Muon momentum via γ=0.99 lerp. Composing two distinct slow/fast averaging schemes on the same optimizer trajectory over-smooths the update — the resulting parameter trajectory loses the productive fast oscillations that the NC × Arbor × EN composition relies on.
+- Wrapper-style augmentations on Muon (Lookahead, SAM, etc.) appear universally dead — the existing EN already occupies the "slow trajectory" axis.
+- 27th lever closed.
+
+---
+
+## 2026-06-07 12:43 — PR #2347: H-AX EN PREFILL_STEPS=100 (open2-tanjiro)
+- Branch: `open2-tanjiro/h-ax-en-prefill`
+- Hypothesis: Test EN PREFILL_STEPS=100 (vs default 0) — pre-fill the EN momentum buffer with 100 steps of plain Muon before activating the EN lerp, smoothing the initial transient.
+- W&B run: `yfpvvbgy` (Arm A n=2 partial)
+- Status: **Closed FALSIFIED — 24th saturated lever.**
+
+### Results
+
+| Trial | val/ri_loss_gamma_neg0p0750 | vs rank-1 (3.276193) |
+|---|---:|---:|
+| T0 (PREFILL=100) | 3.277027 | +0.000834 |
+| T1 | CRASHED | — |
+
+### Analysis
+
+- T0 +0.000834 above rank-1 (1.7× noise floor, FALSIFIED band). Trial 2 crashed; aborted before n=2 to free GPU for H-AY assignment.
+- Combined with H-AR (EN γ warmup FALSIFIED) and H-AH (constant γ sweep FALSIFIED): the EN initialization/timing axis is fully saturated. The default PREFILL_STEPS=0 and γ=0.99 settings are decisively correct.
+- 24th lever closed.
+
+---
+
 ## 2026-06-07 11:44 — PR #2342: H-AS Muon gradient noise injection (open2-frieren)
 - Branch: open2-frieren/h-as-muon-grad-noise
 - Hypothesis: Apply Neelakantan-style decayed Gaussian noise to Muon gradients (σ_0=0.01, γ=0.55) before NS5 orthogonalization. Motivation: noise regularization can help escape sharp minima; Muon hasn't been tested with gradient noise.
