@@ -1595,3 +1595,58 @@ Advisor decision: close. Reassign student to higher-EV Senpai-#1614 ingredient l
 - Implication: Contra-Muon and EMA-Nesterov likely interfere (similar to NC + Contra-Muon interference observed in alphonse PR #2281).
 - Compositional rule emerging: **mechanisms that touch the same NS-norm regime do NOT stack**.
 
+
+---
+
+## 2026-06-07 13:50 — PR #2340: H-AQ AdamW β₁ warmup (fern)
+
+- Branch: `open2-fern/h-aq-adamw-beta1-warmup`
+- Hypothesis: Warm up AdamW β₁ from 0.85 (Arm A) or 0.65 (Arm B) to 0.95 over the first 500 steps. Motivation: more aggressive first-moment EMA early in training where gradient signal is changing rapidly.
+- Status: **Closed FALSIFIED both arms (not merged) — 25th saturated lever.**
+
+### Results
+
+| Arm | Trial | val/ri_loss_gamma_neg0p0750 | vs rank-1 (3.276193) |
+|---|---:|---:|---:|
+| A β₁_start=0.85 | T0 | 3.278502 | +0.002309 |
+| A β₁_start=0.85 | T1 | 3.278373 | +0.002180 |
+| A mean | — | **3.278438** | **+0.002245 FALSIFIED** |
+| B β₁_start=0.65 | T0 | 3.280502 | +0.004309 |
+| B β₁_start=0.65 | T1 | 3.277773 | +0.001580 |
+| B mean | — | **3.279138** | **+0.002945 FALSIFIED** |
+
+- W&B runs: `m33ftkmq` (Arm A), `q1rg6lwx` (Arm B). Both `open2-fern/h-aq-adamw-beta1-warmup` group.
+
+### Analysis
+
+- Both arms FALSIFIED at 4-7× noise floor. β₁ warmup direction is dead for AdamW.
+- The merged `β₁=0.95` constant from the launch baseline is decisively the right setting. Warming up from below `0.95` underweights past gradients during the high-noise early phase, leading to more chaotic embed/lm_head trajectories.
+- Compounding evidence with H-AL (β₂ warmup, also FALSIFIED): **AdamW EMA-coefficient schedule axis is fully saturated**. No version of warming-up either β₁ or β₂ beats the constant baseline.
+- 25th lever closed. fern reassigned to H-BC (spectral radius norm targeting in `muon_update`).
+
+---
+
+## 2026-06-07 14:08 — PR #2341: H-AR EMA-Nesterov γ warmup (nezuko)
+
+- Branch: `open2-nezuko/h-ar-en-gamma-warmup`
+- Hypothesis: Warm up EMA-Nesterov γ from 0.9 (Arm A) or 0.95 (Arm B) to 0.99 over the first 500 steps. Tests whether constant γ=0.99 is over-aggressive during initial weight calibration.
+- Status: **Closed FALSIFIED both arms (not merged) — 26th saturated lever.**
+
+### Results
+
+| Arm | Trial | val/ri_loss_gamma_neg0p0750 | vs rank-1 (3.276193) |
+|---|---:|---:|---:|
+| A γ_start=0.9 | n=2 mean | **3.279476** | **+0.003283 FALSIFIED** |
+| B γ_start=0.95 | T0 | 3.277508 | +0.001315 |
+| B γ_start=0.95 | T1 | 3.279210 | +0.003017 |
+| B mean | — | **3.278359** | **+0.002166 FALSIFIED** |
+
+- W&B runs: `dynewpp5` (Arm A), `3vhyodcg` (Arm B). `open2-nezuko/h-ar-en-gamma-warmup` group.
+
+### Analysis
+
+- Both arms FALSIFIED at 4-7× noise floor. EN γ warmup direction is dead.
+- The merged `γ=0.99` constant is the right setting — initializing γ below 0.99 reduces the EN smoothing effect during the early high-variance phase, which causes more aggressive Muon update accumulation early and degrades final convergence.
+- Combined with H-AH (constant γ sweep FALSIFIED) and H-AX (EN PREFILL_STEPS=100 FALSIFIED): **the entire EN scheduling axis is saturated** for the parameters tested. The only remaining EN axis is the SCOPE axis (Muon-only vs all-params), which is H-BE in the queued wave.
+- 26th lever closed. nezuko reassigned to H-BF (SNR-adaptive AdamW LR).
+
