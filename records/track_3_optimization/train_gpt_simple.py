@@ -146,6 +146,11 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--cautious_adamw", type=int, default=0,
+                        help="Apply cautious gradient-masking to the AdamW step "
+                             "(Liang et al. 2024, arXiv:2411.16085). When enabled, mask "
+                             "p.grad by sign-agreement with the previous step's exp_avg "
+                             "and rescale so mean update magnitude is preserved. Default: 0 (off).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -160,6 +165,7 @@ def parse_args():
 
 
 args = parse_args()
+CAUTIOUS_ADAMW = bool(args.cautious_adamw)
 
 
 def clean_metric_name(name: str) -> str:
@@ -1037,6 +1043,60 @@ class Muon(torch.optim.Optimizer):
         self.step_count += 1
 
 
+@torch.no_grad()
+def cautious_premask_adamw(adamw_optimizer, log_stats=False):
+    """H-AK Cautious-AdamW (Liang et al. 2024, arXiv:2411.16085).
+
+    Mask p.grad in place by sign-agreement with the previous step's exp_avg
+    (Adam first moment), then rescale by mean(mask) so the mean update
+    magnitude is preserved. On the first step (no exp_avg state yet) this is
+    a no-op == standard AdamW.
+
+    Applied uniformly across all AdamW groups (embed, lm_head, scalars)
+    matching the canonical C-Optim impl (kyleliang919/C-Optim).
+
+    Mean is computed in fp32 to avoid bf16 underflow on large tensors with
+    mostly-zero masks.
+
+    When ``log_stats=True``, returns a dict ``{group_name -> mask.mean()}``
+    aggregated across params in each group (element-weighted). The host sync
+    in ``.item()`` is gated on this flag so the hot path stays sync-free.
+    """
+    group_stats = {}
+    for group in adamw_optimizer.param_groups:
+        name = group.get("name", "?")
+        group_sum_mask = None
+        group_numel = 0
+        for p in group["params"]:
+            if p.grad is None:
+                continue
+            state = adamw_optimizer.state.get(p)
+            if state is None or "exp_avg" not in state:
+                continue  # first step — exp_avg not initialized; standard AdamW
+            m_prev = state["exp_avg"]
+            # fp32 upcast on the product: bf16 underflow on the elementwise product can drop
+            # tiny same-sign entries to 0 on large tensors.
+            prod = p.grad.float() * m_prev.float()
+            mask = prod.gt(0).to(p.grad.dtype)
+            mask_sum = mask.float().sum()
+            mask_alive = float(mask_sum.item())
+            if log_stats:
+                group_sum_mask = mask_sum if group_sum_mask is None else group_sum_mask + mask_sum
+                group_numel += int(p.grad.numel())
+            # Fall back to standard AdamW when mask is fully dead. This happens whenever a
+            # parameter's first non-zero gradient arrives later than step 0 (e.g. embed and
+            # block-internal scalars, whose step-0 gradient is killed by the zero-init lm_head
+            # weight). Without this skip, exp_avg seeded at zero would freeze the parameter
+            # because mask = (g * 0) > 0 = False everywhere on every subsequent step.
+            if mask_alive == 0.0:
+                continue
+            scale = (mask_sum / p.grad.numel()).clamp(min=1e-3).to(p.grad.dtype)
+            p.grad.mul_(mask / scale)
+        if log_stats and group_numel > 0:
+            group_stats[name] = float(group_sum_mask.item()) / group_numel
+    return group_stats
+
+
 class EMA_Nesterov(torch.optim.Optimizer):
     """Following PR #309: x^{t+1} = A_t(x^t + β_t m^t); m^{t+1} = γ m^t + (1-γ)(x^{t+1} - x^t).
     The inner optimizer is applied at the lookahead point (no restore).
@@ -1220,6 +1280,7 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "cautious_adamw": CAUTIOUS_ADAMW,
         },
     )
 
@@ -1528,6 +1589,18 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
                 extra_metrics=ema_extras,
             )
+        # H-AK Cautious-AdamW: mask AdamW gradients by sign-agreement with previous
+        # exp_avg before the EMA-Nesterov wrapped step. No-op on the first step
+        # (exp_avg state not yet initialized). Stats logged at telemetry intervals.
+        if CAUTIOUS_ADAMW:
+            _log_mask = (dist.get_rank() == 0 and telemetry_due)
+            cautious_mask_stats = cautious_premask_adamw(optimizer1, log_stats=_log_mask)
+            if _log_mask and cautious_mask_stats:
+                wandb.log(
+                    {f"train/cautious_adamw/mask_mean_{n}": v
+                     for n, v in cautious_mask_stats.items()},
+                    step=wandb_step,
+                )
         # PR #309 EMA-Nesterov: opt.step runs the inner optimizers at the lookahead point,
         # then accumulates lookahead = γ * lookahead + (1-γ) * (p_after - prev_p).
         for opt in optimizers:
