@@ -13,26 +13,26 @@
 - Stack: Cautious-Muon (NC) + Sinkhorn Arbor + EMA-Nesterov (γ=0.99) + RI (capture=2375, γ=−0.075)
 - W&B: `vk0jtb3z`. Contract margin: 0.007615.
 
-## Active assignments (~18:30 UTC, 2026-06-07)
+## Active assignments (~18:40 UTC, 2026-06-07)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~37h. |
-| **#2349** | open2-frieren | H-AY: AdamW eps sweep | **Arm B (eps=1e-12) in flight** — `dnvqhw4p` n=2, T0=3.277014 (+0.000821 single trial). T1 terminal ETA ~19:25 UTC. |
-| **#2351** | open2-fern | H-BC: Spectral radius norm | **Awaiting student SENPAI-RESULT** — T0=T1=3.280820 both trials FALSIFIED. n=2 mean = +0.004627. Advisor directed closure comment posted. |
-| **#2352** | open2-nezuko | H-BF: SNR-adaptive AdamW LR | **Awaiting student SENPAI-RESULT** — T0=3.278413 FALSIFIED (+0.002220, 4.4× noise floor). Advisor directed early abort comment posted. |
-| **#2353** | open2-thorfinn | H-BG: PMuon + β₂-pulse | **Awaiting student SENPAI-RESULT** — T0=T1=3.278038 both trials FALSIFIED. n=2 mean = +0.001845 (3.7× noise floor). Advisor directed closure comment posted. |
-| **#2354** | open2-askeladd | H-BH: GC on Muon momentum buffer | **In flight** — `4q46nmwf` step ~1850/2890 (~64%). ETA ~19:30 UTC. |
-| **#2355** | open2-tanjiro | H-BI: Depth-wise Muon LR | **In flight** — `hld6fioy` step ~1675/2890 (~58%). ETA ~19:45 UTC. |
-| **#2356** | open2-edward | H-BJ: NS-iter × Muon LR coupling | **JUST ASSIGNED 18:30 UTC** (PR #2356). Arm A: NS8+LR×1.04. Arm B: NS16+LR×0.97. Smoke gate: 50 steps, within ±0.10 of baseline. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~38h. |
+| **#2349** | open2-frieren | H-AY: AdamW eps sweep | **n=4 Arm B directed** — T1=3.275574 (beats rank-1!), T0=3.277014, n=2 mean=3.276294 INCONCLUSIVE. Variance escalation rule triggered (spread=0.001440 > 0.0008). Student launching seeds 2-3. |
+| **#2351** | open2-fern | H-BC: Spectral radius norm | **Awaiting student SENPAI-RESULT** — T0=T1=3.280820 both FALSIFIED. Advisor directed closure comment posted. |
+| **#2354** | open2-askeladd | H-BH: GC on Muon momentum buffer | **In flight** — `4q46nmwf` step ~2312/2890 (~80%). ETA ~13 min. |
+| **#2355** | open2-tanjiro | H-BI: Depth-wise Muon LR | **In flight** — `hld6fioy` step ~2150/2890 (~74%). ETA ~17 min. |
+| **#2356** | open2-edward | H-BJ: NS-iter × Muon LR coupling | Assigned 18:30 UTC. Arm A: NS8+LR×1.04. Arm B: NS16+LR×0.97. Awaiting student pickup + smoke. |
+| **#2357** | open2-thorfinn | H-BK: Cosine warm-restart Muon LR at step 2000 | **JUST ASSIGNED 18:40 UTC** (PR #2357). Arm A: restart_step=2000, peak=0.5×. Awaiting student pickup. |
+| **#2358** | open2-nezuko | H-BL: Embed LR decoupling | **JUST ASSIGNED 18:40 UTC** (PR #2358). Arm A: adam_embed_lr=0.20 (down). Arm B: adam_embed_lr=0.45 (mild up). Builds on H-BF SNR saturation finding. |
 
 ## Recent closures (this session, most recent first)
 
 | Date | PR | Hypothesis | Decision | Key finding |
 |---|---|---|---|---|
+| 2026-06-07 18:40 | #2353 (thorfinn H-BG) | PMuon + β₂-pulse | **CLOSED FALSIFIED** | T0=T1=3.278038 (identical, n=2 mean +0.001845). PMuon pre-NS5 split conflicts with NC post-NS5 equalization. **32nd saturated lever.** |
+| 2026-06-07 18:40 | #2352 (nezuko H-BF) | SNR-adaptive AdamW LR | **CLOSED FALSIFIED** | T0=3.278413 (+0.002220, 4.4× noise floor). SNR saturates → flat 3× LR multiplier on all groups catastrophic. **31st saturated lever.** |
 | 2026-06-07 18:25 | #2346 (edward H-AW) | EN REST_STEPS=2300 | **CLOSED FALSIFIED** | n=4 mean 3.276256 = +0.000063, σ=0.00126 (2.5× noise floor variance blow-out). **30th saturated lever.** Contract margin 0.007488 < rank-1's 0.007615. |
-| 2026-06-07 18:20 | #2353 (thorfinn H-BG) | PMuon + β₂-pulse | **CLOSED FALSIFIED** | T0=T1=3.278038 (identical, n=2 mean +0.001845). **32nd saturated lever.** |
-| 2026-06-07 18:20 | #2352 (nezuko H-BF) | SNR-adaptive AdamW LR | **CLOSED FALSIFIED** | T0=3.278413 (+0.002220, 4.4× noise floor). SNR saturates → flat 3× LR multiplier on all groups catastrophic. **31st saturated lever.** |
 | 2026-06-07 18:20 | #2351 (fern H-BC) | Spectral radius norm | **CLOSED FALSIFIED** | T0=T1=3.280820 (identical, +0.004627). Mass redistribution into weight radius does not help. |
 | 2026-06-07 16:15 | #2350 (tanjiro H-BA) | Sophia-G diagonal Hessian | **CLOSED FALSIFIED** | T0=3.35478 = **+0.07859** (157× noise floor). **29th saturated lever.** |
 | 2026-06-07 14:50 | #2343 (askeladd H-AT) | GC on raw Muon gradient (n=4) | **CLOSED FALSIFIED** | n=4 mean 3.277174 = +0.000981, σ=0.000911. **28th saturated lever.** |
@@ -74,10 +74,12 @@ We are now **32 saturated levers and 2 failed direction families** into a deep p
 
 ## Next-wave hypotheses (queued for next idle students)
 
-- **H-BK: Warm-restart LR at step 2000** — single cosine restart.
-- **H-BL: Embed LR decoupling** — Arm A embed_lr=0.4, Arm B embed_lr=0.2.
+- All current hypotheses assigned. Next assignments when students become idle:
+  - H-BM: lm_head LR sweep (decoupling from other groups)
+  - H-BN: MUON_WEIGHT_DECAY sweep (0.01 vs 0.05 vs default 0.025)
 
 ## Open Operational Items
 
-- **Alphonse pod broken** (Issue #2319 ~37h). No new assignment until pod restored.
-- **PRs #2351/#2352/#2353** — awaiting student SENPAI-RESULT comments to finalize label swaps + close.
+- **Alphonse pod broken** (Issue #2319 ~38h). No new assignment until pod restored.
+- **PR #2351** (fern H-BC) — awaiting student SENPAI-RESULT comment to finalize label swap + close.
+- **Frieren H-AY n=4 Arm B** — seeds 2-3 need to launch and complete (~3.5h ETA from 18:40 UTC).
