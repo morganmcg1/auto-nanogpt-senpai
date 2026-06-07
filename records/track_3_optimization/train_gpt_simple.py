@@ -146,6 +146,10 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--muon_lr", type=float, default=None,
+                        help="Override MUON_LR (default: use module constant 0.0375).")
+    parser.add_argument("--muon_weight_decay", type=float, default=None,
+                        help="Override MUON_WEIGHT_DECAY (default: use module constant 0.025).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -160,6 +164,11 @@ def parse_args():
 
 
 args = parse_args()
+
+if args.muon_lr is not None:
+    MUON_LR = args.muon_lr
+if args.muon_weight_decay is not None:
+    MUON_WEIGHT_DECAY = args.muon_weight_decay
 
 
 def clean_metric_name(name: str) -> str:
