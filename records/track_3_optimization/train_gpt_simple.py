@@ -146,9 +146,9 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
-    parser.add_argument("--adam_eps_override", type=float, default=0.0,
-                        help="Override AdamW eps for all param groups (embed, lm_head, scalars). "
-                             "0.0 = no override (uses default 1e-10). H-AY sweep.")
+    parser.add_argument("--adam_eps_override", type=float, default=1e-12,
+                        help="AdamW eps for all param groups (embed, lm_head, scalars). "
+                             "H-AY merged value 1e-12 (was 1e-10). Set <= 0 to use legacy 1e-10.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
