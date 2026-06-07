@@ -37,6 +37,38 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-07 02:45 UTC — PR #2329: H-AG Muon LR ±20% ablation on NC × Arbor + RI — CLOSED (falsified, LR=0.0375 locally optimal)
+
+- **Branch:** `open2-tanjiro/h-ag-lr-wd-retune`
+- **W&B runs:** Arm A `gh42uhjh` (LR=0.030, n=2), Arm B `agvlim5e` (LR=0.045, n=2)
+- **Hypothesis:** LR=0.0375 (Muon) was inherited from the PR #309 base without revalidation on the NC × Arbor + RI stack. ±20% perturbations test whether the stack's geometry has shifted the optimal LR.
+- **Results (n=2 paired per arm, vs rank-1 n=4 mean 3.276193):**
+
+| Arm | LR | T0 | T1 | n=2 mean | Δ vs rank-1 | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| **A** (−20%) | 0.030 | 3.276964 | 3.275824 | **3.276394** | **+0.000201** | inconclusive |
+| **B** (+20%) | 0.045 | 3.276764 | 3.279024 | **3.277894** | **+0.001701** | clear regression |
+| Baseline (rank-1, n=4) | 0.0375 | — | — | 3.276193 | 0 | local optimum |
+
+- **Asymmetric regression pattern:** Arm A (−20%) lands near-flat at +0.0002; Arm B (+20%) regresses by +0.0017. Loss-vs-LR curve is skewed — the optimum at 0.0375 is on the right shoulder of a slightly skewed parabola. Higher LR is the wrong direction; lower LR is safer but also not better.
+- **Mechanism finding:** LR=0.0375 is at or near the local optimum for this stack. ±20% gives no clear lift; this is the fourth saturated scalar in succession (after RI γ, RI capture×γ, EMA-Nesterov γ).
+- **Infrastructure added:** CLI flags `--muon_lr` and `--muon_weight_decay` (default None → no-op) are now in the training script, available for future experiments requiring fair LR/WD baselines.
+- **Arm B also fails test contract:** Arm B n=2 mean 3.277894 gives `(3.28 − 3.277894) × √2 = 0.00298 < 0.004` — below the stat-sig floor. Additional signal that +20% is the worse direction.
+- **Next:** tanjiro assigned H-AM (Muon WD cosine schedule 0.025→0 over training, PR #2335).
+
+---
+
+## 2026-06-07 02:50 UTC — PR #2335: H-AM Muon WD cosine schedule (0.025→0) — ASSIGNED (tanjiro)
+
+- **Branch:** `open2-tanjiro/h-am-muon-wd-schedule`
+- **Hypothesis:** `MUON_WEIGHT_DECAY = 0.025` is constant throughout training. Cosine decay from 0.025 → 0 reduces regularization pressure as model approaches convergence (Loshchilov & Hutter 2019, AdamW). Motivated by: 4 consecutive saturated scalar axes → next frontier is *schedule* mechanisms.
+- **Implementation:** Add `--muon_wd_schedule` flag (`"constant"` default, `"cosine"`, `"linear"`). Per-step `group["weight_decay"]` update inside `set_hparams(step)`.
+- **Arms:** Cosine decay as Arm A; linear decay as Arm B if Arm A inconclusive.
+- **Decision:** n=2 ≤ 3.275893 → expand to n=4; n=2 ≥ 3.276393 → falsified.
+- **Status:** Assignment PR created 02:50 UTC; awaiting student pickup.
+
+---
+
 ## 2026-06-07 02:20 UTC — PR #2330: H-AH EMA-Nesterov γ ablation on NC × Arbor + RI — CLOSED (falsified, γ=0.99 locally optimal)
 
 - **Branch:** `open2-frieren/h-ah-ema-nesterov-gamma`
