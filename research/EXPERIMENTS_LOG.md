@@ -37,6 +37,42 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-07 03:05 UTC — PR #2328: H-AF NS iteration count (NS10 vs NS12) — CLOSED (inconclusive, NS10 = NS12 within noise)
+
+- **Branch:** `open2-nezuko/h-af-ns-iters-nc-arbor`
+- **W&B run:** `ea0n8iwj` (primary; duplicate `rz4uvvvt` killed at 00:24 UTC after GPU contention)
+- **Hypothesis:** NS12 might over-iterate the polar factorization given NC's pre-normalization — NS10 (~17% faster per NS step) could match or beat NS12 on the NC × Arbor + RI stack.
+- **Results (n=4, all vs rank-1 n=4 mean 3.276193):**
+
+| Trial | val_loss | Δ vs rank-1 |
+|---:|---:|---:|
+| T0 | 3.275741 | −0.000452 |
+| T1 | 3.275744 | −0.000449 |
+| T2 | 3.277351 | +0.001158 |
+| T3 | 3.276160 | −0.000033 |
+| **n=4 mean** | **3.276248** | **+0.000055** |
+| n=4 sample std | 0.000761 | — |
+| SEM | 0.000381 | — |
+
+- **Decision-table mapping:** n=4 mean = 3.276248 in **(3.276193, 3.276593) — INCONCLUSIVE band**. The mean is +55μ above rank-1, well inside SEM (381μ) and inside NS12's own n=4 std (687μ).
+- **T0=T1 tightness was anomaly (not signal):** The unusually tight T0=T1 pair at 3μ apart was regression-to-mean: T2=3.27735 and T3=3.27616 both reverted toward the center.
+- **NS iter count axis saturated at NS10-12:** NS10 = NS12 within noise. NS11/NS9 would likely give the same result. Further iteration-count exploration not recommended (5th saturated axis this session).
+- **Wall-time savings:** ~17% NS-portion saving from NS10 is real but modest as a % of total step time (~2-3% step_avg savings); not worth accepting equal-or-worse val_loss for.
+- **T2 anomaly:** T2=3.27735 attributed to GPU contention from duplicate run `rz4uvvvt` that ran concurrently during T2's training window. Post-kill steady-state step_avg returned to 2020-2040 ms/step.
+- **Next:** nezuko assigned H-AN (multi-anchor RI: 2 simultaneous captures, PR #2336).
+
+---
+
+## 2026-06-07 03:05 UTC — PR #2336: H-AN Multi-anchor RI (2 simultaneous captures) — ASSIGNED (nezuko)
+
+- **Branch:** `open2-nezuko/h-an-multi-anchor-ri`
+- **Hypothesis:** Single-anchor RI is saturated (H-AE closed). Multi-anchor extends to 2 captures: `θ_eval = θ_final + γ₁*(θ_final−θ_c1) + γ₂*(θ_final−θ_c2)`. Tests if snapshots at different training steps encode orthogonal gradient directions that compound. Arm A: split canonical γ=−0.075 as γ₁=γ₂=−0.0375 across captures c1=2200, c2=2375.
+- **Implementation:** ~25 lines — new `--ri_extra_capture_steps` (CSV ints) and `--ri_capture_gammas` (CSV floats, paired with extra steps) CLI flags; dict of snapshots indexed by step; `_apply_multi_anchor()` function.
+- **Decision:** n=2 ≤ 3.275793 → strong positive, n=4 confirm; ≥ 3.276393 → falsified (single-anchor remains optimal).
+- **Status:** Assignment PR created 03:05 UTC; awaiting student pickup.
+
+---
+
 ## 2026-06-07 02:45 UTC — PR #2329: H-AG Muon LR ±20% ablation on NC × Arbor + RI — CLOSED (falsified, LR=0.0375 locally optimal)
 
 - **Branch:** `open2-tanjiro/h-ag-lr-wd-retune`
