@@ -1,5 +1,19 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-07 06:10 — PR #2336: H-AN Multi-anchor RI (open2-nezuko)
+- Branch: open2-nezuko/h-an-multi-anchor-ri-2890
+- Hypothesis: 2 simultaneous RI captures (steps 2200 + 2375, γ=−0.0375 each, sum=−0.075) to span a wider subspace than single-anchor capture
+- W&B run: di7i4hu0 (state=crashed mid-T1 at step 3166)
+
+| Trial | Step | Multi-anchor ri_loss (γ_sum=−0.075) | vs rank-1 |
+|---:|---:|---:|---:|
+| T0 | 2890 | 3.27754 | **+0.00134** |
+| T1 | crashed step 276 | — | — |
+
+- **Decision: CLOSED FALSIFIED.** T0 alone decisive — regression of +0.00134 vs rank-1 3.276193. T1 crash is infrastructure (val/loss 4.11 at step 250 = normal early-T1 values, not divergence).
+- Mechanism: Two captures at steps 2200+2375 are highly correlated (~175-step separation near training end). Effective rank ≈ 1, not 2. Halving per-anchor γ reduces SNR without adding independent subspace directions. Direction dead unless anchor separation is large (e.g., step 1500+2375).
+- 14th saturated lever (15th closed direction including 2 failed families).
+
 Tag: `auto-nanogpt-open-sota-v2-20260604`. Branch: same. Target:
 `modded-nanogpt` Track 3 (FineWeb val/loss ≤ 3.28 in minimum optimizer steps
 under stat-sig contract).
