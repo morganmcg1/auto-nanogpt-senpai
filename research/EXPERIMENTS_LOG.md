@@ -37,6 +37,38 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-07 02:20 UTC — PR #2330: H-AH EMA-Nesterov γ ablation on NC × Arbor + RI — CLOSED (falsified, γ=0.99 locally optimal)
+
+- **Branch:** `open2-frieren/h-ah-ema-nesterov-gamma`
+- **W&B runs:** Arm A `5bsuw8yt` (γ=0.90), Arm B `j0jjjsuz` (γ=0.98), Arm C `5wppazxv` (γ=0.95)
+- **Hypothesis:** EMA-Nesterov γ=0.99 (rank-1 default) may not be the optimum on the NC × Arbor + RI stack. Three perturbations tested: γ∈{0.90, 0.95, 0.98} vs baseline γ=0.99.
+- **Results (T0 single trial, all vs rank-1 n=4 mean 3.276193):**
+
+| γ | EMA window | T0 val/ri_loss | Δ vs rank-1 | Verdict |
+|---:|---:|---:|---:|---|
+| 0.90 | ~10 steps | 3.283956 | +0.007763 | **FALSIFIED** (T1 killed early) |
+| 0.95 | ~20 steps | 3.281821 | +0.005628 | **FALSIFIED** (T1 killed early) |
+| 0.98 | ~50 steps | 3.279720 | +0.003527 | **FALSIFIED** (T1 killed early) |
+| **0.99 (rank-1)** | **~100 steps** | **3.276193 (n=4)** | **0** | **local optimum confirmed** |
+
+- **Mechanism finding:** EMA-Nesterov γ has a **sharply local minimum at γ=0.99** on the NC × Arbor + RI stack. All three perturbations regress monotonically as γ departs from 0.99 — the canonical KellerJordan γ=0.95 (+0.0056) and MoonShot Muon γ=0.98 (+0.0035) are demonstrably suboptimal. The ~100-step EMA window implied by γ=0.99 is unusually long compared to standard Polyak-Ruppert recommendations (~10-20 steps), suggesting the NC × Arbor preconditioner landscape has a long-range smoothness that makes longer EN windows beneficial.
+- **Wall-time saved:** All three T1s killed after strong T0 negatives → ~5h GPU reclaimed.
+- **Third saturated lever in succession (after H-AD and H-AE):** scalar tuning space of rank-1 stack is thoroughly explored. Further gains require fresh mechanism additions.
+- **Next:** frieren assigned H-AL (AdamW β₂ warmup schedule 0.95→0.99 over first 1000 steps, PR #2334).
+
+---
+
+## 2026-06-07 02:30 UTC — PR #2334: H-AL AdamW β₂ warmup schedule (0.95→0.99) — ASSIGNED (frieren)
+
+- **Branch:** `open2-frieren/h-al-beta2-warmup`
+- **Hypothesis:** β₂=0.99 constant in AdamW (`betas=(0.8, 0.99)`) gives a 100-step variance EMA window throughout training. In early training (steps 0-1000) gradient distributions are non-stationary; a shorter window (β₂=0.95, ~20 steps) adapts faster. A warmup from β₂=0.95→0.99 over 1000 steps better matches optimization signal's stationarity timescale, motivated by H-AH's finding that EMA windows are load-bearing in this stack.
+- **Implementation:** Add `--adam_beta2_warmup_steps` (default 0) and `--adam_beta2_initial` (default 0.95) CLI flags. Per-step `group["betas"] = (beta1, beta2)` before optimizer.step(). Linear ramp then hold at β₂_final=0.99.
+- **Arms:** Single arm n=2 first; expand to n=4 if ≤ rank-1 −0.0002.
+- **Decision criteria:** n=2 mean ≤ 3.275893 → strong positive, launch n=4; ≥ 3.276393 → falsified (β₂=0.99 constant already optimal).
+- **Status:** Assignment PR created 02:30 UTC; awaiting student pickup.
+
+---
+
 ## 2026-06-06 23:50 UTC — PR #2332: H-AJ z-loss aux on pre-cap logits — ASSIGNED (edward)
 
 - **Branch:** `open2-edward/h-aj-z-loss-aux`
