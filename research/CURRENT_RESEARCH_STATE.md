@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-07 ~22:30 UTC (launch day +3)
+- **As of:** 2026-06-07 ~23:00 UTC (launch day +3)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -13,18 +13,18 @@
 - Stack: Cautious-Muon (NC) + Sinkhorn Arbor + EMA-Nesterov (γ=0.99) + RI (capture=2375, γ=−0.075)
 - W&B: `vk0jtb3z`. Contract margin: 0.007615.
 
-## Active assignments (~20:50 UTC, 2026-06-07)
+## Active assignments (~23:00 UTC, 2026-06-07)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~40h. Student correctly waiting for pod recycle. |
-| **#2349** | open2-frieren | H-AY: AdamW eps sweep | **Arm B n=4 in flight** (`nbptdumy`). T0=3.276387 INCONCLUSIVE (+0.000194). T1 at step ~501/2890 (~17%). 3 trials remaining, ETA ~4h38m (~01:43 UTC tomorrow). |
-| **#2356** | open2-edward | H-BJ: NS-iter × Muon LR coupling | **Arm A T0=3.277840 FALSIFIED**. T1 at step ~2401/2890 (~83%, ETA ~22:00 UTC). ⚠ **WATCHDOG STATUS UNCLEAR** — no Arm B main run detected on W&B as of 21:00; nudge posted. |
-| **#2362** | open2-thorfinn | H-BU: Lookahead-on-AdamW (k=5 or 10, α=0.5) | **Assigned 22:30 UTC** (PR #2362). First optimizer-state mechanism on AdamW groups. Arm A: k=5, α=0.5 (canonical). Arm B: k=10, α=0.5 (slower horizon). Muon NC×EN×RI stack untouched. |
-| **#2358** | open2-nezuko | H-BL: Embed LR decoupling | **Arm A T0=3.277526 FALSIFIED** (+0.001333). T1 at step ~215/2890 (ETA ~22:42 UTC). Watchdog armed → Arm B (embed_lr=0.45) auto-launches on Arm A exit. |
-| **#2359** | open2-askeladd | H-BM: lm_head LR decoupling | `vn32x4gj` step 1734/2890 (~60%). Arm A lm_head_lr=0.002. T0 ETA ~22:30 UTC. |
-| **#2360** | open2-tanjiro | H-BN: MUON_WEIGHT_DECAY sweep | `9tlotgem` step 1925/2890 (~67%). Arm A WD=0.010. T0 ETA ~22:00 UTC. |
-| **#2361** | open2-fern | H-BO: AdamW (β₁, β₂) sweep | `j9lofncb` step 1850/2890 (~64%). Arm A (β₁,β₂)=(0.9,0.95). T0 ETA ~22:00 UTC. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~42h. No new assignment until pod restored. |
+| **#2349** | open2-frieren | H-AY: AdamW eps sweep | **n=4 confirm 90% done** (`nbptdumy` step 5216/5780, ri=3.276387 FALSIFIED-trending). ETA ~30 min. Will close axis on terminal. |
+| **#2356** | open2-edward | H-BJ: NS-iter × Muon LR coupling | **Arm A FALSIFIED** (n=2 mean 3.277806, 36th lever). Arm B `876rihlt` (NS16+LR×0.97) step 1225/5780 (~21%), ETA revised ~05:30 UTC. |
+| **#2358** | open2-nezuko | H-BL: Embed LR decoupling | **Arm A n=2 FALSIFIED (BARELY)** mean=3.276713 (+0.000520), T0=3.277526 / T1=3.275901 (sub-baseline single seed). Spread 0.001626 ≫ 0.0008. Per cross-PR seed pattern (see below), letting Arm B run rather than n=4 Arm A. Arm B `pmvj0tp6` (embed_lr=0.45) step ~250, n=2 ETA ~02:25 UTC. |
+| **#2359** | open2-askeladd | H-BM: lm_head LR decoupling (lm_head_lr=0.002) | `vn32x4gj` T0=3.276283 **INCONCLUSIVE** (+0.000090, very close to baseline). T1 at step ~726/2890 (~25% into T1), ETA ~01:20 UTC. n=2 mean could land MERGE-eligible if T1 ≤ 3.276103. |
+| **#2360** | open2-tanjiro | H-BN: MUON_WEIGHT_DECAY sweep | `9tlotgem` T0=3.277600 **FALSIFIED** (+0.001407). T1 at step ~926/2890. n=2 ETA ~01:10 UTC. Likely closes axis WD=0.010 falsified — may direct WD=0.050 Arm B post-close. |
+| **#2361** | open2-fern | H-BO: AdamW (β₁, β₂) sweep | `j9lofncb` Arm A (β=0.9/0.95) step 2725 (~94%) T0 imminent. `wemjdth9` Arm B (β=0.85/0.98) step 867 in parallel (multi-GPU?). Both still pre-terminal. |
+| **#2362** | open2-thorfinn | H-BU: Lookahead-on-AdamW | **Smoke run `oqmty85f` step 175, healthy.** First AdamW optimizer-state mechanism. Arm A k=5 α=0.5; Arm B k=10 α=0.5. Muon NC×EN×RI stack untouched. n=2 launch expected once smoke clears (likely within 30 min of smoke complete). |
 
 ## Recent closures (this session, most recent first)
 
@@ -43,9 +43,12 @@
 36. **NS8+LR×1.04 (H-BJ Arm A)** — n=2 mean 3.277806 FALSIFIED (+0.001613). NS-iter below default + compensating LR boost: post-NS5 spectrum at NS8 too anisotropic, LR boost doesn't recover orthogonalization quality.
 37. **Cosine warm-restart Muon LR at step 2000 (H-BK)** — T0=3.287374 CATASTROPHIC (+0.011182, 22× noise floor). Confirms **Invariant #5**: monotonic-down Muon LR through step 2375 RI capture is load-bearing.
 
-**Pending close (~next 1-2h):**
-- **nezuko H-BL Arm A** (T0=3.277526 FALSIFIED, T1 ~8%, ETA ~22:42 UTC, then watchdog → Arm B)
-- **edward H-BJ Arm B** `876rihlt` running NS16+LR×0.97 (~ETA 00:30 UTC)
+**Pending close (next 1-6h):**
+- **frieren H-AY n=4 confirm** ~30 min — currently 3.276387 FALSIFIED-trending; will be **38th lever** (axis closed, both arms saturated).
+- **tanjiro H-BN Arm A** ~01:10 UTC (T0=3.277600 FALSIFIED, n=2 likely closes WD=0.010 direction).
+- **askeladd H-BM Arm A** ~01:20 UTC — T0 INCONCLUSIVE (+0.000090); could go either way.
+- **nezuko H-BL Arm B** ~02:25 UTC (38th lever pending if also FALSIFIED).
+- **edward H-BJ Arm B** ~05:30 UTC (revised — NS16+LR×0.97).
 
 (Levers 1-29 unchanged. Recent:)
 
@@ -66,6 +69,22 @@
 | + EMA-Nesterov (γ=0.99) | −0.0028 (load-bearing) | — |
 | + RI (capture=2375, γ=−0.075) | −0.00032 | Single-anchor axis SATURATED |
 | + NC (Cautious-Muon) | −0.00069 | — |
+
+## Cross-PR seed pattern observation (NEW this cycle)
+
+**Across H-AY (eps sweep) AND H-BL (embed_lr=0.20), seeds 0 and 1 show systematic split:**
+
+| Arm | T0 (seed 0) | T1 (seed 1) | n=2 mean |
+|---|---:|---:|---:|
+| H-AY Arm A (eps=1e-8) | 3.277593 BAD | 3.275574 GOOD | 3.276584 INCONCL |
+| H-AY Arm B (eps=1e-12) | 3.277014 BAD | 3.275707 GOOD | 3.276361 INCONCL |
+| H-BL Arm A (embed_lr=0.20) | 3.277526 BAD | 3.275901 GOOD | 3.276713 BARELY FALSIFIED |
+
+Three independent AdamW perturbations: seed 0 lands ~+0.0014 above rank-1, seed 1 lands ~−0.0005 below rank-1. The "good T1" signal is the SAME magnitude regardless of variable — this is **seed-luck dominating perturbation effect at n=2** on the AdamW group axis.
+
+Frieren n=4 confirms: extends to seeds 2,3 → mean ~3.276387 (above rank-1, FALSIFIED-trending). Seeds 2,3 are NOT sub-baseline.
+
+**Operational implication**: future variance escalation calls on AdamW-group perturbations should consider this systematic seed pattern. n=2 (3.275×××) sub-baseline T1 is NOT a real positive signal — it's seed luck. Tightens our prior that AdamW group axis is locked at PR #309's tuning.
 
 ## Invariants confirmed (hard constraints on the stack)
 
@@ -104,8 +123,11 @@
 ## Open Operational Items
 
 - **Alphonse pod broken** (Issue #2319 ~42h). No new assignment until pod restored.
-- **Edward H-BJ Arm B** (`876rihlt`, NS16+LR×0.97) running, ETA ~00:30 UTC.
-- **Nezuko H-BL Arm A T1** running, ETA ~22:42 UTC → Arm B auto-launch via watchdog.
-- **Frieren H-AY n=4** ETA ~01:43 UTC. T0=3.276387 INCONCLUSIVE. Expect INCONCLUSIVE → axis saturated.
-- **Askeladd/tanjiro/fern Arm A T0s** landing ~22:00-22:30 UTC.
+- **Edward H-BJ Arm B** (`876rihlt`, NS16+LR×0.97) running step 1225/5780, ETA ~05:30 UTC.
+- **Nezuko H-BL Arm B** (`pmvj0tp6`, embed_lr=0.45) running step ~250, ETA ~02:25 UTC. Decision: NO n=4 Arm A confirm despite variance escalation (cross-PR seed pattern overrides — see observation above).
+- **Frieren H-AY n=4** (`nbptdumy`) at 90%, ETA ~30 min. Currently 3.276387 → axis closing as 38th lever on terminal.
+- **Askeladd H-BM T0 INCONCLUSIVE** (3.276283), T1 ~25% in. ETA ~01:20 UTC.
+- **Tanjiro H-BN T0 FALSIFIED** (3.277600), T1 ~32% in. ETA ~01:10 UTC.
+- **Fern H-BO** Arm A near terminal (~94%), Arm B at ~30%. Watch dual progression.
+- **Thorfinn H-BU** smoke running. Expect n=2 launch within ~30 min.
 - **Per user directive**: all future assignments must bias toward optimizer-state mechanisms, preconditioners, readout ideas, NOT scalar hyperparameter tuning. H-BU (thorfinn) = first such assignment.
