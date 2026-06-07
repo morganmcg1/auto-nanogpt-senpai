@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-07 ~07:20 UTC (launch day +3)
+- **As of:** 2026-06-07 ~08:00 UTC (launch day +3)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,24 +18,25 @@
 
 Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed) plus prior Senpai PR #1532/#1614, push the Track 3 fixed-step record below 2900.
 
-## Active assignments (07:20 UTC, 2026-06-07)
+## Active assignments (08:00 UTC, 2026-06-07)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~25h, escalation comment left, human team not responded. |
-| **#2341** | open2-nezuko | H-AR: EN γ warmup (0.9→0.99 over 500 steps) | run dynewpp5 at step ~100. Healthy. |
-| **#2342** | open2-frieren | H-AS: Muon gradient noise (σ_0=0.01, Neelakantan 2015) | Just assigned. Pending pod pickup. |
-| **#2343** | open2-askeladd | H-AT: Gradient Centralization on Muon (Yong et al. 2020) | Just assigned. Pending pod pickup. |
-| **#2344** | open2-tanjiro | H-AU: Muon LR warmup (0→0.0375 over 200 steps) | Just assigned. Pending pod pickup. |
-| **#2340** | open2-fern | H-AQ: AdamW β₁ warmup (0.5→0.8 over 500 steps) | n=2 run m33ftkmq at step ~875/2890. Healthy. |
-| **#2337** | open2-edward | H-AO: Per-block Muon LR (early_mult=1.2, late_mult=0.8) | Arm A relaunch 2au0tavg at step ~1325/2890. Healthy. |
-| **#2339** | open2-thorfinn | H-AP: lm_head on Muon (separate param group) | 2 concurrent runs detected: ss0mtlyy (step ~1375) + h820m08l (step ~150). Advised to kill duplicate. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~27h, round-2 escalation posted. Human team not responded. |
+| **#2341** | open2-nezuko | H-AR: EN γ warmup (0.9→0.99 over 500 steps) | dynewpp5 step ~2400/2890. T0 imminent (~15 min). |
+| **#2342** | open2-frieren | H-AS: Muon gradient noise (σ_0=0.01, Neelakantan 2015) | f50uw5jj step ~1525/2890. Healthy. |
+| **#2343** | open2-askeladd | H-AT: Gradient Centralization on Muon (Yong et al. 2020) | qwbvitns step ~1734/2890. Healthy. |
+| **#2344** | open2-tanjiro | H-AU: Muon LR warmup (0→0.0375 over 200 steps) | cuprgtht step ~950/5780. Healthy (H-AM zombie killed). |
+| **#2340** | open2-fern | H-AQ: AdamW β₁ warmup (0.5→0.8 over 500 steps) | m33ftkmq step ~2525/2890. T0 imminent (~10 min). |
+| **#2337** | open2-edward | H-AO: Per-block Muon LR, Arm B (early_mult=0.8, late_mult=1.2) | n8avho0l running (launched 07:38 UTC). Late-boost direction per advisor guidance. |
+| **#2345** | open2-thorfinn | H-AV: FINAL_LR_POWER sweep (0.9/1.5 vs default 1.2) | Just assigned (PR #2345). Pending pod pickup. |
 
 ## Recent closures (this session, most recent first)
 
 | Date | PR | Hypothesis | Decision | Key finding |
 |---|---|---|---|---|
-| 2026-06-07 07:10 | #2335 (tanjiro H-AM) | Muon WD cosine 0.025→0 | **CLOSED FALSIFIED** | n=2 mean 3.276455 > gate. T0/T1 spread 8× noise floor — high seed variance. 18th saturated lever. |
+| 2026-06-07 08:00 | #2339 (thorfinn H-AP) | lm_head on Muon (mult=0.1) | **CLOSED FALSIFIED** | T0=3.291868 = +0.0157 above rank-1 (~31× noise floor). Early abort. 19th saturated lever. |
+| 2026-06-07 07:10 | #2335 (tanjiro H-AM) | Muon WD cosine 0.025→0 | **CLOSED FALSIFIED** | n=2 mean 3.276455 > gate. T0/T1 spread 8× noise floor. 18th saturated lever. |
 | 2026-06-07 07:05 | #2331 (askeladd H-AI) | NS quartic (3,−3,1) | **CLOSED FALSIFIED** | T0=3.276060 (lucky seed), T1=3.277055. n=2 mean 3.276558 > gate. NS polynomial axis saturated. 17th saturated lever. |
 | 2026-06-07 06:45 | #2334 (frieren H-AL) | AdamW β₂ warmup 0.95→0.99 | **CLOSED FALSIFIED** | n=2 mean 3.276485 > gate. T0/T1 spread +0.002. 15th saturated lever. |
 | 2026-06-07 06:10 | #2336 (nezuko H-AN) | Multi-anchor RI (steps 2200+2375) | **CLOSED FALSIFIED** | T0=3.27754 = +0.00134 above rank-1. Correlated anchors. 14th saturated lever. |
@@ -59,15 +60,16 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | **AdamW β₂ warmup** | n=2 mean +0.000292 | **SATURATED** |
 | **NS quartic (3,−3,1)** | n=2 mean +0.000365 (T0 lucky) | **SATURATED** |
 | **Muon WD cosine 0.025→0** | n=2 mean +0.000262 (high variance) | **SATURATED** |
-| **Per-block Muon LR** | TBD | H-AO in flight (edward) |
-| **lm_head on Muon** | TBD | H-AP in flight (thorfinn) |
-| **AdamW β₁ warmup** | TBD | H-AQ in flight (fern) |
-| **EN γ warmup (0.9→0.99)** | TBD | H-AR in flight (nezuko) |
-| **Muon gradient noise** | TBD | H-AS just assigned (frieren) |
-| **Gradient Centralization** | TBD | H-AT just assigned (askeladd) |
-| **Muon LR warmup 0→0.0375** | TBD | H-AU just assigned (tanjiro) |
+| **lm_head on Muon (mult=0.1)** | T0=+0.0157 (catastrophic) | **SATURATED** |
+| **Per-block Muon LR (Arm A early-boost)** | T0=+0.0078 (catastrophic) | Arm B late-boost TBD |
+| **AdamW β₁ warmup** | TBD | H-AQ in flight (fern, T0 imminent) |
+| **EN γ warmup (0.9→0.99)** | TBD | H-AR in flight (nezuko, T0 imminent) |
+| **Muon gradient noise** | TBD | H-AS in flight (frieren) |
+| **Gradient Centralization** | TBD | H-AT in flight (askeladd) |
+| **Muon LR warmup 0→0.0375** | TBD | H-AU in flight (tanjiro) |
+| **FINAL_LR_POWER sweep (0.9/1.5)** | TBD | H-AV just assigned (thorfinn) |
 
-## Saturated levers count: 18 (+ 2 failed direction families)
+## Saturated levers count: 19 (+ 2 failed direction families)
 
 1. RI γ axis (H-AD)
 2. RI single-anchor capture × γ sweep (H-AE)
@@ -86,31 +88,40 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 15. AdamW β₂ warmup 0.95→0.99 (H-AL)
 16. NS quartic (3,−3,1) (H-AI) — T0 lucky seed
 17. Muon WD cosine 0.025→0 (H-AM) — high variance
-18. [Reserved]
+18. Per-block Muon LR early-boost Arm A T0=+0.0078 (H-AO partial)
+19. lm_head on Muon mult=0.1, T0=+0.0157 (H-AP) — catastrophic
 
 ## Strategic context (deep plateau)
 
-We are now 18+ saturated levers and 2 failed direction families into a deep plateau. The rank-1 3.276193 stack (NC × Arbor × EN × RI) is highly optimized. Current in-flight experiments cover:
+We are now 19+ saturated levers and 2 failed direction families into a deep plateau. The rank-1 3.276193 stack (NC × Arbor × EN × RI) is highly optimized. Current in-flight experiments cover:
 
 **Gradient-level processing (new direction class):**
-- H-AS gradient noise (frieren)
-- H-AT gradient centralization (askeladd)
+- H-AS gradient noise (frieren, f50uw5jj step ~1525)
+- H-AT gradient centralization (askeladd, qwbvitns step ~1734)
 
 **Schedule axis:**
-- H-AQ AdamW β₁ warmup (fern)
-- H-AR EN γ warmup (nezuko) — EN is load-bearing component
-- H-AU Muon LR warmup (tanjiro) — unexplored schedule axis
+- H-AQ AdamW β₁ warmup (fern, m33ftkmq step ~2525, T0 imminent)
+- H-AR EN γ warmup (nezuko, dynewpp5 step ~2400, T0 imminent)
+- H-AU Muon LR warmup (tanjiro, cuprgtht step ~950)
+- H-AV FINAL_LR_POWER sweep (thorfinn, just assigned PR #2345)
 
 **Architecture migration:**
-- H-AO per-block Muon LR (edward)
-- H-AP lm_head on Muon (thorfinn)
+- H-AO Arm B late-boost per-block LR (edward, n8avho0l running)
 
-**Plateau Protocol activated.** With 18 saturated levers, the next advisor cycle should use researcher-agent to identify mechanisms from physics, optimization, and ML that haven't been touched yet.
+**Two T0 results expected within 15 minutes**: fern H-AQ and nezuko H-AR.
+
+**H-AO per-block LR note:** Arm A (early-boost 1.2/0.8) badly falsified at T0=3.2840. Arm B (late-boost 0.8/1.2) now running. If Arm B also falsifies, per-block Muon LR axis is CLOSED entirely.
+
+**Plateau Protocol activated.** With 19 saturated levers, the team should look at:
+- Second-order information (Sophia-G, AdaHessian) on AdamW path
+- Alternative preconditioners (PSGD, Shampoo variants)
+- EMA-Nesterov window timing (PREFILL_STEPS/REST_STEPS unexplored)
+- Spectral normalization targeting
 
 ## Next-wave hypotheses (for next idle students)
 
-1. **Power schedule exponent sweep** — FINAL_LR_POWER is fixed; sweeping may compound with existing stack
-2. **Muon NS warm restart** — periodically reset NS iteration count to prevent stale Gram matrices
-3. **EMA-Nesterov prefill/rest schedule** — PREFILL_STEPS=300 and REST_STEPS=1950 unexplored
+1. **EMA-Nesterov rest_steps timing** — REST_STEPS=1950 is fixed; extending (2300) or shortening (1600) the active EN window may interact productively with RI capture at 2375
+2. **Sophia-G on AdamW path** — 2nd-order diagonal Hessian estimator via GNB, potentially 2× convergence speed in LM pretraining
+3. **FINAL_LR_POWER sweep** — ASSIGNED to thorfinn (H-AV, power 0.9/1.5 vs default 1.2)
 4. **Spectral radius normalization** — per-parameter spectral norm targeting, different from current SOAP
 5. **Sharpness-Aware Minimization (SAM) wrapper** — 2× wall-time but fair in fixed-step regime

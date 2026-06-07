@@ -1,5 +1,19 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-07 08:00 — PR #2339: H-AP lm_head on Muon (open2-thorfinn)
+- Branch: open2-thorfinn/h-ap-lm-head-muon
+- Hypothesis: Move lm_head (`model.proj.weight`) from AdamW to Muon as a separate param group (muon_lm_head_lr_mult=0.1, effective LR ≈ current AdamW lr 1/320). Muon's NS5 orthogonalization may help the vocab-projection matrix.
+- W&B run: ss0mtlyy (Arm A only, early-abort after T0)
+
+| Trial | ri_loss_gamma_neg0p0750 | vs rank-1 |
+|---:|---:|---:|
+| T0 (Arm A mult=0.1) | 3.291868 | **+0.015675** |
+| Early-abort (T1 skipped) | — | — |
+
+- **Decision: CLOSED FALSIFIED. 19th saturated lever.** T0 = +0.0157 above rank-1 (~31× noise floor). For n=2 mean ≤ 3.276193, T1 would need to be ≤ 3.2605 — statistically impossible. Early abort authorized.
+- lm_head should remain on AdamW for any further composition work. The lm_head's vocab-projection geometry (tall, long-tail token distribution) appears incompatible with Muon's NS5 spectral normalization at any LR scale in this config.
+- Note: Arm B (mult=0.5) was not tested because the T0 gap is too large to justify another full run.
+
 ## 2026-06-07 07:10 — PR #2335: H-AM Muon WD cosine schedule (open2-tanjiro)
 - Branch: open2-tanjiro/h-am-muon-wd-cosine
 - Hypothesis: Cosine decay of Muon WD from 0.025→0 over full training — reduces regularization near end of training
