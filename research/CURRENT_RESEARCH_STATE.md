@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-07 ~10:35 UTC (launch day +3)
+- **As of:** 2026-06-07 ~11:00 UTC (launch day +3)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -24,8 +24,8 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 |---:|---|---|---|
 | **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~30h, round-2 escalation posted. Human team not responded. |
 | **#2341** | open2-nezuko | H-AR: EN γ warmup | Arm A FALSIFIED (n=2 mean 3.279476, +0.003283). Arm B (γ_start=0.95) running run `3vhyodcg` T0 ~3%. |
-| **#2342** | open2-frieren | H-AS: Muon gradient noise (σ_0=0.01) | f50uw5jj T0=3.278573 (+0.002380, FALSIFIED). T1 at step 4791/5780 (~83%), terminal in ~25 min. |
-| **#2343** | open2-askeladd | H-AT: Gradient Centralization on Muon | **PROMISING**: qwbvitns T0=3.276329 (+0.000136, PASSES n=1 gate by 0.000064). T1 at step 4991/5780 (~86%), terminal in ~15-20 min. **CRITICAL WATCH**. |
+| **#2342** | open2-frieren | H-AS: Muon gradient noise (σ_0=0.01) | f50uw5jj T0=3.278573 (FALSIFIED). T1 at step 5716/5780 (~99%), terminal in ~5 min. Close on SENPAI-RESULT → assign H-AY AdamW eps. |
+| **#2343** | open2-askeladd | H-AT: Gradient Centralization on Muon | **n=2 INCONCLUSIVE**: qwbvitns FINISHED. T0=3.276329 (+0.000136), T1=3.276839 (+0.000647), n=2 mean=3.276584 (+0.000391) — in inconclusive band. **n=4 confirm directed** (seeds 2-3). Posted 10:55 UTC. |
 | **#2340** | open2-fern | H-AQ: AdamW β₁ warmup | Arm A FALSIFIED (n=2 mean ≈3.278438 from W&B). Arm B (β₁_start=0.65) running run `q1rg6lwx` T0 ~7%, no interim SENPAI-RESULT posted. |
 | **#2345** | open2-thorfinn | H-AV: FINAL_LR_POWER=0.9 (renormalized power_c) | spn3b1w8 T0 at step 1825/5780 (~32%, intra-T0 ~63% of 2890). T0 terminal in ~1h. |
 | **#2346** | open2-edward | H-AW: EN REST_STEPS timing sweep (1950→2300 or 1600) | Run `43ng08cg` launched, T0 step 125/5780 (~5 min in). |
@@ -99,7 +99,7 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 
 We are now 21 saturated levers and 2 failed direction families into a deep plateau. The rank-1 3.276193 stack (NC × Arbor × EN × RI) is highly optimized. 
 
-**KEY PENDING**: askeladd H-AT Gradient Centralization T0 = **3.2763288** — PASSES n=1 gate by 0.000064. This is the most interesting single result of the current wave. T1 at ~40%. Decision in ~60 min.
+**KEY PENDING**: askeladd H-AT Gradient Centralization n=2 mean = **3.276584** (+0.000391) lands in inconclusive band. T0=3.276329, T1=3.276839, spread 0.000510 ≈ noise floor. **n=4 confirm directed** (seeds 2-3), final terminal ~14:00 UTC. Only positive-T0 signal in 11+ falsified arms. Decision band at n=4: ≤3.275793 STRONG→merge; ≤3.276193 promising→merge; (3.276193, 3.276593) confirmed inconclusive→close; ≥3.276593 FALSIFIED.
 
 **EN window timing (H-AW/H-AX)** is a fresh direction class (never tested). EN is load-bearing (−0.0028); its PREFILL/REST boundaries are inherited from pre-composition tuning. Two students now assigned to sweep these axes.
 
