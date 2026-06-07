@@ -146,6 +146,11 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--muon_lr_warmup_steps", type=int, default=0,
+                        help="Steps to linearly warm up Muon LR from --muon_lr_warmup_start to MUON_LR. "
+                             "0 = no warmup (default, Muon LR starts at MUON_LR from step 1).")
+    parser.add_argument("--muon_lr_warmup_start", type=float, default=0.001,
+                        help="Initial Muon LR at step 0 when --muon_lr_warmup_steps > 0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -156,6 +161,12 @@ def parse_args():
         raise ValueError("--train_steps must be positive")
     if args.ri_capture_step < 0 or args.ri_capture_step >= args.train_steps:
         raise ValueError(f"--ri_capture_step must be in [0, train_steps); got {args.ri_capture_step}")
+    if args.muon_lr_warmup_steps < 0:
+        raise ValueError(f"--muon_lr_warmup_steps must be >= 0; got {args.muon_lr_warmup_steps}")
+    if args.muon_lr_warmup_start < 0:
+        raise ValueError(f"--muon_lr_warmup_start must be >= 0; got {args.muon_lr_warmup_start}")
+    if args.muon_lr_warmup_start > MUON_LR:
+        raise ValueError(f"--muon_lr_warmup_start ({args.muon_lr_warmup_start}) must be <= MUON_LR ({MUON_LR})")
     return args
 
 
@@ -1220,6 +1231,8 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "muon_lr_warmup_steps": args.muon_lr_warmup_steps,
+            "muon_lr_warmup_start": args.muon_lr_warmup_start,
         },
     )
 
@@ -1310,10 +1323,24 @@ for trial_idx in range(args.num_trials):
         else:
             return _MU_MAX
 
+    def _muon_warmup_lr_at_step(step):
+        # H-AU: linear warmup from --muon_lr_warmup_start to MUON_LR over --muon_lr_warmup_steps.
+        # Returns None when warmup is disabled or after the warmup window so the caller falls
+        # through to the regular power-law schedule.
+        if args.muon_lr_warmup_steps <= 0 or step >= args.muon_lr_warmup_steps:
+            return None
+        frac = step / max(args.muon_lr_warmup_steps, 1)
+        return args.muon_lr_warmup_start + frac * (MUON_LR - args.muon_lr_warmup_start)
+
     def set_hparams(step):
         for opt in inner_optimizers:
             for group in opt.param_groups:
-                group["lr"] = _power_lr(step, group["initial_lr"], group["power_c"])
+                base_lr = _power_lr(step, group["initial_lr"], group["power_c"])
+                if opt is optimizer2:
+                    warmup_lr = _muon_warmup_lr_at_step(step)
+                    if warmup_lr is not None:
+                        base_lr = min(base_lr, warmup_lr)
+                group["lr"] = base_lr
         mu_step = _muon_mu_at_step(step)
         for group in optimizer2.param_groups:
             group["mu"] = mu_step
@@ -1500,6 +1527,13 @@ for trial_idx in range(args.num_trials):
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
+        # H-AU: log the Muon LR (with warmup applied) at fine granularity for diagnostics.
+        if dist.get_rank() == 0 and args.muon_lr_warmup_steps > 0 and step % 25 == 0:
+            wandb.log(
+                {"trial": trial_idx, "train/step": train_step,
+                 "schedule/muon_lr": optimizer2.param_groups[0]["lr"]},
+                step=wandb_step,
+            )
         if dist.get_rank() == 0 and slope_due:
             slope_metrics = {
                 "trial": trial_idx,
