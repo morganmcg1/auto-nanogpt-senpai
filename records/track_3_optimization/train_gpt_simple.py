@@ -146,6 +146,14 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--depth_lr_decay", type=float, default=1.0,
+                        help="H-BI: per-block Muon LR multiplier base. With value d and num_blocks N, "
+                             "block idx i gets MUON_LR * d^i (Arm A, top=MUON_LR, deeper scaled down) or "
+                             "MUON_LR * d^(N-1-i) when --depth_lr_inverted=1 (Arm B, deepest=MUON_LR, top scaled down). "
+                             "Default 1.0 = bit-exact uniform-LR baseline.")
+    parser.add_argument("--depth_lr_inverted", type=int, default=0,
+                        help="H-BI: when 1, invert the depth-LR multiplier so the deepest block gets MUON_LR "
+                             "and the top block gets the smallest LR. Has no effect when --depth_lr_decay=1.0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -156,6 +164,10 @@ def parse_args():
         raise ValueError("--train_steps must be positive")
     if args.ri_capture_step < 0 or args.ri_capture_step >= args.train_steps:
         raise ValueError(f"--ri_capture_step must be in [0, train_steps); got {args.ri_capture_step}")
+    if args.depth_lr_decay <= 0.0:
+        raise ValueError(f"--depth_lr_decay must be > 0; got {args.depth_lr_decay}")
+    if args.depth_lr_inverted not in (0, 1):
+        raise ValueError(f"--depth_lr_inverted must be 0 or 1; got {args.depth_lr_inverted}")
     return args
 
 
@@ -932,28 +944,52 @@ def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, u
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95):
+        # named_params may be either:
+        # - flat list of (name, param) tuples → one global param group
+        # - list of dicts {"named_params": [...], "lr": ..., "weight_decay": ..., "mu": ..., "name": ...}
+        #   → one param group per dict (H-BI depth-wise LR path).
         assert isinstance(named_params, list) and len(named_params) >= 1
-        self.soap_params = {p for n, p in named_params if should_soap_param(n)}
-        self.attn_soap_params = {p for n, p in named_params if should_soap_param(n) and is_attn_param(n)}
-        self.attn_proj_soap_params = {p for n, p in named_params if should_soap_param(n) and is_attn_proj_param(n)}
-        self.v_params = {p for n, p in named_params if is_v_param(n)}
-        self.no_contra_params = {p for n, p in named_params if param_matches_spec(n, NO_CONTRA_PARAM)}
-        self.no_soft_params = {p for n, p in named_params if param_matches_spec(n, NO_SOFTMUON_PARAM)}
+        if isinstance(named_params[0], dict):
+            group_specs = named_params
+            all_named = [item for spec in group_specs for item in spec["named_params"]]
+        else:
+            group_specs = [dict(named_params=named_params, lr=lr,
+                                 weight_decay=weight_decay, mu=mu)]
+            all_named = named_params
+        self.soap_params = {p for n, p in all_named if should_soap_param(n)}
+        self.attn_soap_params = {p for n, p in all_named if should_soap_param(n) and is_attn_param(n)}
+        self.attn_proj_soap_params = {p for n, p in all_named if should_soap_param(n) and is_attn_proj_param(n)}
+        self.v_params = {p for n, p in all_named if is_v_param(n)}
+        self.no_contra_params = {p for n, p in all_named if param_matches_spec(n, NO_CONTRA_PARAM)}
+        self.no_soft_params = {p for n, p in all_named if param_matches_spec(n, NO_SOFTMUON_PARAM)}
         # Arbor applies ONLY to mlp.fc and mlp.proj per PR #310 scope. Attention
         # weights (q, k, v, attn.proj) are explicitly excluded.
         self.arbor_params = {
-            p for n, p in named_params
+            p for n, p in all_named
             if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
         }
         self.arbor_param_names = {
-            p: n for n, p in named_params
+            p: n for n, p in all_named
             if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
         }
         self.last_arbor_diag: dict[str, float] = {}
         self.step_count = 0
-        params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
+        torch_param_groups = []
+        for spec in group_specs:
+            sorted_params = sorted([p for _, p in spec["named_params"]],
+                                    key=lambda x: x.size(), reverse=True)
+            group_dict = dict(
+                params=sorted_params,
+                lr=spec.get("lr", lr),
+                weight_decay=spec.get("weight_decay", weight_decay),
+                mu=spec.get("mu", mu),
+            )
+            for k, v in spec.items():
+                if k not in ("named_params", "lr", "weight_decay", "mu"):
+                    group_dict[k] = v
+            torch_param_groups.append(group_dict)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
-        super().__init__(params, defaults)
+        super().__init__(torch_param_groups, defaults)
 
     @torch.no_grad()
     def step(self):
@@ -1220,6 +1256,8 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "depth_lr_decay": args.depth_lr_decay,
+            "depth_lr_inverted": bool(args.depth_lr_inverted),
         },
     )
 
@@ -1269,9 +1307,33 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # H-BI: optional per-block LR multiplier for Muon. Default depth_lr_decay=1.0
+    # keeps the single-group bit-exact baseline path.
+    if args.depth_lr_decay == 1.0:
+        optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
+                          lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
+    else:
+        num_blocks = len(model.blocks)
+        depth_lr_inverted = bool(args.depth_lr_inverted)
+        muon_group_specs = []
+        for block_idx, block in enumerate(model.blocks):
+            if depth_lr_inverted:
+                exponent = num_blocks - 1 - block_idx
+            else:
+                exponent = block_idx
+            block_lr = MUON_LR * (args.depth_lr_decay ** exponent)
+            block_named = [(f"{block_idx}.{n}", p)
+                           for n, p in block.named_parameters() if p.ndim >= 2]
+            muon_group_specs.append(dict(
+                named_params=block_named,
+                lr=block_lr,
+                weight_decay=MUON_WEIGHT_DECAY,
+                mu=MU,
+                name=f"muon_block_{block_idx}",
+            ))
+        optimizer2 = Muon(muon_group_specs, lr=MUON_LR,
+                          weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     inner_optimizers = [optimizer1, optimizer2]
     optimizer_ema = EMA_Nesterov(
         [p for p in model.parameters()],
@@ -1292,7 +1354,8 @@ for trial_idx in range(args.num_trials):
     optimizer1.param_groups[0]["power_c"] = ADAM_EMBED_POWER_C
     optimizer1.param_groups[1]["power_c"] = ADAM_PROJ_POWER_C
     optimizer1.param_groups[2]["power_c"] = ADAM_OTHER_POWER_C
-    optimizer2.param_groups[0]["power_c"] = MUON_POWER_C
+    for group in optimizer2.param_groups:
+        group["power_c"] = MUON_POWER_C
 
     def _power_lr(step, initial_lr, power_c, power=FINAL_LR_POWER):
         t_end = FINAL_SCHEDULE_STEPS
