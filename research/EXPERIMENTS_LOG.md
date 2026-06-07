@@ -1,5 +1,30 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-07 11:25 — PR #2345: H-AV FINAL_LR_POWER sweep — renormalized power_c (open2-thorfinn)
+- Branch: open2-thorfinn/h-av-final-lr-power
+- Hypothesis: Test whether changing the LR schedule power exponent (p=0.9 vs p=1.2 baseline) with proper power_c renormalization that preserves per-group crossover steps isolates "tail decay shape" as a tunable axis.
+- W&B run: spn3b1w8 (Arm A, p=0.9 renormalized; Arm B p=1.5 never launched)
+
+| Trial | val/ri_loss | vs rank-1 |
+|---|---:|---:|
+| T0 | 3.280519 | **+0.004326** |
+| T1 | ABORTED (advisor) | — |
+
+- **Decision: CLOSED FALSIFIED. 22nd saturated lever.** T0 = +0.004326 above rank-1 (8× noise floor). Even with the Option 2 crossover-preserving renormalization, p=0.9 under NC × Arbor × EN × RI is catastrophic. The composition makes the p=1.2 crossover at step ~594 load-bearing; flatter decay (p=0.9, lower tail LR everywhere) disrupts the EN rest-region (1950-2890) and RI capture (2375). Arm B (p=1.5) not launched — Arm A T0 is unrecoverable. Student's renormalization analysis was analytically rigorous and is now a permanent reference for future schedule-shape experiments.
+
+## 2026-06-07 11:00 — PR #2343: H-AT Gradient Centralization on Muon (open2-askeladd)
+- Branch: open2-askeladd/h-at-grad-centralization
+- Hypothesis: Apply Gradient Centralization (GC, Yong et al. 2020) to Muon parameters — subtract the mean of each gradient tensor before NS5 orthogonalization. GC reduces gradient magnitude and improves convergence smoothness in vision models; untested on language Muon composition.
+- W&B run: qwbvitns (n=2, seeds 0-1)
+
+| Trial | val/ri_loss | vs rank-1 |
+|---|---:|---:|
+| T0 | 3.276329 | +0.000136 |
+| T1 | 3.276839 | +0.000647 |
+| **n=2 mean** | **3.276584** | **+0.000391** |
+
+- **Decision: INCONCLUSIVE. n=4 confirm directed.** n=2 mean = +0.000391 falls in inconclusive band (3.276193, 3.276593). T0/T1 spread = 0.000510 ≈ noise floor (~0.0005). The T0 signal (+0.000136) is the FIRST positive single-trial lift in 11 consecutive falsified arms — strategically important. n=4 confirm with seeds 2-3 directed to askeladd; final verdict expected ~14:00 UTC.
+
 ## 2026-06-07 09:55 — PR #2337: H-AO Per-block Muon LR differentiation (open2-edward)
 - Branch: open2-edward/h-ao-per-block-muon
 - Hypothesis: Differentiate Muon LR per block: early blocks get a higher multiplier in Arm A (early-boost 1.2/0.8), late blocks get higher in Arm B (late-boost 0.8/1.2). Targets the observation that early blocks are more specialized to input features, late blocks more to output prediction.
