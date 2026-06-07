@@ -146,6 +146,10 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--final_lr_power_override", type=float, default=0.0,
+                        help="Override FINAL_LR_POWER constant (default 1.2). Set > 0 to enable. "
+                             "Controls power-schedule decay exponent: lr ∝ (t_end - step)^power. "
+                             "Smaller power → slower decay → MORE LR in tail; larger → faster decay.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1193,7 +1197,8 @@ if dist.get_rank() == 0:
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
             "final_schedule_steps": FINAL_SCHEDULE_STEPS,
-            "final_lr_power": FINAL_LR_POWER,
+            "final_lr_power": args.final_lr_power_override if args.final_lr_power_override > 0.0 else FINAL_LR_POWER,
+            "final_lr_power_override_active": args.final_lr_power_override > 0.0,
             "muon_lr": MUON_LR,
             "muon_weight_decay": MUON_WEIGHT_DECAY,
             "mu": MU,
@@ -1295,6 +1300,8 @@ for trial_idx in range(args.num_trials):
     optimizer2.param_groups[0]["power_c"] = MUON_POWER_C
 
     def _power_lr(step, initial_lr, power_c, power=FINAL_LR_POWER):
+        if args.final_lr_power_override > 0.0:
+            power = args.final_lr_power_override
         t_end = FINAL_SCHEDULE_STEPS
         downward_lr = power_c * max(0.0, t_end - step) ** power
         return min(initial_lr, downward_lr)
