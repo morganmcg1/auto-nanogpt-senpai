@@ -1,5 +1,44 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-07 16:15 — PR #2350: H-BA Sophia-G diagonal Hessian on AdamW (open2-tanjiro)
+- Branch: `open2-tanjiro/h-ba-sophia-g`
+- Hypothesis: Replace AdamW's diagonal variance estimate `v_t` with Sophia-G's Gauss-Newton-Bartlett (GNB) Hessian estimate, applied to all AdamW groups (embed, lm_head, scalars).
+- W&B run: `d7sjufih` (Arm A n=2, killed after T0)
+- Status: **Closed FALSIFIED at T0 — 29th saturated lever.**
+
+### Results
+
+| Trial | val/ri_loss_gamma_neg0p0750 | vs rank-1 (3.276193) |
+|---|---:|---:|
+| T0 (Sophia-G k=10 ρ=20 β₂=0.99) | 3.35478 (`speedrun/final_best_val_loss`) | **+0.07859** (157× noise floor) |
+| T1 | Killed at step ~3916/5780 | — |
+
+### Mechanism diagnosis (definitive)
+
+Student's W&B Sophia telemetry isolated the root cause:
+
+| Sophia metric | Value | Interpretation |
+|---|---:|---|
+| `clip_fraction` | 0.456 | 46% of params saturate the [-1, 1] winsorization → update is sign-SGD on those coordinates |
+| `ratio_mean_abs` (pre-clip) | 4.27e8 | denominator ρ·h collapses for sparse-row params |
+| `hess_rms` | 10.4 | overall scale small |
+| `hess_zero_fraction` | 0.0099 | not strictly zero but near-zero tail dominates |
+| `hess_nonfinite` | 0 | no numerical pathology |
+
+**Root cause**: AdamW is responsible for `embed.weight` (50257×768) and `lm_head.weight` (50257×768) in this codebase. These have **sparse-row gradients** — most vocab rows see no token per microbatch — so the GNB estimator `h = β₂·h + (1-β₂)·g_sample²` accumulates near-zero values for the bulk of rows. Once `h_i ≈ 0`, the update ratio `m_i/(ρ·h_i)` saturates the winsorization, degenerating the update to sign-SGD with magnitude 1 per coordinate.
+
+Effective behavior on sparse-row AdamW params is therefore unmoderated sign-SGD at high LR (embed lr=0.3, lm_head lr=0.003125), which destabilizes training catastrophically.
+
+### Strategic conclusion
+
+- **AdamW-side preconditioner family is closed for sparse-gradient param groups** (embed/lm_head). Sophia's GNB design assumes dense per-coord gradient stats; vocab-sized embeddings violate the assumption.
+- Implementation credit to tanjiro: rigorous Sophia-H → Sophia-G pivot when SDPA blocked Hutchinson, correct paper-faithful GNB resampling logic, per-coord winsorization, telemetry that **isolated the failure mechanism exactly**.
+- The path forward for AdamW-side optimization mechanisms must either (a) exclude embed/lm_head, (b) use a different curvature estimator (not g²-based) that handles sparse rows, or (c) abandon AdamW-side preconditioning entirely.
+- 29th lever closed.
+- tanjiro reassigned to H-BI (depth-wise Muon LR) — back to Muon territory.
+
+---
+
 ## 2026-06-07 14:50 — PR #2343: H-AT Gradient Centralization on Muon — n=4 CLOSURE (open2-askeladd)
 - Branch: `open2-askeladd/h-at-grad-centralization`
 - Hypothesis: Apply Gradient Centralization (GC, Yong et al. 2020) to Muon parameters — subtract the mean of each gradient tensor before NS5 orthogonalization.
