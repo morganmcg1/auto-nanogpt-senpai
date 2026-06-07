@@ -9,6 +9,73 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-06 23:50 UTC — PR #2332: H-AJ z-loss aux on pre-cap logits — ASSIGNED (edward)
+
+- **Branch:** `open2-edward/h-aj-z-loss-aux`
+- **Hypothesis:** Pre-cap logits in `forward()` (line 546) can grow unboundedly while softsign cap (line 547) hides this from downstream — vanishingly small gradients through capped entries. PaLM-style z-loss `w * logits_raw.square().mean()` adds a soft pressure on raw logit norm, restoring gradient signal across vocabulary.
+- **Arms:** A: w=1e-4 (PaLM canonical); B: w=1e-3 (aggressive)
+- **Code change:** ~3 lines, add `--z_loss_weight` CLI flag (default 0.0 → no-op).
+- **Decision criteria:** n=2 mean ≤ 3.2762 (rank-1 − 0.0005) → expand to n=4; > 3.27659 → falsified arm.
+- **Status:** Assignment PR created 23:50 UTC; awaiting student pickup.
+
+---
+
+## 2026-06-06 23:30 UTC — PR #2331: H-AI NS polynomial (a,b,c) retune — ASSIGNED (askeladd)
+
+- **Branch:** `open2-askeladd/h-ai-ns-abc-retune`
+- **Hypothesis:** Current `_ns_inner` (lines 560-566) uses (2, -1.5, 0.5) — canonical Higham cubic-convergence polynomial. Inherited from a 5-iter tuning regime. At NS12, the polynomial saturates at ~iter 8; iters 9-12 are wasted. Different (a, b, c) could give sharper polar approximation or true quartic convergence.
+- **Arms:** A: KellerJordan NS5 canonical (3.4445, -4.775, 2.0315) — sharp, oscillating; B: quartic convergence (3, -3, 1) — p(1)=1, p'(1)=p''(1)=p'''(1)=0
+- **Code change:** Add `--ns_abc` CSV CLI flag; resolve to module-level tuple read by `_ns_inner`.
+- **Decision criteria:** n=2 mean ≤ 3.2762 → expand to n=4; > 3.27659 → falsified.
+- **Orthogonality:** Independent of nezuko's H-AF (iter count) and frieren's H-AH (EN γ) axes.
+- **Status:** Assignment PR created 23:30 UTC; awaiting student pickup.
+
+---
+
+## 2026-06-06 23:50 UTC — PR #2326: H-AD RI γ saturation map — CLOSED (informational, no merge)
+
+- **Branch:** `open2-edward/h-ad-ri-gamma-sweep-nc-arbor`
+- **W&B run:** `485nt9tt` (FINISHED, n=4 at 2890 steps × 7 γs)
+- **Hypothesis:** Sweep γ ∈ {0, −0.025, −0.05, −0.075, −0.10, −0.125, −0.15} on NC × Arbor stack to map the saturation boundary. Test whether γ outside the rank-1 default (γ=−0.075) gives lift.
+- **Results (n=4 mean of `val/ri_loss_gamma_<γ>` at step 2890):**
+
+| γ | n=4 mean | Δ vs γ=0 | Δ vs prior rank-1 (3.276193) |
+|---:|---:|---:|---:|
+| 0 | 3.276657 | — | +0.000464 |
+| −0.025 | 3.276446 | −0.000211 | +0.000253 |
+| −0.050 | 3.276341 | −0.000316 | +0.000148 |
+| **−0.075** | **3.276336** | **−0.000321** | **+0.000143** |
+| −0.100 | 3.276425 | −0.000232 | +0.000232 |
+| −0.125 | 3.276623 | −0.000034 | +0.000430 |
+| −0.150 | 3.276913 | +0.000256 | +0.000720 |
+
+- **Verdict:** Clean inverted-U with peak at γ=−0.075 (tied with γ=−0.050 within 5e-6). Uniform +0.00014 offset from prior rank-1 at every γ — consistent with cross-run seed variance (1σ ≈ 0.0015 per-trial). RI's γ axis is **saturated**; future RI gains require a different mechanism (capture step, multi-capture, alternative readout).
+- **Mechanism takeaway:** RI lift is structurally bounded at ~−0.0003 vs γ=0 on the NC × Arbor stack. The default γ=−0.075 stays canonical; γ=−0.05 acceptable alternative; γ∈{−0.025, −0.10} mildly beats γ=0; γ∈{−0.125, −0.15} hurts.
+- **Edward reassigned:** H-AJ (z-loss aux on pre-cap logits, PR #2332).
+
+---
+
+## 2026-06-06 23:25 UTC — PR #2324: H-AB SWA tail averaging on NC × Arbor + RI — CLOSED (FALSIFIED, mechanism)
+
+- **Branch:** `open2-askeladd/h-ab-swa-tail-arbor`
+- **W&B runs:** Arm A `w0h4r1um` (reproduction, n=2 done), Arm B `jnpvi24f` (SWA K=290, n=2 done after abort)
+- **Hypothesis:** Polyak-Ruppert / SWA tail averaging over the last 10% of training (K=290 of 2890 steps) reduces variance and possibly improves val_loss vs final-step weights.
+- **Results (paired by trial):**
+
+| Trial | Arm A (no SWA) | Arm B (SWA K=290) | Δ (B−A) |
+|---:|---:|---:|---:|
+| T0 | 3.276844 | 3.280254 | +0.003410 |
+| T1 | 3.275971 | 3.279110 | +0.003139 |
+| **n=2 mean** | **3.276408** | **3.279682** | **+0.003274** |
+
+- **Verdict:** **FALSIFIED at mechanism level**, decisively. Arm B regresses by +0.003 paired (both trials individually outside ±0.001 noise band on wrong side).
+- **Mechanism (student-diagnosed, advisor-confirmed):** SWA assumes the tail iterates oscillate around an optimum (asymptotic noise-dominated regime). The current schedule keeps the tail **trend-dominated** — `val/loss` drops from 3.301 → 3.280 across the SWA window (K=290 steps). Averaging pulls eval backward in optimization time. Smaller K can only approach final-step val_loss, never beat it.
+- **Closes entire design direction:** Any future SWA/EMA-tail variant on this schedule is falsified upfront. Prerequisite question for tail-averaging proposals: "is the tail noise-dominated?" If no, falsified.
+- **Code path validated:** Reproduction Arm A n=2 = 3.276408 ≈ rank-1 3.276193 (+0.000215 ≈ noise). NC × Arbor + RI baseline holds across reproductions.
+- **Askeladd reassigned:** H-AI (NS polynomial coefficient retune, PR #2331).
+
+---
+
 ## 2026-06-06 20:30 UTC — CODE DISCOVERY #2: EN γ = 0.99, not 0.95
 
 Frieren (PR #2330) flagged on inspection of code line 111:
