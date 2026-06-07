@@ -146,6 +146,15 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--muon_grad_centralize", type=int, default=0, choices=[0, 1],
+                        help="H-AT (Yong et al. 2020): Apply gradient centralization to Muon parameter "
+                             "gradients before the momentum update. For each weight tensor of ndim>=2, "
+                             "subtract the per-row mean over all non-row dims. 0=disabled (default). "
+                             "1=enabled for all Muon matrices.")
+    parser.add_argument("--muon_grad_centralize_mlp_only", type=int, default=0, choices=[0, 1],
+                        help="H-AT Arm B: Apply gradient centralization only to Arbor-enabled MLP "
+                             "matrices (mlp.fc.weight, mlp.proj.weight). 0=disabled (default). "
+                             "1=enabled (mutually exclusive with --muon_grad_centralize).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -156,6 +165,8 @@ def parse_args():
         raise ValueError("--train_steps must be positive")
     if args.ri_capture_step < 0 or args.ri_capture_step >= args.train_steps:
         raise ValueError(f"--ri_capture_step must be in [0, train_steps); got {args.ri_capture_step}")
+    if args.muon_grad_centralize and args.muon_grad_centralize_mlp_only:
+        raise ValueError("--muon_grad_centralize and --muon_grad_centralize_mlp_only are mutually exclusive")
     return args
 
 
@@ -982,6 +993,15 @@ class Muon(torch.optim.Optimizer):
                             state["second_moment"] = torch.zeros((*p.shape[:-2], 1, p.shape[-1]),
                                 dtype=torch.float32, device=p.device)
                     grad = p.grad
+                    # H-AT: Gradient Centralization (Yong et al. 2020).
+                    # For each weight tensor of ndim>=2, subtract the mean over all
+                    # non-row dims so each "row" (output filter) has zero-mean gradient.
+                    # Local rebind only; p.grad is unchanged.
+                    if grad.ndim >= 2 and (
+                        args.muon_grad_centralize
+                        or (args.muon_grad_centralize_mlp_only and p in self.arbor_params)
+                    ):
+                        grad = grad - grad.mean(dim=list(range(1, grad.ndim)), keepdim=True)
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     is_attn_soap = p in self.attn_soap_params
@@ -1220,6 +1240,8 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "muon_grad_centralize": args.muon_grad_centralize,
+            "muon_grad_centralize_mlp_only": args.muon_grad_centralize_mlp_only,
         },
     )
 
