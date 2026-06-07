@@ -9,6 +9,31 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-07 05:35 UTC — PR #2338: H-AK' Cautious-AdamW dense-only (lm_head + scalars, embed vanilla) — CLOSED FALSIFIED (fern)
+
+- **Branch:** `open2-fern/h-ak-prime-cautious-dense`
+- **Hypothesis:** H-AK's failure was caused by sparse-row embed pathology; dense groups (lm_head, scalars) with mask_mean≈0.50 should survive the cautious mask. Test by bypassing embed from cautious hook via `--cautious_adamw_skip_embed=1`.
+- **W&B runs:** smoke `vc69h0qa` (200 steps, passed gate 1-4, failed gate 5 silently), n=2 `w5o2u5te` (aborted step 500)
+
+| Step | rank-1 vk0jtb3z | H-AK' w5o2u5te | Δ |
+|---:|---:|---:|---:|
+| 125 | 4.500 | 5.337 | +0.837 |
+| 250 | 4.121 | 5.255 | +1.134 |
+| 375 | 3.955 | 5.729 | +1.774 |
+| 500 | 3.827 | 6.755 | **+2.928** |
+
+**Key findings (TWO publishable mechanism findings from H-AK + H-AK' combined):**
+1. H-AK (uniform recipe): `mask_mean ≈ 0.227` on sparse-row embed → 4.4× LR amplification → divergence
+2. **H-AK' (dense-only, this PR): mask_mean ≈ 0.50 (physiological), embed correctly bypassed, yet still diverges** — root cause identified as **pre-mask-grad design bug**: current implementation masks `p.grad` pre-AdamW (corrupts `exp_avg_sq` accumulation; `v` grows slowly → 1/√v inflates → compound amplification beyond explicit 2×). Liang et al.'s correct recipe masks the UPDATE `m/(√v+ε)` post-hoc; the current `cautious_premask_adamw()` helper cannot be salvaged.
+
+**Conclusion:** Cautious-AdamW direction is **dead for this stack** until someone implements the Liang et al. recipe correctly (~30 lines custom AdamW subclass). Flag for future implementer: mask the update `u = m/(√v+ε)`, then apply `u *= mask / mean(mask)`.
+
+Smoke gate improvements: extended 200-step gate correctly flagged step-200 val_loss +0.9 deviation vs baseline. Student early-aborted at step 500 — correct (slope +0.6/100 steps, unrecoverable).
+
+**Cleanup deferred:** `--cautious_adamw` and `--cautious_adamw_skip_embed` flags + `cautious_premask_adamw()` helper still in code (default=0, inert), will be pruned in a future cleanup PR.
+
+---
+
 ## 2026-06-07 04:49 UTC — PR #2323: H-AA Arbor warmup (Sinkhorn skip-first-N steps) — CLOSED FALSIFIED (thorfinn)
 
 - **Branch:** `open2-thorfinn/h-aa-arbor-warmup`
