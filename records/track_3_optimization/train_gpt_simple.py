@@ -146,6 +146,15 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    # H-BF: Gradient SNR-adaptive LR scaling for AdamW groups.
+    parser.add_argument("--snr_lr_scale", type=int, default=0,
+                        help="Adaptive LR scaling via gradient SNR for AdamW groups (not Muon). 0=off, 1=on.")
+    parser.add_argument("--snr_target", type=float, default=1.0,
+                        help="Target gradient SNR; lr_multiplier = sqrt(snr / snr_target). Default 1.0.")
+    parser.add_argument("--snr_clip", type=float, default=3.0,
+                        help="Max/min LR multiplier clamp: multiplier in [1/snr_clip, snr_clip]. Default 3.0.")
+    parser.add_argument("--snr_warmup_steps", type=int, default=50,
+                        help="Skip SNR scaling for the first N steps while m_t is still noisy. Default 50.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1220,6 +1229,10 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "snr_lr_scale": args.snr_lr_scale,
+            "snr_target": args.snr_target,
+            "snr_clip": args.snr_clip,
+            "snr_warmup_steps": args.snr_warmup_steps,
         },
     )
 
@@ -1528,10 +1541,63 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
                 extra_metrics=ema_extras,
             )
+        # H-BF: Gradient SNR-adaptive LR scaling for AdamW (optimizer1) groups only.
+        # Before the about-to-run opt.step(), optimizer1.state.{exp_avg, exp_avg_sq}
+        # reflect the `step` previously completed AdamW updates (loop step counter
+        # equals the number of completed inner updates at this point). We use those
+        # to estimate gradient SNR = E[g]^2 / Var[g] per group and scale group["lr"]
+        # by sqrt(snr / snr_target) clamped to [1/snr_clip, snr_clip]. The base LR is
+        # restored after opt.step() so the next iteration's nesterov_step reads the
+        # scheduled-only LR ratio via get_lr_lambda(). CRITICAL: never applied to Muon.
+        snr_base_lrs: dict[int, float] | None = None
+        if int(args.snr_lr_scale) > 0 and step > args.snr_warmup_steps and len(optimizer1.state) > 0:
+            beta2 = optimizer1.defaults["betas"][1]
+            bias_correction2 = 1.0 - beta2 ** max(step, 1)
+            snr_base_lrs = {}
+            snr_log_due = telemetry_due
+            snr_log = {} if (snr_log_due and dist.get_rank() == 0) else None
+            for group in optimizer1.param_groups:
+                snr_means = []
+                for p in group["params"]:
+                    if p not in optimizer1.state:
+                        continue
+                    state = optimizer1.state[p]
+                    exp_avg = state["exp_avg"].float()
+                    exp_avg_sq = state["exp_avg_sq"].float()
+                    m_sq = exp_avg.square()
+                    v_unbiased = exp_avg_sq / bias_correction2
+                    noise_var = (v_unbiased - m_sq).clamp_min(1e-10)
+                    snr_means.append((m_sq / noise_var).mean())
+                if not snr_means:
+                    continue
+                snr_raw = float(torch.stack(snr_means).mean().item())
+                snr_val = max(1e-4, min(1e4, snr_raw))
+                lr_multiplier = max(1.0 / args.snr_clip,
+                                    min(args.snr_clip, (snr_val / args.snr_target) ** 0.5))
+                snr_base_lrs[id(group)] = group["lr"]
+                group["lr"] = group["lr"] * lr_multiplier
+                if snr_log is not None:
+                    group_name = group.get("name", "adamw")
+                    snr_log[f"snr/lr_mult_{group_name}"] = lr_multiplier
+                    snr_log[f"snr/snr_{group_name}"] = snr_val
+                    snr_log[f"snr/snr_raw_{group_name}"] = snr_raw
+                    snr_log[f"snr/effective_lr_{group_name}"] = group["lr"]
+                    snr_log[f"snr/base_lr_{group_name}"] = snr_base_lrs[id(group)]
+            if snr_log is not None and snr_log:
+                snr_log["trial"] = trial_idx
+                snr_log["train/step"] = train_step
+                wandb.log(snr_log, step=wandb_step)
         # PR #309 EMA-Nesterov: opt.step runs the inner optimizers at the lookahead point,
         # then accumulates lookahead = γ * lookahead + (1-γ) * (p_after - prev_p).
         for opt in optimizers:
             opt.step()
+        # H-BF: restore base LR so that the next nesterov_step's lookahead_stepsize is
+        # scaled by the scheduled LR ratio, not the transient SNR multiplier.
+        if snr_base_lrs is not None:
+            for group in optimizer1.param_groups:
+                base = snr_base_lrs.get(id(group))
+                if base is not None:
+                    group["lr"] = base
         # H15 Tail Reference Interpolation: snapshot params after the optimizer.step that
         # completes ri_capture_step. Snapshot is per-rank but params are all-gathered inside
         # the Muon.step (and AdamW is replicated), so every rank has the same post-step
