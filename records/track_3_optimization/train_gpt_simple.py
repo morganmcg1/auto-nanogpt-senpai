@@ -146,6 +146,12 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--ns_iters", type=int, default=12,
+                        help="Newton-Schulz iteration count inside _ns_inner() used by "
+                             "zeropower_via_newtonschulz5() (Muon polar decomposition path). "
+                             "Default 12 preserves PR #2295 (H15 RI) behaviour. "
+                             "Note: soft_via_newtonschulz5() uses precomputed 12-poly coefficients "
+                             "and is NOT affected by this flag.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -156,6 +162,8 @@ def parse_args():
         raise ValueError("--train_steps must be positive")
     if args.ri_capture_step < 0 or args.ri_capture_step >= args.train_steps:
         raise ValueError(f"--ri_capture_step must be in [0, train_steps); got {args.ri_capture_step}")
+    if args.ns_iters < 1:
+        raise ValueError(f"--ns_iters must be a positive integer; got {args.ns_iters}")
     return args
 
 
@@ -557,9 +565,9 @@ def gram_frobenius_norm_estimate(G: Tensor, keepdim: bool = False, eps: float = 
     gram = X.mT @ X if X.size(-2) > X.size(-1) else X @ X.mT
     return gram.norm(dim=(-2, -1), keepdim=keepdim).sqrt().clamp_min(eps)
 
-def _ns_inner(X: Tensor) -> Tensor:
+def _ns_inner(X: Tensor, iters: int = 12) -> Tensor:
     a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    for _ in range(iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -570,7 +578,7 @@ _AURORA_K = 3
 _AURORA_BETA = 0.25
 _AURORA_EPS = 1e-7
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = 12) -> Tensor:
     assert G.ndim >= 2
     is_originally_wide = G.size(-2) < G.size(-1)
     X = G.bfloat16()
@@ -588,7 +596,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
             scaled = (D * Xt32).to(Xt.dtype)
             scaled_wide = scaled.mT
             scaled_wide = scaled_wide / gram_frobenius_norm_estimate(scaled_wide, keepdim=True, eps=1e-7).to(scaled_wide.dtype)
-            U_wide = _ns_inner(scaled_wide)
+            U_wide = _ns_inner(scaled_wide, iters=ns_iters)
             U = U_wide.mT
             if k < _AURORA_K - 1:
                 U32 = U.to(torch.float32)
@@ -597,7 +605,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = U.mT
     else:
         X = X / gram_frobenius_norm_estimate(X, keepdim=True, eps=1e-7).to(X.dtype)
-        X = _ns_inner(X)
+        X = _ns_inner(X, iters=ns_iters)
 
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -890,13 +898,13 @@ def arbor_sinkhorn_equilibrate(G: Tensor, n_iters: int = ARBOR_ITERS,
 
 
 def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, use_soft=True,
-                apply_arbor: bool = False):
+                apply_arbor: bool = False, ns_iters: int = 12):
     if update.dim() >= 2:
         r_norm = update.norm(dim=-1, keepdim=True)
         c_norm = update.norm(dim=-2, keepdim=True)
         update = update / torch.sqrt(torch.clamp(r_norm * c_norm, min=1e-12))
     normalized_grad = scale_to_unit_operator_norm(update.clone())
-    ns_update = zeropower_via_newtonschulz5(update)
+    ns_update = zeropower_via_newtonschulz5(update, ns_iters=ns_iters)
     if apply_arbor:
         ns_update, arbor_diag = arbor_sinkhorn_equilibrate(ns_update)
     else:
@@ -931,7 +939,7 @@ def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, u
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95, ns_iters: int = 12):
         assert isinstance(named_params, list) and len(named_params) >= 1
         self.soap_params = {p for n, p in named_params if should_soap_param(n)}
         self.attn_soap_params = {p for n, p in named_params if should_soap_param(n) and is_attn_param(n)}
@@ -951,6 +959,7 @@ class Muon(torch.optim.Optimizer):
         }
         self.last_arbor_diag: dict[str, float] = {}
         self.step_count = 0
+        self.ns_iters = int(ns_iters)
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -1016,6 +1025,7 @@ class Muon(torch.optim.Optimizer):
                         use_contra=p not in self.no_contra_params,
                         use_soft=p not in self.no_soft_params,
                         apply_arbor=p_apply_arbor,
+                        ns_iters=self.ns_iters,
                     )
                     if p_apply_arbor and arbor_diag:
                         param_name = self.arbor_param_names.get(p, "unknown")
@@ -1220,6 +1230,7 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "ns_iters": args.ns_iters,
         },
     )
 
@@ -1270,7 +1281,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU, ns_iters=args.ns_iters)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     inner_optimizers = [optimizer1, optimizer2]
     optimizer_ema = EMA_Nesterov(
