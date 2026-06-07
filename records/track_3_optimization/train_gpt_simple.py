@@ -54,6 +54,15 @@ ADAM_OTHER_POWER_C = 1.6589351369335795e-06
 MUON_POWER_C = 3.3169534699576625e-06
 FINAL_MUON_WD = 0.025
 
+
+def _renormalize_power_c(power_c_old, initial_lr, p_old, p_new):
+    # Preserves the baseline crossover step (where downward_lr == initial_lr) under
+    # a change of FINAL_LR_POWER. Solving power_c * (t_end - s)^p == initial_lr for
+    # power_c at fixed s gives power_c = initial_lr * ((t_end - s)^(-1))^p, so any
+    # two (p, power_c) pairs sharing s satisfy:
+    #   power_c_new = initial_lr * (power_c_old / initial_lr) ** (p_new / p_old)
+    return initial_lr * (power_c_old / initial_lr) ** (p_new / p_old)
+
 # Optimizer constants from PR #309.
 # H-A: Contra-Muon DISABLED per assignment ("DO NOT include Contra-Muon"). Aurora +
 # EMA-Nesterov on the Muon path. All other PR #309 inheritance (SOAP, Trustlight,
@@ -1199,6 +1208,26 @@ if dist.get_rank() == 0:
             "final_schedule_steps": FINAL_SCHEDULE_STEPS,
             "final_lr_power": args.final_lr_power_override if args.final_lr_power_override > 0.0 else FINAL_LR_POWER,
             "final_lr_power_override_active": args.final_lr_power_override > 0.0,
+            "muon_power_c_effective": (
+                _renormalize_power_c(MUON_POWER_C, MUON_LR, FINAL_LR_POWER,
+                                     args.final_lr_power_override)
+                if args.final_lr_power_override > 0.0 else MUON_POWER_C
+            ),
+            "adam_embed_power_c_effective": (
+                _renormalize_power_c(ADAM_EMBED_POWER_C, 0.3, FINAL_LR_POWER,
+                                     args.final_lr_power_override)
+                if args.final_lr_power_override > 0.0 else ADAM_EMBED_POWER_C
+            ),
+            "adam_lm_head_power_c_effective": (
+                _renormalize_power_c(ADAM_PROJ_POWER_C, 1 / 320, FINAL_LR_POWER,
+                                     args.final_lr_power_override)
+                if args.final_lr_power_override > 0.0 else ADAM_PROJ_POWER_C
+            ),
+            "adam_scalars_power_c_effective": (
+                _renormalize_power_c(ADAM_OTHER_POWER_C, 0.01, FINAL_LR_POWER,
+                                     args.final_lr_power_override)
+                if args.final_lr_power_override > 0.0 else ADAM_OTHER_POWER_C
+            ),
             "muon_lr": MUON_LR,
             "muon_weight_decay": MUON_WEIGHT_DECAY,
             "mu": MU,
@@ -1298,6 +1327,19 @@ for trial_idx in range(args.num_trials):
     optimizer1.param_groups[1]["power_c"] = ADAM_PROJ_POWER_C
     optimizer1.param_groups[2]["power_c"] = ADAM_OTHER_POWER_C
     optimizer2.param_groups[0]["power_c"] = MUON_POWER_C
+
+    # H-AV: when overriding FINAL_LR_POWER, renormalize each group's power_c so the
+    # baseline crossover step (initial_lr cap) is preserved and only the
+    # post-crossover tail decay shape changes. Without this, the change of power
+    # rescales LR everywhere (power_c was tuned for p=1.2 and the exponent base
+    # t_end-step >> 1), which would conflate this lever with H-AG (global LR).
+    if args.final_lr_power_override > 0.0:
+        _p_old = FINAL_LR_POWER
+        _p_new = args.final_lr_power_override
+        for _group in optimizer1.param_groups + optimizer2.param_groups:
+            _group["power_c"] = _renormalize_power_c(
+                _group["power_c"], _group["initial_lr"], _p_old, _p_new
+            )
 
     def _power_lr(step, initial_lr, power_c, power=FINAL_LR_POWER):
         if args.final_lr_power_override > 0.0:
