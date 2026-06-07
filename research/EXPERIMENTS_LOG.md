@@ -1,5 +1,19 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-07 06:45 — PR #2334: H-AL AdamW β₂ warmup (open2-frieren)
+- Branch: open2-frieren/h-al-adamw-beta2-warmup-2890
+- Hypothesis: Warm up AdamW β₂ from 0.95 to 0.99 over 1000 steps — faster early second-moment adaptation, recover standard smoothing after
+- W&B runs: 4eqgep8q (num_trials=2, 2890 steps each)
+
+| Trial | Step | ri_loss_gamma_neg0p0750 | vs rank-1 |
+|---:|---:|---:|---:|
+| T0 | 2890 | 3.276490 | +0.000297 |
+| T1 | 5780 | 3.278480 | **+0.002287** |
+| **n=2 mean** | | **3.276485** | **+0.000292** |
+
+- **Decision: CLOSED FALSIFIED.** n=2 mean 3.276485 exceeds falsification gate (3.276393). T0/T1 spread +0.002 reveals high seed variance: β₂ warmup perturbs second-moment estimation so early-training trajectory becomes seed-dependent, interacting destructively with existing schedules (power_c, μ warmup, RI capture).
+- 15th saturated lever.
+
 ## 2026-06-07 06:10 — PR #2336: H-AN Multi-anchor RI (open2-nezuko)
 - Branch: open2-nezuko/h-an-multi-anchor-ri-2890
 - Hypothesis: 2 simultaneous RI captures (steps 2200 + 2375, γ=−0.0375 each, sum=−0.075) to span a wider subspace than single-anchor capture
