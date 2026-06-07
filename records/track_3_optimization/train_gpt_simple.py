@@ -146,6 +146,12 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--adamw_beta1_warmup_steps", type=int, default=0,
+                        help="Number of steps to warm up AdamW beta1 from --adamw_beta1_start linearly "
+                             "to the rest-of-training beta1 (0.8 from base config). 0 = no warmup "
+                             "(beta1 fixed at 0.8 throughout). H-AQ.")
+    parser.add_argument("--adamw_beta1_start", type=float, default=0.5,
+                        help="Initial AdamW beta1 at step 0 when --adamw_beta1_warmup_steps > 0. H-AQ.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1220,6 +1226,8 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "adamw_beta1_warmup_steps": args.adamw_beta1_warmup_steps,
+            "adamw_beta1_start": args.adamw_beta1_start,
         },
     )
 
@@ -1310,6 +1318,16 @@ for trial_idx in range(args.num_trials):
         else:
             return _MU_MAX
 
+    _ADAMW_BETA1_TARGET = 0.8
+
+    def _adamw_beta1_at_step(step):
+        if args.adamw_beta1_warmup_steps <= 0:
+            return _ADAMW_BETA1_TARGET
+        if step >= args.adamw_beta1_warmup_steps:
+            return _ADAMW_BETA1_TARGET
+        frac = step / args.adamw_beta1_warmup_steps
+        return args.adamw_beta1_start + frac * (_ADAMW_BETA1_TARGET - args.adamw_beta1_start)
+
     def set_hparams(step):
         for opt in inner_optimizers:
             for group in opt.param_groups:
@@ -1317,6 +1335,10 @@ for trial_idx in range(args.num_trials):
         mu_step = _muon_mu_at_step(step)
         for group in optimizer2.param_groups:
             group["mu"] = mu_step
+        beta1 = _adamw_beta1_at_step(step)
+        for group in optimizer1.param_groups:
+            current_beta2 = group["betas"][1]
+            group["betas"] = (beta1, current_beta2)
 
 
     ########################################
@@ -1516,6 +1538,8 @@ for trial_idx in range(args.num_trials):
                     optimizer_ema.it >= EMA_NESTEROV_PREFILL_STEPS
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
                 ),
+                "schedule/adamw_beta1": optimizer1.param_groups[0]["betas"][0],
+                "schedule/adamw_beta2": optimizer1.param_groups[0]["betas"][1],
             }
             log_training_telemetry(
                 model=model,
