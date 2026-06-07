@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-07 ~04:25 UTC (launch day +3)
+- **As of:** 2026-06-07 ~05:00 UTC (launch day +3)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,25 +18,26 @@
 
 Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed) plus prior Senpai PR #1532/#1614, push the Track 3 fixed-step record below 2900.
 
-## Active assignments (04:25 UTC, 2026-06-07)
+## Active assignments (05:00 UTC, 2026-06-07)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~21h, pod 7t946p, human team not responded. |
-| **#2336** | open2-nezuko | H-AN: Multi-anchor RI (2 simultaneous captures) | Assigned 03:05 UTC. Pod pickup pending. |
-| **#2334** | open2-frieren | H-AL: AdamW β₂ warmup 0.95→0.99 over 1000 steps | GPU 99% active, no comment yet (~2h since assignment). |
-| **#2335** | open2-tanjiro | H-AM: Cosine WD schedule for Muon (0.025→0 over training) | Arm A n=2 running. T0 ETA ~05:00 UTC. |
-| **#2331** | open2-askeladd | H-AI: NS polynomial (a,b,c) coefficient retune for NS12 | Arm A KJ5 falsified (+0.00195). Arm B quartic (3,−3,1) running. T0 ETA ~05:30 UTC. |
-| **#2338** | open2-fern | H-AK': Cautious-AdamW on lm_head + scalars only (embed vanilla) | **JUST ASSIGNED 04:25 UTC**. Dense-only follow-up from H-AK mechanism finding. |
-| **#2337** | open2-edward | H-AO: Per-block Muon LR (early_mult=1.2, late_mult=0.8) | **JUST ASSIGNED 04:25 UTC**. Split Muon into early (0-5) and late (6-11) block groups. |
-| **#2323** | open2-thorfinn | H-AA: Arbor warmup (skip Sinkhorn first N steps) | N=500 T2 terminal ~04:15 UTC. T3 ETA ~07:30 UTC. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~22h, pod 7t946p, human team not responded. |
+| **#2336** | open2-nezuko | H-AN: Multi-anchor RI (2 simultaneous captures) | run di7i4hu0 at step 1600/5780 (~T0 87%). T0 terminal ~05:20 UTC. |
+| **#2334** | open2-frieren | H-AL: AdamW β₂ warmup 0.95→0.99 over 1000 steps | n=2 run 4eqgep8q at step 3041/5780 (mid-T1). Trial 1 ri=3.27649 (+0.0003, within noise). T1 terminal ~06:30 UTC. |
+| **#2335** | open2-tanjiro | H-AM: Cosine WD schedule for Muon (0.025→0 over training) | run tiprqsjf at step 2525/5780 (~T0 87%). T0 terminal ~05:05 UTC. |
+| **#2331** | open2-askeladd | H-AI: NS polynomial (a,b,c) coefficient retune for NS12 | Arm B quartic (3,−3,1) run adyad30y at step 2675/2890 (~93%). T0 terminal ~05:00 UTC. |
+| **#2338** | open2-fern | H-AK': Cautious-AdamW on lm_head + scalars only (embed vanilla) | Smoke gate vc69h0qa at step 40/200. Should complete ~05:05 UTC. |
+| **#2337** | open2-edward | H-AO: Per-block Muon LR (early_mult=1.2, late_mult=0.8) | Just assigned 04:25 UTC. Pod pickup pending. |
+| **#2339** | open2-thorfinn | H-AP: Move lm_head from AdamW to Muon (separate param group) | Just assigned 05:00 UTC. Pod pickup pending. |
 
 ## Recent closures (chronological, most recent first)
 
 | Date | PR | Hypothesis | Decision | Key finding |
 |---|---|---|---|---|
-| 2026-06-07 04:12 | #2332 (edward H-AJ) | z-loss aux on pre-cap logits | **CLOSED FALSIFIED** | Arm A w=1e-4: +0.00410, Arm B w=1e-3: +0.01305. Monotone-bad slope. Softsign cap already sufficient at this scale. 6th saturated lever. |
-| 2026-06-07 04:11 | #2333 (fern H-AK) | Cautious-AdamW all groups | **CLOSED FAILED** | Diverged to val=9.69 at step 1125. Sparse-row embed pathology: mask_mean=0.227 → 4.4× LR amplification. Publishable mechanism finding. |
+| 2026-06-07 05:00 | #2323 (thorfinn H-AA) | Arbor warmup (skip Sinkhorn first N steps) | **CLOSED FALSIFIED** | N=500 n=4 = 3.27748 vs N=0 n=4 = 3.27745 (Δ=+0.00003, within noise). 12th saturated lever. |
+| 2026-06-07 04:12 | #2332 (edward H-AJ) | z-loss aux on pre-cap logits | **CLOSED FALSIFIED** | Arm A w=1e-4: +0.00410, Arm B w=1e-3: +0.01305. Monotone-bad. 6th saturated lever. |
+| 2026-06-07 04:11 | #2333 (fern H-AK) | Cautious-AdamW all groups | **CLOSED FAILED** | Diverged to val=9.69 at step 1125. Sparse-row embed pathology: mask_mean=0.227 → 4.4× LR amplification. |
 | 2026-06-07 03:05 | #2328 (nezuko H-AF) | NS10 vs NS12 on NC×Arbor+RI | **CLOSED INCONCLUSIVE** | NS10 n=4=3.276248 (+55μ, inside SEM). 5th saturated axis. |
 | 2026-06-07 02:45 | #2329 (tanjiro H-AG) | Muon LR ±20% on NC×Arbor+RI | **CLOSED FALSIFIED** | LR=0.0375 locally optimal. 4th saturated scalar. |
 | 2026-06-07 02:20 | #2330 (frieren H-AH) | EMA-Nesterov γ ablation | **CLOSED FALSIFIED** | γ=0.99 sharply optimal. 3rd saturated scalar. |
@@ -56,12 +57,14 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | **NS10 vs NS12** | within noise | **SATURATED — NS10=NS12 within noise** |
 | **z-loss aux (w=1e-4 to 1e-3)** | +0.004 to +0.013 | **SATURATED — softsign cap already sufficient** |
 | **Cautious-AdamW (all groups)** | diverges to +6 | **FAILED — embed sparse-row pathology** |
+| **Arbor warmup N=(0,500)** | within noise | **SATURATED — Sinkhorn early skip neutral** |
 | **NS (a,b,c) coefficients** | Arm B running | H-AI Arm B in flight (askeladd) |
 | **Cautious-AdamW dense-only** | TBD | H-AK' in flight (fern) |
 | **AdamW β₂ warmup** | TBD | H-AL in flight (frieren) |
 | **Muon WD cosine schedule** | TBD | H-AM in flight (tanjiro) |
 | **Multi-anchor RI** | TBD | H-AN in flight (nezuko) |
 | **Per-block Muon LR** | TBD | H-AO in flight (edward) |
+| **lm_head on Muon** | TBD | H-AP in flight (thorfinn) |
 
 ## Saturated levers (CLOSED — no need to retest)
 
@@ -76,13 +79,14 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 9. **NS iteration count NS10 vs NS12 (H-AF nezuko): indistinguishable within noise**
 10. **z-loss aux (H-AJ edward): monotone-bad across decade weight sweep**
 11. **Cautious-AdamW uniform recipe (H-AK fern): embed sparse-row pathology**
+12. **Arbor warmup-from-1 in N=(0,500) (H-AA thorfinn): neutral, Sinkhorn early skip doesn't matter**
 
 ## Strategic note: Mechanism classes remain — scalars exhausted
 
 All scalar/iterative axes of the rank-1 stack are now saturated. Active experiments attack genuinely different mechanism axes:
 - **New readout mechanisms** (H-AN multi-anchor RI)
 - **Schedule mechanisms** (H-AL β₂ warmup, H-AM Muon WD schedule)
-- **Architecture-level differentiation** (H-AO per-block Muon LR, H-AA Arbor warmup)
+- **Architecture-level differentiation** (H-AO per-block Muon LR, H-AP lm_head on Muon)
 - **Selective optimizer mechanisms** (H-AK' Cautious-AdamW dense-only, H-AI NS coef retune)
 
 **Mechanism finding from H-AK (publishable):** Liang et al. Cautious optimizer recipe assumes dense gradients; sparse-row tensors (embed weight) break the rescale normalization. Future cautious-optimizer applications should add per-row sparsity check.

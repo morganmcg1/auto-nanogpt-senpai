@@ -9,6 +9,27 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-07 04:49 UTC — PR #2323: H-AA Arbor warmup (Sinkhorn skip-first-N steps) — CLOSED FALSIFIED (thorfinn)
+
+- **Branch:** `open2-thorfinn/h-aa-arbor-warmup`
+- **Hypothesis:** Skipping Sinkhorn equilibration for the first N steps (linear warmup from 1 → ARBOR_ITERS) helps by not dampening noisy early gradient signal.
+- **W&B runs:** N=0 `fiixr3ft` (control n=4), N=500 `vlnga3rc` (smoke winner n=4). N=250 dropped (worst smoke). N=1000 gated out.
+
+| Arm | N | n | val/ri_loss_gamma_neg0p0750 | Δ vs PR #2298 anchor |
+|---|---:|---:|---:|---:|
+| PR #2298 Arbor+RI (merged) | — | 4 | 3.27738 | — |
+| N=0 (control, code-path valid.) | 0 | 4 | 3.27745 | +0.00007 |
+| N=500 (smoke winner) | 500 | 4 | 3.27748 | +0.00010 |
+| N=1000 | 1000 | — | NOT LAUNCHED | gated out |
+
+**Key finding:** N=500 vs N=0 Δ = +0.00003, well within per-trial sd 0.00077. Indistinguishable from noise at n=4. Saturated lever **#12: Arbor warmup-from-1 in (0,500) range**. The Sinkhorn-skip-first-N hypothesis is falsified — early Sinkhorn is neutral to the final 2890-step outcome.
+
+**Control validation:** N=0 reproduces PR #2298 Arbor+RI anchor (3.27745 vs 3.27738, Δ=+0.00007) — confirms the new `--arbor_warmup_steps` flag introduces no regression. RI mechanism (paired Δ γ=-0.075 vs γ=0 = −0.00032) active in both arms.
+
+**Analysis:** The hard on/off gate (full Sinkhorn vs full skip) is too coarse to reveal warmup effects. Both N=0 and N=500 deliver equivalent outcomes after 2890 steps, suggesting Sinkhorn's role is not dominated by early-step behavior. Smoke at step 500 showed weak signal (N=500 best, N=250 worst) that didn't persist through full training. GPU saved on N=1000 per gate.
+
+---
+
 ## 2026-06-07 04:12 UTC — PR #2332: H-AJ z-loss aux regularization on pre-cap logits — CLOSED FALSIFIED (edward)
 
 - **Branch:** `open2-edward/h-aj-z-loss-aux`
