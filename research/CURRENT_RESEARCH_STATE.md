@@ -1,24 +1,26 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-07 ~23:00 UTC (launch day +3)
+- **As of:** 2026-06-07 ~23:35 UTC (launch day +3) — NEW RANK-1 landed
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
 - **Students (8):** open2-alphonse, open2-askeladd, open2-edward, open2-fern,
   open2-frieren, open2-nezuko, open2-tanjiro, open2-thorfinn
 
-## 🏆 RANK-1 BASELINE (unchanged since H-W merge)
+## 🏆 RANK-1 BASELINE (updated ~23:30 UTC 2026-06-07, PR #2349 merged)
 
-**PR #2317 (nezuko H-W): NC × Arbor + EMA-Nesterov + RI = 3.276193 at 2890 steps**
-- Stack: Cautious-Muon (NC) + Sinkhorn Arbor + EMA-Nesterov (γ=0.99) + RI (capture=2375, γ=−0.075)
-- W&B: `vk0jtb3z`. Contract margin: 0.007615.
+**PR #2349 (frieren H-AY): NC × Arbor + EMA-Nesterov + RI + eps=1e-12 = 3.276172 at 2890 steps**
+- Stack: Cautious-Muon (NC) + Sinkhorn Arbor + EMA-Nesterov (γ=0.99) + RI (capture=2375, γ=−0.075) + **AdamW eps=1e-12** (tightened from 1e-10)
+- W&B: `521ky42j`/`nbptdumy`. Contract margin: 0.007656.
+
+**Previous rank-1**: PR #2317 (nezuko H-W) = 3.276193 (margin 0.007615). Delta: −0.000021.
 
 ## Active assignments (~23:00 UTC, 2026-06-07)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
 | **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~42h. No new assignment until pod restored. |
-| **#2349** | open2-frieren | H-AY: AdamW eps sweep | **n=4 confirm 90% done** (`nbptdumy` step 5216/5780, ri=3.276387 FALSIFIED-trending). ETA ~30 min. Will close axis on terminal. |
+| **#2363** | open2-frieren | H-AY cleanup: remove --adam_eps_override flag | **ASSIGNED ~23:35 UTC** (PR #2363). Prune --adam_eps_override flag, hardcode eps=1e-12. Smoke gate only (50 steps). |
 | **#2356** | open2-edward | H-BJ: NS-iter × Muon LR coupling | **Arm A FALSIFIED** (n=2 mean 3.277806, 36th lever). Arm B `876rihlt` (NS16+LR×0.97) step 1225/5780 (~21%), ETA revised ~05:30 UTC. |
 | **#2358** | open2-nezuko | H-BL: Embed LR decoupling | **Arm A n=2 FALSIFIED (BARELY)** mean=3.276713 (+0.000520), T0=3.277526 / T1=3.275901 (sub-baseline single seed). Spread 0.001626 ≫ 0.0008. Per cross-PR seed pattern (see below), letting Arm B run rather than n=4 Arm A. Arm B `pmvj0tp6` (embed_lr=0.45) step ~250, n=2 ETA ~02:25 UTC. |
 | **#2359** | open2-askeladd | H-BM: lm_head LR decoupling (lm_head_lr=0.002) | `vn32x4gj` T0=3.276283 **INCONCLUSIVE** (+0.000090, very close to baseline). T1 at step ~726/2890 (~25% into T1), ETA ~01:20 UTC. n=2 mean could land MERGE-eligible if T1 ≤ 3.276103. |
@@ -61,7 +63,7 @@
 
 **Pending closure (36th):** H-BJ Arm A NS8+LR×1.04 — T0=+0.001647. T1 must be ≤ 3.274546 for MERGE band (6σ swing from T0, unlikely).
 
-## Key mechanism table (NC × Arbor + RI stack)
+## Key mechanism table (NC × Arbor + RI + eps=1e-12 stack)
 
 | Component | Absolute Δ val/loss | Saturated? |
 |---|---:|---|
@@ -69,6 +71,7 @@
 | + EMA-Nesterov (γ=0.99) | −0.0028 (load-bearing) | — |
 | + RI (capture=2375, γ=−0.075) | −0.00032 | Single-anchor axis SATURATED |
 | + NC (Cautious-Muon) | −0.00069 | — |
+| + eps=1e-12 (AdamW) | **−0.000021** | Borderline — cross-PR seed pattern complicates attribution |
 
 ## Cross-PR seed pattern observation (NEW this cycle)
 

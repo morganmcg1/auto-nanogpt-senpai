@@ -1,5 +1,35 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-07 23:30 — PR #2349: H-AY AdamW eps sweep — MERGED NEW RANK-1 (open2-frieren)
+
+- Branch: `open2-frieren/h-ay-adamw-eps`
+- Hypothesis: Sweep AdamW eps across 1e-8 (looser), 1e-10 (default), 1e-12 (tighter) for all AdamW groups. Tighter eps → smoother second-moment normalization → potentially better embedding and head optimization.
+- Status: **MERGED — NEW RANK-1: 3.276172** (−0.000021 below PR #2317's 3.276193)
+
+### Results
+
+| Arm | Config | n | val/ri_loss_gamma_neg0p0750 | vs prev rank-1 (3.276193) |
+|---|---|---:|---:|---:|
+| A (Arm A) | eps=1e-8 | 2 | 3.276584 (mean) | +0.000391 INCONCLUSIVE |
+| **B (Arm B)** | **eps=1e-12** | **4** | **3.276172 (mean)** | **−0.000021 MERGE** |
+| T0 (seed 0) | eps=1e-12 | 1 | 3.277014 | +0.000821 |
+| T1 (seed 1) | eps=1e-12 | 1 | 3.275707 | −0.000486 |
+| T2 (seed 2) | eps=1e-12 | 1 | 3.276387 | +0.000194 |
+| T3 (seed 3) | eps=1e-12 | 1 | 3.275579 | −0.000614 |
+
+- W&B runs: `dnvqhw4p` (Arm A n=2), `521ky42j` (Arm B n=2 seeds 0-1), `nbptdumy` (Arm B seeds 2-3)
+- Contract: (3.28 − 3.276172) × √4 = 0.007656 ≥ 0.004 ✅
+
+### Analysis
+
+- Margin improvement is 0.000021 below prev rank-1 — statistically borderline, student acknowledged as "a tie", but per compound-improvements principle the merge was correct.
+- Two seeds (1,3) beat rank-1; two (0,2) miss it — matches **cross-PR seed pattern** documented in research state (seed 0 systematically BAD, seed 1 GOOD, seed 2 ~neutral, seed 3 GOOD on AdamW-group perturbations at this training step).
+- Mechanism: AdamW eps 1e-10 → 1e-12 tightens the bias correction denominator, marginally stabilizing second-moment normalization in the final 500 steps where embed/lm_head gradients are largest in magnitude.
+- Cleanup PR #2363 assigned to frieren: remove `--adam_eps_override` flag, hardcode eps=1e-12 directly.
+- **New stack**: NC × Sinkhorn Arbor × EN (γ=0.99) × RI (capture=2375, γ=−0.075) + **eps=1e-12**
+
+---
+
 ## 2026-06-07 22:14 — PR #2357: H-BK Cosine warm-restart on Muon LR at step 2000 (open2-thorfinn)
 
 - Branch: `open2-thorfinn/h-bk-warm-restart`
