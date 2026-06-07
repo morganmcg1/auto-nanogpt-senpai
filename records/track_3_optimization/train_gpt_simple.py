@@ -146,6 +146,12 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--muon_gc_momentum", type=int, default=0,
+                        help="H-BH Arm A: gradient centralization on the accumulated Muon momentum buffer "
+                             "(post-EMA, pre momentum_update blend). 0=off, 1=on. ndim>=2 only.")
+    parser.add_argument("--muon_gc_update", type=int, default=0,
+                        help="H-BH Arm B: gradient centralization on momentum_update post-blend, pre-NS5. "
+                             "0=off, 1=on. ndim>=2 only. Only run if Arm A inconclusive/promising.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -931,8 +937,12 @@ def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, u
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
+                 gc_momentum: bool = False, gc_update: bool = False):
         assert isinstance(named_params, list) and len(named_params) >= 1
+        self.gc_momentum = bool(gc_momentum)
+        self.gc_update = bool(gc_update)
+        self._gc_probe_left = 3 if (gc_momentum or gc_update) else 0
         self.soap_params = {p for n, p in named_params if should_soap_param(n)}
         self.attn_soap_params = {p for n, p in named_params if should_soap_param(n) and is_attn_param(n)}
         self.attn_proj_soap_params = {p for n, p in named_params if should_soap_param(n) and is_attn_proj_param(n)}
@@ -983,7 +993,39 @@ class Muon(torch.optim.Optimizer):
                                 dtype=torch.float32, device=p.device)
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
+                    if self.gc_momentum and state["momentum"].dim() >= 2:
+                        probe_now = (self.step_count >= 30 and rank == 0 and self._gc_probe_left > 0)
+                        if probe_now:
+                            pre_mean = state["momentum"].float().mean().item()
+                            pre_shape = tuple(state["momentum"].shape)
+                        mom_mean = state["momentum"].float().mean(
+                            dim=tuple(range(1, state["momentum"].dim())),
+                            keepdim=True,
+                        )
+                        state["momentum"].add_(-mom_mean.to(state["momentum"].dtype))
+                        if probe_now:
+                            post_mean = state["momentum"].float().mean().item()
+                            print(f"[H-BH probe gc_momentum] step={self.step_count} "
+                                  f"shape={pre_shape} pre_mean={pre_mean:.3e} post_mean={post_mean:.3e}",
+                                  flush=True)
+                            self._gc_probe_left -= 1
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    if self.gc_update and momentum_update.dim() >= 2:
+                        probe_now = (self.step_count >= 30 and rank == 0 and self._gc_probe_left > 0)
+                        if probe_now:
+                            pre_mean = momentum_update.float().mean().item()
+                            pre_shape = tuple(momentum_update.shape)
+                        upd_mean = momentum_update.float().mean(
+                            dim=tuple(range(1, momentum_update.dim())),
+                            keepdim=True,
+                        )
+                        momentum_update = momentum_update - upd_mean.to(momentum_update.dtype)
+                        if probe_now:
+                            post_mean = momentum_update.float().mean().item()
+                            print(f"[H-BH probe gc_update] step={self.step_count} "
+                                  f"shape={pre_shape} pre_mean={pre_mean:.3e} post_mean={post_mean:.3e}",
+                                  flush=True)
+                            self._gc_probe_left -= 1
                     is_attn_soap = p in self.attn_soap_params
                     use_soap = p in self.soap_params
                     if use_soap and SOAP_UPDATE_BEFORE_USE:
@@ -1220,6 +1262,8 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "muon_gc_momentum": bool(args.muon_gc_momentum),
+            "muon_gc_update": bool(args.muon_gc_update),
         },
     )
 
@@ -1270,7 +1314,9 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU,
+                      gc_momentum=bool(args.muon_gc_momentum),
+                      gc_update=bool(args.muon_gc_update))
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     inner_optimizers = [optimizer1, optimizer2]
     optimizer_ema = EMA_Nesterov(
