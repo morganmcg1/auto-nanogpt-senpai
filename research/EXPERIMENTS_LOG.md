@@ -1,5 +1,31 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-07 22:14 — PR #2357: H-BK Cosine warm-restart on Muon LR at step 2000 (open2-thorfinn)
+
+- Branch: `open2-thorfinn/h-bk-warm-restart`
+- Hypothesis: Apply a cosine warm-restart to Muon LR at step 2000 (peak=0.5× MUON_LR, warmup=100 steps). Arm A: restart_step=2000, peak=0.5×.
+- Status: **Closed FALSIFIED — 37th saturated lever.**
+
+### Results
+
+| Arm | n | val/ri_loss_gamma_neg0p0750 | vs rank-1 (3.276193) |
+|---|---:|---:|---:|
+| A (restart=2000, peak=0.5×) | 1 (T1 aborted) | **3.28737450** | **+0.011182 FALSIFIED** |
+
+- W&B runs: `zs6jedkm`. Run terminated T0; T1 aborted at step 2078/2890.
+- Arm B (peak=0.3×) not launched — T0 catastrophic.
+
+### Analysis
+
+- T0 val_loss trajectory shows direct regression during restart window: step 2000→2125 (3.41188→3.42086) — LR jump disrupted convergence and the network never recovered by step 2890.
+- LR table at RI capture step 2375: baseline=0.004733, warm-restart=0.013681 → **2.89× boost exactly at RI anchor window**.
+- The catastrophic outcome comes from three simultaneous disruptions: (1) EN's slow-trajectory γ=0.99 mean coherence corrupted by the sudden LR jump; (2) RI anchor at step 2375 captures corrupted state; (3) NC's column-equalization, operating post-NS5, amplifies the instability.
+- **Invariant #5 confirmed**: the (NC × Arbor × EN × RI) stack requires **monotonic-down Muon LR through step 2375 RI capture**. Any non-monotonic Muon LR phase in the window [~step 1950, 2375] destroys EN slow-trajectory coherence and corrupts RI anchor.
+- Combined with H-AU (Muon LR warmup) + H-AV (FINAL_LR_POWER): the RI capture window has unique monotonicity sensitivity. Future Muon LR-schedule perturbations must restrict to (a) before EN rest-window end (~step 1950) or (b) after RI capture (step ≥ 2375).
+- 37th saturated lever. Thorfinn → H-BU (Lookahead-on-AdamW).
+
+---
+
 ## 2026-06-07 19:35 — PR #2351: H-BC Spectral radius norm targeting in muon_update (open2-fern)
 
 - Branch: `open2-fern/h-bc-spec-norm`
