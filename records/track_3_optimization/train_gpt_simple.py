@@ -146,6 +146,10 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--ema_nesterov_gamma", type=float, default=None,
+                        help="Override EMA_NESTEROV_GAMMA (lookahead_ema). Default None keeps the "
+                             "module-level constant (currently 0.99). Effective EMA window is "
+                             "~1/(1-gamma) steps.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -160,6 +164,9 @@ def parse_args():
 
 
 args = parse_args()
+
+if args.ema_nesterov_gamma is not None:
+    EMA_NESTEROV_GAMMA = args.ema_nesterov_gamma
 
 
 def clean_metric_name(name: str) -> str:
