@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-07 ~11:25 UTC (launch day +3)
+- **As of:** 2026-06-07 ~12:00 UTC (launch day +3)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,14 +18,14 @@
 
 Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed) plus prior Senpai PR #1532/#1614, push the Track 3 fixed-step record below 2900.
 
-## Active assignments (~10:35 UTC, 2026-06-07)
+## Active assignments (~12:00 UTC, 2026-06-07)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
 | **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~30h, round-2 escalation posted. Human team not responded. |
 | **#2341** | open2-nezuko | H-AR: EN γ warmup | Arm A FALSIFIED (n=2 mean 3.279476, +0.003283). Arm B (γ_start=0.95) running run `3vhyodcg` T0 ~3%. |
-| **#2342** | open2-frieren | H-AS: Muon gradient noise (σ_0=0.01) | f50uw5jj FINISHED. n=2 mean ≈ 3.277691 (+0.001498, FALSIFIED). PR has 0 student comments — nudge sent 11:20 UTC. Close on SENPAI-RESULT → assign H-AY AdamW eps. |
-| **#2343** | open2-askeladd | H-AT: Gradient Centralization on Muon | **n=2 INCONCLUSIVE**: qwbvitns FINISHED. T0=3.276329 (+0.000136), T1=3.276839 (+0.000647), n=2 mean=3.276584 (+0.000391) — in inconclusive band. **n=4 confirm directed** (seeds 2-3). Posted 10:55 UTC. |
+| **#2349** | open2-frieren | H-AY: AdamW eps sweep (1e-8 vs 1e-12 vs default 1e-10) | **Just assigned** (PR #2342 H-AS CLOSED FALSIFIED n=2 mean 3.277691, 23rd saturated lever). Pending pod pickup. |
+| **#2343** | open2-askeladd | H-AT: Gradient Centralization on Muon | n=4 confirm running: `crhbqarp` launched 11:16 UTC (seeds 2-3, seed_offset=2), step 1000/5780 (~17%). Final n=4 result at ~14:00 UTC. Decision bands: ≤3.275793→STRONG merge; ≤3.276193→Promising merge; (3.276193,3.276593)→confirmed inconclusive; ≥3.276593→FALSIFIED. |
 | **#2340** | open2-fern | H-AQ: AdamW β₁ warmup | Arm A FALSIFIED (n=2 mean ≈3.278438 from W&B). Arm B (β₁_start=0.65) running run `q1rg6lwx` T0 ~7%, no interim SENPAI-RESULT posted. |
 | **#2348** | open2-thorfinn | H-AZ: Lookahead wrapper on Muon (k=6, α=0.5 Arm A; k=10 Arm B) | **Just assigned** (PR #2345 H-AV CLOSED FALSIFIED at T0=+0.004326, 22nd saturated lever). Pending pod pickup. |
 | **#2346** | open2-edward | H-AW: EN REST_STEPS timing sweep (1950→2300 or 1600) | Run `43ng08cg` launched, T0 step 125/5780 (~5 min in). |
@@ -65,13 +65,13 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | **Muon LR warmup 0→0.0375** | T0=+0.0056 | **SATURATED (H-AU)** |
 | **AdamW β₁ warmup** | T0=+0.00226 (FALSIFIED) | H-AQ T1 ~82% (fern) |
 | **EN γ warmup (0.9→0.99)** | T0=+0.00211 (FALSIFIED) | H-AR T1 ~79% (nezuko) |
-| **Muon gradient noise** | T0=+0.00218 (FALSIFIED) | H-AS T1 ~34% (frieren) |
+| **Muon gradient noise (σ_0=0.01)** | n=2 mean +0.001498 | **SATURATED (H-AS)** |
 | **Gradient Centralization** | T0=+0.000136 (PROMISING) | H-AT T1 ~40% (askeladd) |
 | **FINAL_LR_POWER sweep (0.9, renorm)** | T0=+0.004326 (8× noise floor) | **SATURATED (H-AV)** |
 | **EN REST_STEPS timing** | TBD | H-AW just assigned (edward) |
 | **EN PREFILL_STEPS timing** | TBD | H-AX just assigned (tanjiro) |
 
-## Saturated levers count: 22 (+ 2 failed direction families)
+## Saturated levers count: 23 (+ 2 failed direction families)
 
 1. RI γ axis (H-AD)
 2. RI single-anchor capture × γ sweep (H-AE)
@@ -95,6 +95,7 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 20. Muon LR warmup 0→0.0375 (H-AU) — catastrophic
 21. Per-block Muon LR Arm B late-boost (H-AO complete) — both arms catastrophic
 22. FINAL_LR_POWER=0.9 with renormalized power_c (H-AV) — 8× noise floor, decay-tail shape axis saturated
+23. Muon gradient noise σ_0=0.01 Neelakantan decayed (H-AS) — n=2 mean +0.001498, noise poisons NS orthogonalization
 
 ## Strategic context (deep plateau)
 

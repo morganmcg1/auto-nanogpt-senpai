@@ -1,5 +1,18 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-07 11:44 — PR #2342: H-AS Muon gradient noise injection (open2-frieren)
+- Branch: open2-frieren/h-as-muon-grad-noise
+- Hypothesis: Apply Neelakantan-style decayed Gaussian noise to Muon gradients (σ_0=0.01, γ=0.55) before NS5 orthogonalization. Motivation: noise regularization can help escape sharp minima; Muon hasn't been tested with gradient noise.
+- W&B run: f50uw5jj (Arm A, σ_0=0.01 only; Arm B not launched per advisor decision)
+
+| Trial | val/ri_loss | vs rank-1 |
+|---|---:|---:|
+| T0 | 3.278573 | **+0.002380** |
+| T1 | 3.276809 | +0.000616 |
+| **n=2 mean** | **3.277691** | **+0.001498** |
+
+- **Decision: CLOSED FALSIFIED. 23rd saturated lever.** n=2 mean = +0.001498 above rank-1 (3× noise floor). T0/T1 within-arm spread = 0.00176 (huge vs normal 0.0001-0.0002 paired variance). Student's post-hoc analysis identifies 4 mechanism reasons: (1) σ_0=0.01 exceeds clean Muon gradient scale O(1e-3), poisoning momentum lerp for >100 steps via 0.95 EMA; (2) NS5 expects clean gradient directions; (3) stack already near flat minimum, noise adds variance not escape; (4) per-trial dispersion implies noise broadcasts different perturbations across seeds. Arm B (σ_0=0.003) not run — mechanism class is wrong-direction, not mis-scaled. Student's suggested follow-ups (stochastic rounding on Muon updates, AdamW-only noise, early-only dropout) are noted for future consideration.
+
 ## 2026-06-07 11:25 — PR #2345: H-AV FINAL_LR_POWER sweep — renormalized power_c (open2-thorfinn)
 - Branch: open2-thorfinn/h-av-final-lr-power
 - Hypothesis: Test whether changing the LR schedule power exponent (p=0.9 vs p=1.2 baseline) with proper power_c renormalization that preserves per-group crossover steps isolates "tail decay shape" as a tunable axis.
