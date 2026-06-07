@@ -24,6 +24,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -146,6 +147,14 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--lr_restart_step", type=int, default=-1,
+                        help="H-BK warm-restart on Muon LR. Step at which to begin cosine ramp-up. "
+                             "-1 disables (bit-exact to baseline). Applies to Muon groups only; "
+                             "AdamW groups are unaffected.")
+    parser.add_argument("--lr_restart_peak", type=float, default=0.5,
+                        help="H-BK peak Muon-LR multiplier on initial_lr after warm-restart ramp.")
+    parser.add_argument("--lr_restart_warmup", type=int, default=100,
+                        help="H-BK warm-restart ramp length in steps (cosine ramp from current LR to peak).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -156,6 +165,13 @@ def parse_args():
         raise ValueError("--train_steps must be positive")
     if args.ri_capture_step < 0 or args.ri_capture_step >= args.train_steps:
         raise ValueError(f"--ri_capture_step must be in [0, train_steps); got {args.ri_capture_step}")
+    if args.lr_restart_step >= 0:
+        if args.lr_restart_step >= args.train_steps:
+            raise ValueError(f"--lr_restart_step must be < train_steps; got {args.lr_restart_step}")
+        if args.lr_restart_warmup < 1:
+            raise ValueError(f"--lr_restart_warmup must be >= 1; got {args.lr_restart_warmup}")
+        if args.lr_restart_peak <= 0.0:
+            raise ValueError(f"--lr_restart_peak must be > 0; got {args.lr_restart_peak}")
     return args
 
 
@@ -1220,6 +1236,10 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "lr_restart_step": args.lr_restart_step,
+            "lr_restart_peak": args.lr_restart_peak,
+            "lr_restart_warmup": args.lr_restart_warmup,
+            "lr_restart_enabled": args.lr_restart_step >= 0,
         },
     )
 
@@ -1299,6 +1319,26 @@ for trial_idx in range(args.num_trials):
         downward_lr = power_c * max(0.0, t_end - step) ** power
         return min(initial_lr, downward_lr)
 
+    # H-BK cosine warm-restart on Muon LR only. Disabled (bit-exact) when
+    # args.lr_restart_step < 0. Ramp from _power_lr(restart_step) to
+    # peak = lr_restart_peak * initial_lr over warmup steps, then cosine-decay
+    # to 0 by train_steps.
+    def _muon_lr_with_restart(step, initial_lr, power_c):
+        if args.lr_restart_step < 0:
+            return _power_lr(step, initial_lr, power_c)
+        restart_step = args.lr_restart_step
+        warmup = args.lr_restart_warmup
+        peak_lr = args.lr_restart_peak * initial_lr
+        if step < restart_step:
+            return _power_lr(step, initial_lr, power_c)
+        lr_at_restart = _power_lr(restart_step, initial_lr, power_c)
+        if step <= restart_step + warmup:
+            t = (step - restart_step) / max(warmup, 1)
+            return lr_at_restart + (peak_lr - lr_at_restart) * 0.5 * (1.0 - math.cos(math.pi * t))
+        decay_total = max(train_steps - restart_step - warmup, 1)
+        t = min(1.0, (step - restart_step - warmup) / decay_total)
+        return peak_lr * 0.5 * (1.0 + math.cos(math.pi * t))
+
     def _muon_mu_at_step(step):
         cd_start = train_steps - _MU_COOLDOWN_STEPS
         if step < _MU_WARMUP_STEPS:
@@ -1313,7 +1353,10 @@ for trial_idx in range(args.num_trials):
     def set_hparams(step):
         for opt in inner_optimizers:
             for group in opt.param_groups:
-                group["lr"] = _power_lr(step, group["initial_lr"], group["power_c"])
+                if group["name"].startswith("muon"):
+                    group["lr"] = _muon_lr_with_restart(step, group["initial_lr"], group["power_c"])
+                else:
+                    group["lr"] = _power_lr(step, group["initial_lr"], group["power_c"])
         mu_step = _muon_mu_at_step(step)
         for group in optimizer2.param_groups:
             group["mu"] = mu_step
