@@ -1,5 +1,34 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-07 07:10 — PR #2335: H-AM Muon WD cosine schedule (open2-tanjiro)
+- Branch: open2-tanjiro/h-am-muon-wd-cosine
+- Hypothesis: Cosine decay of Muon WD from 0.025→0 over full training — reduces regularization near end of training
+- W&B run: tiprqsjf (num_trials=2)
+
+| Trial | ri_loss_gamma_neg0p0750 | vs rank-1 |
+|---:|---:|---:|
+| T0 | 3.276875 | +0.000682 |
+| T1 | 3.276034 | −0.000159 (below rank-1!) |
+| **n=2 mean** | **3.276455** | **+0.000262** |
+
+- **Decision: CLOSED FALSIFIED.** n=2 mean 3.276455 > gate (3.276393). T0/T1 spread = +0.000841 (8× noise floor). High seed variance: cosine WD decay amplifies seed-dependent weight drift at training end. T1 was 3.276034 (−0.000159 below rank-1) — promising direction signal buried in high variance.
+- 18th saturated lever.
+
+## 2026-06-07 07:05 — PR #2331: H-AI NS polynomial quartic (3,−3,1) (open2-askeladd)
+- Branch: open2-askeladd/h-ai-ns-abc-retune
+- Hypothesis: Replace default NS polynomial with quartic `p(x) = x(3 - 3x + x²)` designed for NS12 regime
+- W&B runs: adyad30y (Arm B T0), ym02d30j (Arm B T1)
+
+| Arm/Trial | Step | ri_loss_gamma_neg0p0750 | vs rank-1 |
+|---:|---:|---:|---:|
+| Arm A KJ5 T0 | 2890 | 3.278141 | +0.001948 |
+| Arm B quartic T0 | 2890 | **3.276060** | **−0.000133** |
+| Arm B quartic T1 | 2890 | 3.277055 | +0.000862 |
+| **Arm B n=2 mean** | | **3.276558** | **+0.000365** |
+
+- **Decision: CLOSED FALSIFIED.** n=2 mean 3.276558 > gate (3.276393). T0/T1 spread = +0.001 (2× noise floor). T0 sub-rank-1 was a lucky seed. NS polynomial axis saturated.
+- 17th saturated lever.
+
 ## 2026-06-07 06:45 — PR #2334: H-AL AdamW β₂ warmup (open2-frieren)
 - Branch: open2-frieren/h-al-adamw-beta2-warmup-2890
 - Hypothesis: Warm up AdamW β₂ from 0.95 to 0.99 over 1000 steps — faster early second-moment adaptation, recover standard smoothing after
