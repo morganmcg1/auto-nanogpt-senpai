@@ -146,6 +146,20 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--pmuon", type=int, default=0,
+                        help="Projected-momentum (direction/magnitude split) before muon_update "
+                             "(0=off, 1=on). When on, replace the lerp(grad, momentum) with "
+                             "lerp(grad, mom_dir * mom_norm) where mom_dir/mom_norm are computed "
+                             "on the full-Frobenius-norm of the EMA momentum buffer in float.")
+    parser.add_argument("--beta2_pulse", type=int, default=0,
+                        help="Aux Adam β₂ pulse: drop β₂ to --beta2_pulse_value during the "
+                             "window [--beta2_pulse_start, --beta2_pulse_end). 0=off.")
+    parser.add_argument("--beta2_pulse_start", type=int, default=2500,
+                        help="Step at which the β₂ pulse begins (inclusive).")
+    parser.add_argument("--beta2_pulse_end", type=int, default=2650,
+                        help="Step at which the β₂ pulse ends (exclusive).")
+    parser.add_argument("--beta2_pulse_value", type=float, default=0.90,
+                        help="β₂ value during the pulse window. Outside the window β₂ stays at 0.99.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -931,7 +945,7 @@ def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, u
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95, pmuon=False):
         assert isinstance(named_params, list) and len(named_params) >= 1
         self.soap_params = {p for n, p in named_params if should_soap_param(n)}
         self.attn_soap_params = {p for n, p in named_params if should_soap_param(n) and is_attn_param(n)}
@@ -951,6 +965,8 @@ class Muon(torch.optim.Optimizer):
         }
         self.last_arbor_diag: dict[str, float] = {}
         self.step_count = 0
+        self.pmuon = bool(pmuon)
+        self.pmuon_smoke_log: dict[str, float] | None = None
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -983,7 +999,22 @@ class Muon(torch.optim.Optimizer):
                                 dtype=torch.float32, device=p.device)
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    if self.pmuon:
+                        mom_buf = state["momentum"]
+                        mom_norm = mom_buf.float().norm().clamp_min(1e-8)
+                        mom_dir = mom_buf.float() / mom_norm
+                        proj_mom = (mom_dir * mom_norm).to(mom_buf.dtype)
+                        momentum_update = grad.lerp(proj_mom, group["mu"])
+                        if self.step_count == 0 and self.pmuon_smoke_log is None:
+                            self.pmuon_smoke_log = {
+                                "mom_norm": float(mom_norm.item()),
+                                "mom_dir_norm": float(mom_dir.norm().item()),
+                                "momentum_update_norm": float(momentum_update.float().norm().item()),
+                                "shape0": int(mom_buf.shape[-2]),
+                                "shape1": int(mom_buf.shape[-1]),
+                            }
+                    else:
+                        momentum_update = grad.lerp(state["momentum"], group["mu"])
                     is_attn_soap = p in self.attn_soap_params
                     use_soap = p in self.soap_params
                     if use_soap and SOAP_UPDATE_BEFORE_USE:
@@ -1220,6 +1251,11 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "pmuon": bool(args.pmuon),
+            "beta2_pulse": bool(args.beta2_pulse),
+            "beta2_pulse_start": args.beta2_pulse_start,
+            "beta2_pulse_end": args.beta2_pulse_end,
+            "beta2_pulse_value": args.beta2_pulse_value,
         },
     )
 
@@ -1270,7 +1306,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU,
+                      pmuon=bool(args.pmuon))
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     inner_optimizers = [optimizer1, optimizer2]
     optimizer_ema = EMA_Nesterov(
@@ -1317,6 +1354,12 @@ for trial_idx in range(args.num_trials):
         mu_step = _muon_mu_at_step(step)
         for group in optimizer2.param_groups:
             group["mu"] = mu_step
+        if args.beta2_pulse:
+            in_pulse = args.beta2_pulse_start <= step < args.beta2_pulse_end
+            beta2_now = args.beta2_pulse_value if in_pulse else 0.99
+            for group in optimizer1.param_groups:
+                b1 = group["betas"][0]
+                group["betas"] = (b1, beta2_now)
 
 
     ########################################
@@ -1516,7 +1559,15 @@ for trial_idx in range(args.num_trials):
                     optimizer_ema.it >= EMA_NESTEROV_PREFILL_STEPS
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
                 ),
+                "train/adamw/beta2": float(optimizer1.param_groups[0]["betas"][1]),
+                "train/beta2_pulse_active": int(
+                    bool(args.beta2_pulse)
+                    and args.beta2_pulse_start <= step < args.beta2_pulse_end
+                ),
             }
+            if optimizer2.pmuon_smoke_log is not None:
+                for k, v in optimizer2.pmuon_smoke_log.items():
+                    ema_extras[f"train/pmuon_smoke/{k}"] = v
             log_training_telemetry(
                 model=model,
                 optimizers=inner_optimizers,
