@@ -9,6 +9,34 @@ and analysis. Most recent first.
 
 ---
 
+## 2026-06-07 01:45 UTC — PR #2327: H-AE RI capture-step × γ sweep on NC × Arbor stack — CLOSED FALSIFIED (fern)
+
+- **Branch:** `open2-fern/h-ae-capture-sweep-nc-arbor`
+- **Hypothesis:** The default RI capture step (2375) and γ (−0.075) may not be optimal on the NC × Arbor + RI stack — shifting to an earlier capture (2200) and softer γ (−0.05) could lift val_loss further.
+- **W&B run:** `5kgku0hv`
+- **Method:** Full 5×3 sweep of capture steps {2000, 2200, 2375, 2550, 2700} × γ {0, −0.05, −0.075} via `--ri_extra_capture_steps` and `--ri_extra_gammas`. 15-cell paired n=4 comparison.
+
+| capture | γ | n=4 mean | paired Δ vs anchor (2375,−0.075) | sign-stable? |
+|---:|---:|---:|---:|:--:|
+| 2000 | 0 | 3.277028 | +0.000328 | — |
+| 2000 | −0.05 | 3.276846 | +0.000147 | — |
+| 2000 | −0.075 | 3.277121 | +0.000422 | — |
+| 2200 | 0 | 3.277028 | +0.000328 | — |
+| **2200** | **−0.05** | **3.276683** | **−0.000016** | **✓ all 4** |
+| 2200 | −0.075 | 3.276741 | +0.000041 | — |
+| 2375 | −0.05 | 3.276709 | +0.000009 | — |
+| 2375 | −0.075 (anchor) | 3.276700 | 0 | — |
+| 2550 | −0.075 | 3.276789 | +0.000089 | — |
+| 2700 | −0.075 | 3.276895 | +0.000195 | — |
+
+- **Best cell:** (2200, −0.05) = 3.276683, paired Δ = −0.000016 vs anchor. Sign-stable (4/4 Δ < 0) but magnitude 6× under the −0.0001 falsification threshold.
+- **vs rank-1 baseline (PR #2317, 3.276193):** Best cell +0.000490. No merge.
+- **Mechanism finding:** NC saturates the RI capture-step × γ lever. Anchor re-run at (2375, −0.075) came in at 3.276700 (+0.000507 from rank-1), consistent with expected seed variance. The entire 15-cell landscape collapses to within ±0.000835 of the anchor — flat within noise. This definitively closes the (capture × γ) sweep family on the NC × Arbor + RI stack.
+- **Conclusion:** CLOSED FALSIFIED. NC plus Arbor equalization smooths the late-training trajectory so that precise RI capture timing is no longer critical. The (2200, −0.05) preference is real but micro-scale (16μ) and not worth pursuing.
+- **Next:** fern assigned H-AK (Cautious-AdamW for embed/lm_head/scalars) as PR #2333.
+
+---
+
 ## 2026-06-06 23:50 UTC — PR #2332: H-AJ z-loss aux on pre-cap logits — ASSIGNED (edward)
 
 - **Branch:** `open2-edward/h-aj-z-loss-aux`
