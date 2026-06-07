@@ -1,11 +1,28 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-06 ~21:25 UTC (launch day +2)
+- **As of:** 2026-06-07 ~00:05 UTC (launch day +3)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
 - **Students (8):** open2-alphonse, open2-askeladd, open2-edward, open2-fern,
   open2-frieren, open2-nezuko, open2-tanjiro, open2-thorfinn
+
+## 🚀 00:05 UTC (2026-06-07) snapshot — H-AB / H-AD closed; H-AI + H-AJ assigned; nezuko NS10 strong signal
+
+- **H-AB FALSIFIED** (askeladd PR #2324 closed): SWA K=290 n=2 mean Arm B 3.279682 vs Arm A 3.276408 (paired Δ=+0.003274). Mechanism: tail is trend-dominated (val/loss drops 3.301→3.280 across SWA window), Polyak-Ruppert noise-dominated assumption violated. Falsifies entire SWA design direction.
+- **H-AD CLOSED** (edward PR #2326): RI γ sweep map saturation: γ=−0.075 = 3.276336 (best at n=4), tied with γ=−0.050 within 5e-6. Δ vs rank-1 = +0.000143 (seed variance, uniform offset at every γ). Maps the inverted-U cleanly. No merge; future RI gains require different mechanism (capture step, multi-capture, alternative readout). RI's γ axis is saturated.
+- **H-AI ASSIGNED PR #2331** (askeladd): NS polynomial (a,b,c) coefficient retune for NS12. Arm A KJ-NS5 (3.4445,-4.775,2.0315) vs Arm B quartic-convergence (3,-3,1). Orthogonal to nezuko H-AF (iter count axis).
+- **H-AJ ASSIGNED PR #2332** (edward): z-loss auxiliary regularization on pre-cap logits. Arm A w=1e-4 (PaLM canonical) vs Arm B w=1e-3 (aggressive). Mechanism: restore gradient signal through softsign cap when raw logits go off-scale.
+
+### Strong active signal: **nezuko H-AF NS10 = T0=T1=3.27574** (sub-agent W&B read)
+- Both completed trials beat rank-1 by ~0.00045 — very tight band, no T-spread
+- T2 in progress at step ~7057, T3 next. If T2/T3 hold similar, n=4 ≤ 3.27575 = clean new rank-1
+- ETA T3 SENPAI-RESULT ~02:00-03:00 UTC
+
+### Borderline gates
+- **thorfinn N=500 T0 = 3.27768** (+0.0011 above PR #2298 anchor 3.27738) — borderline. Continue T1 for gate decision. Most likely zone: (3.27750, 3.27850) → continue N=500, skip N=1000.
+- **tanjiro Arm A LR=0.030 n=2 = 3.276394** (+0.000201 above rank-1) — inconclusive band. Arm B (LR=0.045) running at step ~1075. Decision after Arm B completes.
+- **frieren Arm B γ=0.98 n=2** — Arm A γ=0.90 falsified at T0 (+0.008). Arm B at step ~2500 (~85% T0), terminal ETA ~01:00 UTC.
 
 ## Most recent human research-team directive
 
@@ -21,21 +38,23 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 
 Previous rank-1: **PR #2298 (alphonse H-A Corrected Arbor Muon) = 3.27738** (W&B: 5weg8d9r)
 
-## Active assignments (21:50 UTC, 2026-06-06)
+## Active assignments (00:05 UTC, 2026-06-07)
 
 | PR | Student | Hypothesis | Target steps | Status |
 |---:|---|---|---:|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN — Issue #2319 open ~12h, no human team response.** Stuck on pod 7t946p. |
-| **#2330** | open2-frieren | **H-AH: EMA-Nesterov γ ablation on NC × Arbor + RI** | 2890 | **LAUNCHED.** Run `5bsuw8yt` at step 1925/2890 (~67% T0). γ=0.99 baseline is rank-1 PR #2317 (no re-run). Testing γ=0.90 Arm A first; T0 terminal ETA ~21:55 UTC. |
-| **#2324** | open2-askeladd | H-AB: SWA tail on NC × Arbor + RI | 2890 | **Arm B T0 = 3.280254 (Δ=+0.0034 vs Arm A) — FALSIFIED at mechanism level.** Student diagnosed trend-dominated tail (val/loss drops 3.301→3.280 across SWA window) incompatible with Polyak-Ruppert noise-dominated assumption. Abort-after-T1 authorized 21:50 UTC. PR closes when T1 SENPAI-RESULT posts (~22:56 UTC). Next assignment: H-AI (NS coefficient retune for NS12). |
-| **#2327** | open2-fern | H-AE: capture_step × γ re-sweep on NC × Arbor + RI | 2890 | Run `5kgku0hv` at step ~5091 (T1 mid). T0 best: (capture=2200, γ=−0.05) = 3.27828. **21:23 UTC: posted non-blocking advisory** explaining needs_rebase (PR #2325 cleanup removed --nc; resolve at rebase by dropping --nc, keeping --ri_extra_capture_steps). Training is valid; don't abort. n=4 terminal ETA ~02:00 UTC. |
-| **#2326** | open2-edward | H-AD: RI γ ablation on NC × Arbor stack | 2890 | Run `485nt9tt` at step ~8032 (T2 mid). T0 student-reported: γ=−0.075 best at 3.27839 (inverted-U, γ=−0.075 ≈ γ=−0.05). T1 mid at step 2602 per 19:48 comment. n=4 terminal ETA ~23:20 UTC. |
-| **#2329** | open2-tanjiro | H-AG: LR retune (Muon LR) on NC × Arbor + RI | 2890 | **Arm A n=2 LAUNCHED 19:41 UTC.** Run `gh42uhjh` at step 2775/2890 (~95% T0). T0 SENPAI-RESULT ETA ~21:27 UTC. Arm A (LR=0.030, WD=0.025) terminal ETA ~23:00 UTC; Arm B (LR=0.045) follows. |
-| **#2328** | open2-nezuko | **H-AF: NS iteration ablation (NS10 vs NS12)** | 2890 | NS10 single arm n=4 (`ea0n8iwj`) LAUNCHED, at step ~3091 (T1 mid). **T0 W&B speedrun reading 3.27574** (but need terminal SENPAI-RESULT confirmation on contract metric val/ri_loss_gamma_neg0p0750). |
-| **#2323** | open2-thorfinn | H-AA: Arbor warmup (skip Sinkhorn first N steps) | 2890 | **N=0 (control) n=4 = 3.27745 at γ=−0.075** (reproduces PR #2298 Arbor+RI baseline 3.27738 within +0.00007 noise; RI lift Δ=−0.00032 still active). Stack is Arbor+RI WITHOUT NC (pre-#2325 branch). **N=500 n=4 launched 21:45 UTC** (`vlnga3rc`), ETA ~04:15 UTC tomorrow. Advisor posted gate: abort after T1 if (T0+T1)/2 > 3.27850; skip N=1000 unless N=500 ≤ 3.27688. Path-to-merge: even winner needs NC composition. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation on merged Arbor base | 2890 | **POD BROKEN — Issue #2319 open ~14h, no human team response.** Stuck on pod 7t946p. |
+| **#2330** | open2-frieren | **H-AH: EMA-Nesterov γ ablation on NC × Arbor + RI** | 2890 | **Arm A γ=0.90 FALSIFIED** at T0=3.28396 (+0.0078). Aborted post-T0; **Arm B γ=0.98** running as `j0jjjsuz` at step ~2500 (~87% T0). T0 terminal ETA ~01:00 UTC. If Arm B also regresses at T0 (>3.278), launch γ=0.95 control. |
+| **#2331** | open2-askeladd | **H-AI: NS polynomial (a,b,c) coefficient retune for NS12** | 2890 | **ASSIGNED 23:30 UTC.** Replaces closed #2324 (H-AB falsified, SWA tail-averaging on trend-dominated tail). Arm A KJ-NS5 (3.4445, -4.775, 2.0315) vs Arm B quartic (3, -3, 1). |
+| **#2327** | open2-fern | H-AE: capture_step × γ re-sweep on NC × Arbor + RI | 2890 | Run `5kgku0hv` at step ~9048 (T4 mid). Trajectory: T0=3.278337, T1=3.276393, T2=3.275524 (T2 beats rank-1 by −0.00067). n=4 terminal ETA ~02:30 UTC. n=4 mean projection: (3.278+3.276+3.275+T4)/4 — even T4=3.275 → mean 3.276 still above rank-1 by ~+0.0001. |
+| **#2332** | open2-edward | **H-AJ: z-loss auxiliary regularization on pre-cap logits** | 2890 | **ASSIGNED 23:50 UTC.** Replaces closed #2326 (H-AD: γ sweep saturation map, no merge). Arm A w=1e-4 (PaLM canonical) vs Arm B w=1e-3 (aggressive). |
+| **#2329** | open2-tanjiro | H-AG: LR retune (Muon LR) on NC × Arbor + RI | 2890 | **Arm A LR=0.030 n=2 = 3.276394** (+0.000201 vs rank-1, inconclusive band, T1=3.275824 beats baseline). **Arm B LR=0.045** running as `agvlim5e` at step ~1075 (~37% T0). Arm B terminal ETA ~02:30 UTC. Decision held for Arm B signal. |
+| **#2328** | open2-nezuko | **H-AF: NS iteration ablation (NS10 vs NS12)** | 2890 | **STRONG SIGNAL:** NS10 n=4 (`ea0n8iwj`) at step ~7057 (T3 mid). T0=3.275741, T1=3.275744 — both beat rank-1 by ~−0.00045 with extraordinarily tight band. T2 in progress, T3 ETA ~02:00-03:00 UTC. If T2/T3 hold ≤ 3.276, n=4 ≤ 3.27575 = clean new rank-1. |
+| **#2323** | open2-thorfinn | H-AA: Arbor warmup (skip Sinkhorn first N steps) | 2890 | **N=500 T0 = 3.27768** (borderline +0.0003 above PR #2298 anchor 3.27738; +0.001483 above rank-1 NC×Arbor+RI). T1 in progress; gate decision at (T0+T1)/2 — most likely zone (3.27750, 3.27850) → continue N=500 to T3 but skip N=1000. T1 ETA ~01:00 UTC. Path-to-merge: even winner needs NC composition follow-up. |
 
-## ✅ Recent closures / merges (18:43 UTC, 2026-06-06)
+## ✅ Recent closures / merges (00:00 UTC, 2026-06-07)
 
+- **PR #2326 (edward H-AD) CLOSED 23:50 UTC** — RI γ sweep on NC × Arbor (n=4): γ=−0.075 = 3.276336 (best, tied with γ=−0.050). Clean inverted-U mapped, saturated at γ∈{−0.05, −0.075}. Uniform +0.000143 offset vs rank-1 = seed variance. Edward reassigned H-AJ (z-loss aux).
+- **PR #2324 (askeladd H-AB) CLOSED 23:25 UTC** — SWA tail averaging K=290 on NC × Arbor + RI (n=2): Arm B mean 3.279682 vs Arm A 3.276408, paired Δ=+0.003274. **Mechanism falsification:** tail is trend-dominated (val/loss drops 3.301→3.280 across SWA window), violates Polyak-Ruppert noise-dominated assumption. Closes entire SWA design direction. Askeladd reassigned H-AI (NS coefficient retune).
 - **PR #2322 (frieren H-Z) CLOSED 19:53 UTC** — Arbor + RI without EN: n=4 mean 3.279471 (+0.003278 above rank-1). Independent EN load-bearing confirmed. Frieren reassigned H-AH (EN β ablation).
 - **CODE DISCOVERY (19:47 UTC):** Current NS iteration count is **NS12** (not NS5). PR #2295 changed `_ns_inner` to `range(12)`. H-AF revised to NS10 test.
 - **PR #2321 (tanjiro H-Y) CLOSED 18:43 UTC** — Drop EN from NC × Arbor + RI: n=4 mean 3.278702 (+0.002509 above rank-1). EN is load-bearing even with NC present — independent of NC condition. Tanjiro reassigned H-AG (LR/WD retune).
