@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-07 ~10:00 UTC (launch day +3)
+- **As of:** 2026-06-07 ~10:35 UTC (launch day +3)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,18 +18,18 @@
 
 Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed) plus prior Senpai PR #1532/#1614, push the Track 3 fixed-step record below 2900.
 
-## Active assignments (~10:00 UTC, 2026-06-07)
+## Active assignments (~10:35 UTC, 2026-06-07)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~29h, round-2 escalation posted. Human team not responded. |
-| **#2341** | open2-nezuko | H-AR: EN γ warmup (0.9→0.99 over 500 steps) | dynewpp5 T0=3.278301 (+0.002108, FALSIFIED). T1 ~79%. Let T1 finish for n=2 report. |
-| **#2342** | open2-frieren | H-AS: Muon gradient noise (σ_0=0.01) | f50uw5jj T0=3.278573 (+0.002380, FALSIFIED). T1 ~34%. Let T1 finish. |
-| **#2343** | open2-askeladd | H-AT: Gradient Centralization on Muon | **PROMISING**: qwbvitns T0=3.276329 (+0.000136, PASSES n=1 gate by 0.000064). T1 ~40% (~1200/2890). Critical watch. |
-| **#2340** | open2-fern | H-AQ: AdamW β₁ warmup (0.5→0.8 over 500 steps) | m33ftkmq T0=3.278451 (+0.002258, FALSIFIED). T1 ~82%. T1 terminal imminent. |
-| **#2345** | open2-thorfinn | H-AV: FINAL_LR_POWER=0.9 (renormalized power_c) | spn3b1w8 T0 at step ~1200/2890. |
-| **#2346** | open2-edward | H-AW: EN REST_STEPS timing sweep (1950→2300 or 1600) | **Just assigned.** Pending pod pickup. |
-| **#2347** | open2-tanjiro | H-AX: EN PREFILL_STEPS timing sweep (300→100 or 600) | **Just assigned.** Pending pod pickup. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~30h, round-2 escalation posted. Human team not responded. |
+| **#2341** | open2-nezuko | H-AR: EN γ warmup | Arm A FALSIFIED (n=2 mean 3.279476, +0.003283). Arm B (γ_start=0.95) running run `3vhyodcg` T0 ~3%. |
+| **#2342** | open2-frieren | H-AS: Muon gradient noise (σ_0=0.01) | f50uw5jj T0=3.278573 (+0.002380, FALSIFIED). T1 at step 4791/5780 (~83%), terminal in ~25 min. |
+| **#2343** | open2-askeladd | H-AT: Gradient Centralization on Muon | **PROMISING**: qwbvitns T0=3.276329 (+0.000136, PASSES n=1 gate by 0.000064). T1 at step 4991/5780 (~86%), terminal in ~15-20 min. **CRITICAL WATCH**. |
+| **#2340** | open2-fern | H-AQ: AdamW β₁ warmup | Arm A FALSIFIED (n=2 mean ≈3.278438 from W&B). Arm B (β₁_start=0.65) running run `q1rg6lwx` T0 ~7%, no interim SENPAI-RESULT posted. |
+| **#2345** | open2-thorfinn | H-AV: FINAL_LR_POWER=0.9 (renormalized power_c) | spn3b1w8 T0 at step 1825/5780 (~32%, intra-T0 ~63% of 2890). T0 terminal in ~1h. |
+| **#2346** | open2-edward | H-AW: EN REST_STEPS timing sweep (1950→2300 or 1600) | Run `43ng08cg` launched, T0 step 125/5780 (~5 min in). |
+| **#2347** | open2-tanjiro | H-AX: EN PREFILL_STEPS timing sweep (300→100 or 600) | Run `306xu575` launched, T0 step 125/5780 (~5 min in). |
 
 ## Recent closures (this session, most recent first)
 
