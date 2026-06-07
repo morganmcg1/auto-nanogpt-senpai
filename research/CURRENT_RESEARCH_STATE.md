@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-07 ~12:00 UTC (launch day +3)
+- **As of:** 2026-06-07 ~12:30 UTC (launch day +3)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,18 +18,18 @@
 
 Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed) plus prior Senpai PR #1532/#1614, push the Track 3 fixed-step record below 2900.
 
-## Active assignments (~12:00 UTC, 2026-06-07)
+## Active assignments (~12:30 UTC, 2026-06-07)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~30h, round-2 escalation posted. Human team not responded. |
-| **#2341** | open2-nezuko | H-AR: EN γ warmup | Arm A FALSIFIED (n=2 mean 3.279476, +0.003283). Arm B (γ_start=0.95) running run `3vhyodcg` T0 ~3%. |
-| **#2349** | open2-frieren | H-AY: AdamW eps sweep (1e-8 vs 1e-12 vs default 1e-10) | **Just assigned** (PR #2342 H-AS CLOSED FALSIFIED n=2 mean 3.277691, 23rd saturated lever). Pending pod pickup. |
-| **#2343** | open2-askeladd | H-AT: Gradient Centralization on Muon | n=4 confirm running: `crhbqarp` launched 11:16 UTC (seeds 2-3, seed_offset=2), step 1000/5780 (~17%). Final n=4 result at ~14:00 UTC. Decision bands: ≤3.275793→STRONG merge; ≤3.276193→Promising merge; (3.276193,3.276593)→confirmed inconclusive; ≥3.276593→FALSIFIED. |
-| **#2340** | open2-fern | H-AQ: AdamW β₁ warmup | Arm A FALSIFIED (n=2 mean ≈3.278438 from W&B). Arm B (β₁_start=0.65) running run `q1rg6lwx` T0 ~7%, no interim SENPAI-RESULT posted. |
-| **#2348** | open2-thorfinn | H-AZ: Lookahead wrapper on Muon (k=6, α=0.5 Arm A; k=10 Arm B) | **Just assigned** (PR #2345 H-AV CLOSED FALSIFIED at T0=+0.004326, 22nd saturated lever). Pending pod pickup. |
-| **#2346** | open2-edward | H-AW: EN REST_STEPS timing sweep (1950→2300 or 1600) | Run `43ng08cg` launched, T0 step 125/5780 (~5 min in). |
-| **#2347** | open2-tanjiro | H-AX: EN PREFILL_STEPS timing sweep (300→100 or 600) | Run `306xu575` launched, T0 step 125/5780 (~5 min in). |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~31h, round-2 escalation posted. Human team not responded. |
+| **#2341** | open2-nezuko | H-AR: EN γ warmup | Arm A FALSIFIED (n=2 mean 3.279476). Arm B (γ_start=0.95) `3vhyodcg` step 3866/5780 (~67%), T0=3.277508 **FALSIFIED**, T1 pending ~13:30 UTC. |
+| **#2349** | open2-frieren | H-AY: AdamW eps sweep (1e-8 vs 1e-12) | **OPERATIONAL ISSUE**: zombie run `hh8ank8b` on closed h-as-grad-noise group, kill+launch order posted 12:22 UTC. Smoke `mj9ydkpo` already passed. |
+| **#2343** | open2-askeladd | H-AT: Gradient Centralization on Muon | n=4 confirm running: `crhbqarp` step 1525/2890 (~53% of seed 2). Final n=4 result at ~14:00 UTC. Decision bands: ≤3.275793→STRONG merge; ≤3.276193→Promising merge; (3.276193,3.276593)→confirmed inconclusive; ≥3.276593→FALSIFIED. |
+| **#2340** | open2-fern | H-AQ: AdamW β₁ warmup | Arm A FALSIFIED (n=2 mean 3.278438). Arm B (β₁=0.65) `q1rg6lwx` step 4066/5780 (~70%), T0=3.280502 **FALSIFIED**, T1 pending ~13:40 UTC. |
+| **#2348** | open2-thorfinn | H-AZ: Lookahead wrapper on Muon | Smoke `oefw76xt`+`lzemh97u` passed. Full run `tjv3mars` (k=6, α=0.5) step ~400/2890 healthy. T0 ETA ~14:30 UTC. |
+| **#2346** | open2-edward | H-AW: EN REST_STEPS timing sweep | Run `43ng08cg` (REST=2300, Arm A) step 3791/5780 (~65%), **T0=3.276414 PROMISING** (+0.000221, within noise). T1 pending ~13:30 UTC. |
+| **#2347** | open2-tanjiro | H-AX: EN PREFILL_STEPS timing sweep | Run `306xu575` (PREFILL=100, Arm A) step 3116/5780 (~54%), T0=3.277027 **FALSIFIED**. T1 pending ~13:55 UTC. |
 
 ## Recent closures (this session, most recent first)
 
@@ -101,9 +101,12 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 
 We are now 21 saturated levers and 2 failed direction families into a deep plateau. The rank-1 3.276193 stack (NC × Arbor × EN × RI) is highly optimized. 
 
-**KEY PENDING**: askeladd H-AT Gradient Centralization n=2 mean = **3.276584** (+0.000391) lands in inconclusive band. T0=3.276329, T1=3.276839, spread 0.000510 ≈ noise floor. **n=4 confirm directed** (seeds 2-3), final terminal ~14:00 UTC. Only positive-T0 signal in 11+ falsified arms. Decision band at n=4: ≤3.275793 STRONG→merge; ≤3.276193 promising→merge; (3.276193, 3.276593) confirmed inconclusive→close; ≥3.276593 FALSIFIED.
+**KEY PENDING**:
+1. **askeladd H-AT GC n=4 confirm** running (`crhbqarp` step 1525/2890 ~53% of seed 2). Final at ~14:00 UTC. Only positive signal in last 11+ arms tested. n=2 mean had been 3.276584 (T0=3.276329, T1=3.276839, spread ≈ noise floor).
+2. **edward H-AW REST=2300 PROMISING**: T0=3.276414 (+0.000221 vs rank-1, within noise band). T1 ETA ~13:30 UTC. If n=2 mean ≤ 3.276193 → n=4 confirm directed; (3.276193, 3.276593) inconclusive → try Arm B (REST=1600).
+3. **Frieren operational issue**: zombie run on closed PR #2342 (h-as-grad-noise) — kill+launch order posted on PR #2349 12:22 UTC.
 
-**EN window timing (H-AW/H-AX)** is a fresh direction class (never tested). EN is load-bearing (−0.0028); its PREFILL/REST boundaries are inherited from pre-composition tuning. Two students now assigned to sweep these axes.
+**EN window timing (H-AW/H-AX)** is a fresh direction class (never tested). EN is load-bearing (−0.0028); its PREFILL/REST boundaries are inherited from pre-composition tuning. H-AW Arm A (REST=2300) is **the only positive T0** among 3 timing arms.
 
 **Plateau Protocol activated.** If EN window timing fails, escalate to:
 - Sophia-G on AdamW path (2nd-order diagonal Hessian)
