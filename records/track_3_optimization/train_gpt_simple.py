@@ -146,6 +146,16 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    # H-AZ Lookahead Muon (Zhang et al. 2019, https://arxiv.org/abs/1907.08610): wrap Muon
+    # updates with parameter-space Lookahead. Maintain slow weights, advance fast (Muon) for
+    # k inner steps, then pull slow toward fast: slow <- slow + alpha*(fast - slow) and reset
+    # fast to slow. Applied to optimizer2 (Muon) only, not AdamW.
+    parser.add_argument("--lookahead_muon", type=int, default=0,
+                        help="Wrap Muon updates with Lookahead. 0=off.")
+    parser.add_argument("--lookahead_k", type=int, default=6,
+                        help="Inner steps per outer Lookahead pull.")
+    parser.add_argument("--lookahead_alpha", type=float, default=0.5,
+                        help="Outer interpolation coefficient: slow <- slow + alpha*(fast - slow).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1220,6 +1230,9 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "lookahead_muon": args.lookahead_muon,
+            "lookahead_k": args.lookahead_k,
+            "lookahead_alpha": args.lookahead_alpha,
         },
     )
 
@@ -1272,6 +1285,14 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # H-AZ Lookahead Muon: initialize per-trial slow weights to current (initial) fast weights.
+    # Stored as an attribute on each Muon param tensor; identical across ranks because params
+    # are broadcast from rank 0 before training starts. Reset every trial.
+    if args.lookahead_muon:
+        with torch.no_grad():
+            for group in optimizer2.param_groups:
+                for p in group['params']:
+                    p._la_slow = p.data.clone()
     inner_optimizers = [optimizer1, optimizer2]
     optimizer_ema = EMA_Nesterov(
         [p for p in model.parameters()],
@@ -1532,6 +1553,16 @@ for trial_idx in range(args.num_trials):
         # then accumulates lookahead = γ * lookahead + (1-γ) * (p_after - prev_p).
         for opt in optimizers:
             opt.step()
+        # H-AZ Lookahead Muon: every lookahead_k optimizer steps, pull slow toward fast in
+        # parameter space (slow ← slow + α(fast − slow)) and reset fast to slow. Applied to
+        # Muon params only (optimizer2). step==0 is skipped so the first pull happens after
+        # k actual optimizer steps.
+        if args.lookahead_muon and step > 0 and step % args.lookahead_k == 0:
+            with torch.no_grad():
+                for group in optimizer2.param_groups:
+                    for p in group['params']:
+                        p._la_slow.add_(p.data - p._la_slow, alpha=args.lookahead_alpha)
+                        p.data.copy_(p._la_slow)
         # H15 Tail Reference Interpolation: snapshot params after the optimizer.step that
         # completes ri_capture_step. Snapshot is per-rank but params are all-gathered inside
         # the Muon.step (and AdamW is replicated), so every rank has the same post-step
