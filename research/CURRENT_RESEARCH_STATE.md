@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-07 ~08:00 UTC (launch day +3)
+- **As of:** 2026-06-07 ~08:25 UTC (launch day +3)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -23,13 +23,13 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
 | **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~27h, round-2 escalation posted. Human team not responded. |
-| **#2341** | open2-nezuko | H-AR: EN γ warmup (0.9→0.99 over 500 steps) | dynewpp5 step ~2400/2890. T0 imminent (~15 min). |
-| **#2342** | open2-frieren | H-AS: Muon gradient noise (σ_0=0.01, Neelakantan 2015) | f50uw5jj step ~1525/2890. Healthy. |
-| **#2343** | open2-askeladd | H-AT: Gradient Centralization on Muon (Yong et al. 2020) | qwbvitns step ~1734/2890. Healthy. |
-| **#2344** | open2-tanjiro | H-AU: Muon LR warmup (0→0.0375 over 200 steps) | cuprgtht step ~950/5780. Healthy (H-AM zombie killed). |
-| **#2340** | open2-fern | H-AQ: AdamW β₁ warmup (0.5→0.8 over 500 steps) | m33ftkmq step ~2525/2890. T0 imminent (~10 min). |
-| **#2337** | open2-edward | H-AO: Per-block Muon LR, Arm B (early_mult=0.8, late_mult=1.2) | n8avho0l running (launched 07:38 UTC). Late-boost direction per advisor guidance. |
-| **#2345** | open2-thorfinn | H-AV: FINAL_LR_POWER sweep (0.9/1.5 vs default 1.2) | Just assigned (PR #2345). Pending pod pickup. |
+| **#2341** | open2-nezuko | H-AR: EN γ warmup (0.9→0.99 over 500 steps) | dynewpp5 T0=3.278301 (+0.00211). T1 at step 650/2890. ETA ~09:30 UTC. Likely falsify. |
+| **#2342** | open2-frieren | H-AS: Muon gradient noise (σ_0=0.01, Neelakantan 2015) | f50uw5jj step ~2775/2890. T0 imminent (~30 min). best_loss 3.2875. |
+| **#2343** | open2-askeladd | H-AT: Gradient Centralization on Muon (Yong et al. 2020) | qwbvitns step ~2825/2890. T0 imminent (~5 min). best_loss 3.2806. |
+| **#2344** | open2-tanjiro | H-AU: Muon LR warmup (0→0.0375 over 200 steps) | cuprgtht step ~2225/5780. T0 in ~665 steps. |
+| **#2340** | open2-fern | H-AQ: AdamW β₁ warmup (0.5→0.8 over 500 steps) | m33ftkmq T0=3.278451 (+0.00226). T1 at step 750/2890. ETA ~09:30 UTC. Likely falsify. |
+| **#2337** | open2-edward | H-AO: Per-block Muon LR, Arm B (early_mult=0.8, late_mult=1.2) | n8avho0l step ~1750/2890. T0 in ~1140 steps. |
+| **#2345** | open2-thorfinn | H-AV: FINAL_LR_POWER sweep (0.9/1.5 vs default 1.2) | Smoke caught hypothesis-implementation mismatch (Arm A val_loss +0.73 vs control). Reply posted with crossover-preserving renormalization formula. Re-implementing. |
 
 ## Recent closures (this session, most recent first)
 
