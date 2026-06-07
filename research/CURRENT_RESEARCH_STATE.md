@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-07 ~14:35 UTC (launch day +3)
+- **As of:** 2026-06-07 ~15:35 UTC (launch day +3)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,35 +18,36 @@
 
 Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed) plus prior Senpai PR #1532/#1614, push the Track 3 fixed-step record below 2900. **Bias toward optimizer-state mechanisms, preconditioners, schedule/readout ideas, principled combinations of #1532/#1614 with public SOTA lineages.**
 
-## Active assignments (~14:35 UTC, 2026-06-07)
+## Active assignments (~15:35 UTC, 2026-06-07)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~33h, round-2 escalation posted. Human team not responded. |
-| **#2343** | open2-askeladd | H-AT: Gradient Centralization on Muon | n=4 confirm `crhbqarp` step 5166/5780 (~89% of seed 3 / T3). T0=3.276329, T1=3.276839, **T2=3.27846**. **n=3 mean = 3.277209** = +0.001016 above rank-1 (FALSIFIED band approaching). T3 terminal ETA ~15:00 UTC. Even with T3≈3.275 (best-case), n=4 mean ≈ 3.27669 → still INCONCLUSIVE-FALSIFIED. **Likely close on T3 SENPAI-RESULT.** |
-| **#2346** | open2-edward | H-AW: EN REST_STEPS timing sweep | **PROMISING — n=4 confirm directed**. n=2 mean 3.276274 (T0=3.276414, T1=3.276133 BELOW rank-1). Student to relaunch with `--seed_offset 2`. Terminal ETA ~17:00 UTC. |
-| **#2349** | open2-frieren | H-AY: AdamW eps sweep (1e-8 vs 1e-12) | Arm A `dnvqhw4p` (eps=1e-12) step 3341/5780 (trial 2 ~451). **T0 ≈ 3.27759 (likely terminal, +0.001397, FALSIFIED)**. Awaiting T1 to compute n=2 mean. ETA T1 ~15:47 UTC. If n=2 FALSIFIED, immediate Arm B (eps=1e-8). |
-| **#2350** | open2-tanjiro | H-BA: Sophia-G diagonal Hessian on AdamW | Arm A `d7sjufih` step 1445/5780 (~25% T0), healthy descent val/loss 3.6167. T0 ETA ~17:30 UTC. |
-| **#2351** | open2-fern | H-BC: Spectral radius norm targeting in muon_update | **Smoke gate PASSED.** σ̂ probe at step 5 returned ~1.67 (above predicted 1.0±0.3). Arm A n=2 `v65l1o11` step 100 live. Possible dup-run zombie `k9m4k8qg` at step 0 stale — student asked to verify. T0 ETA ~17:30 UTC. |
-| **#2352** | open2-nezuko | **H-BF: SNR-adaptive AdamW LR** | **JUST ASSIGNED 14:10 UTC** (after H-AR closed FALSIFIED both arms — 26th lever). Pending pod pickup; smoke first. Per-step `sqrt(m²/(v−m²))` LR multiplier per AdamW group, clamped to [1/3, 3]. |
-| **#2353** | open2-thorfinn | **H-BG: PMuon + β₂-pulse (PR #1532/#1614 lineage)** | **JUST ASSIGNED 14:30 UTC** (after H-AZ closed FALSIFIED at T0=+0.0158 — 27th lever). Highest-priority wave-3 hypothesis. Arm A: pure PMuon (direction/magnitude split before NS5). Arm B: PMuon + β₂ pulse 0.99→0.90 over steps 2500-2650. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~34h, round-2 escalation posted. Human team not responded. |
+| **#2346** | open2-edward | H-AW: EN REST_STEPS timing sweep | **PROMISING — n=4 confirm directed**. n=2 mean 3.276274 (T1=3.276133 BELOW rank-1). n=4 run `479jhxyf` at step 2050/2890 (~71%). Terminal ETA ~17:00 UTC. |
+| **#2349** | open2-frieren | H-AY: AdamW eps sweep (1e-8 vs 1e-12) | **Arm A T0=3.27759 FALSIFIED (+0.001397)**. Run `dnvqhw4p` at step 4691/5780 (trial 2). T1 ETA ~16:14 UTC. **Arm B (eps=1e-12) pre-directed for immediate launch on T1 terminal.** |
+| **#2350** | open2-tanjiro | H-BA: Sophia-G diagonal Hessian on AdamW | Arm A `d7sjufih` step 2601/2890 (~90%). T0 SENPAI-RESULT imminent (~15:50 UTC). Healthy descent — val/best_loss 3.3925 at step 2500. **HIGH WATCH.** |
+| **#2351** | open2-fern | H-BC: Spectral radius norm targeting in muon_update | **Smoke gate PASSED** (σ̂≈1.67 vs predicted 1.0). Arm A n=2 `v65l1o11` step 1400/2890 (~48%). T0 ETA ~17:00 UTC. |
+| **#2352** | open2-nezuko | **H-BF: SNR-adaptive AdamW LR** | **No W&B activity yet (1h20m post-assign).** Pod alive, GPU 0%, zero PR comments. Status-check nudge posted 15:30 UTC demanding immediate smoke status or full Arm A launch. |
+| **#2353** | open2-thorfinn | **H-BG: PMuon + β₂-pulse (PR #1532/#1614 lineage)** | **No W&B activity yet (1h post-assign).** Pod alive, GPU 0%, zero PR comments. Status-check nudge posted 15:30 UTC. Highest wave-3 priority. |
+| **#2354** | open2-askeladd | **H-BH: GC on Muon momentum buffer (mechanism isolation for H-AT)** | **JUST ASSIGNED 15:20 UTC** after H-AT closed FALSIFIED at 28th lever. Pending pod pickup. Variance check: if Arm A n=2 spread > 0.0008, jump to n=4 immediately (H-AT lesson). |
 
 ## Recent closures (last 90 min, most recent first)
 
 | Date | PR | Hypothesis | Decision | Key finding |
 |---|---|---|---|---|
-| 2026-06-07 14:13 | #2348 (thorfinn H-AZ) | Lookahead Muon k=6 α=0.5 | **CLOSED FALSIFIED** | T0=3.292015 = +0.0158 (32× noise floor). Lookahead double-EMA with EN over-smooths Muon. **27th saturated lever** (lookahead wrappers dead). |
-| 2026-06-07 14:00 | #2341 (nezuko H-AR) | EN γ warmup (γ_start=0.9 → 0.95) | **CLOSED FALSIFIED** | Arm A n=2 mean 3.279476 (+0.003283), Arm B n=2 mean 3.278359 (+0.002166). EN init-schedule axis dead. **26th saturated lever.** |
-| 2026-06-07 13:50 | #2340 (fern H-AQ) | AdamW β₁ warmup | **CLOSED FALSIFIED** | Arm A n=2 mean +0.002245, Arm B β₁=0.65 n=2 mean +0.002945. β₁ warmup direction family failed. **25th saturated lever.** |
-| 2026-06-07 12:43 | #2347 (tanjiro H-AX) | EN PREFILL_STEPS=100 | **CLOSED FALSIFIED** | T0=+0.000834 + trial 2 crashed. **24th saturated lever** (EN timing axis). |
+| 2026-06-07 14:50 | #2343 (askeladd H-AT) | GC on raw Muon gradient | **CLOSED FALSIFIED** | n=4 mean 3.277174 = +0.000981 above rank-1, with σ=0.000911 variance blow-out (seed 2 = 3.278459 outlier). **28th saturated lever.** |
+| 2026-06-07 14:13 | #2348 (thorfinn H-AZ) | Lookahead Muon k=6 α=0.5 | **CLOSED FALSIFIED** | T0=3.292015 = +0.0158 (32× noise floor). Lookahead double-EMA with EN over-smooths Muon. **27th saturated lever.** |
+| 2026-06-07 14:00 | #2341 (nezuko H-AR) | EN γ warmup (γ_start=0.9 → 0.95) | **CLOSED FALSIFIED** | Arm A n=2 mean 3.279476 (+0.003283), Arm B n=2 mean 3.278359 (+0.002166). **26th saturated lever.** |
+| 2026-06-07 13:50 | #2340 (fern H-AQ) | AdamW β₁ warmup | **CLOSED FALSIFIED** | Arm A n=2 mean +0.002245, Arm B β₁=0.65 n=2 mean +0.002945. **25th saturated lever.** |
 
-## Saturated levers count: 27 (+ 2 failed direction families)
+## Saturated levers count: 28 (+ 2 failed direction families)
 
 (Levers 1-24 unchanged from prior state. Recently added:)
 
-25. **AdamW β₁ warmup (H-AQ)** — both arms FALSIFIED with +0.0022 to +0.0030 above rank-1; β₁-warmup direction family dead.
-26. **EN γ warmup (H-AR)** — both arms FALSIFIED at +0.0022 to +0.0033. EN initialization-schedule axis (PREFILL/warmup) fully saturated when combined with H-AX, H-AW results.
-27. **Lookahead Muon wrapper (H-AZ)** — T0=+0.0158, catastrophic. Lookahead double-EMA with existing EN over-smooths. Wrapper-style augmentations on Muon dead.
+25. **AdamW β₁ warmup (H-AQ)** — both arms FALSIFIED with +0.0022 to +0.0030 above rank-1.
+26. **EN γ warmup (H-AR)** — both arms FALSIFIED at +0.0022 to +0.0033.
+27. **Lookahead Muon wrapper (H-AZ)** — T0=+0.0158, catastrophic. Wrapper-style augmentations on Muon dead.
+28. **GC on raw Muon gradient (H-AT)** — n=4 mean +0.001 with variance blow-out (σ=0.000911 vs noise floor ~0.0005). Per-channel mean subtraction on raw gradient interacts poorly with EN buffering. Note: **H-BH (GC on momentum buffer)** is the mechanism-isolation test before declaring full GC-on-Muon family dead.
 
 ## Key mechanism table (NC × Arbor + RI stack) — unchanged
 
@@ -59,21 +60,20 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 
 ## Strategic context (deep plateau)
 
-We are now **27 saturated levers and 2 failed direction families** into a deep plateau. The rank-1 3.276193 stack (NC × Arbor × EN × RI) is highly optimized.
+We are now **28 saturated levers and 2 failed direction families** into a deep plateau. The rank-1 3.276193 stack (NC × Arbor × EN × RI) is highly optimized.
 
 **KEY PENDING (next 1-3 hours):**
-1. **askeladd H-AT n=4 confirm `crhbqarp`** ~89% of T3. T2 was 3.27846 dragging n=3 mean to 3.277209. T3 terminal ~15:00 UTC. **High likelihood of close on FALSIFIED** unless T3 < 3.275.
-2. **edward H-AW REST=2300 n=4 confirm** directed — needs student to relaunch with `--seed_offset 2`. Terminal ETA ~17:00 UTC. n=2 was 3.276274 (T1 BELOW rank-1!), so n=4 is genuine PROMISING confirm.
-3. **frieren H-AY Arm A eps=1e-12 T0≈3.27759** (FALSIFIED). Awaiting T1 — if n=2 FALSIFIED, jump to Arm B (eps=1e-8).
-4. **fern H-BC σ̂≈1.67 observation** — actual operator-norm of post-NS5 update is 1.7× the heuristic. Mechanism test in flight (Arm A n=2 launched).
-5. **tanjiro H-BA Sophia-G** Arm A T0 ETA ~17:30 UTC.
-6. **nezuko H-BF SNR-LR** PR #2352 pending pod pickup; smoke first.
-7. **thorfinn H-BG PMuon + β₂-pulse** PR #2353 pending pod pickup; **highest wave-3 priority — directly composes audited #1532/#1614 levers onto current rank-1**.
+1. **tanjiro H-BA Sophia-G `d7sjufih` T0** at step ~90%, ETA ~15:50 UTC. Strong sub-rank-1 trajectory would be major signal.
+2. **edward H-AW n=4 confirm `479jhxyf`** at step 71%, ETA ~17:00 UTC. n=2 was 3.276274 — n=4 either confirms PROMISING or closes inconclusive.
+3. **frieren H-AY T1 + Arm B pre-directed** — T0=3.27759 FALSIFIED. T1 ETA ~16:14 UTC. Arm B (eps=1e-12) immediate launch on terminal.
+4. **fern H-BC `v65l1o11`** at 48%, σ̂≈1.67 mechanism test in flight. T0 ETA ~17:00 UTC.
+5. **nezuko H-BF + thorfinn H-BG smoke status** — both pods 60-80 min idle GPU, nudges posted demanding immediate launch.
+6. **askeladd H-BH** PR #2354 just assigned; pending pod pickup; smoke first.
 
 **Plateau Protocol wave 2-3 in flight:**
 - Wave 2: H-BA Sophia-G (tanjiro), H-BC spectral norm (fern), H-BF SNR-LR (nezuko)
-- Wave 3: H-BG PMuon + β₂-pulse (thorfinn)
-- Queued next: H-BH GC-on-Muon-momentum, H-BI depth-wise LR, H-BJ NS-iter × LR coupling
+- Wave 3: H-BG PMuon + β₂-pulse (thorfinn), H-BH GC-on-momentum (askeladd, mechanism isolation)
+- Queued next: H-BI depth-wise LR, H-BJ NS-iter × LR coupling
 
 ## Next-wave hypotheses (queued for next idle students)
 
@@ -83,15 +83,16 @@ Full specs in `/research/RESEARCH_IDEAS_2026-06-07_12:30.md` (wave 2) and `/rese
 2. ~~**H-BC: Spectral radius normalization**~~ — Assigned fern PR #2351. ✓
 3. ~~**H-BF: SNR-adaptive LR**~~ — Assigned nezuko PR #2352. ✓
 4. ~~**H-BG: PMuon + β₂-pulse**~~ — Assigned thorfinn PR #2353. ✓
-5. **H-BH: GC on Muon momentum** — Strong candidate for next idle slot (askeladd after H-AT close). Mechanism isolation: tests whether H-AT's GC effect lives in the gradient or in the accumulated momentum.
+5. ~~**H-BH: GC on Muon momentum**~~ — Assigned askeladd PR #2354. ✓
 6. **H-BI: Depth-wise Muon LR** — Per-block LR multiplier `MUON_LR × decay^depth`. Arm A decay=0.85 (deeper=lower), Arm B decay=0.90 inverted.
-7. **H-BJ: NS-iter × LR coupling** — Arm A NS8+LR×1.04, Arm B NS16+LR×0.97. Tests if extra NS iters are wasted or useful.
-8. **H-BE: EMA-Nesterov scope diagnostic** — Lower-priority diagnostic; queue after BH/BI/BJ.
+7. **H-BJ: NS-iter × LR coupling** — Arm A NS8+LR×1.04, Arm B NS16+LR×0.97.
+8. **H-BE: EMA-Nesterov scope diagnostic** — Lower-priority diagnostic; queue after BI/BJ.
 9. **H-BB: PSGD-Kron** — Memory risk, hold.
 10. ~~H-BD: Partial SAM~~ — DISQUALIFIED (2× forward-backward violates benchmark contract).
 
 ## Open Operational Items
 
-- **Alphonse pod broken** (Issue #2319 ~33h, no human response).
-- **Fern PR #2351 dup-run check** — possible zombie `k9m4k8qg` at step 0; awaiting student verify.
-- **Edward PR #2346 student relaunch** — directed n=4 confirm; awaiting acknowledgement.
+- **Alphonse pod broken** (Issue #2319 ~34h, no human response).
+- **Nezuko PR #2352 + Thorfinn PR #2353** — pods alive but zero W&B activity 1h+ post-assign; nudge comments posted 15:30 UTC demanding immediate launch/status.
+- **Fern PR #2351** Arm A n=2 healthy at step 1400/2890.
+- **Tanjiro PR #2350** Sophia-G Arm A T0 imminent ~15:50 UTC.
