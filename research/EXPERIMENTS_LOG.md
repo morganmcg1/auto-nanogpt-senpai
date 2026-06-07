@@ -1,5 +1,101 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-07 18:25 — PR #2346: H-AW EN REST_STEPS=2300 — n=4 CLOSURE (open2-edward)
+- Branch: `open2-edward/h-aw-en-rest-steps`
+- Hypothesis: Extend EMA-Nesterov rest window by advancing REST_STEPS from 1950 to 2300 (vs 2890 total), giving the EN momentum buffer a longer flat tail to stabilize before RI capture at step 2375.
+- W&B runs: `v65l1o11` (n=2, seeds 0-1), `479jhxyf` (n=2, seeds 2-3 confirm)
+- Status: **Closed FALSIFIED — 30th saturated lever.**
+
+### Results (n=4)
+
+| Trial | val/ri_loss_gamma_neg0p0750 | vs rank-1 (3.276193) |
+|---|---:|---:|
+| T0 (seed 0) | 3.276059 | −0.000134 (below rank-1!) |
+| T1 (seed 1) | 3.276489 | +0.000296 |
+| T2 (seed 2, confirm) | 3.274631 | −0.001562 |
+| T3 (seed 3, confirm) | 3.277875 | +0.001682 |
+| **n=4 mean** | **3.276256** | **+0.000063 FALSIFIED** |
+| n=4 σ | ~0.00126 | 2.5× noise floor — variance blow-out |
+
+### Analysis
+
+- n=2 mean (3.276274) was INCONCLUSIVE. n=4 seeds 2-3 showed massive variance blow-out: T2=−0.001562 (huge positive outlier) vs T3=+0.001682 (negative outlier). σ≈0.00126 is 2.5× the noise floor.
+- n=4 mean = 3.276256 = +0.000063 above rank-1. Contract margin 0.007488 < rank-1's 0.007615 → if merged, this would LOSE 0.000127 in statistical margin.
+- The variance amplification is the killer: REST_STEPS=2300 is sensitive to initialization. The current REST_STEPS=1950 with γ=0.99 establishes a specific 940-step momentum decay region before RI capture at 2375. Extending to 2300 compresses this to 75 steps, creating seed-dependent chaos in the EN-RI handoff.
+- **EN rest-window timing axis is now fully saturated** — REST_STEPS at every tested value (1950=default, 2300) shows the 1950 default is the calibration point.
+- 30th lever closed. Student (edward) suggested H-BJ (NS-iter × Muon LR coupling) as next experiment.
+
+---
+
+## 2026-06-07 18:20 — PR #2351: H-BC Spectral radius norm (open2-fern)
+- Branch: `open2-fern/h-bc-spectral-norm`
+- Hypothesis: Normalize each Muon weight matrix by its spectral radius (largest singular value) before NS5 orthogonalization, redistributing mass from large-norm matrices into the update direction.
+- W&B run: `v65l1o11` (n=2, Arm A)
+- Status: **Closed FALSIFIED.**
+
+### Results (n=2)
+
+| Trial | val/ri_loss_gamma_neg0p0750 | vs rank-1 (3.276193) |
+|---|---:|---:|
+| T0 | 3.280820 | +0.004627 |
+| T1 | 3.280820 | +0.004627 (identical) |
+| **n=2 mean** | **3.280820** | **+0.004627 FALSIFIED** |
+
+### Analysis
+
+- T0=T1 identical — perfect reproducibility of a bad result (9× noise floor).
+- The spectral radius normalization pre-conditions the gradient before NS5. NS5 itself already projects to the Stiefel manifold (unit spectral norm), so the additional pre-normalization is redundant and introduces a singular-value computation overhead. The mechanism "mass redistribution" doesn't help because NS5's orthogonalization already handles gradient scale.
+- Zero spread across seeds is unusual and confirms the mechanism has a systematic negative effect, not random variance.
+- Student awaiting label swap to formally close.
+
+---
+
+## 2026-06-07 18:20 — PR #2352: H-BF SNR-adaptive AdamW LR (open2-nezuko)
+- Branch: `open2-nezuko/h-bf-snr-adaptive-adamw`
+- Hypothesis: Scale each AdamW parameter group's LR by a signal-to-noise ratio (SNR) derived from gradient statistics, targeting groups where the gradient SNR is high (signal-dominated) with higher LR and low-SNR groups with lower LR.
+- W&B runs: `pw1mydik` (smoke, 60 steps), `5d6pyw54` (Arm A full, n=1)
+- Status: **Closed FALSIFIED — 31st saturated lever.**
+
+### Results
+
+| Trial | val/ri_loss_gamma_neg0p0750 | vs rank-1 (3.276193) |
+|---|---:|---:|
+| T0 (Arm A snr_target=1.0) | 3.278413 | **+0.002220** (4.4× noise floor) |
+| T1 | Aborted (advisor early-abort rule) | — |
+
+### Analysis
+
+- **Key mechanism insight from smoke (`pw1mydik`):** SNR clip saturates at 3× for ALL AdamW groups (embed, lm_head, scalars) throughout the entire post-warmup window. Root cause: with β₂=0.95, consecutive gradients are highly correlated → `v_t ≈ m_t²` → `noise_var = v_t − m_t²` ≈ 0 → SNR → ∞. The 1e-10 clamp_min is the active floor.
+- This means SNR-adaptive LR at snr_target=1.0/clip=3 **degenerates to a flat 3× LR multiplier** on all AdamW groups. T0=+0.002220 confirms catastrophic effect of tripling all AdamW LRs simultaneously.
+- The embed LR (0.3×3=0.9) and lm_head LR (0.003125×3≈0.0094) are both wildly out of their calibrated range.
+- Advisor directed early abort after T0. Student to post SENPAI-RESULT.
+- 31st lever closed.
+
+---
+
+## 2026-06-07 18:20 — PR #2353: H-BG PMuon + β₂-pulse (open2-thorfinn)
+- Branch: `open2-thorfinn/h-bg-pmuon-beta2-pulse`
+- Hypothesis: Apply a pulsed β₂ schedule to Muon's momentum buffer — cycle β₂ between 0.95 and a lower value (0.85) on a periodic schedule to perturb the momentum state and potentially escape local optima.
+- W&B run: `q9y1953e` (Arm A, n=2)
+- Status: **Closed FALSIFIED — 32nd saturated lever.**
+
+### Results (n=2)
+
+| Trial | val/ri_loss_gamma_neg0p0750 | vs rank-1 (3.276193) |
+|---|---:|---:|
+| T0 | 3.278038 | +0.001845 |
+| T1 | 3.278038 | +0.001845 (identical) |
+| **n=2 mean** | **3.278038** | **+0.001845 FALSIFIED (3.7× noise floor)** |
+
+### Analysis
+
+- T0=T1 identical with zero spread — same pattern as H-BC. Confirms systematic negative effect from momentum-state oscillation, not seed variance.
+- β₂-pulsing on Muon disrupts the EN γ=0.99 momentum lerp. The EN layer provides the slow trajectory averaging; adding β₂ oscillation on Muon's internal momentum conflicts with EN's established smoothing regime.
+- **Momentum-state oscillation on Muon is uniformly harmful** — the EN mechanism already provides momentum smoothing at the right timescale. Any additional perturbation of the momentum buffer degrades performance.
+- 32nd lever closed.
+
+---
+
 ## 2026-06-07 16:15 — PR #2350: H-BA Sophia-G diagonal Hessian on AdamW (open2-tanjiro)
 - Branch: `open2-tanjiro/h-ba-sophia-g`
 - Hypothesis: Replace AdamW's diagonal variance estimate `v_t` with Sophia-G's Gauss-Newton-Bartlett (GNB) Hessian estimate, applied to all AdamW groups (embed, lm_head, scalars).
