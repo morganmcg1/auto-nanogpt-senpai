@@ -146,6 +146,8 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--ema_nesterov_prefill_steps_override", type=int, default=-1,
+                        help="Override EMA_NESTEROV_PREFILL_STEPS. -1 = no override (default 300).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1213,7 +1215,10 @@ if dist.get_rank() == 0:
             "aurora_beta": _AURORA_BETA,
             "ema_nesterov_lookahead": EMA_NESTEROV_LOOKAHEAD,
             "ema_nesterov_gamma": EMA_NESTEROV_GAMMA,
-            "ema_nesterov_prefill_steps": EMA_NESTEROV_PREFILL_STEPS,
+            "ema_nesterov_prefill_steps": (args.ema_nesterov_prefill_steps_override
+                                           if args.ema_nesterov_prefill_steps_override > 0
+                                           else EMA_NESTEROV_PREFILL_STEPS),
+            "ema_nesterov_prefill_steps_override_active": args.ema_nesterov_prefill_steps_override > 0,
             "ema_nesterov_rest_steps": EMA_NESTEROV_REST_STEPS,
             "ri_gamma": args.ri_gamma,
             "ri_capture_step": args.ri_capture_step,
@@ -1273,13 +1278,16 @@ for trial_idx in range(args.num_trials):
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     inner_optimizers = [optimizer1, optimizer2]
+    prefill_steps = (args.ema_nesterov_prefill_steps_override
+                     if args.ema_nesterov_prefill_steps_override > 0
+                     else EMA_NESTEROV_PREFILL_STEPS)
     optimizer_ema = EMA_Nesterov(
         [p for p in model.parameters()],
         inner_optimizers,
         lookahead_stepsize=EMA_NESTEROV_LOOKAHEAD,
         use_scheduled_lookahead_stepsize=True,
         lookahead_ema=EMA_NESTEROV_GAMMA,
-        prefill_steps=EMA_NESTEROV_PREFILL_STEPS,
+        prefill_steps=prefill_steps,
         rest_steps=EMA_NESTEROV_REST_STEPS,
     )
     optimizers = [optimizer_ema]
@@ -1513,7 +1521,7 @@ for trial_idx in range(args.num_trials):
                 "train/ema_nesterov/it": optimizer_ema.it,
                 "train/ema_nesterov/lookahead_stepsize": optimizer_ema.current_lookahead_stepsize,
                 "train/ema_nesterov/lookahead_active": int(
-                    optimizer_ema.it >= EMA_NESTEROV_PREFILL_STEPS
+                    optimizer_ema.it >= prefill_steps
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
                 ),
             }
