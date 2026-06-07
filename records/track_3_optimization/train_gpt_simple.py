@@ -146,6 +146,11 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--lm_head_muon", type=int, default=0, choices=[0, 1],
+                        help="Move lm_head (model.proj.weight) from AdamW to Muon as a new param group.")
+    parser.add_argument("--muon_lm_head_lr_mult", type=float, default=0.1,
+                        help="Multiplier on MUON_LR for the lm_head Muon group. Default 0.1 = effective lr "
+                             "0.00375 (~ current AdamW lr=1/320=0.003125). Only used when --lm_head_muon 1.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1220,6 +1225,8 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "lm_head_muon": args.lm_head_muon,
+            "muon_lm_head_lr_mult": args.muon_lm_head_lr_mult,
         },
     )
 
@@ -1265,13 +1272,26 @@ for trial_idx in range(args.num_trials):
             block.norm2.gains.data.copy_((1.0 + _CGI_ALPHA * s).to(block.norm2.gains.dtype))
 
     # Optimizers (PR #309: AdamW betas (0.8, 0.99)).
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
+    adamw_groups = [dict(params=[model.embed.weight], lr=0.3, name="adam_embed")]
+    if not args.lm_head_muon:
+        adamw_groups.append(dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"))
+    adamw_groups.append(dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars"))
+    optimizer1 = AdamW(adamw_groups, betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if args.lm_head_muon:
+        # lm_head as its own Muon param group with its own LR. The Muon class's
+        # arbor/no_contra/no_soft/soap sets were built from block named_params at
+        # __init__, so proj.weight (lm_head) will not match any of those sets and
+        # will get vanilla Muon (no Arbor, no SOAP) — which is what we want.
+        optimizer2.add_param_group({
+            "params": [model.proj.weight],
+            "lr": MUON_LR * args.muon_lm_head_lr_mult,
+            "weight_decay": MUON_WEIGHT_DECAY,
+            "mu": MU,
+            "name": "muon_lm_head",
+        })
     inner_optimizers = [optimizer1, optimizer2]
     optimizer_ema = EMA_Nesterov(
         [p for p in model.parameters()],
@@ -1288,11 +1308,30 @@ for trial_idx in range(args.num_trials):
     for opt in inner_optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
-    # Per-group power_c (PowerCool from PR #287).
-    optimizer1.param_groups[0]["power_c"] = ADAM_EMBED_POWER_C
-    optimizer1.param_groups[1]["power_c"] = ADAM_PROJ_POWER_C
-    optimizer1.param_groups[2]["power_c"] = ADAM_OTHER_POWER_C
-    optimizer2.param_groups[0]["power_c"] = MUON_POWER_C
+    # Per-group power_c (PowerCool from PR #287). Name-based so the assignment
+    # is robust to optional groups (e.g. lm_head moving from AdamW to Muon).
+    adam_power_by_name = {
+        "adam_embed": ADAM_EMBED_POWER_C,
+        "adam_lm_head": ADAM_PROJ_POWER_C,
+        "adam_scalars": ADAM_OTHER_POWER_C,
+    }
+    for g in optimizer1.param_groups:
+        g["power_c"] = adam_power_by_name[g["name"]]
+    for g in optimizer2.param_groups:
+        g["power_c"] = MUON_POWER_C
+
+    if trial_idx == 0 and dist.get_rank() == 0:
+        opt_names = {
+            "optimizer1_groups": [g["name"] for g in optimizer1.param_groups],
+            "optimizer2_groups": [g["name"] for g in optimizer2.param_groups],
+            "optimizer1_group_count": len(optimizer1.param_groups),
+            "optimizer2_group_count": len(optimizer2.param_groups),
+        }
+        print0(f"Optimizer composition: {opt_names}", console=True)
+        try:
+            wandb.config.update(opt_names, allow_val_change=True)
+        except Exception as exc:
+            print0(f"wandb.config.update failed (non-fatal): {exc}", console=True)
 
     def _power_lr(step, initial_lr, power_c, power=FINAL_LR_POWER):
         t_end = FINAL_SCHEDULE_STEPS
