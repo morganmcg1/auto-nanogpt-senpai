@@ -146,6 +146,14 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--muon_lr_early_mult", type=float, default=1.0,
+                        help="H-AO: Multiplier on MUON_LR for early blocks (indices 0..N/2-1). "
+                             "Scales the entire schedule (initial_lr and power_c) so the per-step "
+                             "LR for early blocks is mult * baseline_lr(step). Default 1.0 = rank-1.")
+    parser.add_argument("--muon_lr_late_mult", type=float, default=1.0,
+                        help="H-AO: Multiplier on MUON_LR for late blocks (indices N/2..N-1). "
+                             "Scales the entire schedule (initial_lr and power_c) so the per-step "
+                             "LR for late blocks is mult * baseline_lr(step). Default 1.0 = rank-1.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1218,6 +1226,11 @@ if dist.get_rank() == 0:
             "ri_gamma": args.ri_gamma,
             "ri_capture_step": args.ri_capture_step,
             "ri_enabled": args.ri_gamma != 0.0,
+            "muon_lr_early_mult": args.muon_lr_early_mult,
+            "muon_lr_late_mult": args.muon_lr_late_mult,
+            "muon_per_block_lr_enabled": (args.muon_lr_early_mult != 1.0 or args.muon_lr_late_mult != 1.0),
+            "muon_num_blocks": 12,
+            "muon_early_end_idx": 6,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
         },
@@ -1269,9 +1282,39 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # H-AO: Per-block Muon LR differentiation. Build Muon with ALL named_params so the
+    # name-derived sets (soap_params, arbor_params, etc.) cover every block. Then split
+    # the single default param_group into two LR groups keyed by block depth so early
+    # and late blocks can use different LR multipliers. Both initial_lr and power_c are
+    # multiplied so the multiplier scales the entire schedule (plateau + cooldown), not
+    # just the initial cap. With mults=(1.0, 1.0) this is identically the rank-1 setup.
+    muon_named_params = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
+    NUM_BLOCKS = len(model.blocks)
+    EARLY_END_IDX = NUM_BLOCKS // 2
+    muon_early_params = sorted(
+        [p for n, p in muon_named_params if int(n.split(".")[0]) < EARLY_END_IDX],
+        key=lambda x: x.size(), reverse=True,
+    )
+    muon_late_params = sorted(
+        [p for n, p in muon_named_params if int(n.split(".")[0]) >= EARLY_END_IDX],
+        key=lambda x: x.size(), reverse=True,
+    )
+    optimizer2 = Muon(muon_named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+    optimizer2.param_groups = []
+    optimizer2.add_param_group({
+        "params": muon_early_params,
+        "lr": MUON_LR * args.muon_lr_early_mult,
+        "weight_decay": MUON_WEIGHT_DECAY,
+        "mu": MU,
+        "name": "muon_blocks_early",
+    })
+    optimizer2.add_param_group({
+        "params": muon_late_params,
+        "lr": MUON_LR * args.muon_lr_late_mult,
+        "weight_decay": MUON_WEIGHT_DECAY,
+        "mu": MU,
+        "name": "muon_blocks_late",
+    })
     inner_optimizers = [optimizer1, optimizer2]
     optimizer_ema = EMA_Nesterov(
         [p for p in model.parameters()],
@@ -1292,7 +1335,8 @@ for trial_idx in range(args.num_trials):
     optimizer1.param_groups[0]["power_c"] = ADAM_EMBED_POWER_C
     optimizer1.param_groups[1]["power_c"] = ADAM_PROJ_POWER_C
     optimizer1.param_groups[2]["power_c"] = ADAM_OTHER_POWER_C
-    optimizer2.param_groups[0]["power_c"] = MUON_POWER_C
+    optimizer2.param_groups[0]["power_c"] = MUON_POWER_C * args.muon_lr_early_mult
+    optimizer2.param_groups[1]["power_c"] = MUON_POWER_C * args.muon_lr_late_mult
 
     def _power_lr(step, initial_lr, power_c, power=FINAL_LR_POWER):
         t_end = FINAL_SCHEDULE_STEPS
