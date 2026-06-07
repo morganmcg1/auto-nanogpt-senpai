@@ -116,7 +116,10 @@ We are now 21 saturated levers and 2 failed direction families into a deep plate
 
 ## Next-wave hypotheses (queued for next idle students)
 
-1. **H-AY: AdamW eps sweep** — spec ready at `/tmp/h-ay-spec-adamw-eps.md`; arms 1e-8 and 1e-12 vs default 1e-10. Fastest to implement (1-line change), quick to falsify.
-2. **Sophia-G on AdamW path** — 2nd-order diagonal Hessian estimator; targets embed/lm_head path. More complex, bigger potential swing.
-3. **Spectral radius normalization** — per-parameter spectral norm targeting (different from current SOAP).
-4. **SAM wrapper** — Sharpness-Aware Minimization, 2× wall-time but fair in fixed-step regime.
+Full specs in `/research/RESEARCH_IDEAS_2026-06-07_12:30.md`. Ranked priority:
+
+1. **H-BA: Sophia-G Diagonal Hessian on AdamW** (HIGHEST priority) — Replaces AdamW v_t with Hutchinson-estimated diagonal Hessian every k=10 steps. Targets embed/lm_head where Adam's v_t is least reliable. <1% overhead. Mechanism bet on curvature-correct denominator.
+2. **H-BC: Spectral radius normalization in muon_update** — Replaces `max(1, H/W)**0.5` heuristic at line 918 with 3-iter power iteration to true spectral norm, target radius 1.0. Zero new params, attacks un-grounded constant.
+3. **H-BE: EMA-Nesterov scope diagnostic** — Test wrapping EN around Muon params only vs all params. Zero-overhead ablation.
+4. **H-BF: SNR-adaptive LR on AdamW** — Per-param gradient SNR from existing m_t, v_t; suppress low-SNR updates. Negligible overhead, reuses optimizer state.
+5. **H-BB: PSGD-Kron** + **H-BD: partial SAM** — written but have memory / benchmark-contract risks; hold for later wave.
