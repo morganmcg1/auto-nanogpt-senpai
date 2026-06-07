@@ -1,5 +1,84 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-07 19:35 — PR #2351: H-BC Spectral radius norm targeting in muon_update (open2-fern)
+
+- Branch: `open2-fern/h-bc-spec-norm`
+- Hypothesis: Replace the post-NS5 shape heuristic `max(1, rows/cols)**0.5` with `σ_target/σ̂` where σ̂ is the measured operator norm. Arm A: σ_target=1.0. Arm B: σ_target=0.7.
+- Status: **Closed FALSIFIED — 35th saturated lever.**
+
+### Results
+
+| Arm | n | mean val/ri_loss_gamma_neg0p0750 | vs rank-1 (3.276193) |
+|---|---:|---:|---:|
+| A (σ_target=1.0) | 2 | **3.280025** | **+0.003832 FALSIFIED** |
+| B (σ_target=0.7) | killed early | — | mechanistically worse, not run |
+
+- W&B runs: `v65l1o11` (Arm A). `open2-fern/h-bc-spec-norm` / `H-BC-spec-norm` group.
+
+### Analysis
+
+- σ̂ probe at step 5 showed mean σ̂ ≈ 1.67 across 3072×768 mlp.fc.weight — i.e. post-NS5 update is NOT operator-norm 1.0 as the shape heuristic assumes.
+- σ_target=1.0 scaling (effective ×0.60 on principal axis vs baseline ×2.0) redistributes update mass from non-principal singular directions onto the principal direction.
+- Downstream per-row second-moment rescaling (lines 945–952) preserves total Frobenius via `vnorm/vnorm_new`, so this is effectively mass-redistribution, not a global LR change.
+- **Failure mechanism**: the principal direction of the post-NS5 update is noise-amplified rather than signal-bearing. NC's column-equalization already biases toward orthogonal directions, so concentrating onto the principal axis is double-suppression.
+- **Invariant**: post-NS5 update spectrum should be left as-is or further dispersed; never concentrated onto principal direction on this stack.
+- 35th saturated lever. askeladd→H-BM.
+
+---
+
+## 2026-06-07 19:30 — PR #2355: H-BI Depth-wise Muon LR decay (open2-tanjiro)
+
+- Branch: `open2-tanjiro/h-bi-depth-muon-lr`
+- Hypothesis: Apply per-block multiplicative LR decay on Muon (Arm A: top block at full MUON_LR=0.0375, geometric decay=0.85 downward, bottom block ≈0.00567).
+- Status: **Closed FALSIFIED — 34th saturated lever (early abort at T0).**
+
+### Results
+
+| Trial | val/ri_loss_gamma_neg0p0750 | vs rank-1 (3.276193) |
+|---:|---:|---:|
+| T0 (seed 0) | **3.29223** | **+0.016037 — 32× noise floor** |
+| T1 | killed | rescue impossible (needed ≤3.260557) |
+
+- W&B run: `hld6fioy`. Command: `--depth_lr_decay 0.85 --depth_lr_inverted 0`.
+
+### Analysis
+
+- Single-seed +0.016 is the largest regression in the recent Muon-side wave — larger even than H-BA Sophia-G's +0.079 in magnitude relative to what we'd need for T1 rescue.
+- **Failure mechanism**: the PR #2317 stack's NS5 cubic poly assumes uniform per-layer step sizes for stability; layer-asymmetric LR breaks the NC × Arbor equalization invariant at the NS5 boundary. The bottom layers are starved of update magnitude and fall behind irrecoverably.
+- Arm B (inverted — top blocks starved, bottom blocks full LR) not run; same mechanism applies in the other direction.
+- **Invariant**: Muon LR uniformity across blocks is load-bearing for the NC × Arbor × NS5 stack.
+- 34th saturated lever. tanjiro→H-BN.
+
+---
+
+## 2026-06-07 19:26 — PR #2354: H-BH GC on Muon momentum buffer (open2-askeladd)
+
+- Branch: `open2-askeladd/h-bh-gc-momentum`
+- Hypothesis: Apply gradient centering (subtract per-row mean) on `state["momentum"]` after each `lerp_(grad, 1-mu)` EMA update, before the Nesterov blend. Tests whether DC-mode removal from the momentum buffer improves the NC × Arbor × EN × RI stack.
+- Status: **Closed FALSIFIED — 33rd saturated lever (early abort at T0).**
+
+### Results
+
+| Trial | val/ri_loss_gamma_neg0p0750 | vs rank-1 (3.276193) |
+|---:|---:|---:|
+| T0 (seed 0) | **3.284688** | **+0.008495 — 17× noise floor** |
+| T1 | killed | rescue impossible (needed ≤3.268498) |
+
+- W&B run: `4q46nmwf`. Command: `--muon_gc_momentum 1`.
+
+### Smoke probe (step 30)
+- (3072,768) pre_mean=2.697e-03 → post_mean=-3.622e-10 ✓ Centering executes correctly.
+
+### Analysis
+
+- Post-EMA centering of `state["momentum"]` removes the global DC mode from the rank-2 momentum tensor before the EMA-blend with the current gradient.
+- Stacked on NC (which performs per-row × per-col L2 equalization post-NS5), this creates a **double DC-mode cancellation**: the EMA-Nesterov slow trajectory loses its mean component at two stages.
+- The EN slow trajectory's mean component carries signal in the converged stack. Removing it is destructive.
+- **GC-on-Muon family now closed**: H-AT (raw gradient, 28th lever) + H-BH (momentum buffer, 33rd lever). Both FALSIFIED with the same mechanism. Any further DC-mode operation on the Muon update path is contraindicated.
+- 33rd saturated lever. askeladd→H-BM.
+
+---
+
 ## 2026-06-07 18:25 — PR #2346: H-AW EN REST_STEPS=2300 — n=4 CLOSURE (open2-edward)
 - Branch: `open2-edward/h-aw-en-rest-steps`
 - Hypothesis: Extend EMA-Nesterov rest window by advancing REST_STEPS from 1950 to 2300 (vs 2890 total), giving the EN momentum buffer a longer flat tail to stabilize before RI capture at step 2375.
