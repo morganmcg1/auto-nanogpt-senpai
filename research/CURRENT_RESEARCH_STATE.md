@@ -29,12 +29,13 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | **#2340** | open2-fern | H-AQ: AdamW β₁ warmup | Arm A FALSIFIED (n=2 mean 3.278438). Arm B (β₁=0.65) `q1rg6lwx` step 4066/5780 (~70%), T0=3.280502 **FALSIFIED**, T1 pending ~13:40 UTC. |
 | **#2348** | open2-thorfinn | H-AZ: Lookahead wrapper on Muon | Smoke `oefw76xt`+`lzemh97u` passed. Full run `tjv3mars` (k=6, α=0.5) step ~400/2890 healthy. T0 ETA ~14:30 UTC. |
 | **#2346** | open2-edward | H-AW: EN REST_STEPS timing sweep | Run `43ng08cg` (REST=2300, Arm A) step 3791/5780 (~65%), **T0=3.276414 PROMISING** (+0.000221, within noise). T1 pending ~13:30 UTC. |
-| **#2347** | open2-tanjiro | H-AX: EN PREFILL_STEPS timing sweep | Run `306xu575` (PREFILL=100, Arm A) step 3116/5780 (~54%), T0=3.277027 **FALSIFIED**. T1 pending ~13:55 UTC. |
+| **#2350** | open2-tanjiro | H-BA: Sophia-G diagonal Hessian on AdamW | **Just assigned** (PR #2347 H-AX CLOSED FALSIFIED at T0=+0.000834 + crash). Pending pod pickup; smoke first. |
 
 ## Recent closures (this session, most recent first)
 
 | Date | PR | Hypothesis | Decision | Key finding |
 |---|---|---|---|---|
+| 2026-06-07 12:43 | #2347 (tanjiro H-AX) | EN PREFILL_STEPS=100 | **CLOSED FALSIFIED** | T0=3.277027 = +0.000834 (FALSIFIED), trial 2 CRASHED at step 3316. 24th saturated lever (EN timing axis). |
 | 2026-06-07 09:55 | #2337 (edward H-AO) | Per-block Muon LR (both arms) | **CLOSED FALSIFIED** | Arm A T0=+0.0078, Arm B T0=+0.006015. Both 12-16× noise floor. 21st saturated lever. |
 | 2026-06-07 09:50 | #2344 (tanjiro H-AU) | Muon LR warmup 0→0.0375 over 200 steps | **CLOSED FALSIFIED** | T0=3.281785 = +0.005592. Early abort. 20th saturated lever. |
 | 2026-06-07 08:00 | #2339 (thorfinn H-AP) | lm_head on Muon (mult=0.1) | **CLOSED FALSIFIED** | T0=3.291868 = +0.0157. 19th saturated lever. |
@@ -68,10 +69,10 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | **Muon gradient noise (σ_0=0.01)** | n=2 mean +0.001498 | **SATURATED (H-AS)** |
 | **Gradient Centralization** | T0=+0.000136 (PROMISING) | H-AT T1 ~40% (askeladd) |
 | **FINAL_LR_POWER sweep (0.9, renorm)** | T0=+0.004326 (8× noise floor) | **SATURATED (H-AV)** |
-| **EN REST_STEPS timing** | TBD | H-AW just assigned (edward) |
-| **EN PREFILL_STEPS timing** | TBD | H-AX just assigned (tanjiro) |
+| **EN REST_STEPS timing (2300)** | T0=3.276414 (+0.000221, INCONCLUSIVE) | H-AW T1 pending ~13:30 UTC (edward) |
+| **EN PREFILL_STEPS=100** | T0=3.277027 (+0.000834, FALSIFIED) + crash | **SATURATED (H-AX)** — 24th lever |
 
-## Saturated levers count: 23 (+ 2 failed direction families)
+## Saturated levers count: 24 (+ 2 failed direction families)
 
 1. RI γ axis (H-AD)
 2. RI single-anchor capture × γ sweep (H-AE)
@@ -96,30 +97,27 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 21. Per-block Muon LR Arm B late-boost (H-AO complete) — both arms catastrophic
 22. FINAL_LR_POWER=0.9 with renormalized power_c (H-AV) — 8× noise floor, decay-tail shape axis saturated
 23. Muon gradient noise σ_0=0.01 Neelakantan decayed (H-AS) — n=2 mean +0.001498, noise poisons NS orthogonalization
+24. EN PREFILL_STEPS=100 (H-AX) — T0=+0.000834, crashed in trial 2; EN window-timing axis FALSIFIED with PREFILL=100
 
 ## Strategic context (deep plateau)
 
-We are now 21 saturated levers and 2 failed direction families into a deep plateau. The rank-1 3.276193 stack (NC × Arbor × EN × RI) is highly optimized. 
+We are now 24 saturated levers and 2 failed direction families into a deep plateau. The rank-1 3.276193 stack (NC × Arbor × EN × RI) is highly optimized. 
 
 **KEY PENDING**:
 1. **askeladd H-AT GC n=4 confirm** running (`crhbqarp` step 1525/2890 ~53% of seed 2). Final at ~14:00 UTC. Only positive signal in last 11+ arms tested. n=2 mean had been 3.276584 (T0=3.276329, T1=3.276839, spread ≈ noise floor).
 2. **edward H-AW REST=2300 PROMISING**: T0=3.276414 (+0.000221 vs rank-1, within noise band). T1 ETA ~13:30 UTC. If n=2 mean ≤ 3.276193 → n=4 confirm directed; (3.276193, 3.276593) inconclusive → try Arm B (REST=1600).
 3. **Frieren operational issue**: zombie run on closed PR #2342 (h-as-grad-noise) — kill+launch order posted on PR #2349 12:22 UTC.
 
-**EN window timing (H-AW/H-AX)** is a fresh direction class (never tested). EN is load-bearing (−0.0028); its PREFILL/REST boundaries are inherited from pre-composition tuning. H-AW Arm A (REST=2300) is **the only positive T0** among 3 timing arms.
+**EN window timing (H-AW/H-AX)** partial results: PREFILL=100 FALSIFIED. REST=2300 T0 inconclusive (+0.000221, within noise). Arm B needed only if REST=2300 n=2 mean is inconclusive.
 
-**Plateau Protocol activated.** If EN window timing fails, escalate to:
-- Sophia-G on AdamW path (2nd-order diagonal Hessian)
-- AdamW eps sweep (H-AY, spec ready)
-- Sharpness-Aware Minimization (SAM) wrapper
-- PSGD / Shampoo preconditioner variants
+**Plateau Protocol escalated (wave 2)**: tanjiro now on H-BA (Sophia-G, 2nd-order AdamW). Queued: H-BC spectral norm, H-BE EN scope, H-BF SNR-LR.
 
 ## Next-wave hypotheses (queued for next idle students)
 
 Full specs in `/research/RESEARCH_IDEAS_2026-06-07_12:30.md`. Ranked priority:
 
-1. **H-BA: Sophia-G Diagonal Hessian on AdamW** (HIGHEST priority) — Replaces AdamW v_t with Hutchinson-estimated diagonal Hessian every k=10 steps. Targets embed/lm_head where Adam's v_t is least reliable. <1% overhead. Mechanism bet on curvature-correct denominator.
-2. **H-BC: Spectral radius normalization in muon_update** — Replaces `max(1, H/W)**0.5` heuristic at line 918 with 3-iter power iteration to true spectral norm, target radius 1.0. Zero new params, attacks un-grounded constant.
-3. **H-BE: EMA-Nesterov scope diagnostic** — Test wrapping EN around Muon params only vs all params. Zero-overhead ablation.
-4. **H-BF: SNR-adaptive LR on AdamW** — Per-param gradient SNR from existing m_t, v_t; suppress low-SNR updates. Negligible overhead, reuses optimizer state.
+1. **H-BA: Sophia-G Diagonal Hessian on AdamW** — Assigned to tanjiro (PR #2350). Smoke + Arm A in flight.
+2. **H-BC: Spectral radius normalization in muon_update** — Next assignment for whichever student becomes idle first (likely nezuko or fern after FALSIFIED Arm B terminals ~13:40 UTC).
+3. **H-BE: EMA-Nesterov scope diagnostic** — Wrap EN around Muon params only vs all params.
+4. **H-BF: SNR-adaptive LR on AdamW** — Per-param gradient SNR from existing m_t, v_t; suppress low-SNR updates.
 5. **H-BB: PSGD-Kron** + **H-BD: partial SAM** — written but have memory / benchmark-contract risks; hold for later wave.
