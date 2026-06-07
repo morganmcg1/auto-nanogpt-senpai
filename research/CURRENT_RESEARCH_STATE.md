@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-07 ~09:30 UTC (launch day +3)
+- **As of:** 2026-06-07 ~10:00 UTC (launch day +3)
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -18,28 +18,28 @@
 
 Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed) plus prior Senpai PR #1532/#1614, push the Track 3 fixed-step record below 2900.
 
-## Active assignments (08:00 UTC, 2026-06-07)
+## Active assignments (~10:00 UTC, 2026-06-07)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~27h, round-2 escalation posted. Human team not responded. |
-| **#2341** | open2-nezuko | H-AR: EN γ warmup (0.9→0.99 over 500 steps) | dynewpp5 T0=3.278301 (+0.00211, falsified). T1 step 1751/2890 (~61%). Let T1 finish for n=2. |
-| **#2342** | open2-frieren | H-AS: Muon gradient noise (σ_0=0.01, Neelakantan 2015) | f50uw5jj T0=3.278573 (+0.00218, falsified). T1 step 651/2890 (~22%). Let T1 finish. |
-| **#2343** | open2-askeladd | H-AT: Gradient Centralization on Muon (Yong et al. 2020) | **PROMISING**: qwbvitns T0=3.276329 (+0.000136, PASSES n=1 gate by 0.000064). T1 step 876/2890 (~30%). Critical watch. |
-| **#2344** | open2-tanjiro | H-AU: Muon LR warmup (0→0.0375 over 200 steps) | cuprgtht T0=3.281785 (+0.00559, 11× noise, FALSIFIED). Early-abort recommendation posted PR #2344. |
-| **#2340** | open2-fern | H-AQ: AdamW β₁ warmup (0.5→0.8 over 500 steps) | m33ftkmq T0=3.278451 (+0.00226, falsified). T1 step 1851/2890 (~64%). Let T1 finish. |
-| **#2337** | open2-edward | H-AO: Per-block Muon LR, Arm B (early_mult=0.8, late_mult=1.2) | n8avho0l step 2750/2890. T0 imminent (~140 steps). val 3.2939 pre-RI. |
-| **#2345** | open2-thorfinn | H-AV: FINAL_LR_POWER sweep (renormalized) | Smoke both passed (1ala1e27 + cvw4wele). n=2 launched spn3b1w8 power=0.9 with renormalized power_c. T0 step 600/2890. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~29h, round-2 escalation posted. Human team not responded. |
+| **#2341** | open2-nezuko | H-AR: EN γ warmup (0.9→0.99 over 500 steps) | dynewpp5 T0=3.278301 (+0.002108, FALSIFIED). T1 ~79%. Let T1 finish for n=2 report. |
+| **#2342** | open2-frieren | H-AS: Muon gradient noise (σ_0=0.01) | f50uw5jj T0=3.278573 (+0.002380, FALSIFIED). T1 ~34%. Let T1 finish. |
+| **#2343** | open2-askeladd | H-AT: Gradient Centralization on Muon | **PROMISING**: qwbvitns T0=3.276329 (+0.000136, PASSES n=1 gate by 0.000064). T1 ~40% (~1200/2890). Critical watch. |
+| **#2340** | open2-fern | H-AQ: AdamW β₁ warmup (0.5→0.8 over 500 steps) | m33ftkmq T0=3.278451 (+0.002258, FALSIFIED). T1 ~82%. T1 terminal imminent. |
+| **#2345** | open2-thorfinn | H-AV: FINAL_LR_POWER=0.9 (renormalized power_c) | spn3b1w8 T0 at step ~1200/2890. |
+| **#2346** | open2-edward | H-AW: EN REST_STEPS timing sweep (1950→2300 or 1600) | **Just assigned.** Pending pod pickup. |
+| **#2347** | open2-tanjiro | H-AX: EN PREFILL_STEPS timing sweep (300→100 or 600) | **Just assigned.** Pending pod pickup. |
 
 ## Recent closures (this session, most recent first)
 
 | Date | PR | Hypothesis | Decision | Key finding |
 |---|---|---|---|---|
-| 2026-06-07 08:00 | #2339 (thorfinn H-AP) | lm_head on Muon (mult=0.1) | **CLOSED FALSIFIED** | T0=3.291868 = +0.0157 above rank-1 (~31× noise floor). Early abort. 19th saturated lever. |
-| 2026-06-07 07:10 | #2335 (tanjiro H-AM) | Muon WD cosine 0.025→0 | **CLOSED FALSIFIED** | n=2 mean 3.276455 > gate. T0/T1 spread 8× noise floor. 18th saturated lever. |
-| 2026-06-07 07:05 | #2331 (askeladd H-AI) | NS quartic (3,−3,1) | **CLOSED FALSIFIED** | T0=3.276060 (lucky seed), T1=3.277055. n=2 mean 3.276558 > gate. NS polynomial axis saturated. 17th saturated lever. |
-| 2026-06-07 06:45 | #2334 (frieren H-AL) | AdamW β₂ warmup 0.95→0.99 | **CLOSED FALSIFIED** | n=2 mean 3.276485 > gate. T0/T1 spread +0.002. 15th saturated lever. |
-| 2026-06-07 06:10 | #2336 (nezuko H-AN) | Multi-anchor RI (steps 2200+2375) | **CLOSED FALSIFIED** | T0=3.27754 = +0.00134 above rank-1. Correlated anchors. 14th saturated lever. |
+| 2026-06-07 09:55 | #2337 (edward H-AO) | Per-block Muon LR (both arms) | **CLOSED FALSIFIED** | Arm A T0=+0.0078, Arm B T0=+0.006015. Both 12-16× noise floor. 21st saturated lever. |
+| 2026-06-07 09:50 | #2344 (tanjiro H-AU) | Muon LR warmup 0→0.0375 over 200 steps | **CLOSED FALSIFIED** | T0=3.281785 = +0.005592. Early abort. 20th saturated lever. |
+| 2026-06-07 08:00 | #2339 (thorfinn H-AP) | lm_head on Muon (mult=0.1) | **CLOSED FALSIFIED** | T0=3.291868 = +0.0157. 19th saturated lever. |
+| 2026-06-07 07:10 | #2335 (tanjiro H-AM) | Muon WD cosine 0.025→0 | **CLOSED FALSIFIED** | n=2 mean 3.276455 > gate. High seed variance. 18th saturated lever. |
+| 2026-06-07 07:05 | #2331 (askeladd H-AI) | NS quartic (3,−3,1) | **CLOSED FALSIFIED** | n=2 mean 3.276558 > gate. Lucky T0 seed. 17th saturated lever. |
 
 ## Key mechanism table (NC × Arbor + RI stack)
 
@@ -49,27 +49,29 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 | + EMA-Nesterov (γ=0.99) | −0.0028 (load-bearing) | — |
 | + RI (capture=2375, γ=−0.075) | −0.00032 | Single-anchor axis SATURATED |
 | + NC (Cautious-Muon) | −0.00069 | — |
-| **Muon LR ±20%** | regresses | **SATURATED** |
-| **EMA-Nesterov γ (constant)** | regresses | **SATURATED** |
-| **NS10 vs NS12** | within noise | **SATURATED** |
-| **z-loss aux** | +0.004 to +0.013 | **SATURATED** |
-| **Cautious-AdamW (all groups)** | diverges | **FAILED** |
-| **Cautious-AdamW dense-only** | diverges | **FAILED** |
-| **Arbor warmup N=(0,500)** | within noise | **SATURATED** |
-| **Multi-anchor RI (2200+2375)** | +0.00134 | **SATURATED** |
-| **AdamW β₂ warmup** | n=2 mean +0.000292 | **SATURATED** |
-| **NS quartic (3,−3,1)** | n=2 mean +0.000365 (T0 lucky) | **SATURATED** |
-| **Muon WD cosine 0.025→0** | n=2 mean +0.000262 (high variance) | **SATURATED** |
-| **lm_head on Muon (mult=0.1)** | T0=+0.0157 (catastrophic) | **SATURATED** |
-| **Per-block Muon LR (Arm A early-boost)** | T0=+0.0078 (catastrophic) | Arm B late-boost TBD |
-| **AdamW β₁ warmup** | TBD | H-AQ in flight (fern, T0 imminent) |
-| **EN γ warmup (0.9→0.99)** | TBD | H-AR in flight (nezuko, T0 imminent) |
-| **Muon gradient noise** | TBD | H-AS in flight (frieren) |
-| **Gradient Centralization** | TBD | H-AT in flight (askeladd) |
-| **Muon LR warmup 0→0.0375** | TBD | H-AU in flight (tanjiro) |
-| **FINAL_LR_POWER sweep (0.9/1.5)** | TBD | H-AV just assigned (thorfinn) |
+| **Muon LR ±20%** | regresses | **SATURATED (H-AG)** |
+| **EMA-Nesterov γ (constant)** | regresses | **SATURATED (H-AH)** |
+| **NS10 vs NS12** | within noise | **SATURATED (H-AF)** |
+| **z-loss aux** | +0.004 to +0.013 | **SATURATED (H-AJ)** |
+| **Cautious-AdamW (all groups)** | diverges | **FAILED (H-AK)** |
+| **Cautious-AdamW dense-only** | diverges | **FAILED (H-AK')** |
+| **Arbor warmup N=(0,500)** | within noise | **SATURATED (H-AA)** |
+| **Multi-anchor RI (2200+2375)** | +0.00134 | **SATURATED (H-AN)** |
+| **AdamW β₂ warmup** | n=2 mean +0.000292 | **SATURATED (H-AL)** |
+| **NS quartic (3,−3,1)** | n=2 mean +0.000365 | **SATURATED (H-AI)** |
+| **Muon WD cosine 0.025→0** | n=2 mean +0.000262 | **SATURATED (H-AM)** |
+| **lm_head on Muon (mult=0.1)** | T0=+0.0157 | **SATURATED (H-AP)** |
+| **Per-block Muon LR (both arms)** | T0 = +0.006 to +0.008 | **SATURATED (H-AO)** |
+| **Muon LR warmup 0→0.0375** | T0=+0.0056 | **SATURATED (H-AU)** |
+| **AdamW β₁ warmup** | T0=+0.00226 (FALSIFIED) | H-AQ T1 ~82% (fern) |
+| **EN γ warmup (0.9→0.99)** | T0=+0.00211 (FALSIFIED) | H-AR T1 ~79% (nezuko) |
+| **Muon gradient noise** | T0=+0.00218 (FALSIFIED) | H-AS T1 ~34% (frieren) |
+| **Gradient Centralization** | T0=+0.000136 (PROMISING) | H-AT T1 ~40% (askeladd) |
+| **FINAL_LR_POWER sweep (0.9)** | TBD | H-AV T0 in flight (thorfinn) |
+| **EN REST_STEPS timing** | TBD | H-AW just assigned (edward) |
+| **EN PREFILL_STEPS timing** | TBD | H-AX just assigned (tanjiro) |
 
-## Saturated levers count: 19 (+ 2 failed direction families)
+## Saturated levers count: 21 (+ 2 failed direction families)
 
 1. RI γ axis (H-AD)
 2. RI single-anchor capture × γ sweep (H-AE)
@@ -88,40 +90,28 @@ Mine the public `KellerJordan/modded-nanogpt` ecosystem (merged + open + closed)
 15. AdamW β₂ warmup 0.95→0.99 (H-AL)
 16. NS quartic (3,−3,1) (H-AI) — T0 lucky seed
 17. Muon WD cosine 0.025→0 (H-AM) — high variance
-18. Per-block Muon LR early-boost Arm A T0=+0.0078 (H-AO partial)
-19. lm_head on Muon mult=0.1, T0=+0.0157 (H-AP) — catastrophic
+18. Per-block Muon LR Arm A early-boost (H-AO partial)
+19. lm_head on Muon mult=0.1 (H-AP) — catastrophic
+20. Muon LR warmup 0→0.0375 (H-AU) — catastrophic
+21. Per-block Muon LR Arm B late-boost (H-AO complete) — both arms catastrophic
 
 ## Strategic context (deep plateau)
 
-We are now 19+ saturated levers and 2 failed direction families into a deep plateau. The rank-1 3.276193 stack (NC × Arbor × EN × RI) is highly optimized. Current in-flight experiments cover:
+We are now 21 saturated levers and 2 failed direction families into a deep plateau. The rank-1 3.276193 stack (NC × Arbor × EN × RI) is highly optimized. 
 
-**Gradient-level processing (new direction class):**
-- H-AS gradient noise (frieren, f50uw5jj step ~1525)
-- H-AT gradient centralization (askeladd, qwbvitns step ~1734)
+**KEY PENDING**: askeladd H-AT Gradient Centralization T0 = **3.2763288** — PASSES n=1 gate by 0.000064. This is the most interesting single result of the current wave. T1 at ~40%. Decision in ~60 min.
 
-**Schedule axis:**
-- H-AQ AdamW β₁ warmup (fern, m33ftkmq step ~2525, T0 imminent)
-- H-AR EN γ warmup (nezuko, dynewpp5 step ~2400, T0 imminent)
-- H-AU Muon LR warmup (tanjiro, cuprgtht step ~950)
-- H-AV FINAL_LR_POWER sweep (thorfinn, just assigned PR #2345)
+**EN window timing (H-AW/H-AX)** is a fresh direction class (never tested). EN is load-bearing (−0.0028); its PREFILL/REST boundaries are inherited from pre-composition tuning. Two students now assigned to sweep these axes.
 
-**Architecture migration:**
-- H-AO Arm B late-boost per-block LR (edward, n8avho0l running)
+**Plateau Protocol activated.** If EN window timing fails, escalate to:
+- Sophia-G on AdamW path (2nd-order diagonal Hessian)
+- AdamW eps sweep (H-AY, spec ready)
+- Sharpness-Aware Minimization (SAM) wrapper
+- PSGD / Shampoo preconditioner variants
 
-**Two T0 results expected within 15 minutes**: fern H-AQ and nezuko H-AR.
+## Next-wave hypotheses (queued for next idle students)
 
-**H-AO per-block LR note:** Arm A (early-boost 1.2/0.8) badly falsified at T0=3.2840. Arm B (late-boost 0.8/1.2) now running. If Arm B also falsifies, per-block Muon LR axis is CLOSED entirely.
-
-**Plateau Protocol activated.** With 19 saturated levers, the team should look at:
-- Second-order information (Sophia-G, AdaHessian) on AdamW path
-- Alternative preconditioners (PSGD, Shampoo variants)
-- EMA-Nesterov window timing (PREFILL_STEPS/REST_STEPS unexplored)
-- Spectral normalization targeting
-
-## Next-wave hypotheses (for next idle students)
-
-1. **EMA-Nesterov rest_steps timing** — REST_STEPS=1950 is fixed; extending (2300) or shortening (1600) the active EN window may interact productively with RI capture at 2375
-2. **Sophia-G on AdamW path** — 2nd-order diagonal Hessian estimator via GNB, potentially 2× convergence speed in LM pretraining
-3. **FINAL_LR_POWER sweep** — ASSIGNED to thorfinn (H-AV, power 0.9/1.5 vs default 1.2)
-4. **Spectral radius normalization** — per-parameter spectral norm targeting, different from current SOAP
-5. **Sharpness-Aware Minimization (SAM) wrapper** — 2× wall-time but fair in fixed-step regime
+1. **H-AY: AdamW eps sweep** — spec ready at `/tmp/h-ay-spec-adamw-eps.md`; arms 1e-8 and 1e-12 vs default 1e-10. Fastest to implement (1-line change), quick to falsify.
+2. **Sophia-G on AdamW path** — 2nd-order diagonal Hessian estimator; targets embed/lm_head path. More complex, bigger potential swing.
+3. **Spectral radius normalization** — per-parameter spectral norm targeting (different from current SOAP).
+4. **SAM wrapper** — Sharpness-Aware Minimization, 2× wall-time but fair in fixed-step regime.

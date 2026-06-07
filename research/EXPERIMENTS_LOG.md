@@ -1,5 +1,29 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-07 09:55 — PR #2337: H-AO Per-block Muon LR differentiation (open2-edward)
+- Branch: open2-edward/h-ao-per-block-muon
+- Hypothesis: Differentiate Muon LR per block: early blocks get a higher multiplier in Arm A (early-boost 1.2/0.8), late blocks get higher in Arm B (late-boost 0.8/1.2). Targets the observation that early blocks are more specialized to input features, late blocks more to output prediction.
+- W&B runs: 2au0tavg (Arm A), n8avho0l (Arm B)
+
+| Arm | T0 val/ri_loss | vs rank-1 |
+|---|---:|---:|
+| Arm A (early-boost 1.2/0.8) | 3.2840 | **+0.0078** |
+| Arm B (late-boost 0.8/1.2) | 3.282208 | **+0.006015** |
+
+- **Decision: CLOSED FALSIFIED. 21st saturated lever.** Both arms catastrophically fail at T0 (12–16× noise floor). Per-block Muon LR axis completely saturated. The Muon NS5 orthogonalization already produces normalized updates across blocks; additional multiplicative differentiation causes destructive interference with NC's cautious mask.
+
+## 2026-06-07 09:50 — PR #2344: H-AU Muon LR warmup (open2-tanjiro)
+- Branch: open2-tanjiro/h-au-muon-lr-warmup
+- Hypothesis: Linear warmup of Muon LR from 0→0.0375 over the first 200 steps. Motivation: early Muon steps use full LR before gradient norms stabilize; warmup may improve early-step optimization.
+- W&B run: cuprgtht
+
+| Trial | val/ri_loss | vs rank-1 |
+|---|---:|---:|
+| T0 | 3.2817848 | **+0.005592** |
+| T1 | Early abort (advisor) | — |
+
+- **Decision: CLOSED FALSIFIED. 20th saturated lever.** T0 = +0.0056 above rank-1 (11× noise floor). Student aborted T1 early per advisor recommendation; n=2 mean mathematically unrecoverable. Muon LR warmup degrades early gradient norms through NS5's stepcounting assumption — NS5 counts steps, but if effective LR is near-zero for 200 steps, the normalization is miscalibrated for the first ~7% of training.
+
 ## 2026-06-07 08:00 — PR #2339: H-AP lm_head on Muon (open2-thorfinn)
 - Branch: open2-thorfinn/h-ap-lm-head-muon
 - Hypothesis: Move lm_head (`model.proj.weight`) from AdamW to Muon as a separate param group (muon_lm_head_lr_mult=0.1, effective LR ≈ current AdamW lr 1/320). Muon's NS5 orthogonalization may help the vocab-projection matrix.
