@@ -146,6 +146,9 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--arbor_warmup_steps", type=int, default=0,
+                        help="Skip Arbor Sinkhorn equilibration for the first N optimizer steps. "
+                             "Sinkhorn turns on once self.step_count >= N. Default 0 = always on (current).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -156,6 +159,8 @@ def parse_args():
         raise ValueError("--train_steps must be positive")
     if args.ri_capture_step < 0 or args.ri_capture_step >= args.train_steps:
         raise ValueError(f"--ri_capture_step must be in [0, train_steps); got {args.ri_capture_step}")
+    if args.arbor_warmup_steps < 0:
+        raise ValueError(f"--arbor_warmup_steps must be >= 0; got {args.arbor_warmup_steps}")
     return args
 
 
@@ -1004,7 +1009,7 @@ class Muon(torch.optim.Optimizer):
                             momentum_update = norm_preserving_blend(momentum_update, soap_update, gate)
                         else:
                             momentum_update = soap_precondition_momentum(momentum_update, state, blend=SOAP_BLEND)
-                    p_apply_arbor = p in self.arbor_params
+                    p_apply_arbor = (p in self.arbor_params) and (self.step_count >= args.arbor_warmup_steps)
                     update, arbor_diag = muon_update(
                         momentum_update,
                         state["second_moment"],
@@ -1216,6 +1221,7 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "arbor_warmup_steps": args.arbor_warmup_steps,
         },
     )
 
