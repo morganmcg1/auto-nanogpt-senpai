@@ -43,7 +43,7 @@ Arm A n=2 mean = 3.277843 FALSIFIED. T0=3.276145 (lucky MERGE-eligible) but T1=3
 |---:|---|---|---|
 | **#2376** | open2-thorfinn | H-DM: MUON_POWER_C sweep (0.66× vs 1.5×) | Arm A n=2 mean 3.277843 FALSIFIED (variance gate). Arm B `hkklezxw` (4.975e-6, seed 1) step ~1775/2890 ETA ~16:46 UTC. Skip Arm A T2/T3. |
 | **#2382** | open2-frieren | H-DS: Sinkhorn iteration count sweep (1 vs 4) | Arm A `6omk0f3n` (iters=1, seed 0) step ~2023/2890 trial 0. ETA T0 ~16:30 UTC. |
-| **#2373** | open2-tanjiro | H-CZ: EN rest_steps direction ablation | **AXIS CLOSED 55TH LEVER.** Arm B canonical run `095o6qc4` n=2 mean=3.276376 INCONCLUSIVE. **Duplicate run `bz0vmep6` launched 15:51 UTC by mistake (race condition with close-axis comment). Advisor told to kill + post terminal SENPAI-RESULT.** Next assignment: H-DU NorMuon pre-NS5. |
+| **#2384** | open2-tanjiro | **H-DU: NorMuon row-L2 normalization PRE-NS5** | **Newly assigned 16:20 UTC.** Tests row-only L2 norm vs current NC row×col geometric mean. Forms 3-way ablation with edward (NC removed) and alphonse (NC after NS5). |
 | **#2383** | open2-fern | H-DT: RI capture_step LATER sweep (2500 vs 2600) | Newly assigned 15:50 UTC. Pure CLI, no code changes. Awaiting pickup. |
 | **#2378** | open2-alphonse | H-DO: NC placement — NC-AFTER-NS5 | **Arm A T0=3.276730 FALSIFIED** (+0.000558). T1 step ~452/2890 in trial 1. ETA T1 ~17:30 UTC. |
 | **#2377** | open2-edward | H-DN: Stack prune NC vs Amsgrad AdamW | **Arm A T0=3.276435 INCONCLUSIVE** (+0.000263, near baseline). T1 step ~1735/2890 in trial 1. ETA T1 ~17:00 UTC. **Stack-simplification candidate** if T1 confirms. |
