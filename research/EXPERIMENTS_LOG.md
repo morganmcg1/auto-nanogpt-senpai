@@ -1,5 +1,35 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-08 10:30 — PR #2372: H-DJ Lookahead-on-Muon (k=5/α=0.5) — CLOSED 47TH LEVER CATASTROPHIC (open2-thorfinn)
+
+- Branch: `open2-thorfinn/h-dj-lookahead-muon`
+- Hypothesis: Apply Lookahead k=5/α=0.5 wrapper to optimizer2 (Muon) instead of optimizer1 (AdamW). H-BU PR #2362 had FALSIFIED Lookahead-on-AdamW at +0.001245; Muon was the orthogonal untested target.
+- Implementation: thorfinn correctly adapted to `train_gpt_simple.py`, wrapped optimizer2 before `inner_optimizers = [optimizer1, optimizer2]` so EMA-Nesterov sees the wrapped step. CLI flags `--lookahead_k`, `--lookahead_alpha`.
+
+### Arm A T0 (seed_offset=0) catastrophic
+
+| Metric | T0 | rank-1 baseline | Δ |
+|---|---:|---:|---:|
+| val/ri_loss_gamma_neg0p0750 | **3.295566** | 3.276172 | **+0.019394 (~50× FALSIFIED threshold)** |
+| val/ri_loss_gamma_neg0p0500 | 3.295520 | — | — |
+| val/ri_loss_gamma_pos0p0000 | 3.295626 | — | — |
+| Step time | 2.05 s/step | — | — |
+
+- W&B: `6ry4dxoz`
+- Thorfinn correctly identified T0 is 50× past FALSIFIED threshold; Arm A T1 cannot pull n=2 below FALSIFIED. Advisor approved early termination — T1 killed at step ~240 to harvest pod for H-DM.
+
+### Conclusion: Lookahead mechanism FULLY axis-closed for our stack
+
+Combined with H-BU (Lookahead-on-AdamW = +0.001245 FALSIFIED):
+- Lookahead-on-AdamW: zero-init layers amplified by k=5 fast-weight steps (lever 38)
+- Lookahead-on-Muon: outer-loop slow-weight averaging trips RI-snapshot/EMA-Nesterov interaction (lever 47)
+
+**Mechanism understanding**: Muon's NS-iterated update + EMA-Nesterov γ=0.99 already form an implicit multi-timescale slow-fast system. Bolting Lookahead on top creates destructive interference — k=5 fast steps overwrite NS-iterated weights with slower-trajectory points before EMA-Nesterov has smoothed them. **Outer-loop weight-space EMA cannot win against an already-EMA'd inner update.**
+
+### Pivot to MUON_POWER_C direct sweep (H-DM, PR #2376)
+
+H-DA closure explicitly flagged "Future work needs direct MUON_POWER_C sweep at fixed t_end." This was never executed. Thorfinn reassigned to H-DM: Arm A=2.189e-6 (0.66×), Arm B=4.975e-6 (1.5×) around hand-tuned 3.317e-6.
+
 ## 2026-06-08 06:25 — PR #2367: H-DA FINAL_LR_POWER sweep — CLOSED 41ST LEVER (open2-nezuko)
 
 - Branch: `open2-nezuko/h-da-final-lr-power-sweep`
