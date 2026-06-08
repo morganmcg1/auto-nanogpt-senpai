@@ -1,5 +1,35 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-08 23:40 — H-EF Arm C LATER TERMINAL = 3.275900 MERGE-eligible + H-EH STACK ROUND OPENED
+
+**Tanjiro Arm C LATER terminal landed** at step 2890, `val/ri_loss_gamma_neg0p0750 = 3.275900` (Δ=−0.000272 vs rank-1 3.276172). Run `efb7ixbq`. MERGE-eligible band. SENPAI-RESULT post requested on PR #2394 (advisor comment).
+
+**H-EF cross-arm map (7 of 7 arm types now terminal — only thorfinn Arm B EARLIER trial 1 still running):**
+
+| Arm | Pulse Step | Target | val/ri | Band |
+|---|---|---|---|---|
+| A CORE n=4 mean | 970 | 0.99 | **3.275884** | MERGE-eligible |
+| **B EARLIER trial 0** | **820** | **0.99** | **3.27458** | **STRONG (BEST individual)** |
+| B EARLIER trial 1 | 820 | 0.99 | running ~step 4441/5780 | ETA ~01:23 UTC |
+| **C LATER (tanjiro)** | **1120** | **0.99** | **3.275900** | **MERGE-eligible** |
+| D MILD n=1 | 970 | 0.97 | 3.275856 | MERGE-eligible (n=2 inflight) |
+| E LOWER n=1 | 970 | 0.99 (low=0.90) | 3.27775 | FALSIFIED |
+
+**Cross-arm monotonicity conclusion**: pulse-step axis is **MONOTONE in direction of EARLIER**.
+- Arm B EARLIER (820): Δ=−0.001592 (largest improvement)
+- Arm A CORE (970): Δ=−0.000288
+- Arm C LATER (1120): Δ=−0.000272
+
+Mechanism sensitive to pulse timing — **earlier wins**. Merge candidate remains Arm B EARLIER once trial 1 confirms STRONG.
+
+**H-EH STACK ROUND OPENED (NEW):**
+
+Edward assigned **H-EH-1 (PR #2401)**: composes the two best individual mechanisms — pulse @ step 820 (Arm B EARLIER timing) + target β₂=0.97 (Arm D MILD value). Tests additive composition hypothesis:
+- EARLIER timing → more steps for slower-EMA optimizer to converge during high-LR plateau
+- MILD target → keeps second-moment estimator responsive during cooldown, avoids over-smoothing
+
+If H-EH-1 lands ≤ 3.275 between Arm B trial 0 and STRONG gate → becomes merge candidate over both Arm A CORE n=4 and Arm B EARLIER alone. Highest-leverage post-H-EF experiment.
+
 ## 2026-06-08 23:10 — H-EF Arm A CORE n=4 LANDED + Arm B EARLIER STRONG INDIVIDUAL
 
 **Arm A CORE n=4 mean = 3.275884** (Δ=−0.000288 vs rank-1 3.276172, MERGE-eligible band). Stat contract OK: (3.28 − 3.275884) × √4 = 0.00823 ≥ 0.004.

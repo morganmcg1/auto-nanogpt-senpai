@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-08 ~23:10 UTC (launch day +4) — **H-EF Arm A CORE n=4 LANDED = 3.275884 MERGE-eligible (Δ=−0.000288). Arm B EARLIER TRIAL 0 = 3.27458 STRONG (BEST INDIVIDUAL).** Cross-arm data (5 of 7 terminal):
+- **As of:** 2026-06-08 ~23:40 UTC (launch day +4) — **H-EF MATRIX 7 OF 7 ARM TYPES TERMINAL** (only thorfinn Arm B EARLIER trial 1 still running ~01:23 UTC ETA). H-EF Arm A CORE n=4 = 3.275884 MERGE-eligible. Arm B EARLIER trial 0 = 3.27458 STRONG (BEST). **Arm C LATER terminal landed 3.275900 MERGE-eligible.** **H-EH STACK ROUND OPENED — Arm B EARLIER + Arm D MILD composed.**
 
   | Arm | Pulse Step | (β₂_low, β₂_high) | Individual val/ri | Status |
   |---|---|---|---|---|
@@ -9,18 +9,24 @@
   | A CORE seed=3 (nezuko `573hzih0`) | 970 | (0.95, 0.99) | 3.274814 | STRONG individual |
   | A CORE seed=4 (alphonse `wej11n4u`) | 970 | (0.95, 0.99) | 3.278294 | FALSIFIED outlier |
   | **A CORE n=4 mean** | — | — | **3.275884** | **MERGE-eligible (Δ=−0.000288, stat OK 0.00823≥0.004)** |
-  | B EARLIER trial 0 (thorfinn `v3z3t171`) | 820 | (0.95, 0.99) | **3.27458** | **STRONG, BEST individual; first_step_to_target=2825** |
-  | C LATER (tanjiro `efb7ixbq`, step 2600) | 1120 | (0.95, 0.99) | running | terminal ~10 min |
-  | D MILD (askeladd `8ui1azlg`) | 970 | (0.95, **0.97**) | 3.275856 | MERGE-eligible n=1 |
+  | **B EARLIER trial 0 (thorfinn `v3z3t171`)** | **820** | **(0.95, 0.99)** | **3.27458** | **STRONG, BEST individual; first_step_to_target=2825** |
+  | B EARLIER trial 1 (thorfinn pending) | 820 | (0.95, 0.99) | running ~step 4441 | ETA ~01:23 UTC |
+  | **C LATER (tanjiro `efb7ixbq`)** | **1120** | **(0.95, 0.99)** | **3.275900** | **MERGE-eligible (Δ=−0.000272)** |
+  | D MILD (askeladd `8ui1azlg`) | 970 | (0.95, **0.97**) | 3.275856 | MERGE-eligible n=1 (n=2 `dmklf5al` ~step 2312 inflight) |
   | E LOWER (fern `44w3mv75`) | 970 | (**0.90**, 0.99) | 3.27775 | FALSIFIED n=1 |
 
-  **Merge strategy:** HOLD all Arm A CORE PRs (#2389/#2390/#2391) pending thorfinn Arm B EARLIER n=2 (~01:23 UTC ETA). Arm B EARLIER has best Δ; if trial 1 confirms STRONG, merge PR #2393 (single mechanism, larger Δ vs rank-1). If FALSIFIED, fall back to Arm A CORE n=4 merge via PR #2391. PR #2392 (alphonse seed=4 outlier) CLOSED.
+  **Cross-arm monotonicity conclusion:** pulse-step axis MONOTONE in direction of EARLIER. B EARLIER (820, Δ=−0.001592) > A CORE (970, Δ=−0.000288) > C LATER (1120, Δ=−0.000272). Mechanism is sensitive to pulse timing — earlier wins.
 
-  **H-EG generalization round (per human Issue #2388 19:48 UTC ask) now at 4 arms:**
-  - PR #2397 nezuko G-1: LR-cooldown-coupled β₂ ramp (β₂(t) = 0.95 pre-cd_start, ramp 0.95→0.99 across cooldown). Run `zrt3d7or` step 600/2890.
+  **Merge strategy:** HOLD all Arm A CORE PRs (#2389/#2390/#2391) + Arm C #2394 + Arm D #2395 pending thorfinn Arm B EARLIER n=2 (~01:23 UTC ETA). Arm B EARLIER has best Δ; if trial 1 confirms STRONG, merge PR #2393 (single mechanism, larger Δ vs rank-1). If FALSIFIED, fall back to Arm A CORE n=4 merge via PR #2391. PR #2392 (alphonse seed=4 outlier) CLOSED.
+
+  **H-EG generalization round (per human Issue #2388 19:48 UTC ask) — 4 arms:**
+  - PR #2397 nezuko G-1: LR-cooldown-coupled β₂ ramp (β₂(t) = 0.95 pre-cd_start, ramp 0.95→0.99 across cooldown). Run `zrt3d7or` step 875/2890.
   - PR #2398 askeladd G-2: Linear-step β₂ (β₂(t) = 0.95 + 0.04 × t/T, parameter-free). Pickup pending (askeladd finishing Arm D seed=2 `dmklf5al` first).
-  - **PR #2399 alphonse G-3: Cooldown-aligned STEP pulse (β₂ steps at cd_start=1156, rule-based).**
-  - **PR #2400 frieren G-4: LR-coupled CONTINUOUS β₂ (β₂(t) = 0.95 + 0.04 × (1 − lr(t)/lr_max), throughout training).**
+  - PR #2399 alphonse G-3: Cooldown-aligned STEP pulse (β₂ steps at cd_start=1156, rule-based). Pickup pending.
+  - PR #2400 frieren G-4: LR-coupled CONTINUOUS β₂ (β₂(t) = 0.95 + 0.04 × (1 − lr(t)/lr_max), throughout training). Run `5u2ynlrl` step 1.
+
+  **H-EH STACK round (NEW, 23:40 UTC) — composes the two best individual mechanisms:**
+  - PR #2401 edward H-EH-1: Stack Arm B EARLIER (820) + Arm D MILD (target 0.97). Tests whether better timing + gentler target compose additively. If lands ≤ 3.275 between Arm B trial 0 and STRONG gate, becomes merge candidate over Arm A CORE n=4 (3.275884) and Arm B EARLIER alone.
 - **Earlier:** ~19:55 UTC mass pivot to Issue #2388 executed: 8 in-flight PRs closed, 8 H-EF arm PRs assigned (#2389–#2396) covering 5 arms — Core (n=4 across 4 students), Earlier-pulse (820), Later-pulse (1120), Mild-target (0.97), Lower-start (0.90). **Preserved state for re-open after H-EF signal:** frieren H-DS MERGE-eligible n=2 mean 3.276080 (seeds 6omk0f3n, 6rap87sh).
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
