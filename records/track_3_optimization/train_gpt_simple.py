@@ -146,9 +146,6 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
-    parser.add_argument("--adam_eps_override", type=float, default=1e-12,
-                        help="AdamW eps for all param groups (embed, lm_head, scalars). "
-                             "H-AY merged value 1e-12 (was 1e-10). Set <= 0 to use legacy 1e-10.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1223,8 +1220,6 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
-            "adam_eps": args.adam_eps_override if args.adam_eps_override > 0.0 else 1e-10,
-            "adam_eps_overridden": args.adam_eps_override > 0.0,
         },
     )
 
@@ -1270,11 +1265,10 @@ for trial_idx in range(args.num_trials):
             block.norm2.gains.data.copy_((1.0 + _CGI_ALPHA * s).to(block.norm2.gains.dtype))
 
     # Optimizers (PR #309: AdamW betas (0.8, 0.99)).
-    adam_eps_val = args.adam_eps_override if args.adam_eps_override > 0.0 else 1e-10
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.99), eps=adam_eps_val, weight_decay=0, fused=True)
+                       betas=(0.8, 0.99), eps=1e-12, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
