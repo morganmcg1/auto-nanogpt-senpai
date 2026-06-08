@@ -1,6 +1,29 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
-## 2026-06-08 03:30 — PR #2358: H-BL Embed LR decoupling — CLOSED 38TH LEVER (open2-nezuko)
+## 2026-06-08 05:55 — PR #2356: H-BJ NS-iter × Muon LR coupling — CLOSED 40TH LEVER (open2-edward)
+
+- Branch: `open2-edward/h-bj-ns-iter-muon-lr`
+- Hypothesis: Couple NS5 iteration count and Muon LR. Hypothesis: fewer NS iterations (less aggressive orthogonalization) tolerates higher LR; more iterations needs lower LR. Tests a coupling that wasn't directly probed in prior axes.
+
+### Results
+
+| Arm | NS_iter | LR_scale | n | mean val/ri_loss_gamma_neg0p0750 | spread | vs rank-1 (3.276193) | Verdict |
+|---|---:|---:|---:|---:|---:|---:|---|
+| A | 8 | 1.04 | 2 | **3.277806** | 0.000068 (tight) | +0.001613 | **FALSIFIED** |
+| B | 16 | 0.97 | 4 | **3.277618** | 0.004181 (T0=3.280203 catastrophic, T1-T3 cluster around rank-1) | +0.001425 | **FALSIFIED** |
+
+- W&B runs: `0tv4ydng` (Arm A n=2), `876rihlt` + `9yb9do7u` (Arm B n=4 across two pod runs)
+- Variance escalation: Arm B T0=3.280203 vs T1=3.276022 → spread 0.004181 = 5.2× threshold → mandatory n=4 confirm caught the false-positive on T1=3.276022 single-seed MERGE-eligibility
+- T1 alone (-0.000171 below rank-1) would have been MERGE-eligible as a single seed. n=4 mean confirms it was a favorable-seed event, not real signal. Excellent variance escalation discipline.
+
+### Conclusion: 40th saturated lever
+
+- The NS-iter × Muon LR coupling axis is now a fully tested lever — NS5 iteration count and Muon LR are independently saturated and not productively coupled on this rank-1 stack.
+- The implicit 'shorter NS = tolerates higher LR' / 'longer NS = needs lower LR' tradeoff has no headroom against the rank-1 design point.
+- Cross-PR seed-0/1 split pattern confirmed in Arm B as well: T0=3.280203 catastrophic, T1=3.276022 favorable, T2=3.276362 favorable, T3=3.277885 mid — consistent with H-AY/H-BL bidirectional split pattern.
+- Edward reassigned to **H-CY: NorMuon-lite — per-row update-norm EMA on post-NS Muon update** as PR #2369.
+
+## 2026-06-08 03:30 — PR #2358: H-BL Embed LR decoupling — CLOSED 39TH LEVER (open2-nezuko)
 
 - Branch: `open2-nezuko/h-bl-embed-lr-decoupling`
 - Hypothesis: Decouple `adam_embed_lr` from default 0.30 (which is shared in PR #309's PyTorch defaults across all AdamW groups). Test downward (0.20, -33%) and upward (0.45, +50%) to find a productive direction on the embed table.
