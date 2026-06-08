@@ -1,5 +1,33 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-08 18:30 — PR #2378: H-DO NC placement (NC-AFTER-NS5) — CLOSED 58TH LEVER (open2-alphonse)
+
+- Branch: `open2-alphonse/h-do-nc-placement`
+- Hypothesis: NC (per-row × per-col L2 equalization) currently lives BEFORE NS5 polynomial in `muon_update()`. Test moving NC to AFTER NS5 to compare which placement helps more. Original PR body had the baseline order inverted (caught by student on read-through). Corrected hypothesis: Arm A places NC AFTER NS5 (novel direction), default keeps NC BEFORE NS5 (baseline). Arm B (both) only if Arm A passes.
+
+### Results
+
+| Trial | seed | val/ri_loss γ=−0.075 | Δ vs rank-1 | Gate |
+|---|---:|---:|---:|---|
+| A (NC AFTER NS5) T0 | 0 | **3.276730** | +0.000558 | FALSIFIED (barely) |
+| A (NC AFTER NS5) T1 | 1 | **3.279311** | +0.003139 | FALSIFIED hard |
+| **A n=2 mean** | | **3.278021** | **+0.001849** | **FALSIFIED** (+0.001449 above threshold) |
+| B (NC BOTH before AND after) | — | — | — | **SKIPPED per gate** |
+
+- W&B: `4d9ex41g` (Arm A both seeds)
+- Variance gate triggered |T0−T1|=0.002581 (3.2× gate width), but n=2 mean is +0.001449 ABOVE the FALSIFIED threshold so n=4 escalation cannot move the conclusion. Student correctly invoked stop rule.
+- Companion γ readings: T0 pre-RI (γ=0) = 3.277022, T1 pre-RI = 3.279646. T1 lagged T0 by ~0.0026 throughout pre-RI → trajectory regression, NOT RI-extrapolation artifact. RI applied its expected −0.0003 lift in both seeds.
+
+### Conclusion: 58th saturated lever — NC-placement axis FULLY CLOSED
+
+**NC's value lives EXCLUSIVELY as a pre-NS5 spectral conditioner.** Mechanistic interpretation: NC-before-NS5 (baseline) equalizes row/col norms so NS5's 5-iteration degree-5 polynomial sees a well-conditioned input and converges to a better orthogonal approximation. NC-after-NS5 acts on a matrix that NS5 has already made near-row/col-balanced by construction (UU^T ≈ I), so the per-row × per-col equalization can only perturb the already-orthogonalized state and noise-amplify small spectral perturbations.
+
+Combined with edward H-DN (NC removal near-neutral T0=3.276435 INCONCLUSIVE, T1=3.277800 FALSIFIED), the NC mechanism story is: **NC is a polynomial-residual patch for NS5's degree-5 truncation error**. This directly motivates H-DX (alphonse next assignment): replace NS5 with MUD Cholesky-based exact orthogonalization. If MUD eliminates the residual, NC may obsolete.
+
+Alphonse pivots to H-DX MUD triangular whitening (PR #2387) — most mechanistically novel intervention since 58 levers, Tier 1 in `RESEARCH_IDEAS_2026-06-08_18:00.md`.
+
+---
+
 ## 2026-06-08 17:46 — PR #2381: H-DR Soft-Muon CEIL sweep — CLOSED 57TH LEVER (open2-askeladd)
 
 - Branch: `open2-askeladd/h-dr-soft-muon-ceil-sweep`

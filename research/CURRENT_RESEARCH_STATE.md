@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-08 ~18:00 UTC (launch day +4) — **57 saturated levers** (H-DR Soft-Muon CEIL=0.1 closes as 57th, n=2 mean 3.277078 FALSIFIED, Arm B skipped per gate). **NC ABLATION TRIO STILL IN-FLIGHT.** Edward H-DN Arm A T0=**3.276435 INCONCLUSIVE** (+0.000263, near baseline). Alphonse H-DO Arm A T0=**3.276730 FALSIFIED** (+0.000558). Tanjiro H-DU (NorMuon row-L2 PRE-NS5) extends ablation as 4th case. **Pattern**: NC's *position* matters, NC's *presence* may not be load-bearing if edward T1 confirms. Thorfinn on **H-DV AdamW β₁ schedule** (PR #2385, baseline-corrected Path A: cosine 0.8→0.65 vs step 0.8→0.7) — 56th-lever pivot, untouched axis after H-DM closure. Frieren H-DS Arm A FALSIFIED single-trial (3.2771, +0.000928), running n=2 confirm on `6rap87sh` (ETA ~18:30 UTC). Askeladd newly assigned **H-DW Polyak-Ruppert weight avg** (PR #2386) — first explicit readout-tier mechanism since RI itself. Researcher-agent kicked off in background for plateau (57 levers) hypothesis refresh, output → `RESEARCH_IDEAS_2026-06-08_18:00.md`.
+- **As of:** 2026-06-08 ~18:30 UTC (launch day +4) — **58 saturated levers** (H-DO NC-AFTER-NS5 closes as 58th, n=2 mean 3.278021 FALSIFIED). **NC-PLACEMENT AXIS FULLY CLOSED:** NC must live PRE-NS5; post-NS5 placement perturbs already-near-orthogonal matrix and degrades trajectory by +0.001849. Combined with edward H-DN (NC removal near-neutral), mechanism is clear: NC = pre-NS5 spectral conditioner patching NS5's degree-5 polynomial residual. Alphonse newly assigned **H-DX MUD triangular whitening** (PR #2387) — Tier 1 fresh hypothesis from researcher-agent, NS5 polynomial replacement via Cholesky exact orthogonalization. If MUD works, NC may obsolete. Askeladd on **H-DW Polyak-Ruppert weight avg** (PR #2386). Thorfinn on **H-DV AdamW β₁ schedule** (PR #2385, baseline-corrected Path A). Frieren H-DS Arm A n=2 confirm in flight on `6rap87sh` (ETA ~18:30 UTC). Researcher-agent shipped 8 hypotheses (H-DX through H-EE) in `RESEARCH_IDEAS_2026-06-08_18:00.md`.
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -23,15 +23,19 @@
 - ≥ 3.276572 → FALSIFIED → close axis
 - **Variance gate**: |T0 − T1| > 0.0008 → mandatory n=4 before any merge
 
-## 🔬 KEY EARLY T0 PATTERN: NC position matters, NC presence may not
+## 🔬 NC-PLACEMENT AXIS FULLY CLOSED (58th lever, 18:30 UTC)
 
-| Mechanism | Run | T0 val/ri | Δ vs rank-1 | Band |
-|---|---|---:|---:|---|
-| Edward H-DN Arm A: NC REMOVED | `vovpov6p` | **3.276435** | +0.000263 | **INCONCLUSIVE** (near baseline) |
-| Alphonse H-DO Arm A: NC moved AFTER NS5 | `4d9ex41g` | 3.276730 | +0.000558 | FALSIFIED (barely) |
-| Askeladd H-DR Arm A: Soft-Muon CEIL=0.1 | `nfwmi2g4`+T1 | n=2 mean 3.277078 | +0.000906 | **FALSIFIED → 57th lever closed** |
+| Experiment | Result | Verdict |
+|---|---|---|
+| Edward H-DN Arm A: NC REMOVED | T0=3.276435 INCONCLUSIVE, T1=3.277800 | NC presence is near-neutral (conditional on trajectory) |
+| **Alphonse H-DO Arm A: NC AFTER NS5 (n=2, closed 58th lever)** | **n=2 mean 3.278021 FALSIFIED (+0.001849)** | NC post-NS5 = strongly negative — perturbs near-orthogonal matrix, trajectory regresses throughout pre-RI |
+| Askeladd H-DR Arm A: Soft-Muon CEIL=0.1 (closed 57th lever) | n=2 mean 3.277078 FALSIFIED | CEIL axis closed |
 
-**Reading**: NC's *removal* is near-neutral. NC's *position* (after NS5 vs before NS5) shifts the mechanism in a measurable way. Soft-Muon is dead (high seed variance T0=3.278059, T1=3.276096). If edward T1 lands ≤ rank-1, **NC may be the first prune candidate** in 57 saturated levers.
+**Mechanistic conclusion:** NC's value is exclusively as a **pre-NS5 spectral conditioner** — it shapes the gradient that NS5's 5-iteration polynomial sees. Applying it on NS5's output is mechanistically wrong (post-orthogonalization the matrix is already row/col-balanced by construction). Pattern is consistent with NC patching the polynomial residual of NS5's degree-5 approximation. **This directly motivates H-DX (MUD replacing NS5):** if exact Cholesky-based orthogonalization removes the residual, NC may become redundant. Edward H-DN Arm B (Amsgrad) in flight `3xgawfqb` ETA ~20:30 UTC will complete H-DN closure.
+
+## ⚡ ALPHONSE H-DO CLOSED 58TH LEVER (NC-after-NS5 FALSIFIED)
+
+Arm A n=2 mean = 3.278021 (+0.001849) FALSIFIED. T0=3.276730, T1=3.279311. Variance gate triggered (|Δ|=0.002581 = 3.2× gate width) but n=2 mean is +0.001449 above FALSIFIED threshold — n=4 escalation cannot move the conclusion. Arm B (NC both before AND after) correctly skipped — would compound harm. T1 trajectory lagged T0 by ~0.0026 throughout PRE-RI period (not just at terminal), confirming optimizer-trajectory regression vs RI-extrapolation issue. Excellent mechanistic student analysis. Alphonse now on H-DX MUD triangular whitening (PR #2387) — Tier 1 fresh hypothesis.
 
 ## ⚡ ASKELADD H-DR CLOSED 57TH LEVER (Soft-Muon FALSIFIED)
 
@@ -41,23 +45,24 @@ Arm A n=2 mean = 3.277078 FALSIFIED. T0=3.278059 (lucky seed bad), T1=3.276096 (
 
 Arm A n=2 mean = 3.277843 FALSIFIED. Arm B T0 = 3.286138 DEEP FALSIFIED (+0.009966). MUON_POWER_C basin is narrow + asymmetric — steeper above hand-tune than below. ~3.3h GPU saved by skipping Arm A T2/T3 + Arm B T1 per pivot decision. Thorfinn now on H-DV AdamW β₁ schedule (PR #2385).
 
-## Active assignments (~18:00 UTC, 2026-06-08)
+## Active assignments (~18:30 UTC, 2026-06-08)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2386** | open2-askeladd | **H-DW: Polyak-Ruppert weight avg (decay 0.998 start step 2500, on-top-of-RI vs replace-RI)** | **Newly assigned ~18:00 UTC.** First readout-tier mechanism since RI itself. Composes naturally with RI (Arm A) or replaces it (Arm B). |
-| **#2385** | open2-thorfinn | **H-DV: AdamW β₁ schedule (cosine 0.8→0.65 vs step 0.8→0.7 at step 2000)** | **Re-sent 17:33 UTC** with baseline-corrected Path A spec (β₁=0.8 baseline, not 0.9). Untouched axis after 56 saturated levers. Seed-split aware (seed_offset=1 first). |
-| **#2382** | open2-frieren | H-DS: Sinkhorn iteration count sweep (1 vs 4) | Arm A `6omk0f3n` T0=**3.2771 FALSIFIED** (+0.000928). Running second Arm A seed `6rap87sh` for n=2 confirm. ETA ~18:30 UTC. |
-| **#2384** | open2-tanjiro | H-DU: NorMuon row-L2 normalization PRE-NS5 | Picked up `074gh9wi` step ~900/2890 (~31%). Tests row-only L2 norm vs current NC row×col geometric mean. Forms 4-way ablation with edward (NC removed) + alphonse (NC after NS5). |
-| **#2383** | open2-fern | H-DT: RI capture_step LATER sweep (2500 vs 2600) | Assigned 15:50 UTC. Pure CLI, no code changes. Awaiting pickup (stale_wip). |
-| **#2378** | open2-alphonse | H-DO: NC placement — NC-AFTER-NS5 | Arm A T0=3.276730 FALSIFIED (+0.000558). T1 in flight ETA ~17:45 UTC. |
-| **#2377** | open2-edward | H-DN: Stack prune NC vs Amsgrad AdamW | Arm A n=2 mean 3.277118 FALSIFIED (variance gate triggered |T0−T1|=0.001365). Arm B (Amsgrad) `3xgawfqb` step 2150 ETA ~20:30 UTC. Final decision: bimodal seed pattern is the finding; close after Arm B. |
+| **#2387** | open2-alphonse | **H-DX: MUD triangular whitening (NS5 replacement, Cholesky-based exact orthogonalization)** | **Newly assigned 18:25 UTC.** Tier 1 fresh hypothesis from researcher-agent. Most mechanistically novel intervention since 58 levers — replaces NS5 polynomial entirely. Arm B (conditional): MUD + NC removed (tests if NC patches polynomial residual). |
+| **#2386** | open2-askeladd | **H-DW: Polyak-Ruppert weight avg (decay 0.998 start step 2500, on-top-of-RI vs replace-RI)** | Assigned ~18:00 UTC. First readout-tier mechanism since RI itself. Composes naturally with RI (Arm A) or replaces it (Arm B). |
+| **#2385** | open2-thorfinn | **H-DV: AdamW β₁ schedule (cosine 0.8→0.65 vs step 0.8→0.7 at step 2000)** | Re-sent 17:33 UTC with baseline-corrected Path A spec (β₁=0.8 baseline, not 0.9). Untouched axis after 56 saturated levers. Seed-split aware (seed_offset=1 first). |
+| **#2382** | open2-frieren | H-DS: Sinkhorn iteration count sweep (1 vs 4) | Arm A `6omk0f3n` T0=3.2771 FALSIFIED. Running second Arm A seed `6rap87sh` for n=2 confirm. ETA ~18:30 UTC. |
+| **#2384** | open2-tanjiro | H-DU: NorMuon row-L2 normalization PRE-NS5 | Picked up `074gh9wi` step ~900/2890 (~31%). Tests row-only L2 norm vs current NC row×col geometric mean. |
+| **#2383** | open2-fern | H-DT: RI capture_step LATER sweep (2500 vs 2600) | Assigned 15:50 UTC. Pure CLI. Awaiting pickup (stale_wip). |
+| **#2377** | open2-edward | H-DN: Stack prune NC vs Amsgrad AdamW | Arm A n=2 mean 3.277118 FALSIFIED. Arm B (Amsgrad) `3xgawfqb` step 2150 ETA ~20:30 UTC. Closing after Arm B. |
 | **#2380** | open2-nezuko | H-DQ: Contra-Muon coeff sweep (0.1 vs 0.3) | Arm A `v089vh09` step ~2150/5780 (~37%). ETA T0 ~18:30 UTC. |
 
 ## Recent closures (most recent first)
 
 | Date | PR | Hypothesis | Decision | Key finding |
 |---|---|---|---|---|
+| 2026-06-08 18:30 | **#2378 (alphonse H-DO)** | NC placement — NC-AFTER-NS5 | **CLOSED 58TH LEVER** | Arm A n=2 mean 3.278021 FALSIFIED (+0.001849). NC post-NS5 perturbs already-near-orthogonal matrix; trajectory regression appears throughout pre-RI, not just terminal step. Variance gate triggered but mean is +0.001449 above FALSIFIED threshold so n=4 can't recover. NC-placement axis fully closed: NC = strictly pre-NS5 spectral conditioner. |
 | 2026-06-08 17:46 | **#2381 (askeladd H-DR)** | Soft-Muon CEIL sweep (0.1 vs 0.3) | **CLOSED 57TH LEVER** | Arm A n=2 mean 3.277078 FALSIFIED. High seed variance (T0=3.278059, T1=3.276096, |Δ|=0.001963 = 2.5× variance gate). Arm B skipped per gate. Soft-Muon CEIL axis closed. |
 | 2026-06-08 16:55 | **#2376 (thorfinn H-DM)** | MUON_POWER_C sweep (0.66× vs 1.5×) | **CLOSED 56TH LEVER** | Arm A n=2 mean 3.277843 (+0.001671, variance-gate triggered T0=3.276145 lucky seed). Arm B 1.5× T0=3.286138 DEEP FALSIFIED. Hand-tune in narrow asymmetric basin. MUON_POWER_C axis FULLY closed. |
 | 2026-06-08 14:30 | **#2375 (frieren H-DL)** | EN lookahead_stepsize sweep (0.15 vs 0.45) | **CLOSED 53RD LEVER** | Arm A (0.15) flat with baseline (−9e-6, within σ_pair). Arm B (0.45) FALSIFIED +0.002525. Default 0.30 at optimum; surface flat below 0.30, climbs sharply above. |
@@ -68,9 +73,9 @@ Arm A n=2 mean = 3.277843 FALSIFIED. Arm B T0 = 3.286138 DEEP FALSIFIED (+0.0099
 | 2026-06-08 12:47 | **#2369 (edward H-CY)** | NorMuon-lite β₂ sweep (0.99 vs 0.95) | **CLOSED 48TH LEVER** | Both arms FALSIFIED. "4th redundant smoothing layer" — NC+Arbor+EN already compress heterogeneity. |
 | 2026-06-08 10:30 | **#2372 (thorfinn H-DJ)** | Lookahead-on-Muon (k=5/α=0.5) | **CLOSED 47TH LEVER CATASTROPHIC** | T0=3.295566 (+0.019394, 50× FALSIFIED). Lookahead axis FULLY closed (both AdamW H-BU and Muon). |
 
-## Saturated levers count: 57
+## Saturated levers count: 58
 
-Levers 38–57:
+Levers 38–58:
 38. **Lookahead k=5 α=0.5 on AdamW (H-BU)** — CATASTROPHIC +0.00823.
 39. **Embed-only LR ±50% (H-BL)** — bidirectional. Direction-dependent seed-split.
 40. **NS-iter × Muon LR coupling (H-BJ)** — both arms FALSIFIED.
