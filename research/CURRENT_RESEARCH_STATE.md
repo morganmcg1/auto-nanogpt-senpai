@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-08 ~07:30 UTC (launch day +4) — **fern H-BO Arm B CLOSED FALSIFIED at n=4=3.277438** (T3=3.281735 catastrophic seed-3, T1=3.274075 was a seed outlier, n=2 STRONG decayed to FALSIFIED at n=4) = **42nd saturated lever**; **thorfinn H-CX CLOSED** via force-push removing implementation commit (auto-closed by GitHub at 06:29:57 UTC), n=2 mean=3.277571 confirms FALSIFIED = **43rd saturated lever**; **fern reassigned H-DI (NorMuon beta2 sweep) as PR #2371** (Morgan-created manual PR, advisor added wip+branch labels at 07:24 UTC); **thorfinn reassigned H-DJ (Lookahead-on-Muon outer-loop weight-space EMA, k=5/10, α=0.5) as PR #2372** at 07:24 UTC. Live merge watches: **alphonse 2xhxl4z0 at step 3066/5780 val/ri=3.275951** (Δ=−0.000221 BELOW rank-1) — but on stale Arbor-base reference, γ-direction screen only; **frieren cwes9skt at step 4866/5780 val/ri=3.276213** (Δ=+0.000041 AT rank-1) ETA ~07:55 UTC; **tanjiro qq89qmbd at 5566/5780 val/ri=3.277220** (Δ=+0.001048) T2 terminal minutes away. Askeladd Arm A FALSIFIED trajectory (val/ri=3.277683 at 87%).
+- **As of:** 2026-06-08 ~08:05 UTC (launch day +4) — **tanjiro H-BN CLOSED FALSIFIED at n=4=3.27674729** (+0.000575 vs rank-1 3.276172; seed-1 outlier 3.275799 MERGE-eligible at n=2 was false positive confirmed by n=4) = **44th saturated lever**; Muon WD locked at 0.025; **tanjiro reassigned H-CZ (EN rest_steps direction ablation: Arm A=2400, Arm B=2890) as PR #2373**; **thorfinn H-DJ received pod + self-adapted instructions to train_gpt_simple.py** (correct file, advisor green-lit at 07:48 UTC); **fern H-DI redirected to SOAP_BETA2 sweep in train_gpt_simple.py** (Morgan's PR body referenced wrong file — corrected, sent back to wip at 07:42 UTC). Live merge watches: **frieren cwes9skt step 5541/5780 (96%)** val/ri=3.276213 (Δ=+0.000041 AT rank-1) — T1 outcome decisive for MERGE-eligible vs INCONCLUSIVE; **askeladd 9hld96fr step 5691/5780 (98%)** val/ri=3.27768 FALSIFIED trajectory.
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -25,22 +25,21 @@
 
 ## 🚨 OPEN MERGE WATCHES (parallel)
 
-1. **Frieren H-BW Arm B (γ=0.95 EN-on-AdamW)** — `cwes9skt` step 4866/5780 val/ri=3.276213 (Δ=+0.000041 essentially AT rank-1). T0 alone determinative. Terminal ETA ~07:55 UTC. Trajectory consistent with INCONCLUSIVE-band edge or potential MERGE-eligible if final dips ≤ 3.276172.
-2. **Tanjiro H-BN Arm B (MUON_WD=0.050) n=4 confirm** — `qq89qmbd` step 5566/5780 val/ri=3.277220 (T2 trajectory). For n=4 MERGE-eligible, T3 ≤ 3.27429 needed; for INCONCLUSIVE T3 ≤ 3.27589 needed. T1 alone was 3.275799 → seed variance high; T3 watch decides.
-3. **Alphonse H-V (γ ablation n=4 on stale base)** — `2xhxl4z0` step 3066/5780 val/ri=3.275951 — informative direction screen ONLY (stale Arbor base 3.27738 vs current rank-1 3.276172). Will likely not produce absolute MERGE but the γ-direction signal is useful for follow-up. ETA ~12:11 UTC.
+1. **Frieren H-BW Arm B (γ=0.95 EN-on-AdamW)** — `cwes9skt` step 5541/5780 (96%) val/ri=3.276213 (Δ=+0.000041 AT rank-1). T0 finished at 3.276213; T1 in flight but RI capture step (2375 within trial = cumulative ~5265) passed. Awaiting n=2 SENPAI-RESULT. If T1 ≤ 3.276131 → n=2 mean ≤ 3.276172 = MERGE-eligible. If T1 > 3.276131 → INCONCLUSIVE → close + reassign frieren.
+2. **Alphonse H-V (γ ablation n=4 on stale base)** — `2xhxl4z0` informative direction screen ONLY (stale Arbor base 3.27738 vs current rank-1 3.276172). ETA ~12:11 UTC. γ-direction signal informative for follow-up even if absolute won't beat rank-1.
 
-## Active assignments (~07:30 UTC, 2026-06-08)
+## Active assignments (~08:05 UTC, 2026-06-08)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation | n=4 confirm `2xhxl4z0` step 3066/5780 val/ri=3.275951 (Δ=−0.000221) ETA ~12:11 UTC. Stale Arbor base 3.27738 — informative γ-direction screen only; absolute won't beat rank-1 3.276172. |
-| **#2369** | open2-edward | H-CY: NorMuon-lite — per-row update-norm EMA | Arm A n=2 LAUNCHED `nt5tpgem` step 900/5780 ~07:01 UTC (smoke passed twice). RI capture at 2375; T0 evaluable ~step 5780. Reference: arxiv 2510.05491. **Optimizer-state mech.** |
-| **#2360** | open2-tanjiro | H-BN: MUON_WEIGHT_DECAY sweep | **n=4 confirm `qq89qmbd` step 5566/5780 val/ri=3.277220** (T2 trajectory). T3 ETA imminent (<10 min). For MERGE-eligible n=4, T3 ≤ 3.27429 needed; for INCONCLUSIVE T3 ≤ 3.27589. Likely FALSIFIED based on T2. |
-| **#2371** | open2-fern | H-DI: NorMuon beta2 sweep (Arm A=0.95, Arm B=0.85) | **NEW ASSIGNMENT (~07:11 UTC manual by Morgan, advisor added missing wip+branch labels 07:24 UTC).** Tests `normuon_defaults["beta2"]` (currently 0.9) — second-moment EMA timescale. **Optimizer-state mech.** Bit-exact at 0.9. Pod pickup pending. |
-| **#2364** | open2-frieren | H-BW: EN-on-AdamW | Arm A n=2 FALSIFIED at 3.277298. **Arm B γ=0.95 `cwes9skt` step 4866/5780 val/ri=3.276213** (Δ=+0.000041 AT rank-1!). Terminal ETA ~07:55 UTC. Potential INCONCLUSIVE-band or MERGE-eligible if dips below. |
-| **#2365** | open2-askeladd | H-CA: lm_head soft-warmup × higher target LR | Arm A n=2 `9hld96fr` step 5016/5780 val/ri=3.277683 (Δ=+0.001511) — FALSIFIED trajectory. Terminal ETA ~07:55 UTC. n=2 mean projection FALSIFIED unless T1 dips significantly. |
-| **#2370** | open2-nezuko | H-DH: SWA-EMA on AdamW dense params | Arm A n=2 LAUNCHED `fv89ceu8` step 175/5780 ~07:27 UTC after orphan archival finished. Weight-space EMA on dense params, post-RI-capture tail. Reference: arxiv 1803.05407 (Izmailov 2018). **Optimizer-state mech.** |
-| **#2372** | open2-thorfinn | **H-DJ: Lookahead-on-Muon (k=5/α=0.5 outer-loop weight-space EMA)** | **NEW ASSIGNMENT (~07:24 UTC).** Wraps Muon optimizer with Zhang 2019 Lookahead — slow weights φ ← φ + α(θ − φ) every k inner steps. Arm A k=5/α=0.5 canonical, Arm B k=10/α=0.5 slower. Bit-exact at k=0. Reference: arxiv 1907.08610. **Outer-loop optimizer-state mech** — orthogonal to H-CY (intra-update) and H-DH (AdamW SWA). Pod pickup pending. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation | n=4 confirm `2xhxl4z0` — informative γ-direction screen on stale Arbor base 3.27738. ETA ~12:11 UTC. |
+| **#2369** | open2-edward | H-CY: NorMuon-lite — per-row update-norm EMA | Arm A n=2 LAUNCHED `nt5tpgem` confirmed pickup at ~07:34 UTC (smoke passed). Student implementing bit-exact-at-β₂=1.0 NorMuon-lite, CLI flag `--nor_beta2`. RI capture at 2375; T0 evaluable ~step 5780. Reference: arxiv 2510.05491. **Optimizer-state mech.** |
+| **#2373** | open2-tanjiro | H-CZ: EN rest_steps direction ablation | **NEW PR #2373 (~08:00 UTC).** Tests `--ema_nesterov_rest_steps` at 2400 (Arm A) vs 2890 never-disengage (Arm B). Current default=1950. Awaiting pod pickup. |
+| **#2371** | open2-fern | H-DI: NorMuon beta2 / SOAP_BETA2 sweep | **Redirected at 07:42 UTC** — original PR body referenced train_gpt.py (wrong file). Corrected to sweep `SOAP_BETA2` in train_gpt_simple.py. Student picked up PR ~07:38 UTC, flagged file inconsistency, advisor redirected with correct implementation target. Pod re-launching. |
+| **#2364** | open2-frieren | H-BW: EN-on-AdamW Arm B γ=0.95 | `cwes9skt` step 5541/5780 (96%) val/ri=3.276213 (Δ=+0.000041 AT rank-1). Awaiting n=2 terminal (T1 has passed RI capture step). **MERGE-ELIGIBLE if T1 final ≤ 3.276131; otherwise INCONCLUSIVE → close + reassign.** |
+| **#2365** | open2-askeladd | H-CA: lm_head soft-warmup × higher target LR | `9hld96fr` step 5691/5780 (98%) val/ri=3.27768 — FALSIFIED trajectory. Terminal imminent, n=2 mean will be FALSIFIED. Awaiting SENPAI-RESULT then close + reassign. |
+| **#2370** | open2-nezuko | H-DH: SWA-EMA on AdamW dense params | Arm A n=2 running (launched ~07:27 UTC). Weight-space EMA on dense params, post-RI-capture tail. Reference: arxiv 1803.05407. **Optimizer-state mech.** T0 ETA ~10:17 UTC. |
+| **#2372** | open2-thorfinn | **H-DJ: Lookahead-on-Muon (k=5/α=0.5)** | Picked up pod at 07:40 UTC. Student self-adapted instructions to train_gpt_simple.py correctly (LookaheadWrapper on optimizer2=Muon, k=5/α=0.5, advisor green-lit 07:48 UTC). Smoke gate then Arm A n=2 launch expected ~08:15-08:30 UTC. |
 
 ## Recent closures (this session, most recent first)
 
@@ -57,16 +56,16 @@
 | 2026-06-07 19:30 | #2355 (tanjiro H-BI) | Depth-wise Muon LR decay=0.85 | **CLOSED FALSIFIED** | T0=3.29223 catastrophic. **34th lever.** |
 | 2026-06-07 19:26 | #2354 (askeladd H-BH) | GC on Muon momentum buffer | **CLOSED FALSIFIED** | T0=3.284688 catastrophic. **33rd lever.** |
 
-## Saturated levers count: 43
+## Saturated levers count: 44
 
-Recent levers (37-43):
-37. **Cosine warm-restart Muon LR at step 2000 (H-BK)** — T0=3.287374 (+0.011, 22× noise floor). Invariant #5 confirmed.
-38. **Lookahead k=5 α=0.5 on AdamW groups (H-BU)** — T0=3.2844 CATASTROPHIC (+0.0082). Zero-init layers amplified by k=5 fast-weight steps. Note: thorfinn's H-DJ Lookahead-on-Muon is a DIFFERENT mechanism (wraps Muon, not AdamW; no zero-init layers in Muon param groups).
+Recent levers (38-44):
+38. **Lookahead k=5 α=0.5 on AdamW groups (H-BU)** — T0=3.2844 CATASTROPHIC (+0.0082). Zero-init layers amplified by k=5 fast-weight steps. Note: H-DJ Lookahead-on-Muon is DIFFERENT (Muon params, no zero-init layers).
 39. **Embed-only LR ±50% (H-BL)** — bidirectional axis closure. Direction-dependent seed-split.
 40. **NS-iter × Muon LR coupling (H-BJ)** — both arms FALSIFIED.
 41. **FINAL_LR_POWER recalibration (H-DA)** — informative-negative. Hand-tuned `power_c` not reproducible from closed-form.
-42. **AdamW (β₁=0.85, β₂=0.98) sweep (H-BO)** — n=2 STRONG (3.275336) FALSE POSITIVE; n=4 confirm landed 3.277438 with T3 catastrophic. CRITICAL VARIANCE GATE WIN — saved from a bad merge.
-43. **RI capture_step earlier=2250 (H-CX)** — n=2=3.277571 FALSIFIED. Earlier capture hurts. RI-EARLIER axis closed.
+42. **AdamW (β₁=0.85, β₂=0.98) sweep (H-BO)** — n=2 STRONG FALSE POSITIVE (3.275336); n=4 mean=3.277438. T3 catastrophic. VARIANCE GATE WIN.
+43. **RI capture_step earlier=2250 (H-CX)** — n=2=3.277571 FALSIFIED. RI-EARLIER axis closed.
+44. **Muon WD sweep 0.010 vs 0.050 (H-BN)** — Arm B n=4 mean=3.27674729 FALSIFIED. WD locked at 0.025. Seed-1 outlier 3.275799 confirmed FALSE POSITIVE at n=4. VARIANCE GATE WIN.
 
 ## Key mechanism table (NC × Arbor + RI + eps=1e-12 stack)
 
@@ -105,11 +104,11 @@ Recent levers (37-43):
 
 - **(H-CY assigned to edward PR #2369)** NorMuon-lite — per-row update-norm EMA, post-NS5 OPTIMIZER-STATE MECHANISM.
 - **(H-DH assigned to nezuko PR #2370)** SWA-EMA on AdamW dense params — weight-space EMA, READOUT pathway mechanism.
-- **(H-DI assigned to fern PR #2371 by Morgan)** NorMuon beta2 sweep — second-moment EMA timescale.
-- **(H-DJ assigned to thorfinn PR #2372)** Lookahead-on-Muon — outer-loop weight-space EMA on Muon params.
-- **H-CZ** (tanjiro, post-H-BN close): **EN rest_steps earlier disable.** Flag `--ema_nesterov_rest_steps` (default 1950). H-AW tested 2300 (FALSIFIED). Test earlier: Arm A=1500, Arm B=1200. SCHEDULE.
-- **H-DK** (next idle): **Per-block Frobenius normalization on Muon update** — different angle from H-AO per-block LR. Computes per-param ‖U‖_F and rescales by group baseline.
-- **H-DL** (next idle): **Muon momentum-buffer ramp** — schedule the `normuon_defaults["momentum"]` from 0.7 → 0.99 over training (currently constant 0.95). SCHEDULE/READOUT mech.
+- **(H-DI assigned to fern PR #2371)** SOAP_BETA2 sweep in train_gpt_simple.py — second-moment EMA timescale (redirected from NorMuon beta2 to correct file/parameter).
+- **(H-DJ assigned to thorfinn PR #2372)** Lookahead-on-Muon — outer-loop weight-space EMA on Muon params (k=5 or k=10, α=0.5).
+- **(H-CZ assigned to tanjiro PR #2373)** EN rest_steps direction ablation — Arm A=2400, Arm B=2890. Tests whether EN should stay active longer than default 1950. SCHEDULE.
+- **H-DK** (next idle post-frieren or askeladd): **Per-block Frobenius normalization on Muon update** — computes per-block ‖U‖_F and rescales to target norm. Different angle from H-AO per-block LR. OPTIMIZER-STATE PRECONDITIONER.
+- **H-DL** (next idle): **Muon momentum-buffer ramp** — schedule `normuon_defaults["momentum"]` from 0.7 → 0.99 over training (currently constant 0.95). SCHEDULE/READOUT mech.
 
 ## Longer-term hypotheses
 
@@ -121,16 +120,16 @@ Recent levers (37-43):
 - **H-BP**: Muon momentum MU sweep (0.90/0.98 vs default 0.95). SCALAR — lower priority.
 - **H-DC** (NEW post H-BL): **Embed-only beta ablation** — β₁_embed, β₂_embed independently from {lm_head, scalars}. Hold pending H-BO n=4 result. If fern's (0.85, 0.98) merges uniformly, per-group betas become next axis.
 
-## Open Operational Items (~07:30 UTC)
+## Open Operational Items (~08:05 UTC)
 
-- **Tanjiro H-BN Arm B n=4 confirm** (`qq89qmbd` seeds 2-3): step 5566/5780 val/ri=3.277220 (T2 trajectory). T3 ETA within ~10 min. For MERGE-eligible n=4, T3 ≤ 3.27429; for INCONCLUSIVE T3 ≤ 3.27589. Likely FALSIFIED.
-- **Frieren H-BW Arm B γ=0.95** (`cwes9skt`): step 4866/5780 val/ri=3.276213 (Δ+0.000041 AT rank-1). Terminal ETA ~07:55 UTC. INCONCLUSIVE-band or MERGE-eligible possible.
-- **Askeladd H-CA Arm A n=2** (`9hld96fr`): step 5016/5780 val/ri=3.277683 (Δ+0.001511). Terminal ETA ~07:55 UTC. FALSIFIED trajectory.
-- **Edward H-CY Arm A n=2** (`nt5tpgem`): step 900/5780 — too early for RI eval, RI captures at step 2375.
-- **Nezuko H-DH Arm A n=2** (`fv89ceu8`): step 175/5780 — just launched, too early.
-- **Fern H-DI** (PR #2371): pod pickup pending — labels added 07:24 UTC, should pick up next poll.
-- **Thorfinn H-DJ** (PR #2372): pod pickup pending — just assigned 07:24 UTC.
-- **Alphonse H-V n=4** (`2xhxl4z0`): step 3066/5780 val/ri=3.275951 (Δ−0.000221 BELOW reference). Stale Arbor base, ETA ~12:11 UTC. γ-direction screen only.
+- **Frieren H-BW Arm B T1** (`cwes9skt` step 5541/5780 96%): key watch. T0=3.276213 (Δ+0.000041). T1 has passed RI capture (cumulative step ~5265). Awaiting SENPAI-RESULT. If n=2 mean ≤ 3.276172 → MERGE-ELIGIBLE. Otherwise INCONCLUSIVE → close + assign H-DK.
+- **Askeladd H-CA Arm A n=2** (`9hld96fr` step 5691/5780 98%): FALSIFIED trajectory val/ri=3.27768. Terminal imminent. Close + assign H-DK or H-DL.
+- **Tanjiro H-CZ** (PR #2373): awaiting pod pickup. EN rest_steps Arm A=2400, Arm B=2890.
+- **Thorfinn H-DJ** (PR #2372): pod picked up 07:40 UTC, self-adapted implementation, smoke gate in progress. Arm A n=2 expected ~08:15-08:30 UTC.
+- **Fern H-DI** (PR #2371): sent back to wip with correct SOAP_BETA2 target. Re-pick up expected soon.
+- **Edward H-CY Arm A n=2** (`nt5tpgem`): step ~900/5780, early — T0 evaluable ~step 5780 (~10:12 UTC).
+- **Nezuko H-DH Arm A n=2** (`fv89ceu8`): launched ~07:27 UTC, T0 evaluable ~10:17 UTC.
+- **Alphonse H-V n=4** (`2xhxl4z0`): stale Arbor base, γ-direction screen. ETA ~12:11 UTC.
 
 ## Standing directive (preserved verbatim)
 
