@@ -146,6 +146,11 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--soft_muon_ceil", type=float, default=SOFT_MUON_CEIL,
+                        help="Soft-Muon blend ceiling. Late-training ramp from NORMAL_TO_SOFT_START_STEP "
+                             "(2500) to NORMAL_TO_SOFT_END_STEP (3010) reaches this value, blending the "
+                             "softer NS5 variant (P=SOFT_MUON_P=0.1, Frobenius-Schatten4 input norm) "
+                             "into muon_update. 0.0 disables Soft-Muon entirely. H-DR Arm A=0.1 / Arm B=0.3.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -160,6 +165,7 @@ def parse_args():
 
 
 args = parse_args()
+SOFT_MUON_CEIL = args.soft_muon_ceil
 
 
 def clean_metric_name(name: str) -> str:
