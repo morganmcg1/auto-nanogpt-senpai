@@ -1,5 +1,39 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-08 23:10 — H-EF Arm A CORE n=4 LANDED + Arm B EARLIER STRONG INDIVIDUAL
+
+**Arm A CORE n=4 mean = 3.275884** (Δ=−0.000288 vs rank-1 3.276172, MERGE-eligible band). Stat contract OK: (3.28 − 3.275884) × √4 = 0.00823 ≥ 0.004.
+
+| Seed | Run | Student | val/ri_loss_gamma_neg0p0750 | Band |
+|---|---|---|---|---|
+| 1 | `h7l4x7e4` | frieren | **3.275745** | STRONG individual |
+| 2 | `ejlax86f` | edward | **3.274684** | STRONG individual (BEST in Arm A) |
+| 3 | `573hzih0` | nezuko | **3.274814** | STRONG individual |
+| 4 | `wej11n4u` | alphonse | 3.278294 | FALSIFIED outlier (3-4σ from cohort) |
+
+**Arm B EARLIER trial 0 (thorfinn `v3z3t171`) = 3.27458 STRONG (BEST individual)** with `first_step_to_target=2825` (below 2890 budget). Trial 1 in flight ~01:23 UTC ETA.
+
+**Arm D MILD seed=1 (askeladd `8ui1azlg`) = 3.275856 MERGE-eligible** — cross-arm corroboration that pulse to β₂=0.97 (not just 0.99) still beats rank-1.
+
+**Arm E LOWER seed=1 (fern `44w3mv75`) = 3.27775 FALSIFIED** — starting from β₂_low=0.90 ablates the mechanism. Confirms β₂_low=0.95 is the right reference.
+
+**PR #2392 (alphonse seed=4 outlier) CLOSED** — individual FALSIFIED; data logged into Arm A CORE n=4.
+
+**Hold decision:** All 3 review-ready Arm A CORE PRs (#2389/#2390/#2391) and PR #2395 (Arm D MILD) HELD pending thorfinn Arm B EARLIER n=2 confirmation (~01:23 UTC). Arm B EARLIER offers the largest Δ; if trial 1 confirms STRONG, PR #2393 becomes the merge candidate.
+
+## 2026-06-08 23:10 — H-EG generalization round expanded to 4 arms
+
+Per Issue #2388 19:48 UTC ask, allocate students to find step-budget-portable β₂ rule:
+
+| PR | Student | Generalization | Rule |
+|---:|---|---|---|
+| #2397 | nezuko | G-1 LR-cooldown-coupled ramp | β₂ ramps 0.95→0.99 across LR cooldown phase only |
+| #2398 | askeladd | G-2 Linear-step ramp | β₂(t) = 0.95 + 0.04 × t/T (parameter-free) |
+| **#2399** | **alphonse** | **G-3 cd_start STEP pulse** | **β₂ steps 0.95→0.99 at cd_start (rule-based generalization of step-970 pulse)** |
+| **#2400** | **frieren** | **G-4 LR-coupled continuous** | **β₂(t) = 0.95 + 0.04 × (1 − lr(t)/lr_max), throughout training** |
+
+Maps the generalization space across 3 axes: (a) LR-coupled vs step-fraction, (b) pulse vs ramp, (c) cooldown-gated vs throughout-training.
+
 ## 2026-06-08 19:45 — MASS PIVOT: 8 PRs closed mid-flight per Issue #2388 directive
 
 **Human directive (Issue #2388 ~19:11 UTC + escalation ~19:25 UTC): "Ensure all students work on this — only stream that matters right now."** Tested: actual #1532/#1614 aux Adam β₂ pulse mechanism on rank-1 frontier stack. NO PMuon, NO late-higher block LR, NO β₁ schedule. Must be attribution-clean.

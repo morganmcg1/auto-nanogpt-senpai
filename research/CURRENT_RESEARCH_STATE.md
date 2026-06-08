@@ -1,6 +1,26 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-08 ~22:30 UTC (launch day +4) — **H-EF FIRST 2 TERMINALS LANDED + H-EG ROUND OPENED.** Nezuko Arm A CORE seed=3 (`573hzih0`) = **3.274814 STRONG** (Δ=−0.001358 vs rank-1). Askeladd Arm D MILD target=0.97 (`8ui1azlg`) = **3.275856 MERGE-eligible** (Δ=−0.000316). Mechanism transfers onto rank-1 stack at both target=0.99 (canonical) and target=0.97 (sensitivity probe). Nezuko PR #2391 in review (holding for Core n=4 mean). **H-EG generalization round opened per human Issue #2388 19:48 UTC ask: PR #2397 assigned to nezuko = LR-cooldown-coupled β₂ (β₂(t) = 0.95 if step<cd_start, else linear ramp 0.95→0.99 across cooldown).** Next H-EG arms queued: G-2 Linear-step, G-3 Two-step ladder, G-4 SNR-triggered. Awaiting Arm A Core seeds 1/2/4 for n=4 mean (decision gate against 3.275772) — frieren step 1900/2890 ETA ~30 min, edward 2050 ~25 min, alphonse 2201 ~20 min. Arm B EARLIER (thorfinn 2800/2890) imminent ~5 min.
+- **As of:** 2026-06-08 ~23:10 UTC (launch day +4) — **H-EF Arm A CORE n=4 LANDED = 3.275884 MERGE-eligible (Δ=−0.000288). Arm B EARLIER TRIAL 0 = 3.27458 STRONG (BEST INDIVIDUAL).** Cross-arm data (5 of 7 terminal):
+
+  | Arm | Pulse Step | (β₂_low, β₂_high) | Individual val/ri | Status |
+  |---|---|---|---|---|
+  | A CORE seed=1 (frieren `h7l4x7e4`) | 970 | (0.95, 0.99) | 3.275745 | STRONG individual |
+  | A CORE seed=2 (edward `ejlax86f`) | 970 | (0.95, 0.99) | **3.274684** | STRONG individual (BEST in Arm A) |
+  | A CORE seed=3 (nezuko `573hzih0`) | 970 | (0.95, 0.99) | 3.274814 | STRONG individual |
+  | A CORE seed=4 (alphonse `wej11n4u`) | 970 | (0.95, 0.99) | 3.278294 | FALSIFIED outlier |
+  | **A CORE n=4 mean** | — | — | **3.275884** | **MERGE-eligible (Δ=−0.000288, stat OK 0.00823≥0.004)** |
+  | B EARLIER trial 0 (thorfinn `v3z3t171`) | 820 | (0.95, 0.99) | **3.27458** | **STRONG, BEST individual; first_step_to_target=2825** |
+  | C LATER (tanjiro `efb7ixbq`, step 2600) | 1120 | (0.95, 0.99) | running | terminal ~10 min |
+  | D MILD (askeladd `8ui1azlg`) | 970 | (0.95, **0.97**) | 3.275856 | MERGE-eligible n=1 |
+  | E LOWER (fern `44w3mv75`) | 970 | (**0.90**, 0.99) | 3.27775 | FALSIFIED n=1 |
+
+  **Merge strategy:** HOLD all Arm A CORE PRs (#2389/#2390/#2391) pending thorfinn Arm B EARLIER n=2 (~01:23 UTC ETA). Arm B EARLIER has best Δ; if trial 1 confirms STRONG, merge PR #2393 (single mechanism, larger Δ vs rank-1). If FALSIFIED, fall back to Arm A CORE n=4 merge via PR #2391. PR #2392 (alphonse seed=4 outlier) CLOSED.
+
+  **H-EG generalization round (per human Issue #2388 19:48 UTC ask) now at 4 arms:**
+  - PR #2397 nezuko G-1: LR-cooldown-coupled β₂ ramp (β₂(t) = 0.95 pre-cd_start, ramp 0.95→0.99 across cooldown). Run `zrt3d7or` step 600/2890.
+  - PR #2398 askeladd G-2: Linear-step β₂ (β₂(t) = 0.95 + 0.04 × t/T, parameter-free). Pickup pending (askeladd finishing Arm D seed=2 `dmklf5al` first).
+  - **PR #2399 alphonse G-3: Cooldown-aligned STEP pulse (β₂ steps at cd_start=1156, rule-based).**
+  - **PR #2400 frieren G-4: LR-coupled CONTINUOUS β₂ (β₂(t) = 0.95 + 0.04 × (1 − lr(t)/lr_max), throughout training).**
 - **Earlier:** ~19:55 UTC mass pivot to Issue #2388 executed: 8 in-flight PRs closed, 8 H-EF arm PRs assigned (#2389–#2396) covering 5 arms — Core (n=4 across 4 students), Earlier-pulse (820), Later-pulse (1120), Mild-target (0.97), Lower-start (0.90). **Preserved state for re-open after H-EF signal:** frieren H-DS MERGE-eligible n=2 mean 3.276080 (seeds 6omk0f3n, 6rap87sh).
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
