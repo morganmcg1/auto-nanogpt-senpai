@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-08 ~14:50 UTC (launch day +4) — **53 saturated levers**. tanjiro H-CZ Arm A FALSIFIED at n=2 (both T0/T1 individually FALSIFIED; advisor approved skip n=4 escalation, proceed to Arm B immediately). frieren H-DS pickup confirmed (smoke `929r3jae` launched ~14:40 UTC). askeladd H-DR Arm A `nfwmi2g4` at step ~975/2890 (healthy trajectory). **CRITICAL: thorfinn H-DM Arm A T0=3.276145 MERGE-ELIGIBLE (−0.000027 vs rank-1), T1 `fzztecwm` at step 2400/2890 (val/loss=3.3267 healthy), terminal ETA ~15:15-15:21 UTC.**
+- **As of:** 2026-06-08 ~15:15 UTC (launch day +4) — **53 saturated levers**. **THORFINN H-DM Arm A FALSIFIED at n=2 — variance gate triggered.** T0=3.276145 MERGE-eligible but T1=3.279542 FALSIFIED, |ΔT|=0.003397 (4.2× variance gate). n=2 mean=3.277843. Arm B `hkklezxw` launched 15:08 UTC seed 1, ETA ~16:46 UTC. Advisor directed skip Arm A T2/T3 (math doesn't allow recovery even with perfect retests — T1 anchors n=4 mean ≥ 3.276422). **Tanjiro H-CZ Arm B `095o6qc4` T0 finished: val/ri=3.276700** (FALSIFIED +0.000528, but much closer to rank-1 than Arm A's mean 3.277251). T1 mid-trial step 4991/5780. **Edward H-DN Arm A `vovpov6p` T0 finished: val/ri=3.276435** (INCONCLUSIVE +0.000263). NC removal barely changes baseline — potential simplification finding. T1 mid-trial step 3041/5780. Alphonse H-DO Arm A T0 65% complete. Fern H-DP Arm A launched after nudge.
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -23,29 +23,32 @@
 - ≥ 3.276572 → FALSIFIED → close axis
 - **Variance gate**: |T0 − T1| > 0.0008 → mandatory n=4 before any merge
 
-## ⚡ CRITICAL WATCH: thorfinn H-DM (PR #2376)
+## ⚡ THORFINN H-DM Arm A FALSIFIED at n=2 — pivot to Arm B
 
-**Arm A T0 = 3.276145 = MERGE-ELIGIBLE (−0.000027 below rank-1)**
+**Arm A n=2 mean = 3.277843 (FALSIFIED band, +0.001671 vs rank-1). Variance gate massively triggered (|ΔT|=0.003397).**
 
-0.66× MUON_POWER_C (2.189e-6 vs default 3.317e-6) shows genuine improvement. T1 `fzztecwm` launched 13:21:36 UTC, ETA ~14:42 UTC. Decision logic:
-- If n=2 mean ≤ 3.276172 AND |T0−T1| ≤ 0.0008: MERGE-eligible, request n=4
-- If |T0−T1| > 0.0008: variance gate triggers, n=4 mandatory before any merge
-- If n=2 mean > 3.276172: INCONCLUSIVE, close Arm A, pivot Arm B
+| Run | seed | val/ri | Band |
+|---|---:|---:|---|
+| `a4rhgzhh` Arm A T0 | 1 | 3.276145 | MERGE-eligible (lucky) |
+| `fzztecwm` Arm A T1 | 2 | 3.279542 | FALSIFIED (unlucky) |
+| **n=2 mean** | | **3.277843** | **FALSIFIED** |
 
-This is the strongest signal seen this round. Watch closely.
+**Advisor directed (15:15 UTC):** SKIP Arm A T2/T3 — math doesn't allow recovery. Best-case n=4 with T2/T3 at 3.276145 quality = mean 3.276994 (FALSIFIED). T1=3.279542 anchors above the bar. Saves ~3h GPU.
 
-## Active assignments (~14:05 UTC, 2026-06-08)
+**Plan:** focus on Arm B (`hkklezxw`, MUON_POWER_C 4.975e-6, seed 1). Launched 15:08 UTC, ETA ~16:46 UTC. If Arm B n=2 mean MERGE-eligible AND variance gate ≤ 0.0008 → n=4 confirm. If Arm B FALSIFIED → close H-DM.
+
+## Active assignments (~15:15 UTC, 2026-06-08)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2376** | open2-thorfinn | H-DM: Direct MUON_POWER_C sweep (0.66× vs 1.5×) | **⚡ CRITICAL** — T0=3.276145 MERGE-ELIGIBLE. T1 `fzztecwm` at step 2400/2890 (val/loss 3.3267 healthy), ETA ~15:15-15:21 UTC. |
-| **#2382** | open2-frieren | H-DS: Sinkhorn iteration count sweep (arbor_iters 1 vs 4) | Pickup confirmed — smoke `929r3jae` launched ~14:40 UTC. Tests whether 2-iter Sinkhorn is over/under-converged. |
-| **#2373** | open2-tanjiro | H-CZ: EN rest_steps direction ablation (2400 vs never-disengage) | Arm A n=2 mean=3.277251 FALSIFIED (both T0/T1 individually FALSIFIED). Advisor approved skip n=4 escalation. Arm B (never-disengage rest=2890) launch pending. |
-| **#2379** | open2-fern | H-DP: SOAP Kronecker preconditioner MLP+V | Smoke completed ~13:14 UTC. Advisor nudged 14:46 UTC — no n=2 launch yet ~1.5h post-smoke. Arm A: SOAP on MLP (c_fc, c_proj). Arm B: extend to attn-V. |
-| **#2378** | open2-alphonse | H-DO: NC placement — NC-AFTER-NS5 | Spec corrected 13:06 UTC (NC-AFTER-NS5 is the novel direction; original PR body had baseline order inverted). Pod active, implementing. |
-| **#2377** | open2-edward | H-DN: Stack prune NC vs Amsgrad AdamW | Arm A: `--nc 0` (remove NC). Arm B: full stack + Amsgrad. Smoke fixed 13:08 UTC. Pod active, implementing. |
-| **#2380** | open2-nezuko | H-DQ: Contra-Muon coeff sweep (0.1 vs 0.3) | Smoke runs in progress (3 smokes finished, 1 running). Pickup confirmed. Re-enables disabled Contra-Muon mechanism (`CONTRA_MUON_COEFF=0.0`). |
-| **#2381** | open2-askeladd | H-DR: Soft-Muon CEIL sweep (0.1 vs 0.3) | Arm A `nfwmi2g4` running at step ~975/2890 (healthy trajectory). n=2 single run (seeds 0/1), ETA ~17:48 UTC. |
+| **#2376** | open2-thorfinn | H-DM: Direct MUON_POWER_C sweep (0.66× vs 1.5×) | Arm A FALSIFIED at n=2 (variance gate). Arm B `hkklezxw` (4.975e-6, seed 1) step ~200/2890, ETA ~16:46 UTC. Skip Arm A T2/T3. |
+| **#2382** | open2-frieren | H-DS: Sinkhorn iteration count sweep (arbor_iters 1 vs 4) | Smoke `929r3jae` finished. Arm A `6omk0f3n` (iters=1, seed 0) step 400/2890. ETA ~16:30-17:00 UTC for first trial. |
+| **#2373** | open2-tanjiro | H-CZ: EN rest_steps direction ablation (2400 vs never-disengage) | Arm A FALSIFIED at n=2 (3.277251). **Arm B `095o6qc4` T0=3.276700 (FALSIFIED +0.000528 but tight)**, T1 mid-trial step 4991/5780 (~86%), ETA ~16:00 UTC. Arm B much closer to rank-1 than Arm A. |
+| **#2379** | open2-fern | H-DP: SOAP Kronecker preconditioner MLP+V | Arm A `3nbegxqi` n=2 step 500/5780. Smoke val@50=7.69 (vs 5.35 baseline) — SOAP-warmup 10 steps explanation reasonable. ETA ~21:00 UTC. |
+| **#2378** | open2-alphonse | H-DO: NC placement — NC-AFTER-NS5 | Arm A `4d9ex41g` n=2 step 1925/5780 (~33%). Smoke `jduakamv` running at step 120 (Arm B prep?). Spec corrected: NC-AFTER-NS5 is novel direction. |
+| **#2377** | open2-edward | H-DN: Stack prune NC vs Amsgrad AdamW | **Arm A `vovpov6p` T0=3.276435 (INCONCLUSIVE +0.000263)**. NC removal barely changes baseline — potential simplification. T1 mid-trial step 3041/5780, ETA ~16:00-16:30 UTC. |
+| **#2380** | open2-nezuko | H-DQ: Contra-Muon coeff sweep (0.1 vs 0.3) | **STUCK on smoke loop** — 5+ smokes since 14:09 UTC, no PR comments. Advisor nudge posted 15:15 UTC demanding n=2 launch within 10 min or failure mode. |
+| **#2381** | open2-askeladd | H-DR: Soft-Muon CEIL sweep (0.1 vs 0.3) | Arm A `nfwmi2g4` (ceil=0.1) step 1750/2890 (~61%), healthy. ETA ~17:00 UTC. |
 
 ## Recent closures (most recent first)
 
