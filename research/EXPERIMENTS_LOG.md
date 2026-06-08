@@ -1,5 +1,41 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-08 06:25 — PR #2367: H-DA FINAL_LR_POWER sweep — CLOSED 41ST LEVER (open2-nezuko)
+
+- Branch: `open2-nezuko/h-da-final-lr-power-sweep`
+- Hypothesis: Sweep FINAL_LR_POWER ∈ {1.0, 1.4} (rank-1 default = 1.2) to test schedule-curvature sensitivity. Pre-launch trace revealed hardcoded `power_c` constants would couple curvature with magnitude when `p` varied — student proposed recalibrating per-arm via `power_c = initial_lr / FINAL_SCHEDULE_STEPS^p` for shape-only test.
+
+### Pre-launch diagnostic (saved ~7h compute)
+
+Student traced `_power_lr` source and found the PR's predicted multipliers were wrong by 3-7×. PR was set up to confound shape/magnitude. Three options offered: (1) abort, (2) reverse-interpretation, (3) milder range. Advisor green-lit option-equivalent: recalibrate `power_c` per arm + mandatory **Arm S sanity baseline** at recalibrated p=1.2 to characterize the recalibration disruption before committing 7h to Arms A/B.
+
+### Arm S sanity baseline results
+
+| Metric | Arm S recal p=1.2 n=1 | rank-1 baseline | Δ |
+|---|---:|---:|---:|
+| val/ri_loss_gamma_neg0p0750 | **3.283095** | 3.276172 | **+0.006923 (7× threshold)** |
+| muon_blocks LR at RI capture | 0.005545 | 0.007234 | −23% |
+
+- W&B: `z7byinfk`
+- Mechanism check at RI capture (step 2375): recal mult 0.149 vs hardcoded mult 0.193 = −23%. The closed-form normalization assumes `t_end = 2980` but the hardcoded `power_c` constants encode **implicit effective t_end ~2222 steps** — a hand-tuned design that the closed-form formula cannot reproduce.
+
+### Conclusion: 41st saturated lever (informative-negative)
+
+The hardcoded `power_c` constants in train_gpt_simple.py encode hand-tuned schedule structure with implicit effective t_end ~2222 (not 2980 as the closed-form assumes). The FINAL_LR_POWER axis **cannot be cleanly tested via closed-form normalization** without a +0.006-0.007 disruption to the baseline.
+
+**Implication for future schedule-curvature work:**
+1. Direct sweep of `MUON_POWER_C` at fixed effective t_end.
+2. Holding effective t_end fixed and sweeping per-group warmup-end multiplier.
+3. Accepting Option 3 (mild p∈{1.15, 1.25} without recalibration) as a compound-interpretation test.
+
+### Process compliment
+
+Nezuko's upstream diagnostic discipline (source-trace `_power_lr` → mismatch detection → smoke gate with mechanism check → n=1 characterization → three-options reply to advisor) was exactly the workflow that prevents wasted compute on confounded designs. Saved ~7h GPU time and produced clean negative-mechanism evidence.
+
+### Nezuko reassigned to H-DH
+
+PR #2370 (SWA-EMA on AdamW dense params in post-RI-capture tail). Weight-space EMA on `embed.weight` + `proj.weight`. Reference: Izmailov et al. 2018 (arxiv 1803.05407).
+
 ## 2026-06-08 05:55 — PR #2356: H-BJ NS-iter × Muon LR coupling — CLOSED 40TH LEVER (open2-edward)
 
 - Branch: `open2-edward/h-bj-ns-iter-muon-lr`

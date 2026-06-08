@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-08 ~06:05 UTC (launch day +4) — **edward H-BJ CLOSED FALSIFIED** (Arm A n=2=3.277806, Arm B n=4=3.277618 = 40th saturated lever), **edward H-CY (NorMuon-lite) ASSIGNED as PR #2369**; **nezuko H-DA Option 1 abort signed off** (Arm S recal n=1=3.283095 +0.0069 vs rank-1, recalibration too disruptive — awaiting seed=1 terminal ~07:35 UTC then close + assign H-DH SWA-EMA pre-drafted); tanjiro H-BN n=4 confirm `qq89qmbd` running (ETA 07:00 UTC); frieren H-BW Arm B γ=0.95 in flight (ETA ~07:55 UTC); fern H-BO n=4 MERGE WATCH (ETA ~06:30 UTC, 41st-positive-lever candidate); askeladd H-CA Arm A n=2 `9hld96fr` ETA ~07:55 UTC; thorfinn H-CX Arm A T0 `lt5ggymy` ETA ~07:15 UTC.
+- **As of:** 2026-06-08 ~06:35 UTC (launch day +4) — **nezuko H-DA CLOSED informative-negative** (Arm S n=1=3.283095 +0.0069, recalibration too disruptive = 41st saturated lever) → **nezuko H-DH (SWA-EMA on AdamW dense params) ASSIGNED as PR #2370**; **thorfinn H-CX Arm A T0=3.277571 FALSIFIED** (+0.001399), Arm A T1 in flight ETA ~07:30 UTC, advisor recommends SKIP Arm B if A n=2 FALSIFIED + close H-CX; fern T3 ETA ~07:10 UTC **🚨 MERGE WATCH** (running n=3 mean 3.276006 MERGE-eligible); tanjiro H-BN T2 at 22% ETA ~07:45 UTC; alphonse H-V n=4 in flight ETA ~12:11 UTC (stale base, γ-direction screen); askeladd H-CA Arm A ETA ~07:55 UTC; frieren H-BW Arm B ETA ~07:55 UTC; edward H-CY just assigned (smoke pending).
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -38,13 +38,14 @@
 | **#2361** | open2-fern | H-BO: AdamW (β₁, β₂) sweep | **🚨 T2 LANDED 3.277347** — running n=3 mean = (T0+T1 mean 3.275336 × 2 + T2 3.277347)/3 = **3.276006 MERGE-eligible band**. T3 at 68% (step 1976/2890), ETA ~06:35 UTC. For n=4 to stay MERGE-eligible T3 ≤ 3.276669 needed; for STRONG T3 ≤ 3.275069. PR has merge conflict — must rebase before merge. |
 | **#2364** | open2-frieren | H-BW: EN-on-AdamW | **Arm A n=2 FALSIFIED at 3.277298**. Arm B γ=0.95 `cwes9skt` auto-launched per PR spec. ETA ~07:55 UTC. Close H-BW + assign new hypothesis post-Arm B terminal. |
 | **#2365** | open2-askeladd | H-CA: lm_head soft-warmup × higher target LR | **Arm A n=2 launched** `9hld96fr` after torch 2.10→2.11 fix resolved 16 step-1 NaN failures (root cause: Blackwell bf16 bug, not mechanism). Terminal ETA ~07:55 UTC. |
-| **#2366** | open2-thorfinn | H-CX: RI capture_step timing sweep (2250 vs 2500) | **T0=3.277571 FALSIFIED** (+0.001399 vs rank-1). T1 at 25% (step 726/2890), ETA ~07:30 UTC. PR needs rebase. Likely close H-CX + assign next hypothesis post-T1 (or interrupt T1 if Arm B becomes priority). |
-| **#2367** | open2-nezuko | H-DA: FINAL_LR_POWER sweep | **🔴 OPTION 1 ABORT SIGNED OFF ~05:55 UTC.** Arm S recal p=1.2 n=1=3.283095 (+0.0069 vs rank-1, 7× threshold). Recalibration formula too disruptive — hardcoded `power_c` encodes hand-tuned schedule structure with implicit t_end ~2222. Seed=1 (`k6uh7bvo`) finishing for n=2 archival data (~07:35 UTC). Will close + assign **H-DH SWA-EMA on AdamW dense params** pre-drafted post-SENPAI-RESULT. |
+| **#2366** | open2-thorfinn | H-CX: RI capture_step timing sweep (2250 vs 2500) | **T0=3.277571 FALSIFIED** (+0.001399 vs rank-1). T1 at 25%, ETA ~07:30 UTC. Advisor instructed (a) let T1 finish for clean n=2 data, (b) SKIP Arm B auto-launch if A FALSIFIED (poor ROI on symmetric move), (c) close + assign next optimizer-state mech post-T1. PR needs rebase before any merge consideration. |
+| **#2370** | open2-nezuko | **H-DH: SWA-EMA on AdamW dense params in post-RI-capture tail** | **NEW ASSIGNMENT (~06:25 UTC).** Weight-space EMA on `embed.weight` + `proj.weight` during steps ≥ swa_start_step. Arm A `--swa_start_step 2375 --swa_decay 0.99`, Arm B `--swa_start_step 2500 --swa_decay 0.95`. Bit-exact at default 0. Reference: Izmailov 2018 (arxiv 1803.05407). Note: pod still finishing orphan `k6uh7bvo` Arm S seed=1 archival run (~07:35 UTC) before picking up H-DH branch. |
 
 ## Recent closures (this session, most recent first)
 
 | Date | PR | Hypothesis | Decision | Key finding |
 |---|---|---|---|---|
+| 2026-06-08 06:25 | **#2367 (nezuko H-DA)** | FINAL_LR_POWER sweep w/ recalibrated power_c | **CLOSED INFORMATIVE-NEGATIVE** | Arm S recal p=1.2 n=1=3.283095 (+0.006923, 7× threshold). Closed-form normalization `power_c = initial_lr / FINAL_SCHEDULE_STEPS^p` cannot reproduce the hand-tuned hardcoded power_c (implicit effective t_end ~2222 vs assumed 2980). **41st saturated lever — FINAL_LR_POWER axis closes for recalibration-style sweep.** Future work needs direct MUON_POWER_C sweep at fixed t_end. |
 | 2026-06-08 05:55 | **#2356 (edward H-BJ)** | NS-iter × Muon LR coupling | **CLOSED FALSIFIED — both arms** | Arm A n=2=3.277806 (+0.001613, tight spread 0.000068). Arm B n=4=3.277618 (+0.001425, T0=3.280203 catastrophic seed-luck event; T1 alone=3.276022 MERGE-eligible single seed). Excellent variance escalation discipline caught false positive. **40th saturated lever — NS-iter × Muon LR coupling axis closed.** |
 | 2026-06-08 03:30 | **#2358 (nezuko H-BL)** | Embed LR decoupling (0.20 vs 0.45) | **CLOSED — axis closed bidirectionally** | Arm A n=2 mean 3.276713 FALSIFIED (high variance 0.001626=2.0× thr). Arm B n=2 mean 3.276266 INCONCLUSIVE (tight 0.000324). **39th lever.** Novel finding: embed_lr=0.45 COMPRESSES seed-0/1 split, embed_lr=0.20 PRESERVES it. Direction-dependent seed-split behavior. |
 | 2026-06-08 01:30 | #2362 (thorfinn H-BU) | Lookahead on AdamW groups | **CLOSED FALSIFIED** | Arm A T0=3.28440 CATASTROPHIC (+0.00823). Zero-init layers amplified by k=5 fast-weight steps. **38th lever.** |
@@ -53,15 +54,16 @@
 | 2026-06-07 19:30 | #2355 (tanjiro H-BI) | Depth-wise Muon LR decay=0.85 | **CLOSED FALSIFIED** | T0=3.29223 catastrophic. **34th lever.** |
 | 2026-06-07 19:26 | #2354 (askeladd H-BH) | GC on Muon momentum buffer | **CLOSED FALSIFIED** | T0=3.284688 catastrophic. **33rd lever.** |
 
-## Saturated levers count: 40 (positive 41st candidate pending — H-BO Arm B n=4 confirm)
+## Saturated levers count: 41 (positive 42nd candidate pending — H-BO Arm B n=4 confirm ~07:10 UTC)
 
-Recent levers (37-40):
+Recent levers (37-41):
 37. **Cosine warm-restart Muon LR at step 2000 (H-BK)** — T0=3.287374 (+0.011, 22× noise floor). Invariant #5 confirmed.
 38. **Lookahead k=5 α=0.5 on AdamW groups (H-BU)** — T0=3.2844 CATASTROPHIC (+0.0082).
-39. **Embed-only LR ±50% (H-BL)** — bidirectional axis closure. Arm A 0.20 FALSIFIED +0.000541 high variance. Arm B 0.45 INCONCLUSIVE +0.000094 tight. Direction-dependent seed-split.
-40. **NS-iter × Muon LR coupling (H-BJ)** — Arm A (iter=8, LR×1.04) n=2=3.277806 (+0.001613, tight). Arm B (iter=16, LR×0.97) n=4=3.277618 (+0.001425, T0 catastrophic outlier seed 0 = 3.280203). NS5 iteration count and Muon LR not productively coupled on rank-1 stack.
+39. **Embed-only LR ±50% (H-BL)** — bidirectional axis closure. Direction-dependent seed-split (Arm A 0.20 FALSIFIED, Arm B 0.45 INCONCLUSIVE).
+40. **NS-iter × Muon LR coupling (H-BJ)** — both arms FALSIFIED (Arm A n=2=3.277806, Arm B n=4=3.277618). NS5 iter and Muon LR not productively coupled.
+41. **FINAL_LR_POWER recalibration (H-DA)** — Arm S recal p=1.2 n=1=3.283095 (+0.0069). Closed-form `power_c = initial_lr/t_end^p` can't reproduce hand-tuned hardcoded constants. **Informative-negative.**
 
-**41st positive-lever candidate (~06:30 UTC):** H-BO Arm B (β₁=0.85, β₂=0.98) — n=2 STRONG 3.275336 pending n=4 confirm with seeds 2-3. If holds, REPLACES canonical (0.8, 0.99) tuning from PR #309.
+**42nd positive-lever candidate (~07:10 UTC):** H-BO Arm B (β₁=0.85, β₂=0.98) — n=2 STRONG 3.275336. T3 ETA shortly. If n=4 holds in MERGE band, REPLACES canonical (0.8, 0.99) tuning from PR #309.
 
 ## Key mechanism table (NC × Arbor + RI + eps=1e-12 stack)
 
@@ -99,8 +101,9 @@ Recent levers (37-40):
 ## Queued hypotheses (next assignments for idle students)
 
 - **(H-CY assigned to edward PR #2369 ~05:55 UTC)** NorMuon-lite — per-row update-norm EMA, post-NS5 OPTIMIZER-STATE MECHANISM.
-- **H-DH** (nezuko, awaiting Arm S seed=1 SENPAI-RESULT ~07:35 UTC): **SWA-EMA on AdamW dense params (embed.weight, proj.weight) in post-RI-capture tail.** Arm A `--swa_start_step 2375 --swa_decay 0.99`, Arm B `--swa_start_step 2500 --swa_decay 0.95`. Bit-exact at default 0. Reference: Izmailov 2018 (arxiv 1803.05407). WEIGHT-SPACE EMA on readout pathway — 3 of 4 directive bias categories (optimizer-state, schedule, readout).
+- **(H-DH assigned to nezuko PR #2370 ~06:25 UTC)** SWA-EMA on AdamW dense params — weight-space EMA, READOUT pathway mechanism.
 - **H-CZ** (tanjiro, post-H-BN close): **EN rest_steps earlier disable.** Flag `--ema_nesterov_rest_steps` (default 1950). H-AW tested 2300 (FALSIFIED). Test earlier: Arm A=1500, Arm B=1200. SCHEDULE.
+- **TBD next for thorfinn** (post-H-CX close): need optimizer-state mech. Candidates being considered: Decoupled momentum/update Frobenius cap, post-NS5 column-wise RMSNorm, Muon update Lp normalization, Per-block Frobenius normalization (different angle from H-AO per-block LR).
 
 ## Longer-term hypotheses
 
@@ -112,16 +115,16 @@ Recent levers (37-40):
 - **H-BP**: Muon momentum MU sweep (0.90/0.98 vs default 0.95). SCALAR — lower priority.
 - **H-DC** (NEW post H-BL): **Embed-only beta ablation** — β₁_embed, β₂_embed independently from {lm_head, scalars}. Hold pending H-BO n=4 result. If fern's (0.85, 0.98) merges uniformly, per-group betas become next axis.
 
-## Open Operational Items (~06:05 UTC)
+## Open Operational Items (~06:35 UTC)
 
-- **Alphonse pod RECOVERED** (Issue #2319 CLOSED). Self-recovered via venv torch upgrade at 05:14 UTC. n=4 H-V confirm in flight ~05:41 UTC, ETA ~12:11 UTC. H-V baseline stale → informative γ-direction screen only.
-- **Fern H-BO Arm B n=4 confirm** (`i8cg4ixy` seeds 2-3): **🚨 MERGE WATCH ~06:30 UTC.** Must rebase before merge. 41st-positive-lever candidate.
-- **Tanjiro H-BN Arm B n=4 confirm** (`qq89qmbd` seeds 2-3): ETA ~07:00 UTC. Spread 1.98× variance gate; T1=3.275799 MERGE-eligible single seed.
-- **Nezuko H-DA Arm S seed=1** (`k6uh7bvo`): ETA ~07:35 UTC → SENPAI-RESULT post → close PR #2367 + assign H-DH (SWA-EMA, pre-drafted).
-- **Thorfinn H-CX Arm A T0** (`lt5ggymy`): ETA ~07:15 UTC. PR #2366 needs rebase post-terminal.
+- **Fern H-BO Arm B n=4 confirm** (`i8cg4ixy` seeds 2-3): **🚨 MERGE WATCH ~07:10 UTC.** Running n=3 mean 3.276006 MERGE-eligible band. T3 ≤ 3.276669 for MERGE. Must rebase before merge (CONFLICTING). 42nd-positive-lever candidate.
+- **Thorfinn H-CX Arm A T0=3.277571 FALSIFIED** (+0.001399). T1 ETA ~07:30 UTC. Advisor instructed SKIP Arm B if n=2 FALSIFIED + close → next optimizer-state mech. PR #2366 needs rebase.
+- **Tanjiro H-BN Arm B n=4 confirm** (`qq89qmbd` seeds 2-3): T2 at 22%, T3 ETA ~07:45 UTC. n=2 spread 1.98× variance gate; T1=3.275799 MERGE-eligible single seed.
+- **Nezuko H-DH** (PR #2370): just assigned ~06:25 UTC. Pod still finishing orphan `k6uh7bvo` Arm S seed=1 archival (~07:35 UTC) before picking up H-DH branch.
 - **Frieren H-BW Arm B γ=0.95** (`cwes9skt`): ETA ~07:55 UTC. T0 alone determines close → next assignment.
 - **Askeladd H-CA Arm A n=2** (`9hld96fr`): ETA ~07:55 UTC. Mechanism + floor warmup validation.
 - **Edward H-CY** (PR #2369): just assigned ~05:55 UTC. Expect smoke launch within 30 min.
+- **Alphonse H-V n=4 in flight** (stale base 3.27738). ETA ~12:11 UTC. γ-direction screen only — informative for follow-up rank-1-stack test if direction is clean.
 
 ## Standing directive (preserved verbatim)
 
