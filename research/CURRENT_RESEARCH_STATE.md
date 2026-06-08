@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-08 ~14:05 UTC (launch day +4) — **levers 51/52 CLOSED**: nezuko H-DH SWA-EMA on AdamW FALSIFIED (adds bias not reduces variance; AdamW trajectory post-RI-capture still directionally improving); askeladd H-DK ARBOR_CLAMP_K sweep FALSIFIED (asymmetric penalty: clamp=2.0 catastrophic +0.00274, clamp=5.0 marginal +0.000467; default 3.0 at near-tight local optimum). **52 saturated levers total.** New assignments: nezuko → H-DQ (Contra-Muon coeff 0.1/0.3, PR #2380), askeladd → H-DR (Soft-Muon CEIL 0.1/0.3, PR #2381). **CRITICAL: thorfinn H-DM Arm A T0=3.276145 MERGE-ELIGIBLE (−0.000027 vs rank-1), T1 `fzztecwm` ETA ~14:42 UTC.**
+- **As of:** 2026-06-08 ~14:35 UTC (launch day +4) — **lever 53 CLOSED**: frieren H-DL EN lookahead_stepsize FALSIFIED (flat 0.15–0.30, climbs sharply at 0.45; default 0.30 at optimum). **53 saturated levers total.** New assignment: frieren → H-DS (ARBOR_ITERS sweep, PR #2382). **CRITICAL: thorfinn H-DM Arm A T0=3.276145 MERGE-ELIGIBLE (−0.000027 vs rank-1), T1 `fzztecwm` at step ~1500/2890, ETA ~15:10 UTC.**
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -38,8 +38,8 @@ This is the strongest signal seen this round. Watch closely.
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2376** | open2-thorfinn | H-DM: Direct MUON_POWER_C sweep (0.66× vs 1.5×) | **⚡ CRITICAL** — T0=3.276145 MERGE-ELIGIBLE. T1 `fzztecwm` running, ETA ~14:42 UTC. |
-| **#2375** | open2-frieren | H-DL: EN lookahead_stepsize sweep (0.15 vs 0.45) | Arm A T0=3.276163 INCONCLUSIVE (just −0.000009 below rank-1). Arm B `croo9cfc` running, ETA ~14:30 UTC. |
+| **#2376** | open2-thorfinn | H-DM: Direct MUON_POWER_C sweep (0.66× vs 1.5×) | **⚡ CRITICAL** — T0=3.276145 MERGE-ELIGIBLE. T1 `fzztecwm` at step ~1500/2890, ETA ~15:10 UTC. |
+| **#2382** | open2-frieren | H-DS: Sinkhorn iteration count sweep (arbor_iters 1 vs 4) | NEW — awaiting pod pickup. Tests whether 2-iter Sinkhorn is over/under-converged. Smoke gate first. |
 | **#2373** | open2-tanjiro | H-CZ: EN rest_steps direction ablation (2400 vs never-disengage) | Arm A n=2 mean=3.277251 FALSIFIED. Arm B `095o6qc4` running, never-disengage rest=2890, ETA ~16:30 UTC. |
 | **#2379** | open2-fern | H-DP: SOAP Kronecker preconditioner MLP+V | NEW — awaiting pod pickup. Arm A: SOAP on MLP (c_fc, c_proj). Arm B: extend to attn-V. Smoke gate first. |
 | **#2378** | open2-alphonse | H-DO: NC placement — NC-AFTER-NS5 | NEW — awaiting pod pickup. Reversed: NC after NS-iter (normalize after Newton-Schulz, not before). Smoke gate first. Corrected from original spec inversion. |
@@ -51,6 +51,7 @@ This is the strongest signal seen this round. Watch closely.
 
 | Date | PR | Hypothesis | Decision | Key finding |
 |---|---|---|---|---|
+| 2026-06-08 14:30 | **#2375 (frieren H-DL)** | EN lookahead_stepsize sweep (0.15 vs 0.45) | **CLOSED 53RD LEVER** | Arm A (0.15) flat with baseline (−9e-6, within σ_pair). Arm B (0.45) FALSIFIED +0.002525. Default 0.30 at optimum; surface flat below 0.30, climbs sharply above. |
 | 2026-06-08 13:55 | **#2374 (askeladd H-DK)** | ARBOR_CLAMP_K sweep (2.0 vs 5.0) | **CLOSED 52ND LEVER** | Asymmetric penalty: clamp=2.0 catastrophic +0.00274, clamp=5.0 marginal +0.000467. Default 3.0 at near-tight local optimum. Sinkhorn tolerant of loosening, sharply punished by over-clamping. |
 | 2026-06-08 13:26 | **#2370 (nezuko H-DH)** | SWA-EMA on AdamW dense params | **CLOSED 51ST LEVER** | Both arms FALSIFIED. SWA adds +0.000125-0.000156 bias over raw: AdamW tail trajectory still directionally improving, not noise-dominated. Weight-space averaging axis fully closed. |
 | 2026-06-08 12:50 | **#2371 (fern H-DI)** | SOAP_BETA2 sweep (0.95 vs 0.85) | **CLOSED 50TH LEVER** | Both arms FALSIFIED. Arm A (0.95) +0.001838, Arm B (0.85) +0.000676. 0.90 at local optimum for 2890-step schedule. |
@@ -58,9 +59,9 @@ This is the strongest signal seen this round. Watch closely.
 | 2026-06-08 12:47 | **#2369 (edward H-CY)** | NorMuon-lite β₂ sweep (0.99 vs 0.95) | **CLOSED 48TH LEVER** | Both arms FALSIFIED. "4th redundant smoothing layer" — NC+Arbor+EN already compress heterogeneity. |
 | 2026-06-08 10:30 | **#2372 (thorfinn H-DJ)** | Lookahead-on-Muon (k=5/α=0.5) | **CLOSED 47TH LEVER CATASTROPHIC** | T0=3.295566 (+0.019394, 50× FALSIFIED). Lookahead axis FULLY closed (both AdamW H-BU and Muon). |
 
-## Saturated levers count: 52
+## Saturated levers count: 53
 
-Levers 38–52:
+Levers 38–53:
 38. **Lookahead k=5 α=0.5 on AdamW (H-BU)** — CATASTROPHIC +0.00823.
 39. **Embed-only LR ±50% (H-BL)** — bidirectional. Direction-dependent seed-split.
 40. **NS-iter × Muon LR coupling (H-BJ)** — both arms FALSIFIED.
@@ -76,6 +77,7 @@ Levers 38–52:
 50. **SOAP_BETA2 sweep 0.95/0.85 (H-DI)** — FALSIFIED both. 0.90 at local optimum.
 51. **SWA-EMA on AdamW dense params (H-DH)** — FALSIFIED both. AdamW tail still directionally improving, weight-space averaging axis closed.
 52. **ARBOR_CLAMP_K sweep 2.0/5.0 (H-DK)** — FALSIFIED both. Asymmetric penalty; default 3.0 at local optimum, axis closed.
+53. **EN lookahead_stepsize sweep 0.15/0.45 (H-DL)** — Flat 0.15–0.30, climbs sharply at 0.45. Default 0.30 at optimum, axis closed.
 
 ## Key mechanism table (NC × Arbor + RI + eps=1e-12 stack)
 

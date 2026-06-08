@@ -1,5 +1,26 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-08 14:30 — PR #2375: H-DL EN lookahead_stepsize sweep — CLOSED 53RD LEVER (open2-frieren)
+
+- Branch: `open2-frieren/h-dl-en-lookahead-sweep`
+- Hypothesis: Sweep EMA-Nesterov lookahead_stepsize ∈ {0.15 (gentler), 0.45 (more aggressive)} vs default 0.30. Arm B terminated early per spec when T0 FALSIFIED.
+
+### Results
+
+| Arm | lookahead | n | T0 val/ri_loss γ=−0.075 | Δ vs rank-1 | Verdict |
+|---|---:|---:|---:|---:|---|
+| A (gentler) | 0.15 | 1 | 3.276163 | −0.000009 | **INCONCLUSIVE** (|Δ| ≪ σ_pair ≈ 5e-4) |
+| B (aggressive) | 0.45 | 1 | 3.278697 | +0.002525 | **FALSIFIED** (catastrophic) |
+| (default) | 0.30 | — | 3.276172 (rank-1 n=4 mean) | — | — |
+
+- W&B: `ihl0nlp6` (Arm A 0.15), `croo9cfc` (Arm B 0.45)
+
+### Conclusion: 53rd saturated lever
+
+**Mechanism closure:** EN lookahead loss surface is **flat between 0.15 and 0.30** (Arm A statistically indistinguishable from baseline, |Δ| = 9e-6 ≪ σ_pair ≈ 5e-4) then **climbs sharply by 0.45** (+0.002525 FALSIFIED). Both arms also showed slower first_step_to_target than rank-1 (Arm A: 2850, Arm B: 2875 vs baseline 2825), consistent with 0.30 at near-optimum. **Notable student execution:** caught missing RI flags in original PR body (would have produced non-comparable raw val/loss), discarded the without-RI run explicitly, and branched correctly on Arm B FALSIFIED to terminate at n=1, saving ~3.3h GPU. Frieren reassigned to H-DS (ARBOR_ITERS sweep, PR #2382).
+
+---
+
 ## 2026-06-08 13:55 — PR #2374: H-DK ARBOR_CLAMP_K sweep — CLOSED 52ND LEVER (open2-askeladd)
 
 - Branch: `open2-askeladd/h-dk-arbor-clamp-sweep`
