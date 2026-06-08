@@ -146,6 +146,9 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--adamw_en_gamma", type=float, default=0.0,
+                        help="EN-on-AdamW: EMA-Nesterov gamma for AdamW gradient correction. "
+                             "0.0 = disabled (default). H-BW: Arm A = 0.99, Arm B = 0.95.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1220,6 +1223,8 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "adamw_en_gamma": args.adamw_en_gamma,
+            "adamw_en_enabled": args.adamw_en_gamma > 0.0,
         },
     )
 
@@ -1293,6 +1298,11 @@ for trial_idx in range(args.num_trials):
     optimizer1.param_groups[1]["power_c"] = ADAM_PROJ_POWER_C
     optimizer1.param_groups[2]["power_c"] = ADAM_OTHER_POWER_C
     optimizer2.param_groups[0]["power_c"] = MUON_POWER_C
+
+    # H-BW EN-on-AdamW: gradient-space EMA-Nesterov correction for AdamW groups.
+    # State is per-trial because optimizer1 is rebuilt each trial.
+    adamw_en_gamma = args.adamw_en_gamma
+    adamw_grad_ema: dict[int, Tensor] = {}
 
     def _power_lr(step, initial_lr, power_c, power=FINAL_LR_POWER):
         t_end = FINAL_SCHEDULE_STEPS
@@ -1491,6 +1501,21 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        # H-BW EN-on-AdamW: gradient-space EMA-Nesterov correction for AdamW groups.
+        # g_ema <- gamma * g_ema + (1 - gamma) * g; g <- g + gamma * g_ema.
+        # Applied AFTER the all-reduce so each rank's optimizer sees the same value.
+        if adamw_en_gamma > 0.0:
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
+                    pid = id(p)
+                    buf = adamw_grad_ema.get(pid)
+                    if buf is None:
+                        buf = torch.zeros_like(p.grad)
+                        adamw_grad_ema[pid] = buf
+                    buf.mul_(adamw_en_gamma).add_(p.grad.data, alpha=(1.0 - adamw_en_gamma))
+                    p.grad.data.add_(buf, alpha=adamw_en_gamma)
         # set optimization hyperparameters and take a step
         set_hparams(step)
         train_step = step + 1
