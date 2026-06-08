@@ -146,6 +146,12 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--aux_b2_start", type=float, default=-1.0,
+                        help="Starting aux β₂ before pulse. -1 disables (baseline).")
+    parser.add_argument("--aux_b2_target", type=float, default=0.99,
+                        help="Target aux β₂ AFTER the pulse.")
+    parser.add_argument("--aux_b2_pulse_step", type=int, default=970,
+                        help="Training step at which to apply the step-function β₂ change.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1269,6 +1275,12 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-12, weight_decay=0, fused=True)
+    if args.aux_b2_start > 0.0:
+        initial_b2 = args.aux_b2_start
+        for group in optimizer1.param_groups:
+            beta1 = group["betas"][0]
+            group["betas"] = (beta1, initial_b2)
+        print0(f"[init] aux_b2 OVERRIDDEN: β₂ → {initial_b2}", console=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1528,6 +1540,19 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
                 extra_metrics=ema_extras,
             )
+        # H-EF aux Adam β₂ step-function pulse (PR #1614 mechanism).
+        if (args.aux_b2_start > 0.0
+                and args.aux_b2_pulse_step > 0
+                and step == args.aux_b2_pulse_step):
+            new_b2 = args.aux_b2_target
+            for group in optimizer1.param_groups:
+                beta1 = group["betas"][0]
+                group["betas"] = (beta1, new_b2)
+            print0(f"[step {step}] aux_b2 PULSE: β₂ → {new_b2}", console=True)
+        if (args.aux_b2_start > 0.0 and dist.get_rank() == 0
+                and step % 50 == 0):
+            current_b2 = optimizer1.param_groups[0]["betas"][1]
+            wandb.log({"train/aux_b2_current": current_b2}, step=wandb_step)
         # PR #309 EMA-Nesterov: opt.step runs the inner optimizers at the lookahead point,
         # then accumulates lookahead = γ * lookahead + (1-γ) * (p_after - prev_p).
         for opt in optimizers:
