@@ -146,6 +146,10 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--nc_after_ns", type=int, default=0,
+                        help="H-DO placement gate. 0=NC (per-row x per-col L2 equalization) applied BEFORE "
+                             "NS-iter on G (matches current rank-1 baseline). 1=NC applied AFTER NS-iter on "
+                             "the orthogonalized update. NC stays in the stack either way.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -891,12 +895,19 @@ def arbor_sinkhorn_equilibrate(G: Tensor, n_iters: int = ARBOR_ITERS,
 
 def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, use_soft=True,
                 apply_arbor: bool = False):
-    if update.dim() >= 2:
+    # H-DO: NC placement is gated by --nc_after_ns (default 0, matches rank-1 baseline).
+    # nc_after_ns=0 -> NC on raw gradient G before NS-iter (rank-1 baseline).
+    # nc_after_ns=1 -> NC on the orthogonalized ns_update after NS-iter (novel).
+    if not args.nc_after_ns and update.dim() >= 2:
         r_norm = update.norm(dim=-1, keepdim=True)
         c_norm = update.norm(dim=-2, keepdim=True)
         update = update / torch.sqrt(torch.clamp(r_norm * c_norm, min=1e-12))
     normalized_grad = scale_to_unit_operator_norm(update.clone())
     ns_update = zeropower_via_newtonschulz5(update)
+    if args.nc_after_ns and ns_update.dim() >= 2:
+        r_norm = ns_update.norm(dim=-1, keepdim=True)
+        c_norm = ns_update.norm(dim=-2, keepdim=True)
+        ns_update = ns_update / torch.sqrt(torch.clamp(r_norm * c_norm, min=1e-12))
     if apply_arbor:
         ns_update, arbor_diag = arbor_sinkhorn_equilibrate(ns_update)
     else:
@@ -1220,6 +1231,7 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "nc_after_ns": args.nc_after_ns,
         },
     )
 
