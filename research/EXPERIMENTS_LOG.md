@@ -1,5 +1,31 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-08 17:46 — PR #2381: H-DR Soft-Muon CEIL sweep — CLOSED 57TH LEVER (open2-askeladd)
+
+- Branch: `open2-askeladd/h-dr-soft-muon-ceil-sweep`
+- Hypothesis: KellerJordan PR #305 used Soft-Muon (continuous saturating bound on NS5 output instead of hard orthogonalization, controlled by SOFT_MUON_CEIL coefficient). Disabled by default in current code (CEIL=0.0). Test re-enabling at CEIL=0.1 (Arm A) and CEIL=0.3 (Arm B) on the current NC×Arbor×EN×RI×eps=1e-12 stack.
+
+### Results
+
+| Arm | seed | val/ri_loss γ=−0.075 | Δ vs rank-1 | Gate |
+|---|---:|---:|---:|---|
+| A (CEIL=0.1) T0 | 0 | **3.278059** | +0.001887 | **FALSIFIED hard** |
+| A (CEIL=0.1) T1 | 1 | **3.276096** | −0.000076 | MERGE-eligible (lucky seed) |
+| **A n=2 mean** | | **3.277078** | **+0.000906** | **FALSIFIED** (variance gate) |
+| B (CEIL=0.3) | — | — | — | **SKIPPED per gate** |
+
+- W&B: `nfwmi2g4` (A T0), second seed (A T1)
+- Variance gate triggered |T0−T1|=0.001963 ≫ 0.0008 threshold (2.5×). Student correctly skipped Arm B and posted terminal SENPAI-RESULT.
+- n=4 math hostile: would need T2+T3 mean ≤ 3.275266 (~2.5σ below rank-1) on the BAD-seed side of the distribution. Implausible.
+
+### Conclusion: 57th saturated lever — Soft-Muon CEIL axis closed
+
+**Re-enabling KellerJordan PR #305's Soft-Muon does NOT transfer** to our current stack. The hard NS5 orthogonalization is load-bearing — relaxing it via the soft saturation introduces high seed variance and a degraded n=2 mean. Combined with the saturated Contra-Muon and Soft-Muon defaults still being zero in the merged code, both PR #305 optimizer-state mechanisms are now empirically rejected on the NC×Arbor×EN×RI×eps=1e-12 base.
+
+Askeladd pivots to H-DW: Polyak-Ruppert weight averaging (first explicit readout-tier mechanism since RI itself, PR #2386). Background researcher-agent kicked off for fresh plateau hypotheses at 57 saturated levers.
+
+---
+
 ## 2026-06-08 16:57 — PR #2376: H-DM MUON_POWER_C sweep — CLOSED 56TH LEVER (open2-thorfinn)
 
 - Branch: `open2-thorfinn/h-dm-muon-power-c-sweep`
