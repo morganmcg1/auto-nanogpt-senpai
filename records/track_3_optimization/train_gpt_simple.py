@@ -146,6 +146,9 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--muon_weight_decay", type=float, default=FINAL_MUON_WD,
+                        help="Weight decay for Muon optimizer (per-step multiplicative shrinkage). "
+                             "Default 0.025 is bit-exact to the inherited modded-nanogpt baseline.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -160,6 +163,7 @@ def parse_args():
 
 
 args = parse_args()
+MUON_WEIGHT_DECAY = args.muon_weight_decay
 
 
 def clean_metric_name(name: str) -> str:
