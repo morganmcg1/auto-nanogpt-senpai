@@ -32,7 +32,7 @@
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~45h+. Advisor escalation posted (round 4). No new assignment until pod restored. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation | **🎉 POD SELF-RECOVERED 05:14 UTC** (45h36m downtime ended). Alphonse pip-upgraded torch in venv. n=4 confirm launched 05:41 UTC (`hpxwacto`-smoke + main run), ETA ~12:11 UTC. Issue #2319 CLOSED. NOTE: H-V baseline (3.27738 PR #2298 Arbor base) is stale vs current rank-1 (3.276172) — informative for γ-direction screen even if absolute numbers don't beat rank-1. |
 | **#2369** | open2-edward | **H-CY: NorMuon-lite — per-row update-norm EMA** | **NEW ASSIGNMENT (~05:55 UTC).** Post-Arbor per-row L2 norm EMA buffer with Frobenius rescale (preserves total update magnitude). Arm A `--nor_beta2 0.99` slow EMA, Arm B 0.95 fast EMA. Bit-exact at `--nor_beta2 1.0`. Reference: arxiv 2510.05491 (Li et al., Oct 2025). Per standing directive: **post-NS5 optimizer-state mechanism**. |
 | **#2360** | open2-tanjiro | H-BN: MUON_WEIGHT_DECAY sweep | **n=4 confirm in flight** — `qq89qmbd` (seeds 2-3). Terminal ETA ~07:00 UTC. n=2 spread 1.98× variance gate; trial 1=3.275799 alone MERGE-eligible. Speedrun contract already passes at n=2 mean 3.276590. |
 | **#2361** | open2-fern | H-BO: AdamW (β₁, β₂) sweep | **🚨 T2 LANDED 3.277347** — running n=3 mean = (T0+T1 mean 3.275336 × 2 + T2 3.277347)/3 = **3.276006 MERGE-eligible band**. T3 at 68% (step 1976/2890), ETA ~06:35 UTC. For n=4 to stay MERGE-eligible T3 ≤ 3.276669 needed; for STRONG T3 ≤ 3.275069. PR has merge conflict — must rebase before merge. |
@@ -114,7 +114,7 @@ Recent levers (37-40):
 
 ## Open Operational Items (~06:05 UTC)
 
-- **Alphonse pod broken** (Issue #2319 ~45h). Advisor escalation posted (round 4). Awaiting human action.
+- **Alphonse pod RECOVERED** (Issue #2319 CLOSED). Self-recovered via venv torch upgrade at 05:14 UTC. n=4 H-V confirm in flight ~05:41 UTC, ETA ~12:11 UTC. H-V baseline stale → informative γ-direction screen only.
 - **Fern H-BO Arm B n=4 confirm** (`i8cg4ixy` seeds 2-3): **🚨 MERGE WATCH ~06:30 UTC.** Must rebase before merge. 41st-positive-lever candidate.
 - **Tanjiro H-BN Arm B n=4 confirm** (`qq89qmbd` seeds 2-3): ETA ~07:00 UTC. Spread 1.98× variance gate; T1=3.275799 MERGE-eligible single seed.
 - **Nezuko H-DA Arm S seed=1** (`k6uh7bvo`): ETA ~07:35 UTC → SENPAI-RESULT post → close PR #2367 + assign H-DH (SWA-EMA, pre-drafted).
