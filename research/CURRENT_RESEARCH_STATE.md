@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-08 ~14:35 UTC (launch day +4) — **lever 53 CLOSED**: frieren H-DL EN lookahead_stepsize FALSIFIED (flat 0.15–0.30, climbs sharply at 0.45; default 0.30 at optimum). **53 saturated levers total.** New assignment: frieren → H-DS (ARBOR_ITERS sweep, PR #2382). **CRITICAL: thorfinn H-DM Arm A T0=3.276145 MERGE-ELIGIBLE (−0.000027 vs rank-1), T1 `fzztecwm` at step ~1500/2890, ETA ~15:10 UTC.**
+- **As of:** 2026-06-08 ~14:50 UTC (launch day +4) — **53 saturated levers**. tanjiro H-CZ Arm A FALSIFIED at n=2 (both T0/T1 individually FALSIFIED; advisor approved skip n=4 escalation, proceed to Arm B immediately). frieren H-DS pickup confirmed (smoke `929r3jae` launched ~14:40 UTC). askeladd H-DR Arm A `nfwmi2g4` at step ~975/2890 (healthy trajectory). **CRITICAL: thorfinn H-DM Arm A T0=3.276145 MERGE-ELIGIBLE (−0.000027 vs rank-1), T1 `fzztecwm` at step 2400/2890 (val/loss=3.3267 healthy), terminal ETA ~15:15-15:21 UTC.**
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -38,14 +38,14 @@ This is the strongest signal seen this round. Watch closely.
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2376** | open2-thorfinn | H-DM: Direct MUON_POWER_C sweep (0.66× vs 1.5×) | **⚡ CRITICAL** — T0=3.276145 MERGE-ELIGIBLE. T1 `fzztecwm` at step ~1500/2890, ETA ~15:10 UTC. |
-| **#2382** | open2-frieren | H-DS: Sinkhorn iteration count sweep (arbor_iters 1 vs 4) | NEW — awaiting pod pickup. Tests whether 2-iter Sinkhorn is over/under-converged. Smoke gate first. |
-| **#2373** | open2-tanjiro | H-CZ: EN rest_steps direction ablation (2400 vs never-disengage) | Arm A n=2 mean=3.277251 FALSIFIED. Arm B `095o6qc4` running, never-disengage rest=2890, ETA ~16:30 UTC. |
-| **#2379** | open2-fern | H-DP: SOAP Kronecker preconditioner MLP+V | NEW — awaiting pod pickup. Arm A: SOAP on MLP (c_fc, c_proj). Arm B: extend to attn-V. Smoke gate first. |
-| **#2378** | open2-alphonse | H-DO: NC placement — NC-AFTER-NS5 | NEW — awaiting pod pickup. Reversed: NC after NS-iter (normalize after Newton-Schulz, not before). Smoke gate first. Corrected from original spec inversion. |
-| **#2377** | open2-edward | H-DN: Stack prune NC vs Amsgrad AdamW | Arm A: `--nc 0` (remove NC). Arm B: full stack + Amsgrad. Smoke gate active or in progress. |
-| **#2380** | open2-nezuko | H-DQ: Contra-Muon coeff sweep (0.1 vs 0.3) | NEW — awaiting pod pickup. Re-enables disabled Contra-Muon mechanism (`CONTRA_MUON_COEFF=0.0`). Arm A: 0.1, Arm B: 0.3 conditional. |
-| **#2381** | open2-askeladd | H-DR: Soft-Muon CEIL sweep (0.1 vs 0.3) | NEW — awaiting pod pickup. Re-enables disabled Soft-Muon mechanism (`SOFT_MUON_CEIL=0.0`). Late-training NS5-variant fade-in (steps 2500–3010). Arm A: 0.1, Arm B: 0.3 conditional. |
+| **#2376** | open2-thorfinn | H-DM: Direct MUON_POWER_C sweep (0.66× vs 1.5×) | **⚡ CRITICAL** — T0=3.276145 MERGE-ELIGIBLE. T1 `fzztecwm` at step 2400/2890 (val/loss 3.3267 healthy), ETA ~15:15-15:21 UTC. |
+| **#2382** | open2-frieren | H-DS: Sinkhorn iteration count sweep (arbor_iters 1 vs 4) | Pickup confirmed — smoke `929r3jae` launched ~14:40 UTC. Tests whether 2-iter Sinkhorn is over/under-converged. |
+| **#2373** | open2-tanjiro | H-CZ: EN rest_steps direction ablation (2400 vs never-disengage) | Arm A n=2 mean=3.277251 FALSIFIED (both T0/T1 individually FALSIFIED). Advisor approved skip n=4 escalation. Arm B (never-disengage rest=2890) launch pending. |
+| **#2379** | open2-fern | H-DP: SOAP Kronecker preconditioner MLP+V | Smoke completed ~13:14 UTC. Advisor nudged 14:46 UTC — no n=2 launch yet ~1.5h post-smoke. Arm A: SOAP on MLP (c_fc, c_proj). Arm B: extend to attn-V. |
+| **#2378** | open2-alphonse | H-DO: NC placement — NC-AFTER-NS5 | Spec corrected 13:06 UTC (NC-AFTER-NS5 is the novel direction; original PR body had baseline order inverted). Pod active, implementing. |
+| **#2377** | open2-edward | H-DN: Stack prune NC vs Amsgrad AdamW | Arm A: `--nc 0` (remove NC). Arm B: full stack + Amsgrad. Smoke fixed 13:08 UTC. Pod active, implementing. |
+| **#2380** | open2-nezuko | H-DQ: Contra-Muon coeff sweep (0.1 vs 0.3) | Smoke runs in progress (3 smokes finished, 1 running). Pickup confirmed. Re-enables disabled Contra-Muon mechanism (`CONTRA_MUON_COEFF=0.0`). |
+| **#2381** | open2-askeladd | H-DR: Soft-Muon CEIL sweep (0.1 vs 0.3) | Arm A `nfwmi2g4` running at step ~975/2890 (healthy trajectory). n=2 single run (seeds 0/1), ETA ~17:48 UTC. |
 
 ## Recent closures (most recent first)
 
