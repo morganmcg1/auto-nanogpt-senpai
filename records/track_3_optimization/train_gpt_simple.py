@@ -146,6 +146,10 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--lookahead_adam_k", type=int, default=0,
+                        help="Lookahead step period for AdamW (0 = disabled, bit-exact to baseline)")
+    parser.add_argument("--lookahead_adam_alpha", type=float, default=0.5,
+                        help="Lookahead interpolation coefficient for AdamW slow weights")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1120,6 +1124,44 @@ class EMA_Nesterov(torch.optim.Optimizer):
         self.it += 1
 
 
+class LookaheadWrapper:
+    """Lookahead slow-weight mixing on an inner optimizer.
+    Every k steps: slow = slow + alpha * (fast - slow); fast = slow.
+    Applied only to AdamW groups (embed / lm_head / scalars).
+    Muon stays unwrapped.
+    """
+    def __init__(self, optimizer, k=5, alpha=0.5):
+        self.optimizer = optimizer
+        self.k = k
+        self.alpha = alpha
+        self.step_count = 0
+        self.slow_weights = []
+        for group in optimizer.param_groups:
+            slow_group = []
+            for p in group["params"]:
+                slow_group.append(p.detach().clone())
+            self.slow_weights.append(slow_group)
+
+    @torch.no_grad()
+    def step(self, *args, **kwargs):
+        loss = self.optimizer.step(*args, **kwargs)
+        self.step_count += 1
+        if self.step_count % self.k == 0:
+            for group_idx, group in enumerate(self.optimizer.param_groups):
+                for p_idx, p in enumerate(group["params"]):
+                    slow = self.slow_weights[group_idx][p_idx]
+                    slow.add_(p.data - slow, alpha=self.alpha)
+                    p.data.copy_(slow)
+        return loss
+
+    def zero_grad(self, *args, **kwargs):
+        self.optimizer.zero_grad(*args, **kwargs)
+
+    @property
+    def param_groups(self):
+        return self.optimizer.param_groups
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -1220,6 +1262,8 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "lookahead_adam_k": args.lookahead_adam_k,
+            "lookahead_adam_alpha": args.lookahead_adam_alpha,
         },
     )
 
@@ -1269,6 +1313,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
+    if args.lookahead_adam_k > 0:
+        optimizer1 = LookaheadWrapper(optimizer1, k=args.lookahead_adam_k, alpha=args.lookahead_adam_alpha)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
