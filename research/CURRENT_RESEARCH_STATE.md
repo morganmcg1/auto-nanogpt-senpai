@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-08 ~08:25 UTC (launch day +4) — **frieren H-BW CLOSED FALSIFIED at n=2 both arms** (Arm A γ=0.99 mean=3.277298, Arm B γ=0.95 mean=3.276654; EN-on-AdamW mechanism refuted = **45th lever**); **askeladd H-CA CLOSED FALSIFIED at n=2=3.276957** (T0=3.277683 + T1=3.276232; lm_head zero-warmup counterproductive = **46th lever**); **frieren reassigned H-DL** (EN lookahead_stepsize 0.15 vs 0.45, default 0.3) as **PR #2375**; **askeladd reassigned H-DK** (Arbor clamp_k 2.0 vs 5.0, default 3.0) as **PR #2374**. All 8 students assigned.
+- **As of:** 2026-06-08 ~10:05 UTC (launch day +4) — **edward H-CY Arm A trial 0 FALSIFIED at 3.277448** (+0.001276), trial 1 in progress (87.6%, ETA ~10:30 UTC), watchdog queued Arm B; **nezuko H-DH Arm A trial 0 FALSIFIED at 3.27787** (+0.0017, persistent SWA bias +0.000123 vs raw), trial 1 in progress (67%, ETA ~11:15 UTC); **alphonse H-V T0=3.275655 STRONG-eligible on stale Arbor base** (T1+ pending launch confirmation); **2 POD CRASHES** — askeladd H-DK `whuo07zh` died at step 1445 (cold 22min, diagnostic posted), tanjiro H-CZ Arm B `cuphlp5r` died at step 175 (cold 70min, diagnostic posted); **fern H-DI redirected to SOAP_BETA2 sweep** (original PR referenced wrong file — fern caught it, smoke passed, Arm A `z17fb2ay` healthy at 48%).
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -25,20 +25,20 @@
 
 ## 🚨 OPEN MERGE WATCHES (parallel)
 
-1. **Alphonse H-V (γ ablation n=4 on stale base)** — `2xhxl4z0` informative direction screen ONLY (stale Arbor base 3.27738 vs current rank-1 3.276172). ETA ~12:11 UTC. γ-direction signal informative for follow-up even if absolute won't beat rank-1.
+1. **Alphonse H-V (γ ablation n=4 on stale base)** — `2xhxl4z0` T0=**3.275655 STRONG-eligible** (on stale Arbor base 3.27738 vs current rank-1 3.276172). T1+ pending launch — advisor pinged 10:04 UTC. γ-direction signal informative for follow-up regardless.
 
-## Active assignments (~08:25 UTC, 2026-06-08)
+## Active assignments (~10:05 UTC, 2026-06-08)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation | n=4 confirm `2xhxl4z0` — informative γ-direction screen on stale Arbor base 3.27738. ETA ~12:11 UTC. |
-| **#2369** | open2-edward | H-CY: NorMuon-lite — per-row update-norm EMA | Arm A n=2 LAUNCHED `nt5tpgem` confirmed pickup at ~07:34 UTC (smoke passed). CLI flag `--nor_beta2`. T0 evaluable ~10:12 UTC. **Optimizer-state mech.** |
-| **#2373** | open2-tanjiro | H-CZ: EN rest_steps direction ablation | NEW PR #2373 (~08:00 UTC). Tests `--ema_nesterov_rest_steps` at 2400 (Arm A) vs 2890 never-disengage (Arm B). Awaiting pod pickup. |
-| **#2371** | open2-fern | H-DI: SOAP_BETA2 sweep | Redirected to sweep `SOAP_BETA2` in train_gpt_simple.py (original PR had wrong file). Pod re-launching. |
-| **#2375** | open2-frieren | **H-DL: EN lookahead_stepsize sweep (0.15 vs 0.45)** | **NEW PR #2375 (~08:25 UTC).** Ablates `EMA_NESTEROV_LOOKAHEAD` — never tested on rank-1 stack. Arm A=0.15 (−50%), Arm B=0.45 (+50%). Student adds `--ema_nesterov_lookahead` CLI flag. Awaiting pod pickup. |
-| **#2374** | open2-askeladd | **H-DK: Arbor clamp_k sweep (2.0 vs 5.0)** | **NEW PR #2374 (~08:25 UTC).** Ablates `ARBOR_CLAMP_K` — never tested on rank-1 stack. Arm A=2.0 (tighter), Arm B=5.0 (looser). Student adds `--arbor_clamp_k` CLI flag. Awaiting pod pickup. |
-| **#2370** | open2-nezuko | H-DH: SWA-EMA on AdamW dense params | Arm A n=2 running (launched ~07:27 UTC). Weight-space EMA on dense params, post-RI-capture tail. T0 ETA ~10:17 UTC. **Optimizer-state mech.** |
-| **#2372** | open2-thorfinn | **H-DJ: Lookahead-on-Muon (k=5/α=0.5)** | Picked up pod at 07:40 UTC. Student self-adapted to train_gpt_simple.py (advisor green-lit 07:48 UTC). Smoke + Arm A n=2 launch expected ~08:15-08:30 UTC. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation | T0 `2xhxl4z0` complete = **3.275655 STRONG-eligible** on stale Arbor base 3.27738. T1+ pending launch — advisor pinged 10:04 UTC. |
+| **#2369** | open2-edward | H-CY: NorMuon-lite — per-row update-norm EMA | Arm A n=2 `nt5tpgem` — **trial 0 FALSIFIED at 3.277448 (+0.001276)**. Trial 1 running 87.6%, ETA ~10:30 UTC. Watchdog will launch Arm B (`--nor_beta2 0.95`) after Arm A completes. **Optimizer-state mech.** |
+| **#2373** | open2-tanjiro | H-CZ: EN rest_steps direction ablation | Arm A `0rrzfs9s` running 45%, ETA ~12:15 UTC. **Arm B `cuphlp5r` CRASHED at step 175 (cold 70min)** — advisor pinged for failure mode + relaunch. |
+| **#2371** | open2-fern | H-DI: SOAP_BETA2 sweep (Arm A=0.95, Arm B=0.85) | Redirected from NorMuon (fern caught wrong-file issue). Smoke passed, Arm A `z17fb2ay` healthy at 48%, ETA ~11:55 UTC. |
+| **#2375** | open2-frieren | **H-DL: EN lookahead_stepsize sweep (0.15 vs 0.45)** | Arm A `3uph84cu` running 41%, ETA ~12:05 UTC. No issues. |
+| **#2374** | open2-askeladd | **H-DK: Arbor clamp_k sweep (2.0 vs 5.0)** | **CRASHED `whuo07zh` at step 1445 (cold 22min, ~24% complete)**. Advisor pinged for failure mode + relaunch (could be NaN with larger clamp_k or OOM). |
+| **#2370** | open2-nezuko | H-DH: SWA-EMA on AdamW dense params | Arm A n=2 `fv89ceu8` — **trial 0 FALSIFIED at 3.27787 (+0.0017)**. Persistent +0.000123 SWA-minus-raw bias across all γ. Trial 1 running 67%, ETA ~11:15 UTC. **Optimizer-state mech.** |
+| **#2372** | open2-thorfinn | **H-DJ: Lookahead-on-Muon (k=5/α=0.5)** | Arm A n=2 `6ry4dxoz` running 45%, ETA ~12:00 UTC. No issues. |
 
 ## Recent closures (this session, most recent first)
 
