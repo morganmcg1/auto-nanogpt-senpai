@@ -146,6 +146,10 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--adam_beta1", type=float, default=0.8,
+                        help="AdamW first-moment EMA coefficient (canonical=0.9, PR #309=0.8)")
+    parser.add_argument("--adam_beta2", type=float, default=0.99,
+                        help="AdamW second-moment EMA coefficient (canonical=0.999, PR #309=0.99)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -333,6 +337,9 @@ def log_training_telemetry(
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
             metrics[f"train/lr/{group_name}"] = group["lr"]
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
+            if "betas" in group:
+                metrics[f"train/optim/{group_name}/beta1"] = group["betas"][0]
+                metrics[f"train/optim/{group_name}/beta2"] = group["betas"][1]
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -1220,6 +1227,8 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "adam_beta1": args.adam_beta1,
+            "adam_beta2": args.adam_beta2,
         },
     )
 
@@ -1264,11 +1273,11 @@ for trial_idx in range(args.num_trials):
             block.norm1.gains.data.copy_((1.0 - _CGI_ALPHA * s).to(block.norm1.gains.dtype))
             block.norm2.gains.data.copy_((1.0 + _CGI_ALPHA * s).to(block.norm2.gains.dtype))
 
-    # Optimizers (PR #309: AdamW betas (0.8, 0.99)).
+    # Optimizers (PR #309 default: AdamW betas (0.8, 0.99); H-BO sweep via --adam_beta1/2).
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(args.adam_beta1, args.adam_beta2), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
