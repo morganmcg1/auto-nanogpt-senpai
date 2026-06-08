@@ -153,6 +153,15 @@ def parse_args():
     parser.add_argument("--aux_b2_pulse_step", type=int, default=970,
                         help="H-EF: Training step at which to apply the step-function β₂ change. "
                              "Arm B (EARLIER) uses 820; Arm A (CORE) uses 970.")
+    parser.add_argument("--aux_b2_rule", type=str, default="none",
+                        choices=["none", "linear_ramp"],
+                        help="β₂ schedule rule for aux AdamW (optimizer1). "
+                             "'linear_ramp' linearly interpolates aux_b2_low → aux_b2_high "
+                             "from step 0 to train_steps. H-EG-2 parameter-free generalization.")
+    parser.add_argument("--aux_b2_low", type=float, default=0.95,
+                        help="β₂ start value for linear_ramp rule.")
+    parser.add_argument("--aux_b2_high", type=float, default=0.99,
+                        help="β₂ terminal value for linear_ramp rule.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1231,6 +1240,9 @@ if dist.get_rank() == 0:
             "aux_b2_target": args.aux_b2_target,
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_enabled": args.aux_b2_start > 0.0,
+            "aux_b2_rule": args.aux_b2_rule,
+            "aux_b2_low": args.aux_b2_low,
+            "aux_b2_high": args.aux_b2_high,
         },
     )
 
@@ -1288,6 +1300,12 @@ for trial_idx in range(args.num_trials):
             beta1 = group["betas"][0]
             group["betas"] = (beta1, initial_b2)
         print0(f"[init] aux_b2 OVERRIDDEN: β₂ → {initial_b2}", console=True)
+    # H-EG-2: initialize aux β₂ to aux_b2_low when a continuous schedule rule is active.
+    if args.aux_b2_rule != "none":
+        for group in optimizer1.param_groups:
+            beta1 = group["betas"][0]
+            group["betas"] = (beta1, args.aux_b2_low)
+        print0(f"[init] aux_b2 OVERRIDDEN: β₂ → {args.aux_b2_low} (rule={args.aux_b2_rule})", console=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1560,6 +1578,17 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
                 extra_metrics=ema_extras,
             )
+        # H-EG-2: linear β₂ ramp on aux AdamW. Computed per-step, applied BEFORE the
+        # inner AdamW step inside EMA-Nesterov's opt.step().
+        if args.aux_b2_rule == "linear_ramp":
+            T = train_steps
+            frac = max(0.0, min(1.0, step / T))
+            beta2_t = args.aux_b2_low + (args.aux_b2_high - args.aux_b2_low) * frac
+            for group in optimizer1.param_groups:
+                beta1 = group["betas"][0]
+                group["betas"] = (beta1, beta2_t)
+            if step in (0, 100, 500, 970, 1500, 2000, 2500, 2890):
+                print0(f"[step {step}] aux_b2={beta2_t:.4f} (linear_ramp)")
         # PR #309 EMA-Nesterov: opt.step runs the inner optimizers at the lookahead point,
         # then accumulates lookahead = γ * lookahead + (1-γ) * (p_after - prev_p).
         for opt in optimizers:
