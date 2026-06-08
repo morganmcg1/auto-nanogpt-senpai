@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-08 ~01:45 UTC (launch day +4) — H-BM/H-BU closed (38th/39th levers); askeladd→H-CA, thorfinn→H-CX; nezuko H-BL Arm B T0=3.276104 MERGE-ELIGIBLE
+- **As of:** 2026-06-08 ~03:10 UTC (launch day +4) — H-CA smoke failed (zero-init bug, fix posted); frieren H-BW T1 running; edward/tanjiro/fern/nezuko terminals imminent; edward → H-CY (NorMuon), tanjiro → H-CZ (EN rest_steps), fern → H-DA (FINAL_LR_POWER) queued
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -15,18 +15,18 @@
 
 **Previous rank-1**: PR #2317 (nezuko H-W) = 3.276193 (margin 0.007615). Delta: −0.000021.
 
-## Active assignments (~01:45 UTC, 2026-06-08)
+## Active assignments (~03:10 UTC, 2026-06-08)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~47h. No new assignment until pod restored. |
-| **#2364** | open2-frieren | H-BW: EN-on-AdamW (gradient EMA-Nesterov for AdamW groups) | **ASSIGNED ~00:20 UTC** (PR #2364). Apply EMA-Nesterov γ=0.99 to AdamW gradients before optimizer step. Smoke gate then n=2. |
-| **#2356** | open2-edward | H-BJ: NS-iter × Muon LR coupling | **BOTH ARMS FALSIFIED.** Arm A n=2 mean=3.277806 (+0.001613). Arm B `876rihlt` T0=3.280203 (+0.004010). Arm B T1 running, terminal SENPAI-RESULT ETA ~01:40 UTC. Close + assign pending. |
-| **#2358** | open2-nezuko | H-BL: Embed LR decoupling | **🚨 ARM B T0=3.276104 = MERGE-ELIGIBLE vs new rank-1 3.276172 (−0.000068).** Seed-split hypothesis broken. T1 `pmvj0tp6` at step ~10/2890, ETA ~02:13 UTC. If n=2 mean ≤ 3.276172, launch n=4 confirm (seeds 2-3) immediately. |
-| **#2365** | open2-askeladd | H-CA: lm_head soft-warmup × higher target LR | **ASSIGNED ~01:35 UTC** (PR #2365). Add 25-step warmup for lm_head only + push target LR to 0.005, unlocking the step-1 zero-init ceiling identified in H-BM. |
-| **#2360** | open2-tanjiro | H-BN: MUON_WEIGHT_DECAY sweep | **Arm A n=2 FALSIFIED**: mean=3.279275 (+0.003103). Arm B (WD=0.050) running, T0 ETA ~01:50 UTC. |
-| **#2361** | open2-fern | H-BO: AdamW (β₁, β₂) sweep | **Arm A T0=3.284710 FALSIFIED (ABORTED T1).** Arm B `wemjdth9` (β₁=0.85/β₂=0.98) running, T1 ETA ~02:05 UTC. |
-| **#2366** | open2-thorfinn | H-CX: RI capture_step timing sweep (2250 vs 2500) | **ASSIGNED ~01:45 UTC** (PR #2366). First sweep of ri_capture_step timing. H-BU CATASTROPHICALLY CLOSED (T0=3.2844, +0.0082, 39th lever). |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~43h. Advisor escalation posted. No new assignment until pod restored. |
+| **#2364** | open2-frieren | H-BW: EN-on-AdamW (gradient EMA-Nesterov for AdamW groups) | **RUNNING** — smoke passed (t46vyjku), Arm A `7lz3mqbv` running. T0 terminal ~02:30 UTC. T1 terminal ~04:06 UTC. |
+| **#2356** | open2-edward | H-BJ: NS-iter × Muon LR coupling | **BOTH ARMS FALSIFIED.** Arm A n=2 mean=3.277806. Arm B T1 (`876rihlt`) at step ~1751/2890 (~61%), terminal ETA ~03:40 UTC. Close + assign **H-CY** (NorMuon-lite) pending. |
+| **#2358** | open2-nezuko | H-BL: Embed LR decoupling | **ARM B T0=3.276104 MERGE-ELIGIBLE.** T1 (`pmvj0tp6`) at step ~801/2890 (~28%), ETA ~04:15 UTC. If n=2 mean ≤ 3.276172 → n=4 confirm immediately (--seed_offset 2). |
+| **#2365** | open2-askeladd | H-CA: lm_head soft-warmup × higher target LR | **🔴 SMOKE FAILED** (NaN at step 2). Zero-init bug: optimizer initialized at full target lr=0.005, warmup not applied to step-0 optimizer.step(). Fix posted ~03:00 UTC: initialize AdamW lm_head group at `target_lr / warmup_steps` not target_lr. |
+| **#2360** | open2-tanjiro | H-BN: MUON_WEIGHT_DECAY sweep | **Arm A FALSIFIED** (n=2 mean=3.279275). Arm B (WD=0.050, `e03qiqa3`) at step ~1475/2890 (~51%), T0 ETA ~03:50 UTC. If FALSIFIED → close + assign **H-CZ** (EN rest_steps). |
+| **#2361** | open2-fern | H-BO: AdamW (β₁, β₂) sweep | **Arm A FALSIFIED** (T0=3.284710). Arm B (`wemjdth9`) T0=3.276597 (knife-edge, 0.000004 above FALSIFIED). T1 at step ~868/2890 (~30%), ETA ~04:10 UTC. If FALSIFIED → close + assign **H-DA** (FINAL_LR_POWER). |
+| **#2366** | open2-thorfinn | H-CX: RI capture_step timing sweep (2250 vs 2500) | **NOT STARTED** — nudge posted ~03:00 UTC. No W&B runs yet (2+ hours after assignment). |
 
 ## Recent closures (this session, most recent first)
 
@@ -39,13 +39,15 @@
 | 2026-06-07 18:40 | #2352 (nezuko H-BF) | SNR-adaptive AdamW LR | **CLOSED FALSIFIED** | T0=3.278413 +0.002220. SNR saturates → flat 3× LR catastrophic. **31st lever.** |
 | 2026-06-07 18:25 | #2346 (edward H-AW) | EN REST_STEPS=2300 | **CLOSED FALSIFIED** | n=4 mean 3.276256 = +0.000063, σ=0.00126. **30th lever.** |
 
-## Saturated levers count: 39
+## Saturated levers count: 39 (40th pending — H-BJ Arm B T1 landing ~03:40 UTC)
 
 (Levers 36-39, this session):
 36. **NS8+LR×1.04 (H-BJ Arm A)** — n=2 mean 3.277806 FALSIFIED (+0.001613).
 37. **Cosine warm-restart Muon LR at step 2000 (H-BK)** — T0=3.287374 CATASTROPHIC (+0.011182, 22× noise floor).
 38. **lm_head AdamW LR at 1/320 without warmup (H-BM)** — downward: INCONCLUSIVE (mean=3.276269). Upward: NaN at step 2 for lr≥0.0035 (zero-init catastrophe ceiling at +12%). Axis locked without soft warmup.
 39. **Lookahead k=5 α=0.5 on AdamW groups (H-BU)** — T0=3.2844 CATASTROPHIC (+0.0082). Zero-init accumulation amplified by k=5 fast-weight steps; weight-space periodic blending breaks on zero-init layers.
+
+(Levers 40-42 pending, ~03:40-04:15 UTC): H-BJ Arm B (NS16+LR×0.97), H-BN Arm B (WD=0.050), H-BO Arm B (β₁=0.85/β₂=0.98)
 
 **Pending close (next 1-6h):**
 - **frieren H-AY n=4 confirm** ~30 min — currently 3.276387 FALSIFIED-trending; will be **38th lever** (axis closed, both arms saturated).
@@ -115,24 +117,29 @@ Frieren n=4 confirms: extends to seeds 2,3 → mean ~3.276387 (above rank-1, FAL
 
 **Frieren H-AY n=4 confirm**: Arm B (eps=1e-12) n=2 mean 3.276361 INCONCLUSIVE with T1=3.275574 STRONG. n=4 launched per variance escalation. If mean lands sub-rank-1 → MERGE.
 
-## Next-wave hypotheses (for next idle students)
+## Queued hypotheses (next assignments for idle students)
 
-- **H-BP**: Muon momentum (MU) sweep — current MU=0.95, test 0.90 / 0.98. SCALAR — lower priority per user directive.
-- **H-BQ**: EN `lookahead_stepsize` sweep — never ablated vs rank-1 stack.
-- **H-BR**: NS5 cubic polynomial coefficient retune — `(3, -3, 1)` alternatives.
-- **H-BS**: AdamW per-group weight decay (currently all 0) — non-zero on scalars only. SCALAR — lower priority.
-- **H-BT**: Embed × lm_head joint LR ratio sweep (after H-BL and H-BM close singly). SCALAR.
-- **H-BV**: Stochastic weight averaging (SWA) on AdamW groups — collect checkpoints after step 2000, average before RI capture. State mechanism, complements H-BU.
-- **H-BW**: EN on AdamW (apply EMA-Nesterov's slow-trajectory mechanism to embed/lm_head) — direct comparison to H-BU's Lookahead. MECHANISM.
+- **H-CY** (edward, post-H-BJ close): **NorMuon-lite — per-row variance normalization.** Flag `--nor_beta2` in CLI (disabled at 1.0). Enable: Arm A=0.99 (slow EMA), Arm B=0.95 (faster). Post-NS5 row-wise second-moment normalization complements Aurora (pre-NS5 row balancing). No invariant violations. MECHANISM.
+- **H-CZ** (tanjiro, post-H-BN close): **EN rest_steps earlier disable.** Flag `--ema_nesterov_rest_steps` (default 1950). H-AW tested 2300 (FALSIFIED). Test earlier: Arm A=1500, Arm B=1200. SCHEDULE.
+- **H-DA** (fern, post-H-BO close): **FINAL_LR_POWER sweep.** Flag `--final_lr_power` (default 1.2). Arm A=1.0 (linear), Arm B=1.5 (more convex). SCHEDULE.
+
+## Longer-term hypotheses
+
+- **H-DB**: Aurora K sweep (`--aurora_k` 1 vs 5 vs default 3). Row-balance iterations.
+- **H-BQ**: EN `lookahead_stepsize` sweep (never ablated vs rank-1 stack).
+- **H-BR**: NS5 cubic polynomial coefficient retune (`(3, -3, 1)` alternatives).
+- **H-BT**: Embed × lm_head joint LR ratio sweep. SCALAR — lower priority.
+- **H-BV**: SWA on AdamW groups (checkpoints post step 2000, average before RI capture). MECHANISM.
+- **H-BP**: Muon momentum MU sweep (0.90/0.98 vs default 0.95). SCALAR — lower priority.
 
 ## Open Operational Items
 
-- **Alphonse pod broken** (Issue #2319 ~42h). No new assignment until pod restored.
-- **Edward H-BJ Arm B** (`876rihlt`, NS16+LR×0.97) running step 1225/5780, ETA ~05:30 UTC.
-- **Nezuko H-BL Arm B** (`pmvj0tp6`, embed_lr=0.45) running step ~250, ETA ~02:25 UTC. Decision: NO n=4 Arm A confirm despite variance escalation (cross-PR seed pattern overrides — see observation above).
-- **Frieren H-AY n=4** (`nbptdumy`) at 90%, ETA ~30 min. Currently 3.276387 → axis closing as 38th lever on terminal.
-- **Askeladd H-BM T0 INCONCLUSIVE** (3.276283), T1 ~25% in. ETA ~01:20 UTC.
-- **Tanjiro H-BN T0 FALSIFIED** (3.277600), T1 ~32% in. ETA ~01:10 UTC.
-- **Fern H-BO** Arm A near terminal (~94%), Arm B at ~30%. Watch dual progression.
-- **Thorfinn H-BU** smoke running. Expect n=2 launch within ~30 min.
-- **Per user directive**: all future assignments must bias toward optimizer-state mechanisms, preconditioners, readout ideas, NOT scalar hyperparameter tuning. H-BU (thorfinn) = first such assignment.
+- **Alphonse pod broken** (Issue #2319 ~43h). Advisor escalation posted at ~03:00 UTC. No new assignment until pod restored.
+- **Edward H-BJ Arm B** (`876rihlt`) at step ~1751/2890 T1, terminal ETA ~03:40 UTC → close PR #2356 + assign H-CY.
+- **Tanjiro H-BN Arm B** (`e03qiqa3`) T0 at step ~1475/2890, ETA ~03:50 UTC.
+- **Fern H-BO Arm B** (`wemjdth9`) T0=3.276597 (knife-edge), T1 at step ~868/2890, ETA ~04:10 UTC.
+- **Nezuko H-BL Arm B** (`pmvj0tp6`) T0=3.276104 MERGE-ELIGIBLE, T1 at step ~801/2890, ETA ~04:15 UTC. If n=2 mean ≤ 3.276172 → n=4 confirm (--seed_offset 2).
+- **Frieren H-BW** (`7lz3mqbv`) T0 terminal ~02:30 UTC, T1 running, ETA ~04:06 UTC.
+- **Thorfinn H-CX** (PR #2366): no runs yet, nudge posted ~03:00 UTC.
+- **Askeladd H-CA** (PR #2365): smoke FAILED zero-init bug, fix posted ~03:00 UTC.
+- **Per user directive**: bias toward optimizer-state mechanisms, preconditioners, schedule/readout ideas. H-CY (NorMuon) and H-CZ (EN schedule) satisfy this. H-DA (LR power) also qualifies as schedule.

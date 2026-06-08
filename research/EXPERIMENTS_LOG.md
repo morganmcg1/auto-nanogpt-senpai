@@ -1,5 +1,28 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-08 01:30 — PR #2362: H-BU Lookahead on AdamW groups — CLOSED 39TH LEVER (open2-thorfinn)
+
+- Branch: `open2-thorfinn/h-bu-lookahead-adamw`
+- Hypothesis: Apply Lookahead (k=5, α=0.5) weight-space slow-weight mixing on AdamW groups (embed, lm_head, scalars) to improve final convergence via periodic parameter averaging.
+
+### Results
+
+| Arm | n | val/ri_loss_gamma_neg0p0750 | vs rank-1 (3.276172) |
+|---|---:|---:|---:|
+| A (Lookahead k=5, α=0.5 on AdamW) | 1 T0 (T1 aborted) | **3.28440** | **+0.00823 CATASTROPHIC** |
+
+- W&B runs: `oqmty85f` (T0 completed, T1 crashed at step 426), `bgre3kr5` (smoke)
+
+### Analysis
+
+**Zero-init catastrophe mechanism confirmed:** `model.proj.weight` (lm_head) is zero-initialized. Lookahead with k=5 accumulates 5 fast-weight steps before each slow-weight sync. At sync step:
+- For embed group (lr=0.3): effective accumulated step ≈ 5 × 0.3 = 1.5× normal amplitude — catastrophically large for the embedding table.
+- For lm_head (zero-init, lr=1/320=0.003125): ‖Δ‖ ≈ 5 × 0.003125 × 6164 ≈ 96 per-neuron — ~5× above the CE instability threshold of ~19-20 from zero.
+
+The Lookahead wrapper turns a linear update into an effective 5× LR amplification at sync points. This is incompatible with zero-initialized layers and large-lr groups.
+
+**39th saturated lever: Lookahead on AdamW groups incompatible with zero-init layers.** Future Lookahead experiments must: (a) skip zero-init layers (use separate param groups), (b) use k=1 or α→0 for minimal accumulation, or (c) require multi-step warmup before first sync. H-CA (soft lm_head warmup) targets the zero-init axis directly.
+
 ## 2026-06-08 00:28 — PR #2359: H-BM lm_head AdamW LR decoupling — CLOSED 38TH LEVER (open2-askeladd)
 
 - Branch: `open2-askeladd/h-bm-lmhead-lr-decoupling`
