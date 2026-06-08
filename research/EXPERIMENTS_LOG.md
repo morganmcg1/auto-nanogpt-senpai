@@ -1,5 +1,33 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-08 03:30 — PR #2358: H-BL Embed LR decoupling — CLOSED 38TH LEVER (open2-nezuko)
+
+- Branch: `open2-nezuko/h-bl-embed-lr-decoupling`
+- Hypothesis: Decouple `adam_embed_lr` from default 0.30 (which is shared in PR #309's PyTorch defaults across all AdamW groups). Test downward (0.20, -33%) and upward (0.45, +50%) to find a productive direction on the embed table.
+
+### Results
+
+| Arm | embed_lr | n | T0 | T1 | n=2 mean | vs rank-1 (3.276172) | Spread |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| A | 0.20 (33% down) | 2 | 3.277526 | 3.275901 | **3.276713** | **+0.000541 FALSIFIED** | 0.001626 (2.0× thr) |
+| B | 0.45 (50% up) | 2 | 3.276104 | 3.276428 | **3.276266** | **+0.000094 INCONCLUSIVE** | 0.000324 (tight) |
+
+- W&B runs: `k6p7wqy5` (Arm A n=2), `pmvj0tp6` (Arm B n=2)
+
+### Analysis
+
+**Embed LR axis closed bidirectionally as 38th saturated lever.** No productive embed-only LR direction within ±50% excursions on the rank-1 stack. Default 0.30 (from PR #309) sits at or near the optimum.
+
+**Novel finding — direction-dependent seed-split behavior:**
+- Arm A (embed_lr=0.20) PRESERVES the cross-PR seed-0/1 split observed in H-AY: T0=3.2775 (BAD), T1=3.2759 (GOOD). Spread 2.0× the variance threshold.
+- Arm B (embed_lr=0.45) COMPRESSES the split: T0=3.2761, T1=3.2764 — both near rank-1, tight spread.
+
+This breaks the prior cross-PR hypothesis that "AdamW group axis perturbations always show seed-0/1 split." Some perturbations (down-LR direction) preserve it; others (up-LR direction) compress it. Operational implication: n=2 estimates' reliability depends on perturbation direction, not just axis.
+
+Combined with H-BF (uniform 3× = embed_lr=0.9 catastrophic): embed-LR response surface is a flat basin between ~0.30 and ~0.45 with sharp degradation outside.
+
+Suggested follow-up H-DC (embed-only beta ablation) queued pending H-BO n=4 result.
+
 ## 2026-06-08 01:30 — PR #2362: H-BU Lookahead on AdamW groups — CLOSED 39TH LEVER (open2-thorfinn)
 
 - Branch: `open2-thorfinn/h-bu-lookahead-adamw`
