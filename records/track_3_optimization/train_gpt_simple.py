@@ -146,6 +146,19 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--lm_head_warmup_steps", type=int, default=0,
+                        help="Linear warmup steps for the lm_head (model.proj.weight) AdamW LR. "
+                             "0 = disabled (default). H-CA tries 25 or 50. Ramps from "
+                             "--lm_head_lr_floor to --lm_head_lr_target so step-0 lr stays "
+                             "loud enough to keep the embed gradient above bf16 noise floor.")
+    parser.add_argument("--lm_head_lr_floor", type=float, default=1/320,
+                        help="Step-0 lm_head AdamW LR (start of the warmup ramp). "
+                             "Default 1/320 = 0.003125 = baseline. Setting this below baseline "
+                             "silences the embed gradient signal at step 1 and causes a bf16 "
+                             "noise-floor cascade (see PR #2365 comment).")
+    parser.add_argument("--lm_head_lr_target", type=float, default=1/320,
+                        help="Target lm_head AdamW LR after warmup (PowerCool caps at this value). "
+                             "Default 1/320 = 0.003125 (baseline). H-CA tries 0.005 or 0.008.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1218,6 +1231,9 @@ if dist.get_rank() == 0:
             "ri_gamma": args.ri_gamma,
             "ri_capture_step": args.ri_capture_step,
             "ri_enabled": args.ri_gamma != 0.0,
+            "lm_head_warmup_steps": args.lm_head_warmup_steps,
+            "lm_head_lr_floor": args.lm_head_lr_floor,
+            "lm_head_lr_target": args.lm_head_lr_target,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
         },
@@ -1265,8 +1281,20 @@ for trial_idx in range(args.num_trials):
             block.norm2.gains.data.copy_((1.0 + _CGI_ALPHA * s).to(block.norm2.gains.dtype))
 
     # Optimizers (PR #309: AdamW betas (0.8, 0.99)).
+    # H-CA (floor-based warmup): initialize the lm_head AdamW group at the
+    # *step-0 floor lr*, then ramp linearly to target over K steps. proj.weight is
+    # zero-initialized, so step-0 AdamW gives ||delta|| ~ lr*sqrt(N) ~ lr*6164.
+    # At baseline lr=0.003125 this is ~19.3 (right at the catastrophe ceiling but
+    # safe) and crucially makes step-1 logits non-uniform enough that the embed
+    # gradient stays above the bf16 noise floor. A naive ramp from 0 collapses
+    # the step-0 lm_head update, silences embed grads, and triggers a bf16
+    # sign-flip cascade that NaNs at step 2 (smoke v1/v2). The floor (default =
+    # baseline 1/320) preserves the loud step-0 lm_head update while still
+    # allowing the ramp to a higher target.
+    lm_head_init_lr = (args.lm_head_lr_floor
+                       if args.lm_head_warmup_steps > 0 else args.lm_head_lr_target)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                        dict(params=[model.proj.weight], lr=lm_head_init_lr, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-12, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
@@ -1288,6 +1316,11 @@ for trial_idx in range(args.num_trials):
     for opt in inner_optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+    # H-CA: pin lm_head initial_lr to the post-warmup target so PowerCool caps
+    # at the target, not at the floor lr we constructed with.
+    for group in optimizer1.param_groups:
+        if group.get("name") == "adam_lm_head":
+            group["initial_lr"] = args.lm_head_lr_target
     # Per-group power_c (PowerCool from PR #287).
     optimizer1.param_groups[0]["power_c"] = ADAM_EMBED_POWER_C
     optimizer1.param_groups[1]["power_c"] = ADAM_PROJ_POWER_C
@@ -1314,6 +1347,17 @@ for trial_idx in range(args.num_trials):
         for opt in inner_optimizers:
             for group in opt.param_groups:
                 group["lr"] = _power_lr(step, group["initial_lr"], group["power_c"])
+        # H-CA: lm_head floor-based warmup overrides PowerCool during the first K
+        # steps. Linear ramp from floor (= baseline 1/320) up to target. The floor
+        # keeps the step-0 lm_head update loud (||delta|| ~ 19.3) so the embed
+        # gradient at step 1 stays above the bf16 noise floor — preventing the
+        # sign-flip cascade seen in smoke v1/v2 (warmup-from-zero).
+        if args.lm_head_warmup_steps > 0 and step < args.lm_head_warmup_steps:
+            for group in optimizer1.param_groups:
+                if group.get("name") == "adam_lm_head":
+                    t = (step + 1) / args.lm_head_warmup_steps
+                    group["lr"] = (args.lm_head_lr_floor
+                                   + (args.lm_head_lr_target - args.lm_head_lr_floor) * t)
         mu_step = _muon_mu_at_step(step)
         for group in optimizer2.param_groups:
             group["mu"] = mu_step
