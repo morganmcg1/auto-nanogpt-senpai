@@ -2161,3 +2161,36 @@ Advisor decision: close. Reassign student to higher-EV Senpai-#1614 ingredient l
   - **Paired-identical T0=T1=3.277571.** Note the exact match in the table is consistent with student reporting (W&B suggests both seed=0 and seed=1 produced essentially identical val_loss on this configuration — likely because the modified RI capture step interacts with the seed-noise distribution in a degenerate way). Worth double-check if any future RI-timing test repeats this pattern.
   - **RI-EARLIER direction is dead.** The post-RI tail length cannot be productively extended by moving the capture step. Combined with the rank-1 stack's capture=2375 lift confirmed in H-AD, this saturates the RI-timing axis in the EARLIER direction. LATER direction (2500+) might still be explorable but the asymmetric upside is unclear given the EN rest_steps interaction.
   - Thorfinn reassigned H-DJ (Lookahead-on-Muon outer-loop weight-space EMA) as PR #2372.
+
+## 2026-06-08 07:52 — PR #2360: H-BN MUON_WEIGHT_DECAY sweep (0.010 vs 0.050) — 44th saturated lever
+- open2-tanjiro/h-bn-muon-wd-sweep
+- Hypothesis: Sweep Muon WD below (0.010) and above (0.050) the rank-1 default (0.025) to test if WD-induced shrinkage interacts productively with Arbor tail amplification.
+
+### Results
+
+| Arm | WD | n | mean val/ri_loss_gamma_neg0p0750 | Spread | vs rank-1 (3.276172) | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| A | 0.010 (down 60%) | 2 | **3.27927530** | 0.00335 | **+0.00310 FALSIFIED** | Clear negative |
+| **baseline** | **0.025** | — | **3.276172 (rank-1)** | — | 0 | — |
+| B | 0.050 (up 100%) | 4 | **3.27674729** | 0.001583 | **+0.000575 FALSIFIED** | Marginal negative |
+
+#### Arm B trial-level (n=4 pooled e03qiqa3 + qq89qmbd)
+
+| Trial | Seed | Run | val/ri | vs rank-1 |
+|---|---:|:--|---:|---:|
+| T0 | 0 | e03qiqa3 | 3.27738166 | +0.001210 |
+| T1 | 1 | e03qiqa3 | 3.27579856 | −0.000373 (MERGE-eligible single seed) |
+| T2 | 2 | qq89qmbd | 3.27722049 | +0.001048 |
+| T3 | 3 | qq89qmbd | 3.27658844 | +0.000416 |
+| **n=4 mean** | — | — | **3.27674729** | **+0.000575 FALSIFIED** |
+
+- W&B runs: `9tlotgem` (Arm A), `e03qiqa3` (Arm B T0/T1), `qq89qmbd` (Arm B T2/T3)
+
+### Analysis
+
+- **44th saturated lever. Muon WD locked at 0.025.**
+- Down (0.010) hurts substantially (+0.003). Up (0.050) barely hurts (+0.000575 at n=4). Shallow curvature suggests local optimum at or just below 0.025.
+- **CRITICAL VARIANCE GATE WIN.** Arm B seed-1 alone (3.27579856, −0.000373 below rank-1) would have been MERGE-eligible at n=2. Mandatory n=4 confirm correctly pulled mean back to FALSIFIED. This is the third variance gate win in H-BO/H-BJ/H-BN — confirms n≥4 is necessary for any mechanism showing |T0−T1| > 0.0008.
+- **Spread = 0.001583 = 1.98× variance gate (0.0008).** Per-trial σ ≈ 0.0007 on rank-1 stack. Any future Muon-side lever with expected effect-size < 0.0014 needs n=4 from the start.
+- **Mechanism intuition falsified:** Muon WD × Arbor tail amplification hypothesis not borne out. The gradient between WD=0.025 and WD=0.050 is mildly negative at n=4, suggesting the design point is near-optimal.
+- Tanjiro reassigned H-CZ (EN rest_steps direction ablation: rest_steps=2400 vs 2890) as PR #2373.
