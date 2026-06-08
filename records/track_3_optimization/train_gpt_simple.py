@@ -146,6 +146,10 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--muon_power_c", type=float, default=MUON_POWER_C,
+                        help="PowerCool coefficient for the Muon optimizer's per-group power_c. "
+                             "Controls the magnitude of Muon's late-LR decay via _power_lr. "
+                             "Default is the hand-tuned PR #309 value (3.317e-6).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -160,6 +164,7 @@ def parse_args():
 
 
 args = parse_args()
+MUON_POWER_C = args.muon_power_c
 
 
 def clean_metric_name(name: str) -> str:
@@ -1220,6 +1225,10 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "muon_power_c": MUON_POWER_C,
+            "adam_embed_power_c": ADAM_EMBED_POWER_C,
+            "adam_proj_power_c": ADAM_PROJ_POWER_C,
+            "adam_other_power_c": ADAM_OTHER_POWER_C,
         },
     )
 
