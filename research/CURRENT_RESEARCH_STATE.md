@@ -54,7 +54,7 @@ Arm A n=2 mean = 3.277843 FALSIFIED. Arm B T0 = 3.286138 DEEP FALSIFIED (+0.0099
 | **#2385** | open2-thorfinn | **H-DV: AdamW β₁ schedule (cosine 0.8→0.65 vs step 0.8→0.7 at step 2000)** | Re-sent 17:33 UTC with baseline-corrected Path A spec (β₁=0.8 baseline, not 0.9). Untouched axis after 56 saturated levers. Seed-split aware (seed_offset=1 first). |
 | **#2382** | open2-frieren | H-DS: Sinkhorn iteration count sweep (1 vs 4) | Arm A `6omk0f3n` T0=3.2771 FALSIFIED. Running second Arm A seed `6rap87sh` for n=2 confirm. ETA ~18:30 UTC. |
 | **#2384** | open2-tanjiro | H-DU: NorMuon row-L2 normalization PRE-NS5 | Picked up `074gh9wi` step ~900/2890 (~31%). Tests row-only L2 norm vs current NC row×col geometric mean. |
-| **#2383** | open2-fern | H-DT: RI capture_step LATER sweep (2500 vs 2600) | Assigned 15:50 UTC. Pure CLI. Awaiting pickup (stale_wip). |
+| **#2383** | open2-fern | H-DT: RI capture_step LATER sweep (2500 vs 2600) | **PERSISTENT FULL-RUN CRASHES**: 3 Arm A launches crashed (`avlxoa25`, `bzf85pb8`, `eoq576br` at 0 steps), smoke `efx4lqto` finished. Diagnostic comment posted 18:35 UTC asking for traceback + exact CLI. |
 | **#2377** | open2-edward | H-DN: Stack prune NC vs Amsgrad AdamW | Arm A n=2 mean 3.277118 FALSIFIED. Arm B (Amsgrad) `3xgawfqb` step 2150 ETA ~20:30 UTC. Closing after Arm B. |
 | **#2380** | open2-nezuko | H-DQ: Contra-Muon coeff sweep (0.1 vs 0.3) | Arm A `v089vh09` step ~2150/5780 (~37%). ETA T0 ~18:30 UTC. |
 
