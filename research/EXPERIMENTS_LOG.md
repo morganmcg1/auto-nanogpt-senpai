@@ -1,5 +1,77 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-08 12:50 — PR #2371: H-DI SOAP_BETA2 sweep — CLOSED 50TH LEVER (open2-fern)
+
+- Branch: `open2-fern/h-di-soap-beta2-sweep`
+- Hypothesis: Sweep SOAP_BETA2 ∈ {0.95, 0.85} around default 0.90. SOAP's second-moment EMA decay rate for dense params.
+- Redirected from original wrong-file issue (PR body referenced train_gpt.py + normuon_defaults); correct knob is SOAP_BETA2 in train_gpt_simple.py.
+
+### Results
+
+| Arm | soap_beta2 | T0 val/ri_loss_gamma_neg0p0750 | Δ vs rank-1 | Verdict |
+|---|---:|---:|---:|---|
+| A | 0.95 | 3.278010 | +0.001838 | **FALSIFIED** |
+| B | 0.85 | 3.276848 | +0.000676 | **FALSIFIED** |
+
+- W&B Arm A: `z17fb2ay`, Arm B: `zslkaocn`
+
+### Conclusion: 50th saturated lever
+
+Both directions FALSIFIED. SOAP_BETA2=0.90 at or near local optimum. Directional signal: Arm A (slower 0.95) hurt more than Arm B (faster 0.85). Compressed 2890-step schedule + tight RI sampling prefers faster EMA than canonical Shampoo/SOAP (0.95). Fern reassigned to H-DP (SOAP Kronecker preconditioner on MLP+V, PR #2379).
+
+---
+
+## 2026-06-08 12:47 — PR #2318: H-V RI γ ablation on stripped stack — CLOSED 49TH LEVER (open2-alphonse)
+
+- Branch: `open2-alphonse/h-v-ri-gamma-arbor-pr309-2890`
+- Hypothesis: Test optimal RI γ (interpolation depth) on stripped Arbor+EN+RI base (no NC, no eps=1e-12). n=4 γ ablation.
+
+### Results: γ sweep n=4 means (stripped Arbor+EN+RI stack)
+
+| γ | n=4 mean | Δ vs γ=−0.075 |
+|---:|---:|---:|
+| +0.000 | 3.276783 | +0.000323 |
+| −0.050 | 3.276465 | +0.000005 |
+| **−0.075** | **3.276460** | **0** |
+| −0.100 | 3.276552 | +0.000092 |
+| −0.125 | 3.276745 | +0.000285 |
+| −0.200 | 3.277914 | +0.001454 |
+
+- W&B: `2xhxl4z0`
+- n=4 trials: T0=3.275951, T1=3.275655, T2=3.276014, T3=3.278220 (T3 outlier +0.0023 above T0-T2 mean)
+
+### Conclusion: 49th saturated lever
+
+γ=−0.075 confirmed optimal; monotonic degradation deeper. n=2 sub-signal (3.275803 below rank-1) did NOT survive to n=4 (mean 3.276460 = +0.000288 above rank-1 = FALSIFIED). Confirmed variance regression to mean; no NC×RI or eps×RI interaction. Alphonse reassigned to H-DO (NC placement before NS-iter, PR #2378).
+
+---
+
+## 2026-06-08 12:47 — PR #2369: H-CY NorMuon-lite β₂ sweep — CLOSED 48TH LEVER (open2-edward)
+
+- Branch: `open2-edward/h-cy-normuon-lite-beta2`
+- Hypothesis: Post-NS per-row second-moment EMA normalization (NorMuon-lite) on Muon updates. β₂ ∈ {0.99, 0.95}.
+
+### Results
+
+| Arm | β₂ | n | mean val/ri_loss_gamma_neg0p0750 | vs rank-1 | Verdict |
+|---|---:|---:|---:|---:|---|
+| A | 0.99 | 2 | 3.277254 | +0.001082 | **FALSIFIED** |
+| B | 0.95 | 1 (T1 aborted) | 3.277092 | +0.000920 | **FALSIFIED** |
+
+- W&B Arm A: `nt5tpgem`, Arm B: `jbcv69lo`
+
+### Mechanism diagnostic (Arm A, 236 steps)
+
+- `train/muon_update_norm_ratio` = 1.000000 (Frobenius-preserving ✓)
+- `train/muon_nor_row_max_over_min`: 1.34 → 1.05 compression ✓ (mechanism works)
+- Failure mode: "over-redundant fourth smoothing layer" — NC + Arbor + EN already compressed per-row heterogeneity; NorMuon-lite has nothing to absorb.
+
+### Conclusion: 48th saturated lever
+
+Mechanism inert on saturated stack (not numerically bad, just no headroom). Edward reassigned to H-DN (stack pruning NC + Amsgrad AdamW, PR #2377).
+
+---
+
 ## 2026-06-08 10:30 — PR #2372: H-DJ Lookahead-on-Muon (k=5/α=0.5) — CLOSED 47TH LEVER CATASTROPHIC (open2-thorfinn)
 
 - Branch: `open2-thorfinn/h-dj-lookahead-muon`
