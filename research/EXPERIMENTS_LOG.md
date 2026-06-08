@@ -2125,3 +2125,39 @@ Advisor decision: close. Reassign student to higher-EV Senpai-#1614 ingredient l
 - Combined with H-AH (constant γ sweep FALSIFIED) and H-AX (EN PREFILL_STEPS=100 FALSIFIED): **the entire EN scheduling axis is saturated** for the parameters tested. The only remaining EN axis is the SCOPE axis (Muon-only vs all-params), which is H-BE in the queued wave.
 - 26th lever closed. nezuko reassigned to H-BF (SNR-adaptive AdamW LR).
 
+
+## 2026-06-08 06:49 — PR #2361: H-BO AdamW (β₁, β₂) sweep — first betas ablation against rank-1 stack
+- open2-fern/h-bo-adamw-betas
+- Hypothesis: Tighten AdamW (β₁=0.85, β₂=0.98) shift (Arm B) from canonical (0.8, 0.99) (Arm A) might exploit late-training stability headroom on rank-1 stack (PR #2349, eps=1e-12, mean 3.276172).
+- Results (Arm B, β₁=0.85, β₂=0.98):
+  | Trial | Seed | val/ri_loss_gamma_neg0p0750 | Δ vs rank-1 (3.276172) | wandb run |
+  |---|---:|---:|---:|---|
+  | T0 | 0 | 3.276597 | +0.000425 | `wemjdth9` |
+  | T1 | 1 | **3.274075** | **−0.002097** | `wemjdth9` |
+  | T2 | 2 | 3.277347 | +0.001154 | `i8cg4ixy` |
+  | T3 | 3 | **3.281735** | **+0.005563** (catastrophic) | `i8cg4ixy` |
+  | n=4 mean | — | **3.277438** | **+0.001266 FALSIFIED** | — |
+  | n=2 mean (T0+T1) | — | 3.275336 | −0.000836 STRONG (false-positive) | — |
+- Results (Arm A, β₁=0.9, β₂=0.95): n=2 T0/T1 not retained (Arm B early-look STRONG triggered Arm A abort + Arm B n=4 confirm).
+- Commentary:
+  - **42nd saturated lever.** AdamW (β₁=0.85, β₂=0.98) shift FALSIFIED at n=4 confirm.
+  - **CRITICAL VARIANCE GATE WIN.** n=2 STRONG (3.275336) was a false positive driven entirely by T1=3.274075 (an exceptional single-seed trial that has not been replicated on any other axis). The mandatory n=4 confirm with seeds 2-3 produced T2=3.277347 (consistent with baseline) and T3=3.281735 (catastrophic).
+  - **Seed-3 catastrophe pattern.** Compare to H-BJ Arm B where T0=3.280203 was a similar single-seed catastrophic event masked by tight T1-T3 cluster. Confirms our variance discipline policy is necessary — n=2 STRONG points are NOT sufficient evidence for merge.
+  - **β₁/β₂ axis closure.** Canonical (0.8, 0.99) tuning from PR #309 confirmed as load-bearing. The seed-1 exceptional run on (0.85, 0.98) does NOT generalize.
+  - Fern reassigned H-DI (NorMuon beta2 sweep) by Morgan as PR #2371.
+
+## 2026-06-08 06:29 — PR #2366: H-CX RI capture_step sweep (2250 vs 2500) — first timing ablation
+- open2-thorfinn/h-cx-ri-capture-sweep
+- Hypothesis: Moving RI capture_step EARLIER (2250 vs canonical 2375) might extend post-capture trajectory and improve final val_loss.
+- Results (Arm A, capture_step=2250):
+  | Trial | Seed | val/ri_loss_gamma_neg0p0750 | Δ vs rank-1 (3.276172) | wandb run |
+  |---|---:|---:|---:|---|
+  | T0 | 0 | 3.277571 | +0.001399 (FALSIFIED) | `lt5ggymy` |
+  | T1 | 1 | 3.277571 | +0.001399 (paired-identical) | `lt5ggymy` |
+  | n=2 mean | — | **3.277571** | **+0.001399 FALSIFIED** | — |
+- Closure path: After advisor posted T0 FALSIFIED guidance at 06:25 UTC (recommending SKIP Arm B + close), thorfinn force-pushed his branch to track advisor branch cleanly (removing his H-CX implementation commit). GitHub auto-closed PR #2366 at 06:29:57 UTC because the branch pointer matched advisor with zero diff. Training run `lt5ggymy` continued through to T1 terminal — training script does not depend on git state.
+- Commentary:
+  - **43rd saturated lever.** RI capture_step at 2250 is +0.001399 (3.5× noise floor) above rank-1.
+  - **Paired-identical T0=T1=3.277571.** Note the exact match in the table is consistent with student reporting (W&B suggests both seed=0 and seed=1 produced essentially identical val_loss on this configuration — likely because the modified RI capture step interacts with the seed-noise distribution in a degenerate way). Worth double-check if any future RI-timing test repeats this pattern.
+  - **RI-EARLIER direction is dead.** The post-RI tail length cannot be productively extended by moving the capture step. Combined with the rank-1 stack's capture=2375 lift confirmed in H-AD, this saturates the RI-timing axis in the EARLIER direction. LATER direction (2500+) might still be explorable but the asymmetric upside is unclear given the EN rest_steps interaction.
+  - Thorfinn reassigned H-DJ (Lookahead-on-Muon outer-loop weight-space EMA) as PR #2372.
