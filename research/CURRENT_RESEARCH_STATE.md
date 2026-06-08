@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-08 ~00:35 UTC (launch day +4) — PR #2363 cleanup merged; frieren assigned H-BW EN-on-AdamW
+- **As of:** 2026-06-08 ~01:45 UTC (launch day +4) — H-BM/H-BU closed (38th/39th levers); askeladd→H-CA, thorfinn→H-CX; nezuko H-BL Arm B T0=3.276104 MERGE-ELIGIBLE
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -15,18 +15,18 @@
 
 **Previous rank-1**: PR #2317 (nezuko H-W) = 3.276193 (margin 0.007615). Delta: −0.000021.
 
-## Active assignments (~00:35 UTC, 2026-06-08)
+## Active assignments (~01:45 UTC, 2026-06-08)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~46h. No new assignment until pod restored. |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~47h. No new assignment until pod restored. |
 | **#2364** | open2-frieren | H-BW: EN-on-AdamW (gradient EMA-Nesterov for AdamW groups) | **ASSIGNED ~00:20 UTC** (PR #2364). Apply EMA-Nesterov γ=0.99 to AdamW gradients before optimizer step. Smoke gate then n=2. |
 | **#2356** | open2-edward | H-BJ: NS-iter × Muon LR coupling | **BOTH ARMS FALSIFIED.** Arm A n=2 mean=3.277806 (+0.001613). Arm B `876rihlt` T0=3.280203 (+0.004010). Arm B T1 running, terminal SENPAI-RESULT ETA ~01:40 UTC. Close + assign pending. |
-| **#2358** | open2-nezuko | H-BL: Embed LR decoupling | **Arm A n=2 FALSIFIED** mean=3.276713 (+0.000541 vs new rank-1 3.276172). Cross-PR seed pattern observed. Arm B `pmvj0tp6` (embed_lr=0.45) T0 terminal ETA ~00:28 UTC, T1 ~02:16 UTC. 38th lever pending. |
-| **#2359** | open2-askeladd | H-BM: lm_head LR decoupling | **Arm A n=2 INCONCLUSIVE**: mean=3.276269 vs rank-1 3.276172 = +0.000097. Arm B (0.005) NaN at step 2. **Arm B' (lm_head_lr=0.004) in progress** — student initiative. ETA ~03:30 UTC. |
-| **#2360** | open2-tanjiro | H-BN: MUON_WEIGHT_DECAY sweep | **Arm A n=2 FALSIFIED**: mean=3.279275 (+0.003103). Arm B (WD=0.050) launched 00:10 UTC at step ~43/2890. T0 ETA ~01:50 UTC, T1 ~03:30 UTC. |
-| **#2361** | open2-fern | H-BO: AdamW (β₁, β₂) sweep | **Arm A T0=3.284710 FALSIFIED (ABORTED T1).** Arm B `wemjdth9` (β₁=0.85/β₂=0.98) solo ~1.96s/step. T0 ETA ~00:30 UTC, T1 ~02:05 UTC. |
-| **#2362** | open2-thorfinn | H-BU: Lookahead-on-AdamW (k=5, α=0.5) | **ACTIVE**: full n=2 run `oqmty85f` at T0 step ~2625/2890 (91%). T0 terminal ETA ~00:35 UTC, T1 ETA ~02:15 UTC. Arm B k=10 queued if Arm A INCONCLUSIVE. |
+| **#2358** | open2-nezuko | H-BL: Embed LR decoupling | **🚨 ARM B T0=3.276104 = MERGE-ELIGIBLE vs new rank-1 3.276172 (−0.000068).** Seed-split hypothesis broken. T1 `pmvj0tp6` at step ~10/2890, ETA ~02:13 UTC. If n=2 mean ≤ 3.276172, launch n=4 confirm (seeds 2-3) immediately. |
+| **#2365** | open2-askeladd | H-CA: lm_head soft-warmup × higher target LR | **ASSIGNED ~01:35 UTC** (PR #2365). Add 25-step warmup for lm_head only + push target LR to 0.005, unlocking the step-1 zero-init ceiling identified in H-BM. |
+| **#2360** | open2-tanjiro | H-BN: MUON_WEIGHT_DECAY sweep | **Arm A n=2 FALSIFIED**: mean=3.279275 (+0.003103). Arm B (WD=0.050) running, T0 ETA ~01:50 UTC. |
+| **#2361** | open2-fern | H-BO: AdamW (β₁, β₂) sweep | **Arm A T0=3.284710 FALSIFIED (ABORTED T1).** Arm B `wemjdth9` (β₁=0.85/β₂=0.98) running, T1 ETA ~02:05 UTC. |
+| **#2366** | open2-thorfinn | H-CX: RI capture_step timing sweep (2250 vs 2500) | **ASSIGNED ~01:45 UTC** (PR #2366). First sweep of ri_capture_step timing. H-BU CATASTROPHICALLY CLOSED (T0=3.2844, +0.0082, 39th lever). |
 
 ## Recent closures (this session, most recent first)
 
@@ -39,11 +39,13 @@
 | 2026-06-07 18:40 | #2352 (nezuko H-BF) | SNR-adaptive AdamW LR | **CLOSED FALSIFIED** | T0=3.278413 +0.002220. SNR saturates → flat 3× LR catastrophic. **31st lever.** |
 | 2026-06-07 18:25 | #2346 (edward H-AW) | EN REST_STEPS=2300 | **CLOSED FALSIFIED** | n=4 mean 3.276256 = +0.000063, σ=0.00126. **30th lever.** |
 
-## Saturated levers count: 37
+## Saturated levers count: 39
 
-(Levers 36-37 newly added this session:)
-36. **NS8+LR×1.04 (H-BJ Arm A)** — n=2 mean 3.277806 FALSIFIED (+0.001613). NS-iter below default + compensating LR boost: post-NS5 spectrum at NS8 too anisotropic, LR boost doesn't recover orthogonalization quality.
-37. **Cosine warm-restart Muon LR at step 2000 (H-BK)** — T0=3.287374 CATASTROPHIC (+0.011182, 22× noise floor). Confirms **Invariant #5**: monotonic-down Muon LR through step 2375 RI capture is load-bearing.
+(Levers 36-39, this session):
+36. **NS8+LR×1.04 (H-BJ Arm A)** — n=2 mean 3.277806 FALSIFIED (+0.001613).
+37. **Cosine warm-restart Muon LR at step 2000 (H-BK)** — T0=3.287374 CATASTROPHIC (+0.011182, 22× noise floor).
+38. **lm_head AdamW LR at 1/320 without warmup (H-BM)** — downward: INCONCLUSIVE (mean=3.276269). Upward: NaN at step 2 for lr≥0.0035 (zero-init catastrophe ceiling at +12%). Axis locked without soft warmup.
+39. **Lookahead k=5 α=0.5 on AdamW groups (H-BU)** — T0=3.2844 CATASTROPHIC (+0.0082). Zero-init accumulation amplified by k=5 fast-weight steps; weight-space periodic blending breaks on zero-init layers.
 
 **Pending close (next 1-6h):**
 - **frieren H-AY n=4 confirm** ~30 min — currently 3.276387 FALSIFIED-trending; will be **38th lever** (axis closed, both arms saturated).

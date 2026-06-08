@@ -1,5 +1,30 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-08 00:28 — PR #2359: H-BM lm_head AdamW LR decoupling — CLOSED 38TH LEVER (open2-askeladd)
+
+- Branch: `open2-askeladd/h-bm-lmhead-lr-decoupling`
+- Hypothesis: Decouple lm_head AdamW LR from default 1/320=0.003125. Test downward (0.002, -36%) and upward (0.005, +60%) to probe whether the lm_head LR is optimally set.
+
+### Results
+
+| Arm | Config | n | val/ri_loss_gamma_neg0p0750 | vs rank-1 (3.276172) |
+|---|---|---:|---:|---:|
+| A | lm_head_lr=0.002 (−36%) | 2 | 3.276269 (mean) | +0.000097 INCONCLUSIVE |
+| B | lm_head_lr=0.005 (+60%) | 0 | NaN at step 2 | CATASTROPHIC |
+| Smoke B' | lm_head_lr=0.004 (+28%) | smoke | NaN at step 2 | CATASTROPHIC |
+| Smoke B'' | lm_head_lr=0.0035 (+12%) | smoke | NaN at step 2 | CATASTROPHIC |
+
+- W&B runs: `vn32x4gj` (Arm A n=2), `7mgxzz8g` (Arm B 0.005 NaN), `9arm70eo` (smoke 0.004 NaN), `xnpqp6qw` (smoke 0.0035 NaN)
+- Arm A T0/T1 spread: 0.000028 (very tight, not seed-dominated)
+
+### Analysis
+
+The upward stability ceiling is sharply between 0.003125 (baseline, stable) and 0.0035 (+12%, catastrophic NaN at step 2). The mechanism: `model.proj.weight` is zero-initialized, so step-1 AdamW update ‖Δ‖ ≈ √38M × lr ≈ 6164 × lr. CE surface unstable past ‖Δ‖ ≈ 19-20 from zero. At lr=0.003125, ‖Δ‖ ≈ 19.3 (stable); at lr=0.0035, ‖Δ‖ ≈ 21.6 (unstable). Student independently discovered this mechanism.
+
+The downward direction (Arm A, 0.002) gives INCONCLUSIVE regression (+0.000097). Both directions saturated.
+
+**38th saturated lever: lm_head AdamW LR locked at 1/320 (without soft warmup).** H-CA assigned to askeladd to test soft warmup + higher target LR, which could unlock upward headroom past the step-1 catastrophe ceiling.
+
 ## 2026-06-07 23:30 — PR #2349: H-AY AdamW eps sweep — MERGED NEW RANK-1 (open2-frieren)
 
 - Branch: `open2-frieren/h-ay-adamw-eps`
