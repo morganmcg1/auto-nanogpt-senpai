@@ -30,6 +30,15 @@ Edward assigned **H-EH-1 (PR #2401)**: composes the two best individual mechanis
 
 If H-EH-1 lands ≤ 3.275 between Arm B trial 0 and STRONG gate → becomes merge candidate over both Arm A CORE n=4 and Arm B EARLIER alone. Highest-leverage post-H-EF experiment.
 
+## 2026-06-08 23:55 — PR #2396 fern Arm E LOWER CLOSED FALSIFIED + H-EH-2 EVEN-EARLIER assigned
+
+**Fern Arm E LOWER seed=1 = 3.277745 FALSIFIED** (Δ=+0.001573 above rank-1). PR #2396 closed. Cross-arm picture confirms β₂_start<0.95 ablates the mechanism — early v-buffer is too noisy at β₂=0.90 (~10-step EMA window).
+
+**Fern reassigned H-EH-2 (PR #2402)**: EVEN-EARLIER pulse @ step 720 (24.9% of T). Extends the monotone-EARLIER axis past Arm B (820). Tests two complementary hypotheses:
+- If lands ≤ Arm B (3.27458 STRONG) → EARLIER optimum is still pushing back, opens range 670-720 for further exploration.
+- If lands between rank-1 and Arm B (≥ 3.27458 but ≤ 3.276172) → 820 is near-optimal, axis closed for now.
+- If FALSIFIED → pulse step has a hard lower bound near 800 (insufficient AdamW v-buffer warmup pre-pulse).
+
 ## 2026-06-08 23:10 — H-EF Arm A CORE n=4 LANDED + Arm B EARLIER STRONG INDIVIDUAL
 
 **Arm A CORE n=4 mean = 3.275884** (Δ=−0.000288 vs rank-1 3.276172, MERGE-eligible band). Stat contract OK: (3.28 − 3.275884) × √4 = 0.00823 ≥ 0.004.

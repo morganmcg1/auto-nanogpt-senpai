@@ -25,8 +25,11 @@
   - PR #2399 alphonse G-3: Cooldown-aligned STEP pulse (β₂ steps at cd_start=1156, rule-based). Pickup pending.
   - PR #2400 frieren G-4: LR-coupled CONTINUOUS β₂ (β₂(t) = 0.95 + 0.04 × (1 − lr(t)/lr_max), throughout training). Run `5u2ynlrl` step 1.
 
-  **H-EH STACK round (NEW, 23:40 UTC) — composes the two best individual mechanisms:**
+  **H-EH STACK + EXTENSION round (NEW, 23:40-23:55 UTC):**
   - PR #2401 edward H-EH-1: Stack Arm B EARLIER (820) + Arm D MILD (target 0.97). Tests whether better timing + gentler target compose additively. If lands ≤ 3.275 between Arm B trial 0 and STRONG gate, becomes merge candidate over Arm A CORE n=4 (3.275884) and Arm B EARLIER alone.
+  - PR #2402 fern H-EH-2: EVEN-EARLIER pulse@720 (24.9% of T) — extends monotone-EARLIER axis past Arm B (820). Tests whether the EARLIER signal continues, or whether 820 is near-optimal. Pure single_step rule, target 0.99 (no MILD).
+
+  **Idle students cleared:** 8 of 8 students now have active wip PRs (or held review-PRs queued behind a wip).
 - **Earlier:** ~19:55 UTC mass pivot to Issue #2388 executed: 8 in-flight PRs closed, 8 H-EF arm PRs assigned (#2389–#2396) covering 5 arms — Core (n=4 across 4 students), Earlier-pulse (820), Later-pulse (1120), Mild-target (0.97), Lower-start (0.90). **Preserved state for re-open after H-EF signal:** frieren H-DS MERGE-eligible n=2 mean 3.276080 (seeds 6omk0f3n, 6rap87sh).
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
