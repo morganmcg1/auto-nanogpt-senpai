@@ -118,14 +118,32 @@ Levers 38–57:
 
 ## Next wave hypotheses (queued for next idle slots)
 
-Priority ranked:
-1. **MUON_POWER_C tighter sweep** (0.66× confirmed, try 0.55×/0.75× range) — if H-DM confirms MERGE.
-2. **AdamW β₁ schedule** — ramp β₁ from 0.9→0.95 or 0.9→0.8 over training. Untouched axis after 52 experiments.
-3. **Sinkhorn iteration count** (ARBOR_ITERS sweep) — clamp_k exhausted; iteration depth is a different bottleneck.
-4. **H-DB**: Aurora K sweep (`--aurora_k` 1 vs 5 vs default 3). Row-balance iterations.
-5. **H-BR**: NS5 cubic polynomial coefficient retune (`(3, -3, 1)` alternatives).
-6. **H-BP**: Muon momentum MU sweep (0.90/0.98 vs default 0.95) — scalar, lower priority.
-7. **Aurora compliance check** (for tanjiro after H-CZ closes): Verify benchmark eligibility under track-3 contract.
+**Fresh research_agent output (RESEARCH_IDEAS_2026-06-08_18:00.md, generated at 57-lever plateau):**
+
+Tier 1 (MERGE candidates with novel mechanisms):
+1. **H-DX (MUD triangular whitening)** — replace NS5 polynomial with MUD Gram/Cholesky triangular solve. Per-step parity with NS5 on LM benchmarks per arxiv 2603.17970. Arm A direct swap, Arm B MUD + NC removed (tests NC redundancy under exact orthogonalization).
+2. **H-DY (AdamW β₂ cosine schedule 0.999→0.99 over [0, 1800])** — distinct from H-DV β₁ schedule (in-flight). β₂ controls second-moment EMA horizon, untouched axis.
+
+Tier 2 (qualitatively novel update rules):
+3. **H-DZ (Lion for embed + lm_head dense params)** — sign-based update direction, qualitatively different from AdamW second-moment scaling. Respect lm_head LR ≥ 1/320 invariant.
+4. **H-EA (Dual-buffer Muon: γ_fast=0.9 alongside EN γ=0.99, α=0.3 blend)** — second EMA buffer post-NS5, captures short-timescale signal EN filters out.
+
+Tier 3 (low-risk diagnostic / readout):
+5. **H-EB (RI γ linear ramp 0 → −0.075 over last 500 steps)** — gradual eval-only blend instead of step-function at terminal step.
+6. **H-EC (NS5 spectral warm-start via power-iter EMA)** — replace Frobenius-proxy with EMA-stabilized spectral-norm scaling, better NS5 input conditioning.
+7. **H-ED (IFNSO offline-optimized NS5 coefficients)** — replace (3.4445, −4.7750, 2.0315) with offline-search-optimized triple for our gradient distribution.
+
+Tier 4 (high-risk, last resort):
+8. **H-EE (Stochastic NS5 skip p=0.15)** — replace NS5 with identity pass 15% of steps. EN+RI interaction risk.
+
+**Decision tree (full version in RESEARCH_IDEAS_2026-06-08_18:00.md):**
+- H-DX MUD T0 ≤ 3.276172 → run Arm B (MUD + NC removed) for NC-redundancy test
+- H-DY β₂ schedule T0 ≤ 3.276172 → combine with H-DV β₁ schedule (joint β₁+β₂ schedule)
+- H-DX T0 > 3.277200 → DEEP FALSIFIED, MUD Gram conditioning fails on our gradients
+- H-EE T0 > 3.277000 OR ri/loss divergence > +0.0006 → ABORT (EN+RI contamination)
+
+**In-flight reservations (do not duplicate):**
+H-DV (AdamW β₁), H-DU (NorMuon pre-NS5), H-DT (RI capture later), H-DS (arbor iters), H-DQ (Contra-Muon), H-DO (NC after NS5), H-DN (NC removed + Amsgrad), H-DW (Polyak-Ruppert weight avg).
 
 ## Disabled mechanisms still to probe
 
