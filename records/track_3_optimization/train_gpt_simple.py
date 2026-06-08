@@ -146,6 +146,13 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--ns_inner_iter", type=int, default=12,
+                        help="Newton-Schulz inner loop iteration count for _ns_inner. "
+                             "Default 12 reproduces baseline path exactly. "
+                             "Coupled with --muon_lr_scale per H-BJ NS-iter x Muon LR axis.")
+    parser.add_argument("--muon_lr_scale", type=float, default=1.0,
+                        help="Multiplier on MUON_LR. Default 1.0 reproduces baseline. "
+                             "Coupled with --ns_inner_iter per H-BJ.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -156,10 +163,15 @@ def parse_args():
         raise ValueError("--train_steps must be positive")
     if args.ri_capture_step < 0 or args.ri_capture_step >= args.train_steps:
         raise ValueError(f"--ri_capture_step must be in [0, train_steps); got {args.ri_capture_step}")
+    if args.ns_inner_iter < 1:
+        raise ValueError(f"--ns_inner_iter must be positive; got {args.ns_inner_iter}")
+    if args.muon_lr_scale <= 0:
+        raise ValueError(f"--muon_lr_scale must be positive; got {args.muon_lr_scale}")
     return args
 
 
 args = parse_args()
+_NS_INNER_ITER = args.ns_inner_iter
 
 
 def clean_metric_name(name: str) -> str:
@@ -559,7 +571,7 @@ def gram_frobenius_norm_estimate(G: Tensor, keepdim: bool = False, eps: float = 
 
 def _ns_inner(X: Tensor) -> Tensor:
     a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    for _ in range(_NS_INNER_ITER):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -1195,6 +1207,9 @@ if dist.get_rank() == 0:
             "final_schedule_steps": FINAL_SCHEDULE_STEPS,
             "final_lr_power": FINAL_LR_POWER,
             "muon_lr": MUON_LR,
+            "muon_lr_scale": args.muon_lr_scale,
+            "muon_lr_effective": MUON_LR * args.muon_lr_scale,
+            "ns_inner_iter": args.ns_inner_iter,
             "muon_weight_decay": MUON_WEIGHT_DECAY,
             "mu": MU,
             "contra_muon_coeff": CONTRA_MUON_COEFF,
@@ -1270,7 +1285,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+                      lr=MUON_LR * args.muon_lr_scale, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     inner_optimizers = [optimizer1, optimizer2]
     optimizer_ema = EMA_Nesterov(
