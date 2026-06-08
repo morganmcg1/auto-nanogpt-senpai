@@ -146,6 +146,10 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--soap_beta2", type=float, default=SOAP_BETA2,
+                        help="SOAP second-moment EMA decay (baseline 0.90). "
+                             "Used as beta2 for soap_precondition_momentum exp_avg_sq and as "
+                             "shampoo_beta for soap_update_preconditioner row_gg/col_gg lerps.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -160,6 +164,11 @@ def parse_args():
 
 
 args = parse_args()
+
+# H-DI: allow CLI override of SOAP_BETA2 before the soap_* function defs bind
+# it as their default. Default value of --soap_beta2 is SOAP_BETA2 (0.90), so
+# omitting the flag preserves bit-exact baseline behavior.
+SOAP_BETA2 = args.soap_beta2
 
 
 def clean_metric_name(name: str) -> str:
