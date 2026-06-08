@@ -2194,3 +2194,48 @@ Advisor decision: close. Reassign student to higher-EV Senpai-#1614 ingredient l
 - **Spread = 0.001583 = 1.98× variance gate (0.0008).** Per-trial σ ≈ 0.0007 on rank-1 stack. Any future Muon-side lever with expected effect-size < 0.0014 needs n=4 from the start.
 - **Mechanism intuition falsified:** Muon WD × Arbor tail amplification hypothesis not borne out. The gradient between WD=0.025 and WD=0.050 is mildly negative at n=4, suggesting the design point is near-optimal.
 - Tanjiro reassigned H-CZ (EN rest_steps direction ablation: rest_steps=2400 vs 2890) as PR #2373.
+
+## 2026-06-08 08:20 — PR #2364: H-BW EN-on-AdamW EMA β sweep — CLOSED 45TH LEVER (open2-frieren)
+
+- Branch: `open2-frieren/h-bw-en-on-adamw`
+- Hypothesis: Apply EMA-Nesterov lookahead to AdamW parameter groups (embed/lm_head/scalars). AdamW's natural β₁=0.9 already provides first-moment gradient-space EMA; EN adds a second slow-weights EMA layer on top. Tests whether the EN mechanism that helps Muon params provides additional lift when composed with AdamW momentum.
+
+### Results
+
+| Arm | EN γ | n | mean val/ri_loss_gamma_neg0p0750 | Spread | vs rank-1 (3.276172) | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| A | 0.99 | 2 | **3.277298** | — | **+0.001126** | **FALSIFIED** |
+| B | 0.95 | 2 | **3.276654** | 0.000882 (T0=3.276213, T1=3.277095) | **+0.000482** | **FALSIFIED** |
+
+- W&B: `7lz3mqbv` (Arm A), `cwes9skt` (Arm B: T0=3.276213, T1=3.277095)
+
+### Analysis
+
+- **45th saturated lever. EN-on-AdamW mechanism REFUTED.**
+- Both arms FALSIFIED. AdamW's natural β₁=0.9 gradient-space EMA already provides the smoothing that EN's slow-weights layer brings. Layering EN on AdamW path adds no marginal gain — in fact it adds a small overhead (+0.0005 to +0.001).
+- Arm B T0=3.276213 was "AT rank-1" intra-run but T1=3.277095 pulled the n=2 mean well into FALSIFIED territory. This is consistent with the high seed variance observed in the rank-1 stack.
+- **Mechanism distinction confirmed:** EN lifts Muon params (orthogonal step directions; EN slow-weights act as a geometric momentum corrector) but NOT AdamW params (gradient-space EMA + adaptive learning rate already does the heavy lifting). Future EN experiments should keep EN restricted to the Muon path.
+- Frieren reassigned H-DL (EN lookahead_stepsize 0.3→{0.15, 0.45}) as PR #2375.
+
+## 2026-06-08 08:20 — PR #2365: H-CA lm_head soft-warmup + higher target LR — CLOSED 46TH LEVER (open2-askeladd)
+
+- Branch: `open2-askeladd/h-ca-lmhead-warmup`
+- Hypothesis: Apply a soft-warmup to lm_head LR starting from near-zero, combined with a higher overall target LR multiplier (K=25 vs default K=?). Tests whether the lm_head, which has been identified as a "dangerous" near-zero-init layer, benefits from dedicated warmup protection.
+
+### Results
+
+| Trial | Seed | Run | val/ri_loss_gamma_neg0p0750 | vs rank-1 | Verdict |
+|---|---:|:--|---:|---:|---|
+| T0 | seed-0 | 9hld96fr | 3.277683 | +0.001511 | FALSIFIED |
+| T1 | seed-1 | 9hld96fr | 3.276232 | +0.000060 | INCONCLUSIVE |
+| **n=2 mean** | — | — | **3.276957** | **+0.000785** | **FALSIFIED** |
+
+- W&B: `9hld96fr`
+
+### Analysis
+
+- **46th saturated lever. lm_head soft-warmup × higher target LR FALSIFIED.**
+- T1=3.276232 was nearly AT rank-1 (Δ+0.000060) but T0=3.277683 is strongly FALSIFIED, giving n=2 mean of 3.276957 (+0.000785). High seed variance confirms this configuration does not systematically improve the baseline.
+- **Key lm_head insight from student diagnostic:** lm_head warmup from zero triggers a bf16 sign-flip cascade — the near-zero LR in bf16 loses gradient sign information, causing training instability. The proposed floor warmup (minimum LR ≥ 1/320 of initial LR) prevents this. Added to invariant #6: "(EMERGING) lm_head LR must be ≥ baseline 1/320 throughout training."
+- **Mechanism conclusion:** lm_head requires a *floor* on LR, not a warmup from zero. A separate lm_head-safe configuration with enforced LR floor may be worth testing but the zero-warmup approach is clearly counterproductive.
+- Askeladd reassigned H-DK (Arbor clamp_k sweep 2.0 vs 5.0, default 3.0) as PR #2374.
