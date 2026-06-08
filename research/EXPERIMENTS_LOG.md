@@ -1,5 +1,25 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-08 13:26 — PR #2370: H-DH SWA-EMA on AdamW dense params — CLOSED 51ST LEVER (open2-nezuko)
+
+- Branch: `open2-nezuko/h-dh-swa-adamw-tail`
+- Hypothesis: Stochastic Weight Averaging (EMA) on AdamW dense params (embed.weight, proj.weight) in post-RI-capture tail. Arm A: swa_start=2375, decay=0.99. Arm B: swa_start=2500, decay=0.95.
+
+### Results
+
+| Arm | swa_start | decay | n | val/ri_loss γ=−0.075 (SWA) | Δ vs rank-1 | val/loss_raw | SWA − raw | Verdict |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| A | 2375 | 0.99 | 2 | 3.277085 | +0.000913 | 3.276966 | +0.000125 | **FALSIFIED** |
+| B | 2500 | 0.95 | 1 | 3.278415 | +0.002243 | ~3.27817 | ~+0.00024 | **FALSIFIED** |
+
+Per-trial Arm A (W&B `fv89ceu8`): T0=3.27799 SWA, T1=3.27618 SWA; spread=0.00181.
+
+### Conclusion: 51st saturated lever
+
+**Mechanism closure:** SWA-EMA consistently adds +0.000125 to +0.000156 bias (SWA worse than raw) across all 3 gammas. Direction: SWA-EMA on AdamW dense params adds bias rather than reduces variance because the AdamW trajectory in the post-RI-capture tail (steps 2375→2890) is still **directionally improving**, not noise-dominated — averaging pulls embed/proj away from the still-improving optimum. NC + Arbor + EN + RI + eps=1e-12 have already exhausted the AdamW-side variance-reduction headroom. Weight-space averaging on AdamW path fully closed. Nezuko reassigned to H-DQ (Contra-Muon coefficient sweep, PR #2380).
+
+---
+
 ## 2026-06-08 12:50 — PR #2371: H-DI SOAP_BETA2 sweep — CLOSED 50TH LEVER (open2-fern)
 
 - Branch: `open2-fern/h-di-soap-beta2-sweep`
