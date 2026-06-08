@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-08 ~19:30 UTC (launch day +4) — **58 saturated levers**. **CRITICAL human directive (Issue #2388 ~19:11 UTC):** test the actual #1532/#1614 aux Adam β₂ pulse mechanism on current rank-1 frontier stack. Aux β₂ start at 0.95, step-function pulse to 0.99 at step ~970 (scaled 975/2900). NO PMuon, NO late-higher block LR, NO β₁ schedule. Body drafted at `/tmp/h-ef-aux-b2-pulse-body.md`, will assign as **H-EF** to first idle student (tanjiro ETA ~1h after `074gh9wi` n=2 completes; nezuko ETA ~3h). Acknowledgement posted on Issue #2388. Nezuko H-DQ Arm A `v089vh09` FINISHED at val/ri_loss=**3.27665** (FALSIFIED, +0.000478) — Arm B `beauf412` running. Tanjiro H-DU `074gh9wi` at step 3991/5780 trending FALSIFIED (val/ri_loss 3.27821).
+- **As of:** 2026-06-08 ~19:55 UTC (launch day +4) — **58 saturated levers**. **MASS PIVOT TO ISSUE #2388 EXECUTED.** Human directive ~19:11 UTC + escalation ~19:25 UTC ("Ensure all students work on this — only stream that matters"): test actual #1532/#1614 aux Adam β₂ pulse on rank-1 frontier stack. **8 in-flight PRs closed**, **8 H-EF arm PRs assigned** (#2389–#2396) covering 5 arms: Core (n=4 across 4 students), Earlier-pulse, Later-pulse, Mild-target, Lower-start. First Arm A terminals ETA ~21:30 UTC. **Lost intermediate state to honor directive**: frieren H-DS MERGE-eligible n=4 confirm aborted (preserved seeds 6omk0f3n, 6rap87sh); edward H-DN Arm B Amsgrad `3xgawfqb` ~75% through; tanjiro H-DU `074gh9wi` `074gh9wi` ~70% through; nezuko H-DQ Arm B `beauf412` ~37%. All will be re-considered after H-EF signal lands.
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -45,18 +45,26 @@ Arm A n=2 mean = 3.277078 FALSIFIED. T0=3.278059 (lucky seed bad), T1=3.276096 (
 
 Arm A n=2 mean = 3.277843 FALSIFIED. Arm B T0 = 3.286138 DEEP FALSIFIED (+0.009966). MUON_POWER_C basin is narrow + asymmetric — steeper above hand-tune than below. ~3.3h GPU saved by skipping Arm A T2/T3 + Arm B T1 per pivot decision. Thorfinn now on H-DV AdamW β₁ schedule (PR #2385).
 
-## Active assignments (~18:30 UTC, 2026-06-08)
+## Active assignments — H-EF aux Adam β₂ pulse matrix (~19:55 UTC, 2026-06-08)
 
-| PR | Student | Hypothesis | Status |
-|---:|---|---|---|
-| **#2387** | open2-alphonse | **H-DX: MUD triangular whitening (NS5 replacement, Cholesky-based exact orthogonalization)** | **Newly assigned 18:25 UTC.** Tier 1 fresh hypothesis from researcher-agent. Most mechanistically novel intervention since 58 levers — replaces NS5 polynomial entirely. Arm B (conditional): MUD + NC removed (tests if NC patches polynomial residual). |
-| **#2386** | open2-askeladd | **H-DW: Polyak-Ruppert weight avg (decay 0.998 start step 2500, on-top-of-RI vs replace-RI)** | Assigned ~18:00 UTC. First readout-tier mechanism since RI itself. Composes naturally with RI (Arm A) or replaces it (Arm B). |
-| **#2385** | open2-thorfinn | **H-DV: AdamW β₁ schedule (cosine 0.8→0.65 vs step 0.8→0.7 at step 2000)** | Re-sent 17:33 UTC with baseline-corrected Path A spec (β₁=0.8 baseline, not 0.9). Untouched axis after 56 saturated levers. Seed-split aware (seed_offset=1 first). |
-| **#2382** | open2-frieren | **H-DS: Sinkhorn iteration count sweep (1 vs 4) — MERGE-ELIGIBLE at n=2** | Arm A `6omk0f3n` T0=3.27710, `6rap87sh` T1=**3.27506** (STRONG individual). n=2 mean = **3.276080** (MERGE-eligible band). **Variance gate triggered |Δ|=0.00204 = 2.55×** → mandatory n=4 confirm authorized 18:35 UTC (seeds 2, 3). First MERGE-eligible candidate since PR #2349. |
-| **#2384** | open2-tanjiro | H-DU: NorMuon row-L2 normalization PRE-NS5 | Picked up `074gh9wi` step ~900/2890 (~31%). Tests row-only L2 norm vs current NC row×col geometric mean. |
-| **#2383** | open2-fern | H-DT: RI capture_step LATER sweep (2500 vs 2600) | **PERSISTENT FULL-RUN CRASHES**: 3 Arm A launches crashed (`avlxoa25`, `bzf85pb8`, `eoq576br` at 0 steps), smoke `efx4lqto` finished. Diagnostic comment posted 18:35 UTC asking for traceback + exact CLI. |
-| **#2377** | open2-edward | H-DN: Stack prune NC vs Amsgrad AdamW | Arm A n=2 mean 3.277118 FALSIFIED. Arm B (Amsgrad) `3xgawfqb` step 2150 ETA ~20:30 UTC. Closing after Arm B. |
-| **#2380** | open2-nezuko | H-DQ: Contra-Muon coeff sweep (0.1 vs 0.3) | Arm A `v089vh09` step ~2150/5780 (~37%). ETA T0 ~18:30 UTC. |
+**Issue #2388 directive: test #1532/#1614 β₂ pulse mechanism on rank-1 stack.** Only β₂ start + pulse changes — NO PMuon, NO late-higher block LR, NO β₁ schedule.
+
+| PR | Student | Arm | start → target @ step | seeds | Aggregate target |
+|---:|---|---|---|---|---|
+| **#2389** | open2-frieren | A CORE seed=1 | 0.95 → 0.99 @ 970 | 1 | n=4 combined across 2389/2390/2391/2392 |
+| **#2390** | open2-edward | A CORE seed=2 | 0.95 → 0.99 @ 970 | 1 | n=4 combined |
+| **#2391** | open2-nezuko | A CORE seed=3 | 0.95 → 0.99 @ 970 | 1 | n=4 combined |
+| **#2392** | open2-alphonse | A CORE seed=4 | 0.95 → 0.99 @ 970 | 1 | n=4 combined |
+| **#2393** | open2-thorfinn | B EARLIER | 0.95 → 0.99 @ 820 | n=2 | sweep timing axis (28.4% vs 33.6%) |
+| **#2394** | open2-tanjiro | C LATER | 0.95 → 0.99 @ 1120 | n=2 | sweep timing axis (38.8% vs 33.6%) |
+| **#2395** | open2-askeladd | D MILD | 0.95 → 0.97 @ 970 | n=2 | sweep target value (PR #1614 original Arm A) |
+| **#2396** | open2-fern | E LOWER | 0.90 → 0.99 @ 970 | n=2 | sweep start value (NaN-risk noted) |
+
+**ETA first Arm A terminals ~21:30 UTC. ETA variant arms n=2 ~22:30 UTC.** Pod entrypoint cadence picks up new PRs within ~5–10 min.
+
+## Closed during mass pivot (~19:45 UTC)
+
+PRs #2377 (edward H-DN Amsgrad mid-flight), #2380 (nezuko H-DQ Contra-Muon mid-flight), #2382 (frieren H-DS Sinkhorn — **MERGE-eligible n=2 mean 3.276080, n=4 confirm aborted**, will re-open after β₂ pulse signal), #2383 (fern H-DT RI-capture, was crashing), #2384 (tanjiro H-DU NorMuon mid-flight), #2385 (thorfinn H-DV β₁-schedule — conflicts with directive), #2386 (askeladd H-DW Polyak-Ruppert), #2387 (alphonse H-DX MUD).
 
 ## Recent closures (most recent first)
 

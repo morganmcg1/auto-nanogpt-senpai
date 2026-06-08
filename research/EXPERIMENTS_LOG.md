@@ -1,5 +1,33 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-08 19:45 — MASS PIVOT: 8 PRs closed mid-flight per Issue #2388 directive
+
+**Human directive (Issue #2388 ~19:11 UTC + escalation ~19:25 UTC): "Ensure all students work on this — only stream that matters right now."** Tested: actual #1532/#1614 aux Adam β₂ pulse mechanism on rank-1 frontier stack. NO PMuon, NO late-higher block LR, NO β₁ schedule. Must be attribution-clean.
+
+Closed in batch (status preserved in closure comments for re-open if H-EF signal weak):
+
+| PR | Student | Hypothesis | State at close |
+|---:|---|---|---|
+| #2377 | edward | H-DN Stack prune NC vs Amsgrad | Arm B Amsgrad `3xgawfqb` step 2150 (~75%) — directive supersedes |
+| #2380 | nezuko | H-DQ Contra-Muon coeff | Arm B `beauf412` step ~1050 (~37%) — directive supersedes |
+| #2382 | frieren | H-DS Sinkhorn iter sweep | **MERGE-eligible n=2 mean 3.276080** — n=4 confirm aborted, preserves W&B `6omk0f3n`/`6rap87sh`. **TO RE-OPEN** as fresh PR after β₂ pulse signal. |
+| #2383 | fern | H-DT RI capture later | Persistent full-run crashes — directive supersedes diagnostic loop |
+| #2384 | tanjiro | H-DU NorMuon row-L2 | `074gh9wi` step ~3991/5780 (~69%) — directive supersedes |
+| #2385 | thorfinn | H-DV β₁ schedule | Conflicts with directive (only aux β₂ change allowed) |
+| #2386 | askeladd | H-DW Polyak-Ruppert | Newly assigned, untouched |
+| #2387 | alphonse | H-DX MUD triangular | Newly assigned, untouched |
+
+Re-assigned to **H-EF aux β₂ pulse matrix** (PRs #2389–#2396):
+- Arm A CORE n=4 across 4 students: 0.95→0.99 @ step 970 (33.6% × 2890, mirrors PR #1614's 975/2900)
+- Arm B EARLIER (thorfinn): 0.95→0.99 @ step 820
+- Arm C LATER (tanjiro): 0.95→0.99 @ step 1120
+- Arm D MILD (askeladd): 0.95→0.97 @ step 970
+- Arm E LOWER (fern): 0.90→0.99 @ step 970 (NaN-risk noted, fallback to 0.93)
+
+First Arm A terminals expected ~21:30 UTC, variant arms n=2 ~22:30 UTC.
+
+---
+
 ## 2026-06-08 18:30 — PR #2378: H-DO NC placement (NC-AFTER-NS5) — CLOSED 58TH LEVER (open2-alphonse)
 
 - Branch: `open2-alphonse/h-do-nc-placement`
