@@ -146,6 +146,13 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--swa_start_step", type=int, default=0,
+                        help="Train step at which SWA-EMA on AdamW dense params (embed.weight, "
+                             "proj.weight) begins. 0 disables (baseline path, bit-exact). "
+                             "H-DH Arm A=2375 (post-RI capture), Arm B=2500.")
+    parser.add_argument("--swa_decay", type=float, default=0.99,
+                        help="EMA decay coefficient for SWA on AdamW dense params. "
+                             "Effective averaging window ~ 1/(1-decay). H-DH Arm A=0.99, Arm B=0.95.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -156,6 +163,10 @@ def parse_args():
         raise ValueError("--train_steps must be positive")
     if args.ri_capture_step < 0 or args.ri_capture_step >= args.train_steps:
         raise ValueError(f"--ri_capture_step must be in [0, train_steps); got {args.ri_capture_step}")
+    if args.swa_start_step < 0:
+        raise ValueError(f"--swa_start_step must be >= 0; got {args.swa_start_step}")
+    if not (0.0 < args.swa_decay < 1.0):
+        raise ValueError(f"--swa_decay must be in (0, 1); got {args.swa_decay}")
     return args
 
 
@@ -1218,6 +1229,9 @@ if dist.get_rank() == 0:
             "ri_gamma": args.ri_gamma,
             "ri_capture_step": args.ri_capture_step,
             "ri_enabled": args.ri_gamma != 0.0,
+            "swa_start_step": args.swa_start_step,
+            "swa_decay": args.swa_decay,
+            "swa_enabled": args.swa_start_step > 0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
         },
@@ -1294,6 +1308,16 @@ for trial_idx in range(args.num_trials):
     optimizer1.param_groups[2]["power_c"] = ADAM_OTHER_POWER_C
     optimizer2.param_groups[0]["power_c"] = MUON_POWER_C
 
+    # H-DH: SWA-EMA buffers on AdamW dense params (embed.weight, proj.weight).
+    # Allocated only when --swa_start_step > 0 so the baseline path is bit-exact.
+    swa_buffers: dict[str, Tensor] | None = None
+    swa_initialized = False
+    if args.swa_start_step > 0:
+        swa_buffers = {
+            "embed": torch.zeros_like(model.embed.weight, dtype=torch.float32),
+            "proj":  torch.zeros_like(model.proj.weight,  dtype=torch.float32),
+        }
+
     def _power_lr(step, initial_lr, power_c, power=FINAL_LR_POWER):
         t_end = FINAL_SCHEDULE_STEPS
         downward_lr = power_c * max(0.0, t_end - step) ** power
@@ -1359,6 +1383,30 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
+            # Helper: evaluate val loss given the current model state.
+            def _eval_val_loss():
+                ev_loss = torch.zeros((), device=device)
+                with torch.no_grad():
+                    for i in range(len(val_inputs) // mbs):
+                        ev_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(ev_loss, op=dist.ReduceOp.SUM)
+                ev_loss /= val_tokens
+                return float(ev_loss.item())
+            # Helper: evaluate val loss with SWA buffers swapped in for embed.weight and
+            # proj.weight. Returns None when SWA is disabled or not yet initialized so
+            # callers can treat "no SWA available" uniformly. Restores raw weights so the
+            # post-eval model state is identical to the pre-eval state.
+            def _eval_val_loss_with_swa():
+                if not (args.swa_start_step > 0 and swa_initialized):
+                    return None
+                raw_embed = model.embed.weight.data.clone()
+                raw_proj = model.proj.weight.data.clone()
+                model.embed.weight.data.copy_(swa_buffers["embed"].to(model.embed.weight.dtype))
+                model.proj.weight.data.copy_(swa_buffers["proj"].to(model.proj.weight.dtype))
+                swa_loss = _eval_val_loss()
+                model.embed.weight.data.copy_(raw_embed)
+                model.proj.weight.data.copy_(raw_proj)
+                return swa_loss
             # H15 Tail Reference Interpolation: extrapolate from snapshot before final eval.
             # theta_eval = theta_final + gamma * (theta_final - theta_capture).
             # If multiple gammas were requested, evaluate each from the same final
@@ -1366,6 +1414,7 @@ for trial_idx in range(args.num_trials):
             # becomes val_loss_float and feeds into best_val_loss.
             ri_applied = False
             ri_per_gamma_losses = {}
+            ri_per_gamma_losses_swa: dict[float, float] = {}
             if step == train_steps and ri_enabled and ri_snapshot is not None:
                 # Take a fresh snapshot of the final post-step-train_steps weights so we
                 # can repeatedly apply different gammas and restore between evaluations.
@@ -1388,14 +1437,11 @@ for trial_idx in range(args.num_trials):
                     return nonlocal_delta ** 0.5
                 # Pre-RI val_loss == gamma=0 eval (no perturbation from final).
                 model.eval()
-                pre_val_loss = torch.zeros((), device=device)
-                with torch.no_grad():
-                    for i in range(len(val_inputs) // mbs):
-                        pre_val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
-                dist.all_reduce(pre_val_loss, op=dist.ReduceOp.SUM)
-                pre_val_loss /= val_tokens
-                ri_pre_val_loss = float(pre_val_loss.item())
+                ri_pre_val_loss = _eval_val_loss()
                 ri_per_gamma_losses[0.0] = ri_pre_val_loss
+                pre_val_loss_swa = _eval_val_loss_with_swa()
+                if pre_val_loss_swa is not None:
+                    ri_per_gamma_losses_swa[0.0] = pre_val_loss_swa
                 # Evaluate every requested gamma (extras first, primary last so the
                 # model ends in primary-gamma state for the val_loss measurement below).
                 seen_gammas = {0.0}
@@ -1404,13 +1450,10 @@ for trial_idx in range(args.num_trials):
                         continue
                     seen_gammas.add(g)
                     d_norm = _apply_gamma(g)
-                    ev_loss = torch.zeros((), device=device)
-                    with torch.no_grad():
-                        for i in range(len(val_inputs) // mbs):
-                            ev_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
-                    dist.all_reduce(ev_loss, op=dist.ReduceOp.SUM)
-                    ev_loss /= val_tokens
-                    ri_per_gamma_losses[g] = float(ev_loss.item())
+                    ri_per_gamma_losses[g] = _eval_val_loss()
+                    ev_loss_swa = _eval_val_loss_with_swa()
+                    if ev_loss_swa is not None:
+                        ri_per_gamma_losses_swa[g] = ev_loss_swa
                 # Finally apply primary gamma; the val_loss below picks it up.
                 ri_delta_norm = _apply_gamma(float(args.ri_gamma))
                 ri_applied = True
@@ -1418,18 +1461,19 @@ for trial_idx in range(args.num_trials):
                 del final_snapshot
                 model.train()
             model.eval()
-            val_loss = torch.zeros((), device=device)
-            with torch.no_grad():
-                assert len(val_inputs) % mbs == 0
-                for i in range(len(val_inputs) // mbs):
-                    val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
-            dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
-            val_loss /= val_tokens
-            val_loss_float = float(val_loss.item())
-            # Record primary gamma's val loss into the per-gamma table (overwrite gamma=0
-            # entry if primary==0; otherwise add primary).
+            assert len(val_inputs) % mbs == 0
+            val_loss_raw_float = _eval_val_loss()
+            val_loss_swa_float = _eval_val_loss_with_swa()
+            # When SWA is on, the SWA-evaluated loss becomes the primary val_loss the
+            # decision-gate metric (val/ri_loss_gamma_<g>) and val/best_loss read from.
+            val_loss_float = val_loss_swa_float if val_loss_swa_float is not None else val_loss_raw_float
+            # Record primary gamma's val loss into the per-gamma tables (overwrite gamma=0
+            # entry if primary==0; otherwise add primary). raw-table gets the raw eval so
+            # val/ri_loss_gamma_<g>_raw stays comparable across SWA-on/off.
             if ri_applied:
                 ri_per_gamma_losses[float(args.ri_gamma)] = val_loss_float
+                if val_loss_swa_float is not None:
+                    ri_per_gamma_losses_swa[float(args.ri_gamma)] = val_loss_swa_float
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -1441,6 +1485,7 @@ for trial_idx in range(args.num_trials):
                     "trial": trial_idx,
                     "val/step": step,
                     "val/loss": val_loss_float,
+                    "val/loss_raw": val_loss_raw_float,
                     "val/best_loss": best_val_loss,
                     "val/best_step": best_val_step,
                     "val/target_margin": TARGET_VAL_LOSS - val_loss_float,
@@ -1450,6 +1495,9 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                if val_loss_swa_float is not None:
+                    metrics["val/loss_swa"] = val_loss_swa_float
+                    metrics["val/loss_swa_minus_raw"] = val_loss_swa_float - val_loss_raw_float
                 if ri_applied:
                     metrics["val/ri_pre_loss"] = ri_pre_val_loss
                     metrics["val/ri_post_loss"] = val_loss_float
@@ -1461,9 +1509,13 @@ for trial_idx in range(args.num_trials):
                         slug = f"{g:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
                         metrics[f"val/ri_loss_gamma_{slug}"] = loss
                         metrics[f"val/ri_delta_gamma_{slug}"] = loss - (ri_pre_val_loss or 0.0)
+                    for g, loss in ri_per_gamma_losses_swa.items():
+                        slug = f"{g:+.4f}".replace(".", "p").replace("+", "pos").replace("-", "neg")
+                        metrics[f"val/ri_loss_gamma_{slug}_swa"] = loss
+                        metrics[f"val/ri_delta_gamma_{slug}_swa"] = loss - (ri_pre_val_loss or 0.0)
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
+            print0(f"step:{step}/{train_steps} val_loss:{val_loss_float:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
             # start the clock again
@@ -1532,6 +1584,20 @@ for trial_idx in range(args.num_trials):
         # then accumulates lookahead = γ * lookahead + (1-γ) * (p_after - prev_p).
         for opt in optimizers:
             opt.step()
+        # H-DH: SWA-EMA update on AdamW dense params, after opt.step so embed/proj
+        # reflect the post-step values. Gated on args.swa_start_step > 0 so the
+        # baseline path is bit-exact.
+        if args.swa_start_step > 0 and train_step >= args.swa_start_step:
+            with torch.no_grad():
+                if not swa_initialized:
+                    swa_buffers["embed"].copy_(model.embed.weight.data.float())
+                    swa_buffers["proj"].copy_(model.proj.weight.data.float())
+                    swa_initialized = True
+                else:
+                    swa_buffers["embed"].mul_(args.swa_decay).add_(
+                        model.embed.weight.data.float(), alpha=1.0 - args.swa_decay)
+                    swa_buffers["proj"].mul_(args.swa_decay).add_(
+                        model.proj.weight.data.float(), alpha=1.0 - args.swa_decay)
         # H15 Tail Reference Interpolation: snapshot params after the optimizer.step that
         # completes ri_capture_step. Snapshot is per-rank but params are all-gathered inside
         # the Muon.step (and AdamW is replicated), so every rank has the same post-step
