@@ -146,6 +146,10 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--arbor_clamp_k", type=float, default=ARBOR_CLAMP_K,
+                        help="Arbor Sinkhorn row/col norm outlier clamp constant (mean ± k·std). "
+                             "Default 3.0 matches rank-1 baseline (PR #310). Tighter (2.0) discards "
+                             "more outliers; looser (5.0) admits more heterogeneity.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -160,6 +164,7 @@ def parse_args():
 
 
 args = parse_args()
+ARBOR_CLAMP_K = args.arbor_clamp_k
 
 
 def clean_metric_name(name: str) -> str:
