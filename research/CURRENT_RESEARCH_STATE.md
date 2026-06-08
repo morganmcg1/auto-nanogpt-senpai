@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-08 ~03:30 UTC (launch day +4) — H-BL closed (38th lever); H-BO Arm B n=2 STRONG (3.275336) pending n=4 confirm; nezuko reassigned H-DA; askeladd H-CA bf16 cascade fix green-lit (Option 1 floor warmup); frieren/thorfinn healthy
+- **As of:** 2026-06-08 ~03:55 UTC (launch day +4) — H-BN n=2 terminal (Arm B trial 1=3.275799 alone MERGE-eligible, n=2 mean 3.276590 at FALSIFIED edge); n=4 confirm authorized for tanjiro; fern H-BO n=4 at 44%; thorfinn H-CX smoke PASSED + Arm A n=2 launched; nezuko H-DA Arm S full n=1 launched; askeladd H-CA 16 step-1 crashes (advisor diagnostic standing).
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -23,22 +23,23 @@
 - ≥ 3.276572 → FALSIFIED → close axis
 - **Variance gate**: |T0 − T1| > 0.0008 → mandatory n=4 before any merge
 
-## 🚨 OPEN MERGE WATCH
+## 🚨 OPEN MERGE WATCHES (parallel)
 
-**Fern H-BO Arm B (β₁=0.85, β₂=0.98)** — n=2 mean **3.275336** (−0.000836, **STRONG** band). Variance 0.002523 = 3.15× threshold. **n=4 confirm authorized** at 03:30 UTC, seeds 2-3, terminal ETA ~05:30 UTC. If n=4 holds STRONG → MERGE as 40th positive lever, replaces canonical (0.8, 0.99) betas in stack.
+1. **Fern H-BO Arm B (β₁=0.85, β₂=0.98)** — n=2 STRONG 3.275336. n=4 confirm `i8cg4ixy` (seeds 2-3) at 44% (step 1275/2890). Terminal ETA ~06:05 UTC. PR has merge conflict — must rebase before merge.
+2. **Tanjiro H-BN Arm B (MUON_WD=0.050)** — n=2 mean 3.276590 at FALSIFIED edge (across by 0.000018) BUT trial 1 alone = 3.275799 (MERGE-eligible). Spread 0.001583 > 0.0008 → n=4 confirm authorized at 03:55 UTC. Realistic upside: escape FALSIFIED to MERGE-eligible if trial 1 not a seed fluke.
 
-## Active assignments (~03:30 UTC, 2026-06-08)
+## Active assignments (~03:55 UTC, 2026-06-08)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
 | **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~43h+. Advisor escalation posted. No new assignment until pod restored. |
-| **#2356** | open2-edward | H-BJ: NS-iter × Muon LR coupling | **Arm A FALSIFIED + Arm B n=2 FALSIFIED.** Arm B n=2 mean 3.278112 with spread 0.004181 (5.2× threshold). T1=3.276022 (MERGE-eligible alone). Student self-launched n=4 confirm (seeds 2-3) per variance rule. ETA ~05:00 UTC. Close + assign **H-CY (NorMuon)** pending. |
-| **#2360** | open2-tanjiro | H-BN: MUON_WEIGHT_DECAY sweep | **Arm A FALSIFIED** (n=2 mean=3.279275). Arm B (WD=0.050, `e03qiqa3`) T0=3.277382 FALSIFIED. T1 at step ~341/2890 (~12%), ETA ~03:36 UTC. If FALSIFIED → close + assign **H-CZ (EN rest_steps)**. |
-| **#2361** | open2-fern | H-BO: AdamW (β₁, β₂) sweep | **🚨 ARM B n=2 STRONG** (3.275336, −0.000836). n=4 confirm authorized 03:30 UTC (--seed_offset 2). Terminal ETA ~05:30 UTC. |
-| **#2364** | open2-frieren | H-BW: EN-on-AdamW (gradient EMA-Nesterov for AdamW groups) | **RUNNING healthy** — `7lz3mqbv` step 2750/2890 (95%), val/loss 3.2879 descending. T0 terminal ETA ~02:55 UTC. |
-| **#2365** | open2-askeladd | H-CA: lm_head soft-warmup × higher target LR | **🟡 SMOKE V2 FAILED — bf16 noise floor cascade diagnosed by student.** Root cause: lm_head warmup from lr=0.0002 silences embed gradient signal at step 1 → bf16 sign-flip → embed noise blow-up → step-2 NaN. **Advisor green-lit Option 1 (floor warmup): ramp from lm_head_lr_floor=1/320 (=0.003125) to target=0.005 over 25 steps.** Student implementing. |
-| **#2366** | open2-thorfinn | H-CX: RI capture_step timing sweep (2250 vs 2500) | **RUNNING healthy** — torch 2.10 → 2.12 fix landed at 02:19 UTC. `thhtg4d0` at step 600/2300 (26%), step_avg 2036ms, val/loss 3.8252. Smoke terminal ETA ~03:20 UTC. |
-| **#2367** | open2-nezuko | **H-DA: FINAL_LR_POWER sweep** (NEW assignment 03:30 UTC) | **JUST ASSIGNED** — schedule mechanism. Arm A=1.0 (linear tail), Arm B=1.4 (sharper convex tail). Tests interaction with RI capture at step 2375 (LR multiplier shift +44% / −30%). |
+| **#2356** | open2-edward | H-BJ: NS-iter × Muon LR coupling | **Arm B n=4 confirm in flight** — `9yb9do7u` past T2 (T2 ri=3.276362), now T3. Running average (T0+T1+T2)/3 = 3.277529 → n=4 mean essentially FALSIFIED (T3 needs 3.273701 to escape). Close + assign **H-CY (NorMuon)** post-terminal. ETA ~05:20 UTC. |
+| **#2360** | open2-tanjiro | H-BN: MUON_WEIGHT_DECAY sweep | **n=4 confirm authorized 03:55 UTC** (seeds 2-3). Terminal ETA ~07:00 UTC. n=2 spread 1.98× variance gate; trial 1=3.275799 alone MERGE-eligible. Speedrun contract already passes at n=2 mean 3.276590. |
+| **#2361** | open2-fern | H-BO: AdamW (β₁, β₂) sweep | **🚨 ARM B n=4 confirm 44%** (`i8cg4ixy` seeds 2-3, step 1275/2890). Terminal ETA ~06:05 UTC. **MERGE WATCH — 40th positive lever candidate.** Must rebase before merge (CONFLICTING). |
+| **#2364** | open2-frieren | H-BW: EN-on-AdamW | **T0=3.276831 FALSIFIED** (+0.000659). `7lz3mqbv` T2 in flight (step ~1651/2890, ~57%). Terminal ETA ~05:40 UTC. Close + assign new hypothesis post-terminal. |
+| **#2365** | open2-askeladd | H-CA: lm_head soft-warmup × higher target LR | **🚨 16 STEP-1 FAILURES on smoke v3 (Option 1 floor warmup).** Diagnostic ping posted 03:24 UTC (crash trace + step-0/step-1 telemetry + impl diff request). Pod healthy 1/1, GPU idle. Awaiting student response. If silent past 05:00 UTC → abort H-CA, assign alt. |
+| **#2366** | open2-thorfinn | H-CX: RI capture_step timing sweep (2250 vs 2500) | **Smoke PASSED + Arm A n=2 launched 03:45 UTC.** torch 2.10→2.11 cu130 fix in PR (Blackwell NaN regression). Smoke ri=3.337 (proxy). Arm A capture=2250 ETA ~07:15 UTC. |
+| **#2367** | open2-nezuko | H-DA: FINAL_LR_POWER sweep | **Arm S recal p=1.2 smoke PASSED** (val/loss 4.175 at step 200, formula validated). Full Arm S n=1 (`z7byinfk`) at ~9.5% (step 275). Validates recalibration baseline before Arms A/B. ETA ~05:27 UTC. |
 
 ## Recent closures (this session, most recent first)
 
