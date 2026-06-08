@@ -146,6 +146,9 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--nor_beta2", type=float, default=NOR_BETA2,
+                        help="NorMuon-lite per-row update-norm EMA beta2. 1.0=disabled (baseline). "
+                             "Typical: 0.99 slow / 0.95 fast. See arxiv 2510.05491 (Karp et al., 2025).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -156,6 +159,8 @@ def parse_args():
         raise ValueError("--train_steps must be positive")
     if args.ri_capture_step < 0 or args.ri_capture_step >= args.train_steps:
         raise ValueError(f"--ri_capture_step must be in [0, train_steps); got {args.ri_capture_step}")
+    if not (0.0 < args.nor_beta2 <= 1.0):
+        raise ValueError(f"--nor_beta2 must be in (0, 1]; got {args.nor_beta2}")
     return args
 
 
@@ -925,13 +930,25 @@ def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, u
     update = update * second_moment.clamp_min(1e-10).rsqrt().to(update.dtype)
     vnorm_new = gram_frobenius_norm_estimate(update)
     update = update * (vnorm / vnorm_new)
-    return update, arbor_diag
+    nor_diag: dict[str, float] = {}
+    if beta2 < 1.0:
+        sm_flat = second_moment.detach().float().flatten()
+        sm_max = float(sm_flat.max().item())
+        sm_min = float(sm_flat.clamp_min(1e-20).min().item())
+        nor_diag["nor/row_var"] = float(sm_flat.var(unbiased=False).item())
+        nor_diag["nor/row_mean"] = float(sm_flat.mean().item())
+        nor_diag["nor/row_max"] = sm_max
+        nor_diag["nor/row_min"] = sm_min
+        nor_diag["nor/row_max_over_min"] = sm_max / sm_min if sm_min > 0 else float("inf")
+        nor_diag["nor/update_norm_pre"] = float(vnorm.item())
+        nor_diag["nor/update_norm_post"] = float(gram_frobenius_norm_estimate(update).item())
+    return update, arbor_diag, nor_diag
 
 
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95, beta2=NOR_BETA2):
         assert isinstance(named_params, list) and len(named_params) >= 1
         self.soap_params = {p for n, p in named_params if should_soap_param(n)}
         self.attn_soap_params = {p for n, p in named_params if should_soap_param(n) and is_attn_param(n)}
@@ -949,7 +966,10 @@ class Muon(torch.optim.Optimizer):
             p: n for n, p in named_params
             if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
         }
+        self.param_names = {p: n for n, p in named_params}
         self.last_arbor_diag: dict[str, float] = {}
+        self.last_nor_diag: dict[str, float] = {}
+        self.beta2 = beta2
         self.step_count = 0
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
@@ -959,6 +979,11 @@ class Muon(torch.optim.Optimizer):
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        nor_pre_sq_sum = 0.0
+        nor_post_sq_sum = 0.0
+        nor_row_vars: list[float] = []
+        nor_row_max_over_min: list[float] = []
+        nor_param_count = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -1009,10 +1034,11 @@ class Muon(torch.optim.Optimizer):
                         else:
                             momentum_update = soap_precondition_momentum(momentum_update, state, blend=SOAP_BLEND)
                     p_apply_arbor = p in self.arbor_params
-                    update, arbor_diag = muon_update(
+                    update, arbor_diag, nor_diag = muon_update(
                         momentum_update,
                         state["second_moment"],
                         self.step_count,
+                        beta2=self.beta2,
                         use_contra=p not in self.no_contra_params,
                         use_soft=p not in self.no_soft_params,
                         apply_arbor=p_apply_arbor,
@@ -1021,6 +1047,16 @@ class Muon(torch.optim.Optimizer):
                         param_name = self.arbor_param_names.get(p, "unknown")
                         for diag_key, diag_val in arbor_diag.items():
                             self.last_arbor_diag[f"{diag_key}/{clean_metric_name(param_name)}"] = diag_val
+                    if nor_diag:
+                        param_name = self.param_names.get(p, "unknown")
+                        for diag_key, diag_val in nor_diag.items():
+                            self.last_nor_diag[f"{diag_key}/{clean_metric_name(param_name)}"] = diag_val
+                        nor_pre_sq_sum += nor_diag["nor/update_norm_pre"] ** 2
+                        nor_post_sq_sum += nor_diag["nor/update_norm_post"] ** 2
+                        nor_row_vars.append(nor_diag["nor/row_var"])
+                        if nor_diag["nor/row_max_over_min"] != float("inf"):
+                            nor_row_max_over_min.append(nor_diag["nor/row_max_over_min"])
+                        nor_param_count += 1
                     update = scale_radial_update(update, p)
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -1034,6 +1070,20 @@ class Muon(torch.optim.Optimizer):
                     if use_soap and not SOAP_UPDATE_BEFORE_USE:
                         soap_update_preconditioner(grad, state)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if nor_param_count > 0:
+            self.last_nor_diag["train/muon_update_norm_pre"] = nor_pre_sq_sum ** 0.5
+            self.last_nor_diag["train/muon_update_norm"] = nor_post_sq_sum ** 0.5
+            self.last_nor_diag["train/muon_update_norm_ratio"] = (
+                (nor_post_sq_sum / nor_pre_sq_sum) ** 0.5 if nor_pre_sq_sum > 0 else 1.0
+            )
+            self.last_nor_diag["train/muon_nor_row_var"] = sum(nor_row_vars) / len(nor_row_vars)
+            self.last_nor_diag["train/muon_nor_row_var_max"] = max(nor_row_vars)
+            if nor_row_max_over_min:
+                self.last_nor_diag["train/muon_nor_row_max_over_min"] = (
+                    sum(nor_row_max_over_min) / len(nor_row_max_over_min)
+                )
+                self.last_nor_diag["train/muon_nor_row_max_over_min_max"] = max(nor_row_max_over_min)
+            self.last_nor_diag["train/muon_nor_param_count"] = nor_param_count
         self.step_count += 1
 
 
@@ -1200,7 +1250,8 @@ if dist.get_rank() == 0:
             "contra_muon_coeff": CONTRA_MUON_COEFF,
             "contra_to_normal_end_step": CONTRA_TO_NORMAL_END_STEP,
             "soft_muon_ceil": SOFT_MUON_CEIL,
-            "nor_beta2": NOR_BETA2,
+            "nor_beta2": args.nor_beta2,
+            "nor_enabled": args.nor_beta2 < 1.0,
             "soap_param_mode": SOAP_PARAM_MODE,
             "soap_beta2": SOAP_BETA2,
             "soap_precondition_frequency": SOAP_PRECONDITION_FREQUENCY,
@@ -1270,7 +1321,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-12, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU, beta2=args.nor_beta2)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     inner_optimizers = [optimizer1, optimizer2]
     optimizer_ema = EMA_Nesterov(
@@ -1551,14 +1602,15 @@ for trial_idx in range(args.num_trials):
                 print0(f"step:{train_step} captured RI snapshot (gamma={args.ri_gamma}, norm={snap_norm:.4f})",
                        console=True)
         if dist.get_rank() == 0 and telemetry_due:
-            arbor_extra = dict(optimizer2.last_arbor_diag)
+            weight_extra = dict(optimizer2.last_arbor_diag)
+            weight_extra.update(optimizer2.last_nor_diag)
             log_weight_telemetry(
                 model=model,
                 module_types=module_types,
                 trial_idx=trial_idx,
                 step=train_step,
                 wandb_step=wandb_step,
-                extra_metrics=arbor_extra,
+                extra_metrics=weight_extra,
             )
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
