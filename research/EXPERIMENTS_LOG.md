@@ -1,5 +1,35 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-08 16:57 — PR #2376: H-DM MUON_POWER_C sweep — CLOSED 56TH LEVER (open2-thorfinn)
+
+- Branch: `open2-thorfinn/h-dm-muon-power-c-sweep`
+- Hypothesis: Sweep the implicit schedule horizon constant `MUON_POWER_C` at 0.66× and 1.5× the hand-tuned 3.317e-6. Tests whether the hand-tune sits in a flat basin or at an asymmetric local optimum.
+
+### Results
+
+| Arm | seed | val/ri_loss γ=−0.075 | Δ vs rank-1 | Gate |
+|---|---:|---:|---:|---|
+| A (0.66×) T0 | 1 | **3.276145** | −0.000027 | MERGE-eligible (lucky seed) |
+| A (0.66×) T1 | 2 | **3.279542** | +0.003370 | FALSIFIED |
+| **A n=2 mean** | | **3.277843** | **+0.001671** | **FALSIFIED** (variance gate) |
+| B (1.5×) T0 | 1 | **3.286138** | +0.009966 | **DEEP FALSIFIED** |
+
+- W&B: `a4rhgzhh` (A T0), `fzztecwm` (A T1), `hkklezxw` (B T0)
+- Variance gate triggered on Arm A: |T0−T1|=0.003397 ≫ 0.0008. T0 MERGE-eligible signal was seed luck. T1=3.279542 anchored n=2 mean firmly above rank-1.
+- ~3.3h GPU saved by skipping Arm A T2/T3 + Arm B T1 per advisor pivot — Arm A n=4 mathematically unreachable, Arm B T0 confirms 1.5× direction is dead.
+
+### Conclusion: 56th saturated lever — MUON_POWER_C axis FULLY closed
+
+**Curvature asymmetry confirmed:** 1.5× perturbation (steeper late decay) ~10× worse than 0.66× perturbation (gentler late decay). The hand-tune 3.317e-6 sits in a narrow asymmetric basin where larger values degrade rapidly. Combined with the earlier H-DA closure (recalibration at p=1.2 FALSIFIED +0.006923, also above the hand-tune), this axis is fully explored from both sides:
+- p=1.0 (current): rank-1 baseline
+- p=1.2 (H-DA): +0.006923
+- 0.66× (H-DM A): +0.001671 mean
+- 1.5× (H-DM B): +0.009966
+
+Hand-tune is robust local optimum. Thorfinn pivots to H-DV: AdamW β₁ schedule (untouched axis after 56 levers).
+
+---
+
 ## 2026-06-08 15:47 — PR #2379: H-DP SOAP Kronecker preconditioner MLP+V — CLOSED 54TH LEVER (open2-fern)
 
 - Branch: `open2-fern/h-dp-soap-mlp-v`

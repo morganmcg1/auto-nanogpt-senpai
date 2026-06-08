@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-08 ~16:10 UTC (launch day +4) — **55 saturated levers** (H-CZ EN-rest-direction closes as 55th). **EARLY FLEET T0 READS LANDING.** Edward H-DN Arm A T0=**3.276435 INCONCLUSIVE** (+0.000263, near baseline). Alphonse H-DO Arm A T0=**3.276730 FALSIFIED** (+0.000558). Askeladd H-DR Arm A T0=**3.278059 FALSIFIED hard** (+0.001887). **Pattern**: NC's *position* matters (alphonse NC-AFTER worse than NC-BEFORE rank-1), but NC's *presence* may not be load-bearing (edward NC-removed near baseline). Soft-Muon strongly regressive. Thorfinn H-DM Arm A FALSIFIED at n=2 (variance gate +0.003397, T0=3.276145 lucky but T1=3.279542 anchors mean to FALSIFIED), Arm B `hkklezxw` step ~1775/2890 ETA ~16:46 UTC. Tanjiro H-CZ: Arm B `095o6qc4` n=2 mean=3.276376 INCONCLUSIVE, AXIS CLOSED 55th — but student launched **duplicate Arm B `bz0vmep6` at 15:51 UTC**, advisor told to kill (race with close-axis comment).
+- **As of:** 2026-06-08 ~16:55 UTC (launch day +4) — **56 saturated levers** (H-DM MUON_POWER_C sweep closes as 56th, both arms FALSIFIED). **NC ABLATION TRIO STILL IN-FLIGHT.** Edward H-DN Arm A T0=**3.276435 INCONCLUSIVE** (+0.000263, near baseline). Alphonse H-DO Arm A T0=**3.276730 FALSIFIED** (+0.000558). Askeladd H-DR Arm A T0=**3.278059 FALSIFIED hard** (+0.001887). Tanjiro H-DU (NorMuon row-L2 PRE-NS5) extends ablation as 4th case. **Pattern**: NC's *position* matters, NC's *presence* may not be load-bearing if edward T1 confirms. Thorfinn newly assigned **H-DV AdamW β₁ schedule** (PR #2385, 56th-lever pivot) — untouched axis after H-DM closure. Frieren H-DS Arm A FALSIFIED single-trial (3.2771, +0.000928), running n=2 confirm on `6rap87sh` (ETA ~18:30 UTC).
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -33,22 +33,22 @@
 
 **Reading**: NC's *removal* is near-neutral. NC's *position* (after NS5 vs before NS5) shifts the mechanism in a measurable way. Soft-Muon is a strong negative. If edward T1 lands ≤ rank-1, **NC may be the first prune candidate** in 54 saturated levers.
 
-## ⚡ THORFINN H-DM: Arm A FALSIFIED at n=2 — Arm B in-flight
+## ⚡ THORFINN H-DM CLOSED 56TH LEVER (FALSIFIED both arms)
 
-Arm A n=2 mean = 3.277843 FALSIFIED. T0=3.276145 (lucky MERGE-eligible) but T1=3.279542 (FALSIFIED), |ΔT|=0.003397 (4.2× variance gate). Skip Arm A T2/T3 (math doesn't allow recovery). Arm B `hkklezxw` (MUON_POWER_C 4.975e-6, seed 1) step ~1775/2890, ETA ~16:46 UTC.
+Arm A n=2 mean = 3.277843 FALSIFIED. Arm B T0 = 3.286138 DEEP FALSIFIED (+0.009966). MUON_POWER_C basin is narrow + asymmetric — steeper above hand-tune than below. ~3.3h GPU saved by skipping Arm A T2/T3 + Arm B T1 per pivot decision. Thorfinn now on H-DV AdamW β₁ schedule (PR #2385).
 
-## Active assignments (~16:10 UTC, 2026-06-08)
+## Active assignments (~16:55 UTC, 2026-06-08)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2376** | open2-thorfinn | H-DM: MUON_POWER_C sweep (0.66× vs 1.5×) | Arm A n=2 mean 3.277843 FALSIFIED (variance gate). Arm B `hkklezxw` (4.975e-6, seed 1) step ~1775/2890 ETA ~16:46 UTC. Skip Arm A T2/T3. |
-| **#2382** | open2-frieren | H-DS: Sinkhorn iteration count sweep (1 vs 4) | Arm A `6omk0f3n` (iters=1, seed 0) step ~2023/2890 trial 0. ETA T0 ~16:30 UTC. |
-| **#2384** | open2-tanjiro | **H-DU: NorMuon row-L2 normalization PRE-NS5** | **Newly assigned 16:20 UTC.** Tests row-only L2 norm vs current NC row×col geometric mean. Forms 3-way ablation with edward (NC removed) and alphonse (NC after NS5). |
-| **#2383** | open2-fern | H-DT: RI capture_step LATER sweep (2500 vs 2600) | Newly assigned 15:50 UTC. Pure CLI, no code changes. Awaiting pickup. |
-| **#2378** | open2-alphonse | H-DO: NC placement — NC-AFTER-NS5 | **Arm A T0=3.276730 FALSIFIED** (+0.000558). T1 step ~452/2890 in trial 1. ETA T1 ~17:30 UTC. |
-| **#2377** | open2-edward | H-DN: Stack prune NC vs Amsgrad AdamW | **Arm A T0=3.276435 INCONCLUSIVE** (+0.000263, near baseline). T1 step ~1735/2890 in trial 1. ETA T1 ~17:00 UTC. **Stack-simplification candidate** if T1 confirms. |
-| **#2380** | open2-nezuko | H-DQ: Contra-Muon coeff sweep (0.1 vs 0.3) | Arm A `v089vh09` launched 15:32 UTC seed 0, step ~1100/5780 (~19%). Pickup confirmed. |
-| **#2381** | open2-askeladd | H-DR: Soft-Muon CEIL sweep (0.1 vs 0.3) | **Arm A T0=3.278059 FALSIFIED hard** (+0.001887). T1 step ~376/2890 in trial 1. ETA T1 ~17:30 UTC. Arm B likely skip per early-abort. |
+| **#2385** | open2-thorfinn | **H-DV: AdamW β₁ schedule (cosine 0.9→0.75 vs step 0.9→0.8 at step 2000)** | **Newly assigned 16:55 UTC.** Untouched axis after 56 saturated levers. Seed-split aware (seed_offset=1 first). |
+| **#2382** | open2-frieren | H-DS: Sinkhorn iteration count sweep (1 vs 4) | Arm A `6omk0f3n` T0=**3.2771 FALSIFIED** (+0.000928). Running second Arm A seed `6rap87sh` for n=2 confirm. ETA ~18:30 UTC. |
+| **#2384** | open2-tanjiro | H-DU: NorMuon row-L2 normalization PRE-NS5 | Assigned 16:20 UTC. Awaiting pickup. Tests row-only L2 norm vs current NC row×col geometric mean. Forms 4-way ablation with edward (NC removed) + alphonse (NC after NS5). |
+| **#2383** | open2-fern | H-DT: RI capture_step LATER sweep (2500 vs 2600) | Assigned 15:50 UTC. Pure CLI, no code changes. Awaiting pickup. |
+| **#2378** | open2-alphonse | H-DO: NC placement — NC-AFTER-NS5 | Arm A T0=3.276730 FALSIFIED (+0.000558). T1 in flight ETA ~17:30 UTC. |
+| **#2377** | open2-edward | H-DN: Stack prune NC vs Amsgrad AdamW | Arm A T0=3.276435 INCONCLUSIVE (+0.000263). T1 `vovpov6p` step 5616/5780 ETA ~16:55 UTC. **KEY MERGE CHECK** — if T1 ≤ rank-1, NC = first prune candidate. |
+| **#2380** | open2-nezuko | H-DQ: Contra-Muon coeff sweep (0.1 vs 0.3) | Arm A `v089vh09` step ~2150/5780 (~37%). ETA T0 ~18:30 UTC. |
+| **#2381** | open2-askeladd | H-DR: Soft-Muon CEIL sweep (0.1 vs 0.3) | Arm A T0=3.278059 FALSIFIED hard (+0.001887). T1 in flight ETA ~17:30 UTC. Arm B likely skip. |
 
 ## Recent closures (most recent first)
 
@@ -62,9 +62,9 @@ Arm A n=2 mean = 3.277843 FALSIFIED. T0=3.276145 (lucky MERGE-eligible) but T1=3
 | 2026-06-08 12:47 | **#2369 (edward H-CY)** | NorMuon-lite β₂ sweep (0.99 vs 0.95) | **CLOSED 48TH LEVER** | Both arms FALSIFIED. "4th redundant smoothing layer" — NC+Arbor+EN already compress heterogeneity. |
 | 2026-06-08 10:30 | **#2372 (thorfinn H-DJ)** | Lookahead-on-Muon (k=5/α=0.5) | **CLOSED 47TH LEVER CATASTROPHIC** | T0=3.295566 (+0.019394, 50× FALSIFIED). Lookahead axis FULLY closed (both AdamW H-BU and Muon). |
 
-## Saturated levers count: 55
+## Saturated levers count: 56
 
-Levers 38–55:
+Levers 38–56:
 38. **Lookahead k=5 α=0.5 on AdamW (H-BU)** — CATASTROPHIC +0.00823.
 39. **Embed-only LR ±50% (H-BL)** — bidirectional. Direction-dependent seed-split.
 40. **NS-iter × Muon LR coupling (H-BJ)** — both arms FALSIFIED.
@@ -83,6 +83,7 @@ Levers 38–55:
 53. **EN lookahead_stepsize sweep 0.15/0.45 (H-DL)** — Flat 0.15–0.30, climbs sharply at 0.45. Default 0.30 at optimum, axis closed.
 54. **SOAP Kronecker preconditioner MLP+V (H-DP)** — CATASTROPHIC abort at step 1000, +2.88 nats gap from baseline. Direct extension of public Prime Intellect "MLP+V SOAP" idea — failed empirically on top of our stack.
 55. **EN rest_steps direction ablation 2400/2890 (H-CZ)** — Both arms FALSIFIED/INCONCLUSIVE. Arm A (rest=2400) FALSIFIED +0.001079; Arm B (rest=2890 never-disengage) INCONCLUSIVE +0.000204. Monotonically ordered but saturated, EN timing axis closed.
+56. **MUON_POWER_C sweep 0.66×/1.5× (H-DM)** — Both arms FALSIFIED. Arm A n=2 mean 3.277843 (+0.001671, variance gate triggered, T0=3.276145 lucky seed). Arm B (1.5×) T0=3.286138 DEEP FALSIFIED (+0.009966). Hand-tune 3.317e-6 in narrow asymmetric basin, steeper above than below. Combined with H-DA (recalibration p=1.2 FALSIFIED) → MUON_POWER_C axis FULLY closed.
 
 ## Key mechanism table (NC × Arbor + RI + eps=1e-12 stack)
 
