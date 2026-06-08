@@ -39,6 +39,14 @@ If H-EH-1 lands ≤ 3.275 between Arm B trial 0 and STRONG gate → becomes merg
 - If lands between rank-1 and Arm B (≥ 3.27458 but ≤ 3.276172) → 820 is near-optimal, axis closed for now.
 - If FALSIFIED → pulse step has a hard lower bound near 800 (insufficient AdamW v-buffer warmup pre-pulse).
 
+## 2026-06-08 00:10 — PR #2394 tanjiro Arm C LATER SENPAI-RESULT posted + H-EH-3 STAIRCASE assigned
+
+**Tanjiro Arm C LATER terminal SENPAI-RESULT posted at 23:46 UTC** = 3.275900 MERGE-eligible. PR #2394 now status:review and held with #2389/2390/2391/2395 pending thorfinn Arm B EARLIER n=2 decision (~01:23 UTC ETA).
+
+**Tanjiro reassigned H-EH-3 (PR #2403): STAIRCASE two-pulse rule** — combines Arm B EARLIER timing (820 → 0.97) with cooldown-aligned second pulse (cd_start=1156 → 0.99). Tests whether smooth staircase trajectory beats single sharp jump. Distinguishes single-pulse vs gradual mechanism hypothesis.
+
+If H-EH-3 ≤ Arm B trial 0 (3.27458 STRONG) → smooth staircase wins → trajectory shape matters more than single-jump magnitude. If between rank-1 and 3.27458 → single jump @ 820 → 0.99 is sufficient, second pulse adds no lift. If FALSIFIED → two pulses cause optimizer-state thrashing (each pulse perturbs v-buffer equilibrium).
+
 ## 2026-06-08 23:10 — H-EF Arm A CORE n=4 LANDED + Arm B EARLIER STRONG INDIVIDUAL
 
 **Arm A CORE n=4 mean = 3.275884** (Δ=−0.000288 vs rank-1 3.276172, MERGE-eligible band). Stat contract OK: (3.28 − 3.275884) × √4 = 0.00823 ≥ 0.004.
