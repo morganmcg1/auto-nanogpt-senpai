@@ -146,13 +146,6 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
-    parser.add_argument("--aux_b2_start", type=float, default=-1.0,
-                        help="H-EF: Starting aux Adam β₂ before pulse. -1 disables (baseline no-op).")
-    parser.add_argument("--aux_b2_target", type=float, default=0.99,
-                        help="H-EF: Target aux Adam β₂ AFTER the pulse.")
-    parser.add_argument("--aux_b2_pulse_step", type=int, default=970,
-                        help="H-EF: Training step at which to apply the step-function β₂ change. "
-                             "Arm B (EARLIER) uses 820; Arm A (CORE) uses 970.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1227,10 +1220,6 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
-            "aux_b2_start": args.aux_b2_start,
-            "aux_b2_target": args.aux_b2_target,
-            "aux_b2_pulse_step": args.aux_b2_pulse_step,
-            "aux_b2_pulse_enabled": args.aux_b2_start > 0.0,
         },
     )
 
@@ -1280,14 +1269,6 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-12, weight_decay=0, fused=True)
-    # H-EF: override initial aux β₂ on optimizer1 (AdamW) at construction. Only fires
-    # when aux_b2_start > 0.0; default -1.0 leaves baseline (0.8, 0.99) untouched.
-    if args.aux_b2_start > 0.0:
-        initial_b2 = args.aux_b2_start
-        for group in optimizer1.param_groups:
-            beta1 = group["betas"][0]
-            group["betas"] = (beta1, initial_b2)
-        print0(f"[init] aux_b2 OVERRIDDEN: β₂ → {initial_b2}", console=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1512,17 +1493,6 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
-        # H-EF: aux Adam β₂ step-function pulse. Fires exactly once when
-        # step == aux_b2_pulse_step, switching all aux (AdamW) param groups
-        # from aux_b2_start to aux_b2_target. Only fires if aux_b2_start > 0.
-        if (args.aux_b2_start > 0.0
-                and args.aux_b2_pulse_step > 0
-                and step == args.aux_b2_pulse_step):
-            new_b2 = args.aux_b2_target
-            for group in optimizer1.param_groups:
-                beta1 = group["betas"][0]
-                group["betas"] = (beta1, new_b2)
-            print0(f"[step {step}] aux_b2 PULSE: β₂ → {new_b2}", console=True)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1539,7 +1509,6 @@ for trial_idx in range(args.num_trials):
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
             wandb.log(slope_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
-            aux_beta2_now = optimizer1.param_groups[0]["betas"][1]
             ema_extras = {
                 "train/ema_nesterov/it": optimizer_ema.it,
                 "train/ema_nesterov/lookahead_stepsize": optimizer_ema.current_lookahead_stepsize,
@@ -1547,7 +1516,6 @@ for trial_idx in range(args.num_trials):
                     optimizer_ema.it >= EMA_NESTEROV_PREFILL_STEPS
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
                 ),
-                "train/aux_b2": aux_beta2_now,
             }
             log_training_telemetry(
                 model=model,
