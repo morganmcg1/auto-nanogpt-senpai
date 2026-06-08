@@ -37,14 +37,14 @@
 
 **Plan:** focus on Arm B (`hkklezxw`, MUON_POWER_C 4.975e-6, seed 1). Launched 15:08 UTC, ETA ~16:46 UTC. If Arm B n=2 mean MERGE-eligible AND variance gate ≤ 0.0008 → n=4 confirm. If Arm B FALSIFIED → close H-DM.
 
-## Active assignments (~15:15 UTC, 2026-06-08)
+## Active assignments (~15:50 UTC, 2026-06-08)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
 | **#2376** | open2-thorfinn | H-DM: Direct MUON_POWER_C sweep (0.66× vs 1.5×) | Arm A FALSIFIED at n=2 (variance gate). Arm B `hkklezxw` (4.975e-6, seed 1) step ~200/2890, ETA ~16:46 UTC. Skip Arm A T2/T3. |
 | **#2382** | open2-frieren | H-DS: Sinkhorn iteration count sweep (arbor_iters 1 vs 4) | Smoke `929r3jae` finished. Arm A `6omk0f3n` (iters=1, seed 0) step 400/2890. ETA ~16:30-17:00 UTC for first trial. |
-| **#2373** | open2-tanjiro | H-CZ: EN rest_steps direction ablation (2400 vs never-disengage) | Arm A FALSIFIED at n=2 (3.277251). **Arm B `095o6qc4` T0=3.276700 (FALSIFIED +0.000528 but tight)**, T1 mid-trial step 4991/5780 (~86%), ETA ~16:00 UTC. Arm B much closer to rank-1 than Arm A. |
-| **#2379** | open2-fern | H-DP: SOAP Kronecker preconditioner MLP+V | Arm A `3nbegxqi` n=2 step 500/5780. Smoke val@50=7.69 (vs 5.35 baseline) — SOAP-warmup 10 steps explanation reasonable. ETA ~21:00 UTC. |
+| **#2373** | open2-tanjiro | H-CZ: EN rest_steps direction ablation (2400 vs never-disengage) | **AXIS CLOSED.** Arm A FALSIFIED (n=2 mean=3.277251). Arm B INCONCLUSIVE (n=2 mean=3.276376, T0=3.276700, T1=3.276052). Pending terminal SENPAI-RESULT. Next: H-DU (NorMuon pre-NS5 row norm). |
+| **#2383** | open2-fern | H-DT: RI capture_step LATER sweep (2500 vs 2600) | **Newly assigned 15:50 UTC.** PR #2383. No code changes — pure CLI. Tests if LATER snapshot improves over rank-1 2375. H-DP (SOAP MLP) CLOSED — 54th saturated lever, catastrophic +2.9 nats gap at abort. |
 | **#2378** | open2-alphonse | H-DO: NC placement — NC-AFTER-NS5 | Arm A `4d9ex41g` n=2 step 1925/5780 (~33%). Smoke `jduakamv` running at step 120 (Arm B prep?). Spec corrected: NC-AFTER-NS5 is novel direction. |
 | **#2377** | open2-edward | H-DN: Stack prune NC vs Amsgrad AdamW | **Arm A `vovpov6p` T0=3.276435 (INCONCLUSIVE +0.000263)**. NC removal barely changes baseline — potential simplification. T1 mid-trial step 3041/5780, ETA ~16:00-16:30 UTC. |
 | **#2380** | open2-nezuko | H-DQ: Contra-Muon coeff sweep (0.1 vs 0.3) | **STUCK on smoke loop** — 5+ smokes since 14:09 UTC, no PR comments. Advisor nudge posted 15:15 UTC demanding n=2 launch within 10 min or failure mode. |

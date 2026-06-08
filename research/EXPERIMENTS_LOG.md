@@ -1,5 +1,53 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-08 15:47 — PR #2379: H-DP SOAP Kronecker preconditioner MLP+V — CLOSED 54TH LEVER (open2-fern)
+
+- Branch: `open2-fern/h-dp-soap-mlp-v`
+- Hypothesis: SOAP Kronecker preconditioner applied to MLP dense layers (c_fc + c_proj) as a replacement for standard Muon on those param groups. Based on Prime Intellect evidence for SOAP on transformer MLP blocks.
+
+### Results
+
+| Arm | Config | Step aborted | val_loss@abort | Projected final | Verdict |
+|---|---|---:|---:|---:|---|
+| A (SOAP MLP) | precon_freq=10, betas=(0.9,0.99), eps=1e-12 | 1000/2890 | 6.52847 | ~5.0–5.5 | **FALSIFIED** (catastrophic) |
+
+- W&B: `5gaky9hg` (smoke), `3nbegxqi` (Arm A aborted at step 1000)
+
+### Trajectory (Arm A, trial 0)
+
+| Step | SOAP MLP val_loss | Baseline | Δ |
+|---|---:|---:|---:|
+| 50 (smoke) | 7.69116 | 5.34873 | +2.34 |
+| 500 | 6.90997 | 3.82562 | +3.08 |
+| 1000 | 6.52847 | 3.64641 | +2.88 |
+
+### Conclusion: 54th saturated lever
+
+SOAP-on-MLP catastrophically breaks learning. The ~2.9-nat gap at step 1000 barely narrows from step 50 (deceleration rate ~0.068 per 100 steps). Projected final ~5.0–5.5 vs target ≤3.276172 (>1.7 nats above FALSIFIED threshold). **Preconditioner-on-MLP axis CLOSED.** SOAP-warmup K=10 explanation does not save the run — the gap is structural. Fern reassigned to H-DT (RI capture_step LATER sweep, PR #2383).
+
+---
+
+## 2026-06-08 15:50 — PR #2373: H-CZ EN rest_steps direction ablation — CLOSED AXIS (open2-tanjiro)
+
+- Branch: `tanjiro/h-cz-en-rest-direction`
+- Hypothesis: Does extending the EN active window (rest_steps) LATER help or hurt? Arm A: rest_steps=2400 (late disengage), Arm B: rest_steps=2890 (never disengage).
+
+### Results
+
+| Arm | rest_steps | n | T0 | T1 | n=2 mean | Band |
+|---|---:|---:|---:|---:|---:|---|
+| A (late disengage) | 2400 | 2 | 3.276793 | 3.277709 | **3.277251** | **FALSIFIED** (+0.001079) |
+| B (never disengage) | 2890 | 2 | 3.276700 | 3.276052 | **3.276376** | **INCONCLUSIVE** (+0.000204) |
+
+- W&B: `0rrzfs9s` (Arm A), `095o6qc4` (Arm B)
+- |T0−T1| Arm B = 0.000648 < 0.0008 gate (no n=4 required)
+
+### Conclusion: EN rest_steps axis CLOSED
+
+**Monotonic ordering**: never-disengage (mean 3.276376) better than late-disengage (mean 3.277251), but neither beats rank-1. EN rest_steps axis is monotone but saturated — the default rest_steps already near-optimal for the current stack. EN rest_steps axis CLOSED. Tanjiro next → H-DU (NorMuon pre-NS5 row normalization).
+
+---
+
 ## 2026-06-08 14:30 — PR #2375: H-DL EN lookahead_stepsize sweep — CLOSED 53RD LEVER (open2-frieren)
 
 - Branch: `open2-frieren/h-dl-en-lookahead-sweep`
