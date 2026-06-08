@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-08 ~03:55 UTC (launch day +4) — H-BN n=2 terminal (Arm B trial 1=3.275799 alone MERGE-eligible, n=2 mean 3.276590 at FALSIFIED edge); n=4 confirm authorized for tanjiro; fern H-BO n=4 at 44%; thorfinn H-CX smoke PASSED + Arm A n=2 launched; nezuko H-DA Arm S full n=1 launched; askeladd H-CA 16 step-1 crashes (advisor diagnostic standing).
+- **As of:** 2026-06-08 ~04:40 UTC (launch day +4) — torch 2.10→2.11.0+cu130 infra fix MERGED (PR #2368); askeladd H-CA root cause confirmed (torch 2.10 Blackwell bf16 bug, NOT mechanism) + Arm A n=2 launching; tanjiro H-BN n=4 confirm `qq89qmbd` running (ETA 05:59 UTC); frieren H-BW Arm A n=2 mean **3.277298** FALSIFIED + Arm B γ=0.95 auto-launched; fern n=4 ETA 04:50 UTC (MERGE WATCH); nezuko Arm S full ETA 05:25 UTC; edward T3 + thorfinn Arm A T0 ETA ~05:33 UTC.
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
