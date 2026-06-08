@@ -146,6 +146,10 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--ema_nesterov_rest_steps", type=int, default=EMA_NESTEROV_REST_STEPS,
+                        help="Step at which EMA-Nesterov lookahead disengages; rest window is "
+                             "[rest_steps, train_steps). Default 1950. Set equal to train_steps to "
+                             "keep EMA-Nesterov engaged through the final step.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -156,10 +160,15 @@ def parse_args():
         raise ValueError("--train_steps must be positive")
     if args.ri_capture_step < 0 or args.ri_capture_step >= args.train_steps:
         raise ValueError(f"--ri_capture_step must be in [0, train_steps); got {args.ri_capture_step}")
+    if args.ema_nesterov_rest_steps < EMA_NESTEROV_PREFILL_STEPS or args.ema_nesterov_rest_steps > args.train_steps:
+        raise ValueError(
+            f"--ema_nesterov_rest_steps must be in [{EMA_NESTEROV_PREFILL_STEPS}, train_steps]; "
+            f"got {args.ema_nesterov_rest_steps}")
     return args
 
 
 args = parse_args()
+EMA_NESTEROV_REST_STEPS = args.ema_nesterov_rest_steps
 
 
 def clean_metric_name(name: str) -> str:
