@@ -146,10 +146,29 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--soap_mlp", type=int, default=0,
+                        help="1 = move mlp.fc.weight and mlp.proj.weight from Muon into a standalone "
+                             "SOAP (Shampoo-style Kronecker preconditioner + Adam first moment) optimizer. "
+                             "Default 0 keeps the baseline SOAP-as-preconditioner-inside-Muon pipeline.")
+    parser.add_argument("--soap_mlp_lr_scale", type=float, default=1.0,
+                        help="Multiplier on SOAP MLP optimizer's initial LR relative to MUON_LR. "
+                             "PR sketch suggests tuning down 3x (=0.333) if diverging.")
+    parser.add_argument("--precon_freq", type=int, default=SOAP_PRECONDITION_FREQUENCY,
+                        help="SOAP MLP preconditioner refresh frequency (steps between L^-1/4, R^-1/4 recomputes).")
+    parser.add_argument("--soap_betas", type=str, default="0.9,0.99",
+                        help="Comma-separated betas (b1,b2) for the SOAP MLP optimizer. "
+                             "b1 = first-moment EMA on preconditioned grad; b2 = Kronecker gram EMA.")
+    parser.add_argument("--soap_eps", type=float, default=1e-12,
+                        help="Eigenvalue clamp floor in the SOAP MLP preconditioner; eigenvalues are clamped "
+                             "to max(eps, eps*lam_max) before taking ^(-1/4). Matches PR body reference.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     args.ri_extra_gammas = [float(g.strip()) for g in args.ri_extra_gammas.split(",") if g.strip()]
+    soap_betas = [float(x.strip()) for x in args.soap_betas.split(",") if x.strip()]
+    if len(soap_betas) != 2:
+        raise ValueError(f"--soap_betas must be 'b1,b2'; got {args.soap_betas!r}")
+    args.soap_betas = (soap_betas[0], soap_betas[1])
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
     if args.train_steps < 1:
@@ -930,6 +949,96 @@ def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, u
 
 
 
+class SOAPAdam(torch.optim.Optimizer):
+    """SOAP Kronecker preconditioner for 2D weight matrices.
+
+    Implements the simplified Shampoo-as-Adam-preconditioner update from the PR
+    body reference code (Vyas et al. 2024, arxiv 2409.11321):
+
+        L_t = b2 * L_{t-1} + (1-b2) * G_t @ G_t^T         (running row gram)
+        R_t = b2 * R_{t-1} + (1-b2) * G_t^T @ G_t         (running col gram)
+        every K steps: L_inv4, R_inv4 = (L_eff)^(-1/4), (R_eff)^(-1/4)
+                       where L_eff = L / (1 - b2^t) (bias-corrected)
+        G_hat_t      = L_inv4 @ G_t @ R_inv4              (preconditioned grad)
+        m_t          = b1 * m_{t-1} + (1-b1) * G_hat_t
+        p_t          = (1 - lr*wd) * p_{t-1} - lr * m_t / (1 - b1^t)
+
+    The L^(-1/4) R^(-1/4) preconditioner normalizes the gradient to roughly
+    operator-norm scale (Muon-like), so lr=MUON_LR is appropriate. Eigenvalues
+    are clamped to max(eps, eps * lam_max) before inversion; this is the floor
+    that prevents blow-up in unexplored directions. Bias-correcting L, R lets
+    the very first refresh use sensible eigenvalue magnitudes.
+
+    Designed as a direct replacement for Muon on c_fc / c_proj MLP weights.
+    Does NOT do Muon-style NS5 / Aurora / Arbor / radial scaling -- by design
+    isolates the second-order Kronecker preconditioner mechanism.
+    """
+    def __init__(self, params, lr=0.0375, betas=(0.9, 0.99), eps=1e-12,
+                 weight_decay=0.0, precon_update_freq=10):
+        defaults = dict(lr=lr, betas=betas, eps=eps,
+                        weight_decay=weight_decay,
+                        precon_update_freq=precon_update_freq,
+                        name="soap_mlp")
+        super().__init__(params, defaults)
+        self.step_count = 0
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            lr = group["lr"]
+            b1, b2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            K = group["precon_update_freq"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                assert p.dim() == 2, f"SOAPAdam only supports 2D matrices, got {tuple(p.shape)}"
+                g = p.grad.float()
+                st = self.state[p]
+                if len(st) == 0:
+                    m_dim, n_dim = p.shape
+                    st["m"] = torch.zeros_like(p, dtype=torch.float32)
+                    st["L"] = torch.zeros(m_dim, m_dim, dtype=torch.float32, device=p.device)
+                    st["R"] = torch.zeros(n_dim, n_dim, dtype=torch.float32, device=p.device)
+                    # Identity until the first refresh; effectively no preconditioning while L, R warm up.
+                    st["L_inv4"] = torch.eye(m_dim, device=p.device, dtype=torch.float32)
+                    st["R_inv4"] = torch.eye(n_dim, device=p.device, dtype=torch.float32)
+                # Update L, R every step.
+                st["L"].lerp_(g @ g.T, 1 - b2)
+                st["R"].lerp_(g.T @ g, 1 - b2)
+                # Refresh preconditioner every K steps, plus a first refresh at step K-1
+                # (i.e. once L, R have absorbed K gradients).
+                t = self.step_count + 1
+                if t >= K and t % K == 0:
+                    bc2 = 1.0 - b2 ** t
+                    L_eff = st["L"] / bc2
+                    R_eff = st["R"] / bc2
+                    try:
+                        Lv, Le = torch.linalg.eigh(L_eff)
+                        Rv, Re = torch.linalg.eigh(R_eff)
+                        Lv_floor = torch.clamp(Lv.max() * eps, min=eps)
+                        Rv_floor = torch.clamp(Rv.max() * eps, min=eps)
+                        Lv_inv4 = Lv.clamp_min(Lv_floor).pow(-0.25)
+                        Rv_inv4 = Rv.clamp_min(Rv_floor).pow(-0.25)
+                        st["L_inv4"] = (Le * Lv_inv4.unsqueeze(0)) @ Le.T
+                        st["R_inv4"] = (Re * Rv_inv4.unsqueeze(0)) @ Re.T
+                    except RuntimeError:
+                        # Keep prior preconditioner on eigendecomp failure.
+                        pass
+                # Preconditioned gradient.
+                g_hat = st["L_inv4"] @ g @ st["R_inv4"]
+                # Adam first-moment EMA (bias-corrected at apply).
+                st["m"].lerp_(g_hat, 1 - b1)
+                bc1 = 1.0 - b1 ** t
+                step_size = lr / bc1
+                # Decoupled weight decay (AdamW-style) + parameter update.
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+                p.data.add_(st["m"].to(p.dtype), alpha=-step_size)
+        self.step_count += 1
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(named_params, list) and len(named_params) >= 1
@@ -1204,6 +1313,12 @@ if dist.get_rank() == 0:
             "soap_param_mode": SOAP_PARAM_MODE,
             "soap_beta2": SOAP_BETA2,
             "soap_precondition_frequency": SOAP_PRECONDITION_FREQUENCY,
+            "soap_mlp": int(args.soap_mlp),
+            "soap_mlp_lr_scale": args.soap_mlp_lr_scale,
+            "soap_mlp_precon_freq": args.precon_freq,
+            "soap_mlp_beta1": args.soap_betas[0],
+            "soap_mlp_beta2": args.soap_betas[1],
+            "soap_mlp_eps": args.soap_eps,
             "v_soap_blend": V_SOAP_BLEND,
             "attn_early_trust_floor": ATTN_EARLY_TRUST_FLOOR,
             "target_uw": TARGET_UW,
@@ -1269,10 +1384,34 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-12, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
-    inner_optimizers = [optimizer1, optimizer2]
+    # H-DP: when --soap_mlp 1, split mlp.fc / mlp.proj weights out of Muon into a
+    # standalone SOAP optimizer. The remaining Muon group keeps q/k/o/v with the
+    # existing SOAP-as-preconditioner-inside-Muon pipeline (SOAP_PARAM_MODE still
+    # matches V via should_soap_param). All other blocks-level params stay in Muon.
+    if args.soap_mlp:
+        def _is_mlp_w(n):
+            return n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
+        muon_named = [(n, p) for n, p in model.blocks.named_parameters()
+                      if p.ndim >= 2 and not _is_mlp_w(n)]
+        soap_named = [(n, p) for n, p in model.blocks.named_parameters()
+                      if p.ndim >= 2 and _is_mlp_w(n)]
+        optimizer2 = Muon(muon_named, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
+        optimizer3 = SOAPAdam(
+            [p for _, p in soap_named],
+            lr=MUON_LR * args.soap_mlp_lr_scale,
+            betas=args.soap_betas,
+            eps=args.soap_eps,
+            weight_decay=0.0,
+            precon_update_freq=args.precon_freq,
+        )
+        optimizer3.param_groups[0]["name"] = "soap_mlp"
+        inner_optimizers = [optimizer1, optimizer2, optimizer3]
+    else:
+        optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
+                          lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
+        inner_optimizers = [optimizer1, optimizer2]
     optimizer_ema = EMA_Nesterov(
         [p for p in model.parameters()],
         inner_optimizers,
@@ -1293,6 +1432,10 @@ for trial_idx in range(args.num_trials):
     optimizer1.param_groups[1]["power_c"] = ADAM_PROJ_POWER_C
     optimizer1.param_groups[2]["power_c"] = ADAM_OTHER_POWER_C
     optimizer2.param_groups[0]["power_c"] = MUON_POWER_C
+    if args.soap_mlp:
+        # Reuse Muon's PowerCool schedule for the SOAP MLP group so the cooldown
+        # shape matches the rest of the blocks-level params.
+        optimizer3.param_groups[0]["power_c"] = MUON_POWER_C
 
     def _power_lr(step, initial_lr, power_c, power=FINAL_LR_POWER):
         t_end = FINAL_SCHEDULE_STEPS
