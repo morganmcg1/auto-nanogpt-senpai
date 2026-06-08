@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-07 ~23:35 UTC (launch day +3) — NEW RANK-1 landed
+- **As of:** 2026-06-08 ~00:35 UTC (launch day +4) — PR #2363 cleanup merged; frieren assigned H-BW EN-on-AdamW
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
 - **W&B project:** `wandb-applied-ai-team/modded-nanogpt-senpai`
@@ -15,18 +15,18 @@
 
 **Previous rank-1**: PR #2317 (nezuko H-W) = 3.276193 (margin 0.007615). Delta: −0.000021.
 
-## Active assignments (~23:00 UTC, 2026-06-07)
+## Active assignments (~00:35 UTC, 2026-06-08)
 
 | PR | Student | Hypothesis | Status |
 |---:|---|---|---|
-| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~42h. No new assignment until pod restored. |
-| **#2363** | open2-frieren | H-AY cleanup: remove --adam_eps_override flag | **ASSIGNED ~23:35 UTC** (PR #2363). Prune --adam_eps_override flag, hardcode eps=1e-12. Smoke gate only (50 steps). |
-| **#2356** | open2-edward | H-BJ: NS-iter × Muon LR coupling | **Arm A FALSIFIED** (n=2 mean 3.277806, 36th lever). Arm B `876rihlt` (NS16+LR×0.97) step 1225/5780 (~21%), ETA revised ~05:30 UTC. |
-| **#2358** | open2-nezuko | H-BL: Embed LR decoupling | **Arm A n=2 FALSIFIED (BARELY)** mean=3.276713 (+0.000520), T0=3.277526 / T1=3.275901 (sub-baseline single seed). Spread 0.001626 ≫ 0.0008. Per cross-PR seed pattern (see below), letting Arm B run rather than n=4 Arm A. Arm B `pmvj0tp6` (embed_lr=0.45) step ~250, n=2 ETA ~02:25 UTC. |
-| **#2359** | open2-askeladd | H-BM: lm_head LR decoupling (lm_head_lr=0.002) | `vn32x4gj` T0=3.276283 **INCONCLUSIVE** (+0.000090, very close to baseline). T1 at step ~726/2890 (~25% into T1), ETA ~01:20 UTC. n=2 mean could land MERGE-eligible if T1 ≤ 3.276103. |
-| **#2360** | open2-tanjiro | H-BN: MUON_WEIGHT_DECAY sweep | `9tlotgem` T0=3.277600 **FALSIFIED** (+0.001407). T1 at step ~926/2890. n=2 ETA ~01:10 UTC. Likely closes axis WD=0.010 falsified — may direct WD=0.050 Arm B post-close. |
-| **#2361** | open2-fern | H-BO: AdamW (β₁, β₂) sweep | `j9lofncb` Arm A (β=0.9/0.95) step 2725 (~94%) T0 imminent. `wemjdth9` Arm B (β=0.85/0.98) step 867 in parallel (multi-GPU?). Both still pre-terminal. |
-| **#2362** | open2-thorfinn | H-BU: Lookahead-on-AdamW | **Smoke run `oqmty85f` step 175, healthy.** First AdamW optimizer-state mechanism. Arm A k=5 α=0.5; Arm B k=10 α=0.5. Muon NC×EN×RI stack untouched. n=2 launch expected once smoke clears (likely within 30 min of smoke complete). |
+| **#2318** | open2-alphonse | H-V: RI gamma ablation | **POD BROKEN** — Issue #2319 open ~46h. No new assignment until pod restored. |
+| **#2364** | open2-frieren | H-BW: EN-on-AdamW (gradient EMA-Nesterov for AdamW groups) | **ASSIGNED ~00:20 UTC** (PR #2364). Apply EMA-Nesterov γ=0.99 to AdamW gradients before optimizer step. Smoke gate then n=2. |
+| **#2356** | open2-edward | H-BJ: NS-iter × Muon LR coupling | **BOTH ARMS FALSIFIED.** Arm A n=2 mean=3.277806 (+0.001613). Arm B `876rihlt` T0=3.280203 (+0.004010). Arm B T1 running, terminal SENPAI-RESULT ETA ~01:40 UTC. Close + assign pending. |
+| **#2358** | open2-nezuko | H-BL: Embed LR decoupling | **Arm A n=2 FALSIFIED** mean=3.276713 (+0.000541 vs new rank-1 3.276172). Cross-PR seed pattern observed. Arm B `pmvj0tp6` (embed_lr=0.45) T0 terminal ETA ~00:28 UTC, T1 ~02:16 UTC. 38th lever pending. |
+| **#2359** | open2-askeladd | H-BM: lm_head LR decoupling | **Arm A n=2 INCONCLUSIVE**: mean=3.276269 vs rank-1 3.276172 = +0.000097. Arm B (0.005) NaN at step 2. **Arm B' (lm_head_lr=0.004) in progress** — student initiative. ETA ~03:30 UTC. |
+| **#2360** | open2-tanjiro | H-BN: MUON_WEIGHT_DECAY sweep | **Arm A n=2 FALSIFIED**: mean=3.279275 (+0.003103). Arm B (WD=0.050) launched 00:10 UTC at step ~43/2890. T0 ETA ~01:50 UTC, T1 ~03:30 UTC. |
+| **#2361** | open2-fern | H-BO: AdamW (β₁, β₂) sweep | **Arm A T0=3.284710 FALSIFIED (ABORTED T1).** Arm B `wemjdth9` (β₁=0.85/β₂=0.98) solo ~1.96s/step. T0 ETA ~00:30 UTC, T1 ~02:05 UTC. |
+| **#2362** | open2-thorfinn | H-BU: Lookahead-on-AdamW (k=5, α=0.5) | **ACTIVE**: full n=2 run `oqmty85f` at T0 step ~2625/2890 (91%). T0 terminal ETA ~00:35 UTC, T1 ETA ~02:15 UTC. Arm B k=10 queued if Arm A INCONCLUSIVE. |
 
 ## Recent closures (this session, most recent first)
 
