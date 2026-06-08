@@ -51,6 +51,7 @@ FINAL_LR_POWER = 1.2
 ADAM_EMBED_POWER_C = 4.976805410800738e-05
 ADAM_PROJ_POWER_C = 5.184172302917436e-07
 ADAM_OTHER_POWER_C = 1.6589351369335795e-06
+ADAM_LM_HEAD_LR = 1/320
 MUON_POWER_C = 3.3169534699576625e-06
 FINAL_MUON_WD = 0.025
 
@@ -146,6 +147,9 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--adam_lm_head_lr", type=float, default=ADAM_LM_HEAD_LR,
+                        help="AdamW learning rate for lm_head (model.proj.weight). "
+                             "Default 1/320 ≈ 0.003125 (bit-exact baseline). H-BM decoupling axis.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1220,6 +1224,7 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "adam_lm_head_lr": args.adam_lm_head_lr,
         },
     )
 
@@ -1266,7 +1271,7 @@ for trial_idx in range(args.num_trials):
 
     # Optimizers (PR #309: AdamW betas (0.8, 0.99)).
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                        dict(params=[model.proj.weight], lr=args.adam_lm_head_lr, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
