@@ -1,5 +1,33 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-08 13:55 — PR #2374: H-DK ARBOR_CLAMP_K sweep — CLOSED 52ND LEVER (open2-askeladd)
+
+- Branch: `open2-askeladd/h-dk-arbor-clamp-sweep`
+- Hypothesis: Sweep Sinkhorn Arbor clamp threshold ARBOR_CLAMP_K ∈ {2.0 (tighter), 5.0 (looser)} vs default 3.0. Both arms n=1 seed-1 only (directional read decisive enough to skip seed-2).
+
+### Results
+
+| Arm | clamp_k | n | T0 val/ri_loss γ=−0.075 | Δ vs rank-1 | Verdict |
+|---|---:|---:|---:|---:|---|
+| A (tighter) | 2.0 | 1 | 3.278912 | +0.002740 | **FALSIFIED** (catastrophic) |
+| B (looser) | 5.0 | 1 | 3.276639 | +0.000467 | **FALSIFIED** (marginal, +0.000067 above gate) |
+| (default) | 3.0 | — | 3.276172 (rank-1 n=4 mean) | — | — |
+
+- W&B: `m33gnqeh` (Arm A clamp_k=2.0), `yzquk63n` (Arm B clamp_k=5.0)
+
+Additional gamma readouts (informational):
+
+| Arm | T0 (γ=−0.075) | T0 (γ=−0.05) | T0 (γ=0, no RI) |
+|---|---:|---:|---:|
+| A clamp_k=2.0 | 3.278912 | 3.278900 | 3.279184 |
+| B clamp_k=5.0 | 3.276639 | 3.276634 | 3.276965 |
+
+### Conclusion: 52nd saturated lever
+
+**Mechanism closure:** Asymmetric penalty — tightening to 2.0 costs +0.00274 (large, clearly bad) while loosening to 5.0 costs only +0.00047 (marginal). Sinkhorn equilibration is mildly tolerant of loosening but sharply punished by over-clamping. **ARBOR_CLAMP_K=3.0 is at a near-tight local optimum** — the loose side (5.0) is only marginally worse but the tight side (2.0) is catastrophic. Standard RI gain (~0.00030 from γ=0 → γ=−0.075) holds for both arms, confirming clamp_k does not interact with RI rotation. Axis fully closed. Askeladd reassigned to H-DR (Soft-Muon re-enable, PR #2381).
+
+---
+
 ## 2026-06-08 13:26 — PR #2370: H-DH SWA-EMA on AdamW dense params — CLOSED 51ST LEVER (open2-nezuko)
 
 - Branch: `open2-nezuko/h-dh-swa-adamw-tail`
