@@ -146,6 +146,9 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--ema_nesterov_lookahead", type=float, default=EMA_NESTEROV_LOOKAHEAD,
+                        help="EMA-Nesterov lookahead stepsize (default 0.3). Scaled by LR decay via "
+                             "use_scheduled_lookahead_stepsize=True. H-DL sweep ablates 0.15/0.45.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -160,6 +163,7 @@ def parse_args():
 
 
 args = parse_args()
+EMA_NESTEROV_LOOKAHEAD = args.ema_nesterov_lookahead
 
 
 def clean_metric_name(name: str) -> str:
