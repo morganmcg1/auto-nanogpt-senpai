@@ -115,6 +115,12 @@ EMA_NESTEROV_GAMMA = 0.99
 ARBOR_ITERS = 2
 ARBOR_CLAMP_K = 3.0
 
+# H-EG-1 aux β₂ cooldown_ramp rule: cd_start = train_steps * (1 - COOLDOWN_FRAC).
+# Matches the cooldown_frac=0.60 used in the medium-track TrainingSchedule.
+# With train_steps=2890, cd_start=1156 → β₂_low until step 1156, then linear ramp
+# to β₂_high at step train_steps.
+COOLDOWN_FRAC = 0.60
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer (PR #309 port)")
@@ -153,6 +159,16 @@ def parse_args():
     parser.add_argument("--aux_b2_pulse_step", type=int, default=970,
                         help="H-EF: Training step at which to apply the step-function β₂ change. "
                              "Arm B (EARLIER) uses 820; Arm A (CORE) uses 970.")
+    parser.add_argument("--aux_b2_rule", type=str, default="none",
+                        choices=["none", "cooldown_ramp"],
+                        help="H-EG-1: β₂ schedule rule for aux AdamW (optimizer1). "
+                             "'cooldown_ramp' linearly ramps β₂ from --aux_b2_low to --aux_b2_high "
+                             "across the LR cooldown phase (cd_start = train_steps * (1 - COOLDOWN_FRAC)). "
+                             "When active, the H-EF discrete pulse (--aux_b2_start) should be disabled (-1).")
+    parser.add_argument("--aux_b2_low", type=float, default=0.95,
+                        help="H-EG-1: β₂ value during pre-cooldown / start (rule=cooldown_ramp).")
+    parser.add_argument("--aux_b2_high", type=float, default=0.99,
+                        help="H-EG-1: β₂ target value at end of training (rule=cooldown_ramp).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1231,6 +1247,11 @@ if dist.get_rank() == 0:
             "aux_b2_target": args.aux_b2_target,
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_enabled": args.aux_b2_start > 0.0,
+            "aux_b2_rule": args.aux_b2_rule,
+            "aux_b2_low": args.aux_b2_low,
+            "aux_b2_high": args.aux_b2_high,
+            "aux_b2_cooldown_frac": COOLDOWN_FRAC,
+            "aux_b2_cd_start": int(args.train_steps * (1 - COOLDOWN_FRAC)),
         },
     )
 
@@ -1288,6 +1309,19 @@ for trial_idx in range(args.num_trials):
             beta1 = group["betas"][0]
             group["betas"] = (beta1, initial_b2)
         print0(f"[init] aux_b2 OVERRIDDEN: β₂ → {initial_b2}", console=True)
+    # H-EG-1: if cooldown_ramp rule is active, seed β₂ to aux_b2_low immediately so the
+    # pre-cooldown phase uses the short EMA window. The per-step rule below ramps β₂
+    # from aux_b2_low → aux_b2_high during the cooldown phase. Mutually exclusive with
+    # the H-EF discrete pulse — assert that aux_b2_start is disabled.
+    if args.aux_b2_rule != "none":
+        assert args.aux_b2_start <= 0.0, (
+            "aux_b2_rule and the H-EF aux_b2 pulse mechanism are mutually exclusive. "
+            "Set --aux_b2_start -1 (baseline no-op) when --aux_b2_rule cooldown_ramp."
+        )
+        for group in optimizer1.param_groups:
+            beta1 = group["betas"][0]
+            group["betas"] = (beta1, args.aux_b2_low)
+        print0(f"[init] aux_b2 OVERRIDDEN: β₂ → {args.aux_b2_low} (rule={args.aux_b2_rule})", console=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1523,6 +1557,23 @@ for trial_idx in range(args.num_trials):
                 beta1 = group["betas"][0]
                 group["betas"] = (beta1, new_b2)
             print0(f"[step {step}] aux_b2 PULSE: β₂ → {new_b2}", console=True)
+        # H-EG-1: LR-cooldown-coupled continuous β₂ ramp for aux AdamW (optimizer1).
+        # Pre-cooldown (step < cd_start): β₂ = aux_b2_low (short EMA, large per-step updates).
+        # Cooldown phase (step ≥ cd_start): β₂ ramps linearly to aux_b2_high (longer EMA
+        # averages gradient noise as LR shrinks). optimizer2 (Muon) is untouched.
+        if args.aux_b2_rule == "cooldown_ramp":
+            cd_start = int(train_steps * (1 - COOLDOWN_FRAC))
+            if step < cd_start:
+                beta2_t = args.aux_b2_low
+            else:
+                denom = max(1, train_steps - cd_start)
+                frac = max(0.0, min(1.0, (step - cd_start) / denom))
+                beta2_t = args.aux_b2_low + (args.aux_b2_high - args.aux_b2_low) * frac
+            for group in optimizer1.param_groups:
+                beta1 = group["betas"][0]
+                group["betas"] = (beta1, beta2_t)
+            if step in (0, 100, 970, 1156, 1500, 2000, 2500, train_steps - 1):
+                print0(f"[step {step}] aux_b2={beta2_t:.4f} (cooldown_ramp)", console=True)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
