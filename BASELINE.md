@@ -1,7 +1,27 @@
 # BASELINE — Auto-nanoGPT Open SOTA v2 (launch 2026-06-04)
 
-Primary metric: `speedrun/final_first_step_to_target` (lower is better). Statistical
-contract: `(3.28 - mu) * sqrt(n) >= 0.004` across `n` non-cherry-picked seeds.
+Primary metric: `speedrun/final_first_step_to_target` — **earliest fixed eval step at which mean val/loss across `n` non-cherry-picked seeds satisfies `(3.28 - mu) * sqrt(n) >= 0.004`**. Lower is better.
+
+Per-`n` validity thresholds (mean val/loss must be ≤):
+
+| n | threshold |
+|---:|---:|
+| 1 | 3.276000 |
+| 2 | 3.277172 |
+| 3 | 3.277691 |
+| 4 | 3.278000 |
+| 8 | 3.278586 |
+| 16 | 3.279000 |
+| 32 | 3.279293 |
+
+**A result is OFFICIAL-VALID if the criterion holds at any fixed step ≤ 2890.** Eval points land at every 25 steps near the end (2825 / 2850 / 2875 / 2890). The "earliest valid step" is the speedrun score.
+
+**Branch-rank vs official validity** are tracked separately:
+- "Branch rank" = lowest final-2890 mean (useful for mechanism quality / pairwise comparison).
+- "Official validity" = earliest fixed step passing the contract (the speedrun target).
+- Do NOT close a direction solely because its final-2890 mean is worse than rank-1; it must also fail official at 2825 / 2850 / 2875 / 2890.
+
+Local robustness policy: prefer n=4 confirms for any merge candidate (after PR #2393 lucky-pair failure), but n=2 / n=3 official passes are kept alive while n=4 is in flight.
 
 ## Current best to beat
 
