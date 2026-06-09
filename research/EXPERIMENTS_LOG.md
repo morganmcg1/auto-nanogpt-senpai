@@ -1,5 +1,63 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-09 00:45 — PR #2393 MERGED: NEW RANK-1 = 3.274835 (β₂ pulse@820, thorfinn H-EF Arm B EARLIER)
+
+**MERGE EXECUTED.** PR #2393 (thorfinn H-EF Arm B EARLIER: single β₂ pulse 0.95→0.99 @ step 820) squash-merged into `auto-nanogpt-open-sota-v2-20260604`. BASELINE.md updated.
+
+**New rank-1: val/ri_loss_gamma_neg0p0750 = 3.274835** (n=2, seeds 1-2, variance gate passed).
+- Δ vs old rank-1 (PR #2349, 3.276172): **−0.001337** (largest single improvement since H-EF round opened)
+- Stat contract: (3.28 − 3.274835) × √2 = 0.007304 ≥ 0.004 ✓
+- W&B run: `v3z3t171`
+
+**Merge cascade — H-EF held PRs closed as SUPERSEDED:**
+- PR #2389 (frieren Arm A seed=1) → closed, mechanism confirmed by Arm B
+- PR #2390 (edward Arm A seed=2) → closed, mechanism confirmed by Arm B
+- PR #2391 (nezuko Arm A seed=3) → closed, mechanism confirmed by Arm B
+- PR #2394 (tanjiro Arm C LATER) → closed, monotone-EARLIER axis concluded in favor of Arm B
+- PR #2395 (askeladd Arm D MILD) → closed, both timing AND target magnitude improvement confirmed by Arm B
+
+**thorfinn n=4 confirm assigned (PR #2404):** Run seeds 3 and 4 for official n=4 record.
+
+**Key mechanistic finding:** The β₂ pulse axis is MONOTONE in the EARLIER direction. Single pulse from 0.95→0.99 at step 820 (28.4% of T) outperforms pulses at step 970 (33.6%) and 1120 (38.8%). The mechanism: starting β₂ low means AdamW uses short EMA window initially (low noise averaging), then the pulse widens the window before cooldown — giving more steps to benefit from the wider v-buffer before LR shrinks.
+
+**Active follow-on experiments:**
+- H-EG round (PRs #2397-2400): 4 arms testing generalizable β₂ schedule rules vs. new rank-1 3.274835
+- H-EH round (PRs #2401-2403): 3 arms testing stacks/extensions (step 720, staircase, combined)
+- H-EI (PR #2404, thorfinn): n=4 confirm for official record
+
+## 2026-06-09 00:25 — 🎯 THORFINN ARM B EARLIER n=2 TERMINAL = 3.274835 STRONG (MERGE CANDIDATE)
+
+**Thorfinn Arm B EARLIER (pulse @ step 820, target β₂=0.99) n=2 terminal landed in single combined run `v3z3t171` (5780 steps = 2×2890):**
+
+| Trial | step | `val/ri_loss_gamma_neg0p0750` |
+|---|---|---|
+| 0 (seed_offset=1) | 2890 | **3.274580** |
+| 1 (seed_offset=2) | 5781 | **3.275090** |
+| **n=2 mean** | — | **3.274835** |
+
+- **Δ vs rank-1 3.276172**: −0.001337 (largest improvement in entire H-EF round).
+- **Variance gate**: |T0 − T1| = 0.000510 < 0.0008 ✓ — n=2 statistically sufficient.
+- **Stat contract**: (3.28 − 3.274835) × √2 = 0.007304 ≥ 0.004 ✓.
+- **Band**: STRONG (≤ 3.275772).
+
+**This is the largest single-arm lift the H-EF round produced.** The mechanism — single β₂ pulse 0.95→0.99 on optimizer1 (AdamW) at step 820 — captures both #1532/#1614's audited idea AND the empirically-best timing across the cross-arm map.
+
+**Cross-arm map final ranking:**
+1. **B EARLIER n=2 = 3.274835 STRONG (BEST)**
+2. A CORE n=4 = 3.275884 MERGE-eligible (Δ=−0.000288)
+3. D MILD n=1 = 3.275856 MERGE-eligible (Δ=−0.000316)
+4. C LATER n=1 = 3.275900 MERGE-eligible (Δ=−0.000272)
+5. E LOWER n=1 = 3.277745 FALSIFIED
+
+Pulse-step axis is **MONOTONE in direction of EARLIER**. Step 820 is the empirical optimum tested so far. (Fern H-EH-2 currently testing step 720 to see if monotonicity continues; tanjiro H-EH-3 testing two-pulse staircase to see if smooth widening beats single jump.)
+
+**Action plan (next cycle):**
+1. Wait for thorfinn SENPAI-RESULT post on PR #2393.
+2. MERGE PR #2393 via senpai:merge-winner skill → new rank-1 = 3.274835.
+3. CLOSE held PRs as superseded: #2389/2390/2391 (Arm A seeds), #2394 (Arm C), #2395 (Arm D).
+4. Assign cleanup PR to flip `--aux_b2_rule single_step --aux_b2_pulse_step 820` to default behavior.
+5. H-EG (generalization) + H-EH-1/2/3 (stacks/extensions) continue as-is — they test orthogonal axes.
+
 ## 2026-06-08 23:40 — H-EF Arm C LATER TERMINAL = 3.275900 MERGE-eligible + H-EH STACK ROUND OPENED
 
 **Tanjiro Arm C LATER terminal landed** at step 2890, `val/ri_loss_gamma_neg0p0750 = 3.275900` (Δ=−0.000272 vs rank-1 3.276172). Run `efb7ixbq`. MERGE-eligible band. SENPAI-RESULT post requested on PR #2394 (advisor comment).
@@ -38,6 +96,14 @@ If H-EH-1 lands ≤ 3.275 between Arm B trial 0 and STRONG gate → becomes merg
 - If lands ≤ Arm B (3.27458 STRONG) → EARLIER optimum is still pushing back, opens range 670-720 for further exploration.
 - If lands between rank-1 and Arm B (≥ 3.27458 but ≤ 3.276172) → 820 is near-optimal, axis closed for now.
 - If FALSIFIED → pulse step has a hard lower bound near 800 (insufficient AdamW v-buffer warmup pre-pulse).
+
+## 2026-06-08 00:10 — PR #2394 tanjiro Arm C LATER SENPAI-RESULT posted + H-EH-3 STAIRCASE assigned
+
+**Tanjiro Arm C LATER terminal SENPAI-RESULT posted at 23:46 UTC** = 3.275900 MERGE-eligible. PR #2394 now status:review and held with #2389/2390/2391/2395 pending thorfinn Arm B EARLIER n=2 decision (~01:23 UTC ETA).
+
+**Tanjiro reassigned H-EH-3 (PR #2403): STAIRCASE two-pulse rule** — combines Arm B EARLIER timing (820 → 0.97) with cooldown-aligned second pulse (cd_start=1156 → 0.99). Tests whether smooth staircase trajectory beats single sharp jump. Distinguishes single-pulse vs gradual mechanism hypothesis.
+
+If H-EH-3 ≤ Arm B trial 0 (3.27458 STRONG) → smooth staircase wins → trajectory shape matters more than single-jump magnitude. If between rank-1 and 3.27458 → single jump @ 820 → 0.99 is sufficient, second pulse adds no lift. If FALSIFIED → two pulses cause optimizer-state thrashing (each pulse perturbs v-buffer equilibrium).
 
 ## 2026-06-08 23:10 — H-EF Arm A CORE n=4 LANDED + Arm B EARLIER STRONG INDIVIDUAL
 
