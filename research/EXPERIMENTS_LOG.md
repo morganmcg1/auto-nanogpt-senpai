@@ -1,5 +1,38 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-09 00:25 — 🎯 THORFINN ARM B EARLIER n=2 TERMINAL = 3.274835 STRONG (MERGE CANDIDATE)
+
+**Thorfinn Arm B EARLIER (pulse @ step 820, target β₂=0.99) n=2 terminal landed in single combined run `v3z3t171` (5780 steps = 2×2890):**
+
+| Trial | step | `val/ri_loss_gamma_neg0p0750` |
+|---|---|---|
+| 0 (seed_offset=1) | 2890 | **3.274580** |
+| 1 (seed_offset=2) | 5781 | **3.275090** |
+| **n=2 mean** | — | **3.274835** |
+
+- **Δ vs rank-1 3.276172**: −0.001337 (largest improvement in entire H-EF round).
+- **Variance gate**: |T0 − T1| = 0.000510 < 0.0008 ✓ — n=2 statistically sufficient.
+- **Stat contract**: (3.28 − 3.274835) × √2 = 0.007304 ≥ 0.004 ✓.
+- **Band**: STRONG (≤ 3.275772).
+
+**This is the largest single-arm lift the H-EF round produced.** The mechanism — single β₂ pulse 0.95→0.99 on optimizer1 (AdamW) at step 820 — captures both #1532/#1614's audited idea AND the empirically-best timing across the cross-arm map.
+
+**Cross-arm map final ranking:**
+1. **B EARLIER n=2 = 3.274835 STRONG (BEST)**
+2. A CORE n=4 = 3.275884 MERGE-eligible (Δ=−0.000288)
+3. D MILD n=1 = 3.275856 MERGE-eligible (Δ=−0.000316)
+4. C LATER n=1 = 3.275900 MERGE-eligible (Δ=−0.000272)
+5. E LOWER n=1 = 3.277745 FALSIFIED
+
+Pulse-step axis is **MONOTONE in direction of EARLIER**. Step 820 is the empirical optimum tested so far. (Fern H-EH-2 currently testing step 720 to see if monotonicity continues; tanjiro H-EH-3 testing two-pulse staircase to see if smooth widening beats single jump.)
+
+**Action plan (next cycle):**
+1. Wait for thorfinn SENPAI-RESULT post on PR #2393.
+2. MERGE PR #2393 via senpai:merge-winner skill → new rank-1 = 3.274835.
+3. CLOSE held PRs as superseded: #2389/2390/2391 (Arm A seeds), #2394 (Arm C), #2395 (Arm D).
+4. Assign cleanup PR to flip `--aux_b2_rule single_step --aux_b2_pulse_step 820` to default behavior.
+5. H-EG (generalization) + H-EH-1/2/3 (stacks/extensions) continue as-is — they test orthogonal axes.
+
 ## 2026-06-08 23:40 — H-EF Arm C LATER TERMINAL = 3.275900 MERGE-eligible + H-EH STACK ROUND OPENED
 
 **Tanjiro Arm C LATER terminal landed** at step 2890, `val/ri_loss_gamma_neg0p0750 = 3.275900` (Δ=−0.000272 vs rank-1 3.276172). Run `efb7ixbq`. MERGE-eligible band. SENPAI-RESULT post requested on PR #2394 (advisor comment).

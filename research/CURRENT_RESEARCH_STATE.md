@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-08 ~23:40 UTC (launch day +4) — **H-EF MATRIX 7 OF 7 ARM TYPES TERMINAL** (only thorfinn Arm B EARLIER trial 1 still running ~01:23 UTC ETA). H-EF Arm A CORE n=4 = 3.275884 MERGE-eligible. Arm B EARLIER trial 0 = 3.27458 STRONG (BEST). **Arm C LATER terminal landed 3.275900 MERGE-eligible.** **H-EH STACK ROUND OPENED — Arm B EARLIER + Arm D MILD composed.**
+- **As of:** 2026-06-09 ~00:25 UTC (launch day +5) — **🎯 THORFINN ARM B EARLIER n=2 TERMINAL = 3.274835 STRONG, MERGE CANDIDATE. NEW RANK-1 PENDING SENPAI-RESULT POST.** Trial 0 = 3.274580, Trial 1 = 3.275090. Variance gate |0.000510| < 0.0008 ✓. Stat contract 0.007304 ≥ 0.004 ✓. Δ vs old rank-1 = **−0.001337** (largest improvement in entire H-EF round). Advisor comment posted on PR #2393 requesting SENPAI-RESULT post.
 
   | Arm | Pulse Step | (β₂_low, β₂_high) | Individual val/ri | Status |
   |---|---|---|---|---|
@@ -10,14 +10,20 @@
   | A CORE seed=4 (alphonse `wej11n4u`) | 970 | (0.95, 0.99) | 3.278294 | FALSIFIED outlier |
   | **A CORE n=4 mean** | — | — | **3.275884** | **MERGE-eligible (Δ=−0.000288, stat OK 0.00823≥0.004)** |
   | **B EARLIER trial 0 (thorfinn `v3z3t171`)** | **820** | **(0.95, 0.99)** | **3.27458** | **STRONG, BEST individual; first_step_to_target=2825** |
-  | B EARLIER trial 1 (thorfinn pending) | 820 | (0.95, 0.99) | running ~step 4441 | ETA ~01:23 UTC |
+  | **B EARLIER trial 1 (thorfinn `v3z3t171` step 5781)** | **820** | **(0.95, 0.99)** | **3.275090** | **STRONG, second trial confirms** |
+  | **B EARLIER n=2 mean** | **820** | **(0.95, 0.99)** | **3.274835** | **🎯 STRONG (MERGE CANDIDATE — pending SENPAI-RESULT)** |
   | **C LATER (tanjiro `efb7ixbq`)** | **1120** | **(0.95, 0.99)** | **3.275900** | **MERGE-eligible (Δ=−0.000272)** |
   | D MILD (askeladd `8ui1azlg`) | 970 | (0.95, **0.97**) | 3.275856 | MERGE-eligible n=1 (n=2 `dmklf5al` ~step 2312 inflight) |
   | E LOWER (fern `44w3mv75`) | 970 | (**0.90**, 0.99) | 3.27775 | FALSIFIED n=1 |
 
   **Cross-arm monotonicity conclusion:** pulse-step axis MONOTONE in direction of EARLIER. B EARLIER (820, Δ=−0.001592) > A CORE (970, Δ=−0.000288) > C LATER (1120, Δ=−0.000272). Mechanism is sensitive to pulse timing — earlier wins.
 
-  **Merge strategy:** HOLD all Arm A CORE PRs (#2389/#2390/#2391) + Arm C #2394 + Arm D #2395 pending thorfinn Arm B EARLIER n=2 (~01:23 UTC ETA). Arm B EARLIER has best Δ; if trial 1 confirms STRONG, merge PR #2393 (single mechanism, larger Δ vs rank-1). If FALSIFIED, fall back to Arm A CORE n=4 merge via PR #2391. PR #2392 (alphonse seed=4 outlier) CLOSED.
+  **Merge cascade (next cycle):** Thorfinn Arm B EARLIER n=2 STRONG → MERGE PR #2393 as new rank-1 (3.274835). Then CLOSE held PRs as SUPERSEDED:
+  - #2389/2390/2391 (Arm A CORE seeds 1/2/3 — single-arm variants of same mechanism, Arm B has larger Δ)
+  - #2394 (Arm C LATER — same mechanism, later step is monotone-worse)
+  - #2395 (Arm D MILD — same mechanism, milder target slightly worse)
+
+  Post-merge, assign cleanup PR to one student to make `--aux_b2_rule single_step --aux_b2_pulse_step 820 --aux_b2_high 0.99` the default behavior (no flag needed). Other students continue H-EG (generalization) + H-EH-1/2/3 (stacks/extensions) which still test orthogonal axes.
 
   **H-EG generalization round (per human Issue #2388 19:48 UTC ask) — 4 arms:**
   - PR #2397 nezuko G-1: LR-cooldown-coupled β₂ ramp (β₂(t) = 0.95 pre-cd_start, ramp 0.95→0.99 across cooldown). Run `zrt3d7or` step 875/2890.
