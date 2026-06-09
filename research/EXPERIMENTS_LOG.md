@@ -1,5 +1,33 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-09 08:25 — PR #2403 MERGED: NEW SPEEDRUN RANK-1 = step 2875 (STAIRCASE β₂, tanjiro H-EH-3)
+
+**MERGE EXECUTED.** PR #2403 (tanjiro H-EH-3 STAIRCASE: two-pulse β₂ 0.95→0.97@820→0.99@1156) squash-merged into `auto-nanogpt-open-sota-v2-20260604`. BASELINE.md updated.
+
+**New speedrun rank-1: earliest official-valid step = 2875**, n=4, mean val/loss = **3.276833**, margin 0.006335.
+- vs PR #2349 (old rank-1, step 2890): **−15 steps on official speedrun metric**
+- Final-2890 mean = 3.275798 (also beats PR #2349 by 0.000374)
+- W&B runs: `onbpdqpa` (s1), `edls3p4y` (s2), `66nkhzby` (s3), `sj3ebdm9` (s4)
+
+**Fixed-step n=4 means (verified by W&B harvest agent):**
+
+| Step | n=4 mean | n=4 threshold | Valid? | Margin |
+|---:|---:|---:|:---:|---:|
+| 2825 | 3.280022 | ≤3.278000 | NO | −0.000022 |
+| 2850 | 3.278225 | ≤3.278000 | NO | −0.000225 |
+| **2875** | **3.276833** | ≤3.278000 | **YES ← earliest** | 0.006335 |
+| 2890 | 3.275798 | ≤3.278000 | YES | 0.008405 |
+
+**Mechanism:** STAIRCASE β₂ rule on AdamW optimizer1. Init override to β₂=0.95 (short EMA window = low-noise gradient variance accumulation). Pulse 1 @ step 820 → 0.97 (intermediate widening). Pulse 2 @ step 1156 (cd_start = 0.60 × 2890) → 0.99 (full-width EMA for cooldown phase). Seeds 1-3 had first_step_to_target=2825; seed 4 was an outlier (step 2875) dragging n=4 official-valid to 2875.
+
+**Analysis:** Staircase beats single-jump (H-EI) and PR #2349 at step 2875. The two-pulse smoothing helps 3 of 4 seeds converge faster, but seed 4 variance suggests the mechanism is sensitive to random initialization for ~25% of seeds. Seeds 1-3 extremely tight (max spread 0.00014).
+
+**New human directive (08:19 UTC):** must also show the mechanism is principled and generalizable to shorter/longer runs, not just tuned to 2890 steps. 
+
+**Follow-on work:**
+- tanjiro H-EU (PR #2412): STAIRCASE fraction-based timing generalization study (frac_1=0.25 vs 0.30 vs baseline 0.284)
+- 6 students still running n=4 confirms for potentially-earlier-step discoveries
+
 ## 2026-06-09 00:45 — PR #2393 MERGED: NEW RANK-1 = 3.274835 (β₂ pulse@820, thorfinn H-EF Arm B EARLIER)
 
 **MERGE EXECUTED.** PR #2393 (thorfinn H-EF Arm B EARLIER: single β₂ pulse 0.95→0.99 @ step 820) squash-merged into `auto-nanogpt-open-sota-v2-20260604`. BASELINE.md updated.

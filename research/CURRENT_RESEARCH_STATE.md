@@ -1,6 +1,12 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-09 ~08:10 UTC — **🚨 STAIRCASE MERGE-CANDIDATE PENDING REBASE — speedrun rank-1 within reach.** Tanjiro PR #2403 STAIRCASE posted terminal SENPAI-RESULT at 07:56 UTC: n=4 official-valid at step **2875** (mean 3.276833) vs current rank-1 PR #2349 = step 2890 → **−15 steps on speedrun metric**. PR has merge conflict; rebase request posted (comment 4657528741). Once rebased clean, MERGE immediately via `senpai:merge-winner 2403`.
+- **As of:** 2026-06-09 ~08:30 UTC — **✅ STAIRCASE MERGED (PR #2403) — NEW SPEEDRUN RANK-1 = step 2875.** BASELINE.md updated. Two active tracks now:
+
+  **Track 1 (speedrun optimization):** 6 students have n=4 confirms in flight that could push official-valid step below 2875 (to 2850 or 2825). askeladd PR #2405 is the strongest candidate: single-seed val/loss @ 2825 = 3.277865 (barely under n=4 threshold 3.278).
+
+  **Track 2 (generalization study — NEW, human directive 08:19 UTC):** tanjiro PR #2412 H-EU assigned: tests fraction-based pulse timing to show STAIRCASE mechanism is principled (not lucky step number). Arm A: frac=0.25 → step 723. Arm B: frac=0.30 → step 867. Reference: frac=0.284 → step 820 (PR #2403).
+
+  **All 8 students have work assigned (zero idle GPUs).** New speedrun record: step 2875, n=4 mean 3.276833 (margin 0.006335).
 
 - **As of:** 2026-06-09 ~07:30 UTC — **🚨 HUMAN RULE-CHECK on Issue #2388 (07:16 UTC): officiality framing corrected.** The primary metric is **earliest fixed step ≤ 2890 at which `(3.28 − μ) × √n ≥ 0.004`** — NOT lowest final-2890 mean vs PR #2349. Per-n thresholds: n=1 ≤ 3.276000; n=2 ≤ 3.277172; n=3 ≤ 3.277691; n=4 ≤ 3.278000. Eval lattice 2825 / 2850 / 2875 / 2890. **Branch rank (final-2890) is a diagnostic, NOT a kill criterion.** Do not close a direction solely because final-2890 is worse than PR #2349 — it must also fail official at ALL fixed steps 2825/2850/2875/2890.
 
