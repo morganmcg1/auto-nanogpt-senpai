@@ -153,6 +153,22 @@ def parse_args():
     parser.add_argument("--aux_b2_pulse_step", type=int, default=970,
                         help="H-EF: Training step at which to apply the step-function β₂ change. "
                              "Arm B (EARLIER) uses 820; Arm A (CORE) uses 970.")
+    parser.add_argument("--aux_b2_rule", type=str, default="none",
+                        choices=["none", "staircase"],
+                        help="β₂ rule for aux AdamW (optimizer1): 'none' (off, baseline) or "
+                             "'staircase' (two-pulse rule: low→mid @ pulse_step_1, mid→high @ cd_start).")
+    parser.add_argument("--aux_b2_low",  type=float, default=0.95,
+                        help="Starting β₂ when --aux_b2_rule is active (pre first pulse).")
+    parser.add_argument("--aux_b2_mid",  type=float, default=0.97,
+                        help="β₂ between pulse_step_1 and cd_start under 'staircase'.")
+    parser.add_argument("--aux_b2_high", type=float, default=0.99,
+                        help="Final β₂ from cd_start onwards under 'staircase'.")
+    parser.add_argument("--aux_b2_pulse_step_1", type=int, default=820,
+                        help="First pulse step under 'staircase' (low→mid).")
+    parser.add_argument("--aux_b2_cooldown_frac", type=float, default=0.60,
+                        help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
+                             "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
+                             "(cd_start = 1156 for train_steps=2890).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1231,6 +1247,13 @@ if dist.get_rank() == 0:
             "aux_b2_target": args.aux_b2_target,
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_enabled": args.aux_b2_start > 0.0,
+            "aux_b2_rule": args.aux_b2_rule,
+            "aux_b2_low": args.aux_b2_low,
+            "aux_b2_mid": args.aux_b2_mid,
+            "aux_b2_high": args.aux_b2_high,
+            "aux_b2_pulse_step_1": args.aux_b2_pulse_step_1,
+            "aux_b2_cooldown_frac": args.aux_b2_cooldown_frac,
+            "aux_b2_enabled": args.aux_b2_rule != "none",
         },
     )
 
@@ -1288,6 +1311,18 @@ for trial_idx in range(args.num_trials):
             beta1 = group["betas"][0]
             group["betas"] = (beta1, initial_b2)
         print0(f"[init] aux_b2 OVERRIDDEN: β₂ → {initial_b2}", console=True)
+    if args.aux_b2_rule != "none":
+        for group in optimizer1.param_groups:
+            beta1 = group["betas"][0]
+            group["betas"] = (beta1, args.aux_b2_low)
+        print0(f"[init] aux_b2 OVERRIDDEN: β₂ → {args.aux_b2_low} (rule={args.aux_b2_rule})", console=True)
+    aux_b2_cd_start = int(train_steps * (1.0 - args.aux_b2_cooldown_frac))
+    if args.aux_b2_rule == "staircase":
+        print0(
+            f"[init] aux_b2 staircase: pulse_1 @ {args.aux_b2_pulse_step_1} → {args.aux_b2_mid}, "
+            f"pulse_2 @ {aux_b2_cd_start} (cd_start, cooldown_frac={args.aux_b2_cooldown_frac}) → {args.aux_b2_high}",
+            console=True,
+        )
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1523,6 +1558,18 @@ for trial_idx in range(args.num_trials):
                 beta1 = group["betas"][0]
                 group["betas"] = (beta1, new_b2)
             print0(f"[step {step}] aux_b2 PULSE: β₂ → {new_b2}", console=True)
+        # H-EH-3 STAIRCASE two-pulse aux β₂ rule (PR #2403).
+        if args.aux_b2_rule == "staircase":
+            new_b2 = None
+            if step == args.aux_b2_pulse_step_1:
+                new_b2 = args.aux_b2_mid
+            elif step == aux_b2_cd_start:
+                new_b2 = args.aux_b2_high
+            if new_b2 is not None:
+                for group in optimizer1.param_groups:
+                    beta1 = group["betas"][0]
+                    group["betas"] = (beta1, new_b2)
+                print0(f"[step {step}] aux_b2 STAIRCASE: β₂ → {new_b2}", console=True)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
