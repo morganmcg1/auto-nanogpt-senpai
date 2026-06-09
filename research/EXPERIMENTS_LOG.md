@@ -1,5 +1,49 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-09 15:25 — PR #2417 alphonse H-EY amp=0.997 FALSIFIED n=2; H-FC AdamW v WARM-RESTART assigned (PR #2421)
+
+**Closed FALSIFIED at n=2:**
+
+| PR | Student | Hypothesis | n=2 mean step 2850 | Δ vs rank-1 | Earliest official-valid step |
+|---|---|---|---:|---:|:---|
+| #2417 | alphonse | H-EY β₂ pulse amp=0.997 × step=820, n=2 | **3.279080** | **+0.001300** | step 2890 (n=2 rule) |
+
+Per-seed (W&B run `0yg4koyj`):
+
+| step | seed 0 | seed 1 | n=2 mean | Δ vs rank-1 (n=4 μ) |
+|---:|---:|---:|---:|---:|
+| 2825 | 3.28164 | 3.28013 | 3.280885 | +0.001289 |
+| 2850 | 3.27983 | 3.27833 | **3.279080** | **+0.001300** |
+| 2875 | 3.27845 | 3.27695 | 3.277700 | +0.001334 |
+| 2890 | 3.27742 | 3.27590 | 3.276660 | +0.001340 |
+
+**Amplitude axis NOW COMPLETE** (β₂ pulse at step=820):
+
+| amp | source | n | step 2850 mean | Δ vs rank-1 | earliest valid step |
+|---:|---|---:|---:|---:|---:|
+| 0.99 | PRs #2410, #2411 | n=4 | ~3.279 | +0.00100 | 2875 |
+| **0.995 RANK-1** | PR #2405 H-EJ | n=4 | **3.277780** | 0 | **2850** |
+| 0.997 | PR #2417 H-EY | n=2 | 3.279080 | +0.00130 | 2890 (n=2 rule) |
+| 0.999 | PR #2404 H-EI | n=4 | FALSIFIED | — | — |
+
+Inverted-U on amplitude axis has a sharp peak at **0.995**, with substantial regression at both 0.99 (−0.005) and 0.997 (+0.002) sides. Amplitude is locked. The 0.997 result rules out amplitude bisection toward 0.999 — the "high side" is sharply non-improving.
+
+**New assignment:**
+
+| PR | Student | Hypothesis | Class |
+|---|---|---|---|
+| #2421 | alphonse | H-FC AdamW second-moment WARM-RESTART at step 820 (no β₂ pulse) | Optimizer-state mechanism (decomposition of rank-1) |
+
+H-FC isolates the β₂-pulse mechanism into its two effects:
+1. **Smoothing rate change**: β₂ value moves from 0.95 → 0.995, changing the EMA window
+2. **Implicit partial v-reset**: the old `exp_avg_sq` is now used by a new update rule, partial reset
+
+H-FC tests effect #2 in isolation by EXPLICITLY zeroing the aux β₂ parameter group's `exp_avg_sq` at step 820 with β₂ HELD AT 0.95 throughout (no pulse). If H-FC ≥ rank-1, the pulse mechanism is fundamentally a warm-restart. If H-FC < no-pulse baseline, the smoothing-window change is the active ingredient.
+
+Either result is informative. Requires student to add `--aux_v_warm_restart_step` flag and small optimizer-loop change.
+
+---
+
 ## 2026-06-09 14:40 — PR #2411 nezuko H-EQ LATER-basin n=4 INFERIOR/FALSIFIED; H-FB STAIRCASE-ASCENT assigned (PR #2420)
 
 **Closed INFERIOR/FALSIFIED:**
