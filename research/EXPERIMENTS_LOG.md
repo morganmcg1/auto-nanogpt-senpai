@@ -1,5 +1,35 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-09 23:10 — PR #2420 H-FB FALSIFIED; H-FG NS5 whitening assigned to nezuko
+
+**PR #2420 nezuko H-FB: STAIRCASE-ASCENT β₂ 0.95→0.99@410→0.995@820**
+- W&B: `s4kjqgyi` (seed 0, pod-restart partial), `s2i7mlwq` (seeds 1-3 relaunch)
+
+| seed | @2825 | @2850 | @2875 | @2890 |
+|---:|---:|---:|---:|---:|
+| 0 | 3.282461 | 3.280696 | 3.279248 | 3.278247 |
+| 1 | 3.279180 | 3.277290 | 3.275881 | 3.274784 |
+| 2 | 3.279600 | 3.277800 | 3.276430 | 3.275340 |
+| 3 | 3.280000 | 3.278200 | 3.276790 | 3.275720 |
+| **n=4 mean** | **3.280310** | **3.278496** | **3.277087** | **3.276022** |
+| rank-1 H-EJ | 3.279596 | **3.277780** | 3.276366 | 3.275320 |
+| **Δ (H-FB − rank-1)** | **+0.000714** | **+0.000717** | **+0.000721** | **+0.000702** |
+| Official valid? | FAIL | **FAIL** (<0.004 margin) | PASS | PASS |
+
+**Verdict: FALSIFIED.** n=4 mean at step 2850 = 3.278496 fails official validity (>3.278000 threshold). Earliest valid step regresses 2850 → 2875. Consistent +0.0007 drift across all lattice points (paired-t ~1.2, not significant, but NO seed improves on rank-1 — 2 seeds ~+0.0017 worse, 2 seeds tied). The 3-stage ramp-up (pre-warming β₂ 0.99 over steps 410-819 before reaching 0.995 at step 820) does NOT help NS5 vs. rank-1's cold 0.95→0.995 jump.
+
+**4-cell β₂-trajectory ablation now closed:**
+- H-EJ (rank-1): 0.95 → 0.995@820 → RANK-1 (step 2850)
+- H-EZ DESCENT: → 0.99@cd → FALSIFIED (+0.000459 at step 2850)
+- H-FA PEAK-AT-COOLDOWN: → 0.99@820 → 0.995@cd → in flight (thorfinn #2419)
+- H-FB ASCENT: → 0.99@410 → 0.995@820 → FALSIFIED (+0.000717 at step 2850)
+
+**Mechanism insight:** Optimizer benefits from staying at β₂=0.95 through the full pre-820 phase (more responsive second-moment estimator during high-LR plateau). Pre-warming to 0.99 at step 410 over-smooths variance estimation before the rank-1 transition fires. The mechanism is the abrupt single-pulse at 820, not the shape of the ramp.
+
+**Follow-up:** nezuko assigned H-FG (NS5 input whitening via QR pre-conditioning, PR #2428). Moving fully off the β₂ schedule axis per student's own recommendation.
+
+---
+
 ## 2026-06-09 21:40 — PR #2412 H-EU INFORMATIVE-NOT-MERGE + PR #2418 H-EZ FALSIFIED; H-FH + H-FK assigned
 
 **PR #2412 tanjiro H-EU: STAIRCASE generalization — fraction-based pulse timing**

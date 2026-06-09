@@ -1,6 +1,46 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-09 ~21:40 UTC — **PR #2412 H-EU GENERALIZATION CONFIRMED (NOT MERGE). PR #2418 H-EZ STAIRCASE-DESCENT FALSIFIED. H-FH (tanjiro, adaptive CD) + H-FK (askeladd, Muon-SWA) just assigned. Fleet: 8/8 active.**
+- **As of:** 2026-06-09 ~23:10 UTC — **PR #2420 H-FB STAIRCASE-ASCENT FALSIFIED (+0.0007 vs rank-1, first-valid step 2850→2875). 4-cell β₂ trajectory ablation 3/4 complete. nezuko assigned H-FG NS5 input whitening (PR #2428). Fleet: 8/8 active, no idle students.**
+
+  **Key results this cycle (23:10 UTC):**
+  - H-FB (nezuko PR #2420): FALSIFIED. n=4 mean @2850 = 3.278496 > official threshold 3.278000. Pre-warming β₂ to 0.99 at step 410 before the rank-1 transition at step 820 does NOT help. **The abrupt single-pulse at 820 is the mechanism, not the ramp-up shape.** β₂ trajectory axis is now saturated (3/4 cells falsified, rank-1 single-pulse is optimal).
+  - H-FF (edward PR #2424) seed 1: @2890 = 3.277061 — non-competitive (+0.001741 vs rank-1 @2890). Seed 2 in progress.
+  - H-FA (thorfinn PR #2419) seed 1: @2890 = 3.277001 — promising n=1 result (meets n=2 threshold @2890 but not n=4 threshold @2875). Seeds 2/3/4 running, ETA ~01:13 UTC.
+
+  **Active fleet status (23:10 UTC):**
+
+  | PR | Student | Hypothesis | Status |
+  |---|---|---|---|
+  | **#2428** | **nezuko** | **H-FG NS5 input whitening via QR pre-conditioning (muon_gs_alpha)** | **Just assigned** |
+  | #2427 | askeladd | H-FK Muon-only Polyak SWA last 150 steps (eval-only) | In flight |
+  | #2426 | tanjiro | H-FH Adaptive LR schedule endpoint (train/slope telemetry) | In flight |
+  | #2425 | frieren | H-FI EN γ anneal through cooldown (corrected window [1156,1949]) | In flight |
+  | #2424 | edward | H-FF β₁ × β₂ joint pulse on aux Adam | Seed 2 running; seed 1 non-competitive |
+  | #2423 | fern | H-FE AMSGrad on aux Adam | Arm A FALSIFIED (3.286); Arm B status unknown |
+  | #2422 | alphonse | H-FD per-group β₂ pulse ablation | Seed 2 running; seed 1 marginal (3.277863) |
+  | #2419 | thorfinn | H-FA STAIRCASE-PEAK-AT-COOLDOWN | Seeds 2/3/4 running; seed 1 = 3.277001 @2890 |
+
+  **Staircase ablation status (4-cell matrix, nearly complete):**
+  - H-EJ rank-1 single-pulse 0.95→0.995@820: **RANK-1** (step 2850, n=4 mean 3.277780)
+  - H-EZ DESCENT 0.995→0.99@cd: **FALSIFIED** (+0.000459 at 2850)
+  - H-FB ASCENT 0.99@410→0.995@820: **FALSIFIED** (+0.000717 at 2850)
+  - H-FA PEAK-AT-COOLDOWN 0.99@820→0.995@cd: **in flight** (thorfinn, ETA ~01:13 UTC)
+  - **Conclusion so far: rank-1 single-pulse is optimal. The trajectory shape (ramp-up smoothing, descent) hurts. Only remaining test: does holding β₂=0.99 until cd_start before peak matter?**
+
+  **Current non-β₂-axis exploration:**
+  - H-FG (nezuko NEW): NS5 input whitening — QR blend before NC→NS5 to improve NS5 convergence per iteration. Preconditioner/optimizer-state mechanism, well-grounded in NLA. alpha ∈ {0.3, 0.6}.
+  - H-FK (askeladd): Muon-only Polyak SWA last 150 steps — eval-only weight average. SWA variant that avoids global averaging failures (H-DH FALSIFIED).
+  - H-FH (tanjiro): Adaptive PowerCool t_end via train/slope telemetry. Mechanically adjusts LR cooldown horizon based on measured loss momentum at step 578.
+  - H-FI (frieren): EN γ linear anneal 0.99 → 0.97/0.90 through active cooldown [1156, 1949].
+  - H-FF (edward): β₁ joint pulse — β₁ lock-in (0.8→0.85) and forget (0.8→0.7) at step 820, simultaneous to existing β₂ pulse. Seed 1 non-competitive.
+  - H-FE (fern): AMSGrad on aux Adam — Arm A isolation FALSIFIED (+0.008). Arm B (with rank-1 β₂ pulse) unknown.
+  - H-FD (alphonse): per-group β₂ pulse ablation (embed/lm_head/scalars). Seed 1 marginal (3.277863 @2890).
+
+  **Hypothesis queue (next idle slots):**
+  - H-FJ: AdamW eps annealed 1e-10→1e-12 by step 820 (Tier 2)
+  - H-FL: NS5 coefficient distribution-specific fit (Tier 2, offline fit required)
+  - H-FM: Nesterov-RI pre-fetch last 150 steps (Tier 3, Lookahead-adjacent risk)
+  - H-FN: Muon momentum warmup extension 300→500 steps (Tier 2, port from KJ PR #318)
 
   **Key result this cycle:**
   - H-EU (tanjiro): Fraction-based STAIRCASE timing GENERALIZES (frac=0.25/0.30 both reach step 2875 frontier). BUT n=4 confirm at step 2875 = 3.276710 > rank-1's 3.276366 — NOT a merge. Critical lesson: **amplitude (0.995) dominates over timing (fraction vs absolute).** Rank-1 single-pulse remains superior.
