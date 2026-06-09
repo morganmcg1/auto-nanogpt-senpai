@@ -169,6 +169,17 @@ def parse_args():
                         help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
                              "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
                              "(cd_start = 1156 for train_steps=2890).")
+    parser.add_argument("--en_gamma_final", type=float, default=-1.0,
+                        help="H-FI: Final EN γ at end of anneal window. ≤0 disables anneal (keeps EMA_NESTEROV_GAMMA=0.99 constant). "
+                             "Suggested values: 0.97, 0.95, 0.90.")
+    parser.add_argument("--en_gamma_anneal_start", type=int, default=1156,
+                        help="H-FI: Step at which γ begins linearly annealing from EMA_NESTEROV_GAMMA to en_gamma_final. "
+                             "Default 1156 = LR cd_start at cooldown_frac=0.60. Must lie inside the EN-active window "
+                             "[EMA_NESTEROV_PREFILL_STEPS=300, EMA_NESTEROV_REST_STEPS=1950) for γ to affect params.")
+    parser.add_argument("--en_gamma_anneal_end", type=int, default=1949,
+                        help="H-FI: Step at which γ reaches en_gamma_final and stays there. "
+                             "Default 1949 = EMA_NESTEROV_REST_STEPS - 1 (last step on which lookahead_step fires). "
+                             "Anneal happens linearly over [en_gamma_anneal_start, en_gamma_anneal_end].")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1254,6 +1265,10 @@ if dist.get_rank() == 0:
             "aux_b2_pulse_step_1": args.aux_b2_pulse_step_1,
             "aux_b2_cooldown_frac": args.aux_b2_cooldown_frac,
             "aux_b2_enabled": args.aux_b2_rule != "none",
+            "en_gamma_final": args.en_gamma_final,
+            "en_gamma_anneal_start": args.en_gamma_anneal_start,
+            "en_gamma_anneal_end": args.en_gamma_anneal_end,
+            "en_gamma_anneal_enabled": args.en_gamma_final > 0.0,
         },
     )
 
@@ -1336,6 +1351,14 @@ for trial_idx in range(args.num_trials):
         prefill_steps=EMA_NESTEROV_PREFILL_STEPS,
         rest_steps=EMA_NESTEROV_REST_STEPS,
     )
+    # H-FI: sanity log so we can verify the anneal window intersects the EN-active region.
+    if args.en_gamma_final > 0.0:
+        print0(
+            f"[init] EN γ anneal: {EMA_NESTEROV_GAMMA} → {args.en_gamma_final} linearly over steps "
+            f"[{args.en_gamma_anneal_start}, {args.en_gamma_anneal_end}] "
+            f"(EN active window = [{EMA_NESTEROV_PREFILL_STEPS}, {EMA_NESTEROV_REST_STEPS}))",
+            console=True,
+        )
     optimizers = [optimizer_ema]
     assert set(p for opt in inner_optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1570,6 +1593,18 @@ for trial_idx in range(args.num_trials):
                     beta1 = group["betas"][0]
                     group["betas"] = (beta1, new_b2)
                 print0(f"[step {step}] aux_b2 STAIRCASE: β₂ → {new_b2}", console=True)
+        # H-FI: Linear anneal of EN γ from EMA_NESTEROV_GAMMA to args.en_gamma_final
+        # over [en_gamma_anneal_start, en_gamma_anneal_end]. Window is set to intersect
+        # the EN-active region [PREFILL, REST_STEPS) since γ only affects params via
+        # lookahead_step, which is gated by it ∈ [PREFILL, REST_STEPS).
+        if args.en_gamma_final > 0.0 and step >= args.en_gamma_anneal_start:
+            end_step = args.en_gamma_anneal_end
+            if step >= end_step:
+                new_gamma = args.en_gamma_final
+            else:
+                frac = (step - args.en_gamma_anneal_start) / max(1, end_step - args.en_gamma_anneal_start)
+                new_gamma = EMA_NESTEROV_GAMMA + frac * (args.en_gamma_final - EMA_NESTEROV_GAMMA)
+            optimizer_ema.lookahead_ema = new_gamma
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1594,6 +1629,7 @@ for trial_idx in range(args.num_trials):
                     optimizer_ema.it >= EMA_NESTEROV_PREFILL_STEPS
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
                 ),
+                "train/ema_nesterov/gamma_now": optimizer_ema.lookahead_ema,
                 "train/aux_b2": aux_beta2_now,
             }
             log_training_telemetry(
