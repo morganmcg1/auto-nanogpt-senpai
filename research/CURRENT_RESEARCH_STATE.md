@@ -1,14 +1,18 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-09 ~05:30 UTC — **🚨 RANK-1 REVERTED to PR #2349 (n=4 = 3.276172).** PR #2393 (n=2 = 3.274835) FALSIFIED at n=4 by PR #2404 (thorfinn iblvhrvk) — n=4 mean **3.276616** (sample std 0.002958), +0.000444 REGRESSION vs PR #2349. PR #2393 seeds 1+2 were a lucky pair; seed 4 even missed the 3.28 target (val/ri = 3.280989).
+- **As of:** 2026-06-09 ~07:30 UTC — **🚨 HUMAN RULE-CHECK on Issue #2388 (07:16 UTC): officiality framing corrected.** The primary metric is **earliest fixed step ≤ 2890 at which `(3.28 − μ) × √n ≥ 0.004`** — NOT lowest final-2890 mean vs PR #2349. Per-n thresholds: n=1 ≤ 3.276000; n=2 ≤ 3.277172; n=3 ≤ 3.277691; n=4 ≤ 3.278000. Eval lattice 2825 / 2850 / 2875 / 2890. **Branch rank (final-2890) is a diagnostic, NOT a kill criterion.** Do not close a direction solely because final-2890 is worse than PR #2349 — it must also fail official at ALL fixed steps 2825/2850/2875/2890.
 
-  **BASELINE.md updated** (commit dee6be86). Code merge KEPT — `--aux_b2_*` flags remain available; default `aux_b2_start=-1.0` disables the pulse (no behavior change vs PR #2349 baseline). Issue #2388 critical-update comment posted (~05:29 UTC).
+  **BASELINE.md reframed** (commit 51128b11). CURRENT correction cascade in flight: ALL 7 in-flight PRs will receive corrected-framing comments + fixed-step-history requests (harvest val/loss at 2825/2850/2875/2890 in SENPAI-RESULT).
 
-  **Corrected decision gates (vs PR #2349 = 3.276172):**
-  - STRONG ≤ 3.275772
-  - MERGE-eligible (3.275772, 3.276172]
-  - INCONCLUSIVE (3.276172, 3.276572)
-  - FALSIFIED ≥ 3.276572
+  **Active gates (NEW, official framing):**
+  - **Official-VALID at n=k** ⇔ mean ≤ per-n threshold at SOME fixed step ≤ 2890.
+  - **Earliest official-valid step** = our speedrun score. Lower = better. PR #2349 is official at 2890 only (μ=3.276172, n=4 threshold = 3.278000 ✓).
+  - **Local robustness policy:** prefer n=4 confirms for any merge candidate, but n=2 / n=3 official passes are KEPT ALIVE while n=4 in flight.
+  - Branch-rank gates (still useful as diagnostics):
+    - STRONG ≤ 3.275772 (clearly beats PR #2349 final-2890)
+    - MERGE-eligible (3.275772, 3.276172] (matches/edges PR #2349 final-2890)
+    - INCONCLUSIVE (3.276172, 3.276572)
+    - "Diagnostic worse" ≥ 3.276572 — but check ALL fixed-step official passes before closing.
 
   **Re-classification of prior reads against corrected baseline:**
 
