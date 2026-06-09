@@ -1,6 +1,43 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-09 ~18:50 UTC — **Cross-axis cells CLOSED: PR #2416 H-EX FALSIFIED, PR #2415 H-EW INCONCLUSIVE. NEW NON-β₂-AXIS WAVE: H-FF (β₁ pulse) + H-FI (EN γ anneal) + H-FE (AMSGrad) in flight. Fleet: 8/8 active.**
+- **As of:** 2026-06-09 ~21:40 UTC — **PR #2412 H-EU GENERALIZATION CONFIRMED (NOT MERGE). PR #2418 H-EZ STAIRCASE-DESCENT FALSIFIED. H-FH (tanjiro, adaptive CD) + H-FK (askeladd, Muon-SWA) just assigned. Fleet: 8/8 active.**
+
+  **Key result this cycle:**
+  - H-EU (tanjiro): Fraction-based STAIRCASE timing GENERALIZES (frac=0.25/0.30 both reach step 2875 frontier). BUT n=4 confirm at step 2875 = 3.276710 > rank-1's 3.276366 — NOT a merge. Critical lesson: **amplitude (0.995) dominates over timing (fraction vs absolute).** Rank-1 single-pulse remains superior.
+  - H-EZ (askeladd): STAIRCASE-DESCENT 0.995→0.99@1156 FALSIFIED. Dropping β₂ at cooldown start hurts (3.278239 at step 2850 vs rank-1's 3.277780). Pattern across staircase wave: descent hurts, single-pulse rules, ascent + peak-at-cooldown still in flight.
+
+  **Active fleet status (21:40 UTC):**
+
+  | PR | Student | Hypothesis | Status |
+  |---|---|---|---|
+  | **#2426** | **tanjiro** | **H-FH adaptive LR schedule endpoint (train/slope)** | **Just assigned** |
+  | **#2427** | **askeladd** | **H-FK Muon-only Polyak SWA last 150 steps (eval-only)** | **Just assigned** |
+  | #2425 | frieren | H-FI EN γ anneal through cooldown (corrected window [1156,1949]) | Implementing fix, pre-launch |
+  | #2424 | edward | H-FF β₁ × β₂ joint pulse (Arm A lock-in 0.8→0.85, Arm B forget 0.8→0.7) | In flight |
+  | #2423 | fern | H-FE AMSGrad on aux Adam (Arm A isolation, ETA ~21:52 UTC) | In flight |
+  | #2422 | alphonse | H-FD per-group β₂ pulse ablation (embed/lm_head/scalars) | Arm A ETA ~21:15 UTC |
+  | #2420 | nezuko | H-FB STAIRCASE-ASCENT 0.95→0.99@410→0.995@820 | In flight |
+  | #2419 | thorfinn | H-FA STAIRCASE-PEAK-AT-COOLDOWN 0.95→0.99@820→0.995@1156 | In flight, ETA ~01:13 UTC |
+
+  **Staircase ablation status (4-cell matrix):**
+  - H-EZ DESCENT: FALSIFIED (+0.000459 vs rank-1 at step 2850)
+  - H-FA PEAK-AT-COOLDOWN: in flight (thorfinn, ETA ~01:13 UTC)
+  - H-FB ASCENT: in flight (nezuko)
+  - rank-1 H-EJ single-pulse: confirmed baseline (step 2850, n=4 mean 3.277780)
+
+  **Mechanism portfolio (non-β₂ axis):**
+  - H-FD per-group ablation (alphonse): localizes which AdamW group drives β₂ pulse
+  - H-FE AMSGrad (fern): non-β₂ optimizer-state mechanism (isolation + composition)
+  - H-FF β₁ joint pulse (edward): untested β₁ axis composition with β₂ pulse
+  - H-FI EN γ anneal (frieren): EN's γ through active cooldown [1156, 1949]
+  - H-FH adaptive CD (tanjiro NEW): PowerCool t_end adaptive to train loss slope
+  - H-FK Muon-SWA (askeladd NEW): Polyak average of Muon block weights last 150 steps, eval-only
+
+  **Hypothesis queue (next idle slots):**
+  - H-FG: NS5 input whitening via Gram-Schmidt pre-normalization (Tier 2)
+  - H-FJ: AdamW eps annealed 1e-10→1e-12 by step 820 (Tier 2)
+  - H-FL: NS5 coefficient distribution-specific fit (Tier 2, offline fit required)
+  - H-FM: Nesterov-RI pre-fetch last 150 steps (Tier 3, Lookahead-adjacent risk)
 
   **PIVOT — cross-axis (amp, step) basin saturated:**
   - (0.995, 720) FALSIFIED, (0.995, 770) FALSIFIED, (0.995, 820) RANK-1, (0.995, 870) INCONCLUSIVE-tied

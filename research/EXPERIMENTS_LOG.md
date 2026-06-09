@@ -1,5 +1,50 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-09 21:40 — PR #2412 H-EU INFORMATIVE-NOT-MERGE + PR #2418 H-EZ FALSIFIED; H-FH + H-FK assigned
+
+**PR #2412 tanjiro H-EU: STAIRCASE generalization — fraction-based pulse timing**
+- W&B: `j23eslhp` (Arm A seeds 1-2), `7djqt7sq` (Arm B seeds 1-2), `8joy6fde` (Arm A seeds 3-4, n=4 confirm)
+
+| Config | n | step | mean val/loss | Δ vs rank-1 | Official-valid? |
+|---|---:|---:|---:|---:|---|
+| Arm A frac=0.25 (pulse @ step 723) | 2 | 2875 | 3.276165 | −0.000201 | PASS |
+| Arm B frac=0.30 (pulse @ step 867) | 2 | 2875 | 3.276820 | +0.000454 | PASS |
+| **Arm A frac=0.25 n=4 confirm** | **4** | **2875** | **3.276710** | **+0.000344** | **PASS (earliest valid step = 2875)** |
+| rank-1 H-EJ reference | 4 | 2850 | 3.277780 | — | PASS (earliest valid step = 2850) |
+
+**Verdict: GENERALIZATION SUPPORTED, NO MERGE.** Arm A n=4 confirm at step 2875 = 3.276710, which is +0.000344 above rank-1 H-EJ at step 2875 (3.276366). The seed-4 outlier (3.27854 at step 2875 vs ~3.276 for seeds 1-3) pushed the mean above rank-1. The generalization claim is confirmed: fraction-based timing at frac ∈ {0.25, 0.30} reproduces the absolute-step PR #2403 reference within seed noise (basin flat over ±5% frac). Neither frac improves on rank-1's single-pulse at amp=0.995.
+
+**Key insight:** STAIRCASE amp=0.99 with fraction-based timing is **principled but NOT superior** to single-pulse amp=0.995 at fixed step 820. The critical mechanism is the amplitude (0.995 > 0.99), not the timing.
+
+---
+
+**PR #2418 askeladd H-EZ: STAIRCASE-995-DESCENT β₂ 0.95→0.995@820→0.99@1156**
+- W&B: `w6n1imn3` (T0, T1), `hx9z85dk` (T2, T3 relaunch after pod restart)
+
+| Trial (seed) | step 2825 | step 2850 | step 2875 | step 2890 | first_step_to_target |
+|---:|---:|---:|---:|---:|---:|
+| T0 (s0) | 3.281266 | 3.279492 | 3.278076 | 3.277323 | 2850 |
+| T1 (s1) | 3.279052 | 3.277225 | 3.275829 | 3.275099 | 2825 |
+| T2 (s2) | 3.278930 | 3.277100 | 3.275710 | 3.274990 | 2825 |
+| T3 (s3) | 3.280970 | 3.279140 | 3.277740 | 3.277012 | 2850 |
+| **n=4 mean** | **3.280055** | **3.278239** | **3.276839** | **3.276106** | |
+| rank-1 H-EJ | 3.279596 | 3.277780 | 3.276366 | 3.275320 | |
+| Δ vs rank-1 | +0.000459 | +0.000459 | +0.000473 | +0.000786 | |
+
+**Verdict: FALSIFIED.** Earliest official-valid step degrades from **2850 (rank-1) → 2875 (H-EZ)** — a 25-step regression. Dropping β₂ from 0.995 to 0.99 at cd_start (step 1156) discards the long-window second-moment estimate built during the plateau just as cooldown begins. The optimizer effectively "forgets" plateau statistics right when the cooldown perturbation starts. Single-pulse (β₂=0.995 held through cooldown) is dominant.
+
+**Pattern across staircase wave (n=4 means at step 2850):**
+- H-EZ DESCENT 0.995→0.99@1156: 3.278239 (FALSIFIED, 25-step regression)
+- H-EJ rank-1 single-pulse 0.995: 3.277780 (RANK-1)
+- H-FA PEAK-AT-COOLDOWN (in flight): pending
+- H-FB ASCENT 0.99→0.995@820 (in flight): pending
+
+---
+
+**New assignments:** tanjiro → H-FH (PR #2426, adaptive LR schedule endpoint via train/slope), askeladd → H-FK (PR #2427, Muon-only Polyak SWA last 150 steps, eval-only).
+
+---
+
 ## 2026-06-09 18:50 — Cycle: PR #2416 H-EX FALSIFIED + PR #2415 H-EW INCONCLUSIVE; H-FF + H-FI assigned
 
 **Closed cross-axis cells (amp=0.995, step≠820):**
