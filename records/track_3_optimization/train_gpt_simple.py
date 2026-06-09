@@ -169,6 +169,10 @@ def parse_args():
                         help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
                              "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
                              "(cd_start = 1156 for train_steps=2890).")
+    parser.add_argument("--aux_v_warm_restart_step", type=int, default=-1,
+                        help="H-FC: If > 0, zero out optimizer1 (AdamW) exp_avg_sq for ALL aux param groups "
+                             "(embed, lm_head, scalars) at the START of this step. Warm-restart of second-moment "
+                             "estimator without changing β₂. Default: -1 (disabled).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1254,6 +1258,8 @@ if dist.get_rank() == 0:
             "aux_b2_pulse_step_1": args.aux_b2_pulse_step_1,
             "aux_b2_cooldown_frac": args.aux_b2_cooldown_frac,
             "aux_b2_enabled": args.aux_b2_rule != "none",
+            "aux_v_warm_restart_step": args.aux_v_warm_restart_step,
+            "aux_v_warm_restart_enabled": args.aux_v_warm_restart_step > 0,
         },
     )
 
@@ -1570,6 +1576,20 @@ for trial_idx in range(args.num_trials):
                     beta1 = group["betas"][0]
                     group["betas"] = (beta1, new_b2)
                 print0(f"[step {step}] aux_b2 STAIRCASE: β₂ → {new_b2}", console=True)
+        # H-FC: warm-restart of aux AdamW second-moment estimator. Zero exp_avg_sq
+        # for ALL optimizer1 param groups (embed, lm_head, scalars) at the start of
+        # args.aux_v_warm_restart_step. β₂ is untouched. Isolates the implicit
+        # warm-restart effect from the smoothing-rate change of the H-EJ β₂ pulse.
+        if args.aux_v_warm_restart_step > 0 and step == args.aux_v_warm_restart_step:
+            n_reset = 0
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, None)
+                    if state is not None and "exp_avg_sq" in state:
+                        state["exp_avg_sq"].zero_()
+                        n_reset += 1
+            print0(f"[step {step}] aux_v WARM-RESTART: zeroed exp_avg_sq for {n_reset} aux AdamW params",
+                   console=True)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
