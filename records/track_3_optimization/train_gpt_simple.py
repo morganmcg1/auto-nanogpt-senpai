@@ -146,6 +146,16 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--aux_b2_rule", type=str, default="none",
+                        choices=["none", "single_step"],
+                        help="Aux Adam β₂ rule for optimizer1 (embed/lm_head/scalars). "
+                             "'none' (baseline, untouched), 'single_step' (pulse β₂ low→high at fixed step).")
+    parser.add_argument("--aux_b2_low", type=float, default=0.95,
+                        help="β₂ value applied to optimizer1 from init until the pulse step (used when rule != 'none').")
+    parser.add_argument("--aux_b2_high", type=float, default=0.99,
+                        help="β₂ value applied to optimizer1 from the pulse step onward (used when rule != 'none').")
+    parser.add_argument("--aux_b2_pulse_step", type=int, default=970,
+                        help="Step at which the single_step β₂ pulse fires (low → high).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1220,6 +1230,11 @@ if dist.get_rank() == 0:
             "ri_enabled": args.ri_gamma != 0.0,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
+            "aux_b2_rule": args.aux_b2_rule,
+            "aux_b2_low": args.aux_b2_low,
+            "aux_b2_high": args.aux_b2_high,
+            "aux_b2_pulse_step": args.aux_b2_pulse_step,
+            "aux_b2_pulse_enabled": args.aux_b2_rule != "none",
         },
     )
 
@@ -1269,6 +1284,12 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-12, weight_decay=0, fused=True)
+    if args.aux_b2_rule != "none":
+        initial_b2 = args.aux_b2_low
+        for group in optimizer1.param_groups:
+            beta1 = group["betas"][0]
+            group["betas"] = (beta1, initial_b2)
+        print0(f"[init] aux_b2 OVERRIDDEN: β₂ → {initial_b2} (rule={args.aux_b2_rule})", console=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1528,6 +1549,15 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
                 extra_metrics=ema_extras,
             )
+        # H-EH-2 aux β₂ pulse: single step-function change on optimizer1 (AdamW for
+        # embed/lm_head/scalars) at args.aux_b2_pulse_step. Applied BEFORE opt.step()
+        # so the step at aux_b2_pulse_step uses the new β₂.
+        if args.aux_b2_rule == "single_step" and step == args.aux_b2_pulse_step:
+            new_b2 = args.aux_b2_high
+            for group in optimizer1.param_groups:
+                beta1 = group["betas"][0]
+                group["betas"] = (beta1, new_b2)
+            print0(f"[step {step}] aux_b2 PULSE: β₂ → {new_b2}", console=True)
         # PR #309 EMA-Nesterov: opt.step runs the inner optimizers at the lookahead point,
         # then accumulates lookahead = γ * lookahead + (1-γ) * (p_after - prev_p).
         for opt in optimizers:
