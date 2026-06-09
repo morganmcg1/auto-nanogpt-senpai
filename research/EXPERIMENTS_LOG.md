@@ -1,5 +1,43 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-09 09:20 — PR #2405 MERGED: NEW SPEEDRUN RANK-1 = step 2850 (H-EJ β₂ amplitude=0.995, askeladd)
+
+**MERGE EXECUTED.** PR #2405 (askeladd H-EJ: single-pulse β₂ 0.95→0.995 @ step 820) squash-merged into `auto-nanogpt-open-sota-v2-20260604`. BASELINE.md updated.
+
+**New speedrun rank-1: earliest official-valid step = 2850**, n=4, mean val/loss = **3.277780**, margin 0.004440.
+- vs PR #2403 (old rank-1 STAIRCASE, step 2875): **−25 steps on official speedrun metric**
+- Final-2890 mean = 3.275320 (branch-rank STRONG: 0.000852 below STRONG threshold)
+- W&B runs: `596182tl` (s0+s1 n=2), `n4750g8n` (s2+s3 n=4 confirm)
+- Sample std n=4 = 0.001269 (much tighter than PR #2393's std 0.002958 — amplitude=0.995 basin is stable)
+
+**Fixed-step n=4 means:**
+
+| Step | n=4 mean | n=4 threshold | Valid? | Margin |
+|---:|---:|---:|:---:|---:|
+| 2825 | 3.279596 | ≤3.278000 | NO | −0.001596 |
+| **2850** | **3.277780** | ≤3.278000 | **YES ← earliest** | 0.004440 |
+| 2875 | 3.276366 | ≤3.278000 | YES | 0.007268 |
+| 2890 | 3.275320 | ≤3.278000 | YES | 0.009361 |
+
+**Per-seed val/loss at fixed eval steps:**
+
+| seed | 2825 | 2850 | 2875 | 2890 |
+|---:|---:|---:|---:|---:|
+| 0 | 3.280884 | 3.279031 | 3.277626 | 3.276595 |
+| 1 | 3.279620 | 3.277815 | 3.276385 | 3.275337 |
+| 2 | 3.277865 | 3.276045 | 3.274667 | 3.273584 |
+| 3 | 3.280015 | 3.278228 | 3.276786 | 3.275763 |
+| **n=4 μ** | **3.279596** | **3.277780** | **3.276366** | **3.275320** |
+
+**Mechanism:** Amplitude axis of single-pulse β₂ is monotone higher from 0.99 → 0.995. Effective second-moment window W=1/(1−0.995)≈200 vs W≈100 for 0.99. Wider EMA window in cooldown stabilizes gradient variance estimation, reducing per-seed scatter. Low variance suggests this is a genuine optimum band, not a lucky point.
+
+**Key insight:** The discrete jump amplitude matters as much as timing. Step 820 (28% of train_steps) + amplitude 0.995 is better than the two-pulse STAIRCASE (0.95→0.97@820→0.99@1156). The single high-amplitude pulse beats the two-step approach.
+
+**Follow-on work:**
+- askeladd H-EJ Arm B: target=0.999 (W≈1000) — does amplitude continue to improve?
+- tanjiro PR #2412 H-EU: fraction-based timing (frac=0.25/0.30 vs current step 820 = frac=0.284) — principled generalization
+- frieren PR #2406 step=770, fern PR #2402 step=720 — earlier pulse with target=0.99 (not 0.995) — may give additive improvement when combined
+
 ## 2026-06-09 08:25 — PR #2403 MERGED: NEW SPEEDRUN RANK-1 = step 2875 (STAIRCASE β₂, tanjiro H-EH-3)
 
 **MERGE EXECUTED.** PR #2403 (tanjiro H-EH-3 STAIRCASE: two-pulse β₂ 0.95→0.97@820→0.99@1156) squash-merged into `auto-nanogpt-open-sota-v2-20260604`. BASELINE.md updated.

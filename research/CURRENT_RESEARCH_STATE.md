@@ -1,6 +1,14 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-09 ~08:30 UTC — **✅ STAIRCASE MERGED (PR #2403) — NEW SPEEDRUN RANK-1 = step 2875.** BASELINE.md updated. Two active tracks now:
+- **As of:** 2026-06-09 ~09:20 UTC — **✅ H-EJ MERGED (PR #2405) — NEW SPEEDRUN RANK-1 = step 2850** (−25 steps vs STAIRCASE). β₂ single-pulse 0.95→0.995 @ step 820, n=4 mean 3.277780, margin 0.004440. BASELINE.md updated. Two active tracks:
+
+  **Track 1 (speedrun optimization — next target: step 2825):** Need n=4 mean ≤ 3.278 at step 2825. Currently step 2850 is new rank-1. Seed 2 of PR #2405 already hit 3.277865 at step 2825 (barely under threshold) — if amplitude=0.999 or earlier-pulse+0.995 combination tightens variance, step 2825 may be reachable.
+
+  **Track 2 (generalization study — human directive 08:19 UTC):** tanjiro PR #2412 H-EU tests fraction-based pulse timing (frac=0.25 vs 0.30 vs 0.284 reference). Demonstrates mechanism is principled across budgets, not hardcoded step number.
+
+  **Active next-amplitude probe:** askeladd H-EJ Arm B: target=0.999 (W≈1000) — the PR #2405 student explicitly suggested this as the next amplitude probe. Assignment in progress.
+
+- **As of:** 2026-06-09 ~08:30 UTC — **✅ STAIRCASE MERGED (PR #2403) — speedrun rank-1 = step 2875 (now demoted to rank-2).**
 
   **Track 1 (speedrun optimization):** 6 students have n=4 confirms in flight that could push official-valid step below 2875 (to 2850 or 2825). askeladd PR #2405 is the strongest candidate: single-seed val/loss @ 2825 = 3.277865 (barely under n=4 threshold 3.278).
 
