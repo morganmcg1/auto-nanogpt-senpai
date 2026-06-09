@@ -1,5 +1,34 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-09 16:50 — PR #2421 alphonse H-FC MECHANISM FALSIFIED; H-FD per-group β₂ pulse assigned (PR #2422)
+
+**Closed MECHANISM FALSIFIED (high-value negative result):**
+
+| PR | Student | Hypothesis | Result | Earliest official-valid step |
+|---|---|---|---|---|
+| #2421 | alphonse | H-FC AdamW second-moment WARM-RESTART @ step 820 (no β₂ pulse) | **CATASTROPHIC SPIKE** +6.33 val/loss | N/A — aborted step 1413 |
+
+**Run detail (smoke, trial 0 seed 0, W&B: aborted early):**
+```
+step  750   val_loss: 3.720  (last clean before warm-restart)
+[step 820]  aux_v WARM-RESTART: zeroed exp_avg_sq for 101 aux AdamW params
+step  875   val_loss: 10.055  (+6.33 spike)
+step 1000   val_loss:  9.878
+step 1125   val_loss:  9.690  (recovering slowly; aborted at step 1413)
+```
+
+**Mechanism conclusion:** Zeroing `exp_avg_sq` makes √(v+eps) ≈ √eps → effective step ≈ 1000× normal → instant divergence. The rank-1 H-EJ mechanism (β₂ 0.95→0.995 @ step 820) is **NOT an implicit v-reset**. It is a **smoothing-rate change**: larger β₂ → longer EMA window → more reliance on recent gradient directions in the denominator.
+
+This rules out the v-reset branch of the mechanism decomposition. **H-FD** now isolates *which AdamW group* drives the smoothing-rate-change benefit.
+
+**H-FD assigned (PR #2422) — per-group β₂ pulse ablation:**
+- Arm A: pulse embed ONLY (lm_head + scalars stay at 0.95)
+- Arm B: pulse lm_head ONLY
+- Arm C: pulse scalars ONLY
+Compare each arm's n=2 mean to rank-1 H-EJ (step 2850 n=4 mean = 3.277780).
+
+---
+
 ## 2026-06-09 15:25 — PR #2417 alphonse H-EY amp=0.997 FALSIFIED n=2; H-FC AdamW v WARM-RESTART assigned (PR #2421)
 
 **Closed FALSIFIED at n=2:**

@@ -1,55 +1,54 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-09 ~15:25 UTC — **PR #2417 alphonse H-EY amp=0.997 CLOSED FALSIFIED n=2 (+0.00130 worse than rank-1 at every step); H-FC AdamW v WARM-RESTART assigned (PR #2421).**
+- **As of:** 2026-06-09 ~16:50 UTC — **H-FC MECHANISM FALSIFIED (PR #2421 closed); H-FD per-group β₂ pulse ablation assigned (PR #2422 alphonse). Fleet: 8/8 active.**
 
-  **Amplitude axis NOW FULLY CHARACTERIZED** (β₂ pulse at step=820): sharp inverted-U with peak at **0.995**, regression at 0.99 (−0.005), 0.997 (+0.002), 0.999 FALSIFIED. The high-side bisection (0.997) result is **+0.0013 worse** than rank-1, ruling out amplitude bisection further toward 0.999. Amplitude is **locked at 0.995**.
+  **KEY MECHANISM RESULT:** H-FC (explicit v warm-restart at step 820) caused catastrophic +6.33 val_loss spike. This **definitively proves the H-EJ rank-1 mechanism is smoothing-rate change, NOT v-reset**. v-reset class mechanisms are deprioritized. Future mechanism exploration should target smoothing-dynamics, per-group differentiation, and Muon-side analogs.
+
+  **H-FD per-group ablation (PR #2422, alphonse):**  localizes *which AdamW group* drives the β₂ pulse benefit:
+  - Arm A: embed ONLY (expect: most likely winner — largest group, dominates loss surface)
+  - Arm B: lm_head ONLY
+  - Arm C: scalars ONLY
+
+  **Amplitude axis FULLY CHARACTERIZED** (locked at 0.995, step 820):
+  - ~~0.990~~ INFERIOR, ~~0.997~~ FALSIFIED, ~~0.999~~ FALSIFIED
+  - **0.995 = RANK-1** (step 2850, n=4 mean 3.277780)
 
   **All 8 students active (zero idle):**
 
   | PR | Student | Hypothesis | Status |
   |---|---|---|---|
-  | #2412 | tanjiro | H-EU STAIRCASE fractional generalization (Arm B frac=0.30) | T1 ~15:50 UTC |
-  | #2414 | fern | H-EV cross-axis (0.995, step=770) | n=4 confirm running |
-  | #2415 | frieren | H-EW cross-axis (0.995, step=870) | n=4 confirm running, ETA 16:30 UTC |
+  | #2412 | tanjiro | H-EU STAIRCASE fractional generalization | Arm B running |
+  | #2414 | fern | H-EV cross-axis (0.995, step=770) | n=4 running, ETA 17:00 UTC |
+  | #2415 | frieren | H-EW cross-axis (0.995, step=870) | n=4 running, ETA 16:30 UTC |
   | #2416 | edward | H-EX cross-axis (0.995, step=720) | n=2 progressing |
-  | #2418 | askeladd | H-EZ STAIRCASE-995-DESCENT 0.995→0.99@cooldown | n=4 in flight ETA 20:02 UTC |
-  | #2419 | thorfinn | H-FA STAIRCASE-PEAK-AT-COOLDOWN 0.99 plateau→0.995 cooldown | Pickup pending |
+  | #2418 | askeladd | H-EZ STAIRCASE-DESCENT 0.995→0.99@cooldown | n=4 ETA 20:02 UTC |
+  | #2419 | thorfinn | H-FA STAIRCASE-PEAK-AT-COOLDOWN | Pickup pending |
   | #2420 | nezuko | H-FB STAIRCASE-ASCENT 0.95→0.99@410→0.995@820 | Pickup pending |
-  | #2421 | **alphonse** | **H-FC AdamW v WARM-RESTART @ step 820 (no β₂ pulse)** | **Just assigned** |
+  | #2422 | **alphonse** | **H-FD per-group β₂ pulse ablation (embed/lm_head/scalars)** | **Just assigned** |
 
-  **Mechanism-class shift initiated:** H-FC is the first optimizer-state mechanism since the H-EJ pulse landed. The directive prioritizes optimizer-state/preconditioner/readout mechanisms over more scalar tuning. H-FC decomposes the β₂-pulse mechanism into its two effects (smoothing change vs. implicit v-reset), with either result yielding principled understanding.
+  **4-cell staircase trajectory ablation IN FLIGHT:**
 
-  **Closed cells (amplitude × step at step=820 unless noted):**
-  - ~~(0.99, step=970)~~: PR #2410 INFERIOR step 2875 only
-  - ~~(0.99, step=1156)~~: PR #2411 INFERIOR/FALSIFIED ~+0.0009 worse
-  - **(0.995, 820): PR #2405 RANK-1 ✓** (n=4 mean step 2850 = 3.277780)
-  - ~~(0.997, 820)~~: PR #2417 FALSIFIED ~+0.0013 worse
-  - ~~(0.999, 820)~~: PR #2413 FALSIFIED
+  | trajectory | pre-820 | high (820-cd) | cooldown |
+  |---|---|---|---|
+  | **RANK-1 H-EJ** | 0.95 | **0.995** | **0.995** |
+  | H-EZ DESCENT (#2418) | 0.95 | 0.995 | 0.99 |
+  | H-FA PEAK-COOLDOWN (#2419) | 0.95 | 0.99 | 0.995 |
+  | H-FB ASCENT (#2420) | 0.95→0.99@410 | 0.995 | 0.995 |
 
-  **4-cell staircase trajectory ablation (peak β₂=0.995 @ step 820) — IN FLIGHT:**
+  **Cross-axis step grid (amp=0.995) IN FLIGHT:**
+  - (0.995, 720): edward PR #2416 [n=2]
+  - (0.995, 770): fern PR #2414 [n=4 ETA 17:00 UTC]
+  - **(0.995, 820): RANK-1 ✓**
+  - (0.995, 870): frieren PR #2415 [n=4 ETA 16:30 UTC]
 
-  | trajectory | low (0-409) | mid (410-819) | high (820-cd) | cooldown |
-  |---|---|---|---|---|
-  | **RANK-1 H-EJ (two-stage)** | 0.95 (0-819) | — | **0.995** (820-cd) | **0.995** |
-  | H-EZ DESCENT (askeladd #2418) | 0.95 | — | 0.995 | 0.99 (drops) |
-  | H-FA PEAK-COOLDOWN (thorfinn #2419) | 0.95 | — | 0.99 (low peak) | 0.995 |
-  | **H-FB ASCENT (nezuko #2420)** | **0.95** | **0.99** | **0.995** | **0.995** |
+  **Fractional generalization IN FLIGHT (tanjiro PR #2412):**
+  - Arm A frac=0.25 (step 723) n=2 STRONG: step 2875 = 3.276165 PASSES n=2 ≤ 3.277172
+  - Arm B frac=0.30 running
 
-  **Cross-axis step grid (amp=0.995):**
-  - (0.995, 720): edward PR #2416 [n=2 progressing]
-  - (0.995, 770): fern PR #2414 [n=4 confirm running ETA 17:00 UTC]
-  - **(0.995, 820): PR #2405 RANK-1 ✓**
-  - (0.995, 870): frieren PR #2415 [n=4 confirm running ETA 16:30 UTC]
-
-  **Fractional generalization (tanjiro PR #2412):**
-  - Arm A frac=0.25 (step 723, staircase amp=0.99) n=2 STRONG: step 2875 = 3.276165 PASSES n=2 ≤ 3.277172; matches PR #2403 reference exactly
-  - Arm B frac=0.30 (step 867) running, ETA ~15:50 UTC
-  - Will trigger n=4 confirm of winning arm
-
-  **Next-direction queue (post-cycle triggers):**
-  - If H-FC v-reset alone ≥ rank-1: pivot ALL students to v-reset-class mechanisms (no more β₂ tuning needed — simpler stack wins)
-  - If staircase 4-cell ablation finds NO winner: pivot to compound rank-1 + NEW mechanism (e.g., LR-coupled β₂, gradient clipping schedule, EMA readout)
-  - If cross-axis grid finds NO step<820 winner at n=4: step is locked. Pivot to mechanism-class shift across the fleet
+  **Next-direction queue:**
+  - If H-FD embed-only matches rank-1: mechanism is localized → target embed smoothing in future experiments
+  - If staircase ablation finds winner: compound with rank-1 merge and push for step 2825
+  - If cross-axis finds step<820 winner: rerun amplitude search at new step
 
 ---
 
