@@ -1,6 +1,48 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-09 ~18:05 UTC — **PR #2423 fern H-FE AMSGrad assigned. Thorfinn pod PENDING (cluster GPU capacity). All other 7/8 students active.**
+- **As of:** 2026-06-09 ~18:50 UTC — **Cross-axis cells CLOSED: PR #2416 H-EX FALSIFIED, PR #2415 H-EW INCONCLUSIVE. NEW NON-β₂-AXIS WAVE: H-FF (β₁ pulse) + H-FI (EN γ anneal) + H-FE (AMSGrad) in flight. Fleet: 8/8 active.**
+
+  **PIVOT — cross-axis (amp, step) basin saturated:**
+  - (0.995, 720) FALSIFIED, (0.995, 770) FALSIFIED, (0.995, 820) RANK-1, (0.995, 870) INCONCLUSIVE-tied
+  - Pulse_step has a tight minimum at 820 (within ±50 step window); further sweeps on this axis won't advance the frontier.
+
+  **NEW ASSIGNMENTS — non-β₂-axis exploration:**
+  - **H-FF (PR #2424, edward):** β₁ × β₂ joint pulse on aux Adam. Tests β₁ ↑ (lock-in 0.8→0.85) and β₁ ↓ (forget 0.8→0.7) simultaneous to existing β₂ pulse @ step 820. n=2 each (~6.5h). Tier 1 — β₁ axis fully untested.
+  - **H-FI (PR #2425, frieren):** EMA-Nesterov γ linear anneal through cooldown (0.99 → 0.97 / 0.90 over [2068, 2890]). Tier 2 — EN is largest single-component contributor. 1cycle momentum schedule literature motivation.
+  - **H-FE (PR #2423, fern):** AMSGrad on aux Adam — non-β₂ mechanism (Arm A isolation + Arm B composition with rank-1 β₂ pulse). In flight.
+
+  **Active fleet status (18:50 UTC):**
+
+  | PR | Student | Hypothesis | Status |
+  |---|---|---|---|
+  | #2412 | tanjiro | H-EU STAIRCASE fractional generalization | n=4 confirm Arm A frac=0.25 (W&B 8joy6fde), ETA 20:55 UTC |
+  | #2418 | askeladd | H-EZ STAIRCASE-DESCENT 0.995→0.99@cooldown | n=4 in flight |
+  | #2419 | thorfinn | H-FA STAIRCASE-PEAK-AT-COOLDOWN | Pod PENDING (cluster capacity) |
+  | #2420 | nezuko | H-FB STAIRCASE-ASCENT (relaunched seeds 1-3 after pod restart) | n=1 seed 0 negative; n=3 relaunch in flight, ETA ~22-23 UTC |
+  | #2422 | alphonse | H-FD per-group β₂ pulse ablation | In flight |
+  | #2423 | fern | H-FE AMSGrad on aux Adam (isolation + composition) | In flight |
+  | **#2424** | **edward** | **H-FF β₁ × β₂ joint pulse (NEW Tier 1)** | **Just assigned** |
+  | **#2425** | **frieren** | **H-FI EN γ anneal through cooldown (NEW Tier 2)** | **Just assigned** |
+
+  **Generalization track (per human directive):**
+  - tanjiro H-EU Arm A frac=0.25 n=2 step 2875 PASS ✓ — fractional rule generalizes
+  - tanjiro Arm B frac=0.30 n=2 step 2875 PASS ✓ — robust to ±5% frac
+  - **n=4 confirm of Arm A in flight** — if mean ≤ rank-1's 3.276366 at step 2875, candidate fractional rank-1
+  - Arm A < Arm B suggests gradient still favors earlier pulse; future probe could test frac ∈ {0.20, 0.22}
+
+  **Mechanism portfolio coverage:**
+  1. β₂-pulse: rank-1 (PR #2405 — saturated cross-axis)
+  2. STAIRCASE trajectory: 3-cell ablation H-EZ/H-FA/H-FB
+  3. Per-group β₂ localization: H-FD (alphonse)
+  4. Fractional generalization: H-EU (tanjiro)
+  5. **NEW: Non-β₂ mechanisms** — H-FE AMSGrad, H-FF β₁ pulse, H-FI EN γ anneal
+
+  **Pending hypothesis queue (next idle slots):**
+  - H-FG: NS5 input whitening via Gram-Schmidt (Muon side, Tier 2)
+  - H-FH: Adaptive cooldown trigger on train loss slope (Tier 2)
+  - H-FK: Muon-only SWA (last 150 steps Polyak average for eval) — benchmark-safe
+  - H-FJ: STAIRCASE generalization at train_steps=2500 (alternate budget probe for human directive)
+
 
   **NEW ASSIGNMENT — H-FE (PR #2423, fern):** AMSGrad on aux Adam, two-arm test.
   - Arm A (isolation): AMSGrad alone, no β₂ pulse — does the monotonic v_hat = max(v_hat, v_t) mechanism match rank-1 WITHOUT timing hyperparameter?

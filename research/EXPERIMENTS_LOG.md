@@ -1,5 +1,33 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-09 18:50 — Cycle: PR #2416 H-EX FALSIFIED + PR #2415 H-EW INCONCLUSIVE; H-FF + H-FI assigned
+
+**Closed cross-axis cells (amp=0.995, step≠820):**
+
+| PR | Student | Hypothesis | n=4 mean @ 2850 | Δ vs rank-1 | Earliest official-valid |
+|---|---|---|---:|---:|---:|
+| #2416 | edward | H-EX β₂ pulse 0.95→0.995 @ step **720** (earliest cell) | **3.278705** | **+0.000925** | step **2875** ⟵ FALSIFIED |
+| #2415 | frieren | H-EW β₂ pulse 0.95→0.995 @ step **870** | **3.277875** | **+0.000095** | step **2850** ⟵ INCONCLUSIVE (tied-but-worse) |
+
+**Combined cross-axis result (amp=0.995 × pulse_step):**
+
+| pulse step | n=4 mean @ 2850 | Earliest official-valid | Notes |
+|---:|---:|:---:|---|
+| 720 | 3.278705 | 2875 | FALSIFIED (this cycle) |
+| 770 | 3.277874 | 2875 | FALSIFIED (PR #2414 fern) |
+| **820 ★** | **3.277780** | **2850** | **RANK-1 (PR #2405)** |
+| 870 | 3.277875 | 2850 | INCONCLUSIVE +0.000095 (this cycle) |
+
+**Mechanism conclusion:** The (amp=0.995 × step) cross-axis is fully characterized with a tight minimum at step=820. The basin is flat in ±50 step range but rank-1 sits at the precise minimum. **Further pulse_step sweeps at amp=0.995 will not advance the frontier** — pivoting both edward and frieren to NEW mechanism classes.
+
+**H-FF assigned (PR #2424, edward):** β₁ × β₂ joint pulse on aux Adam — compositional layer on rank-1. Tests both β₁ ↑ (lock-in) and β₁ ↓ (forget stale) at step 820 simultaneous to existing β₂ pulse. Single n=2 each = ~6.5h total. β₁ has been UNTESTED as a pulse axis to date (Tier 1 hypothesis).
+
+**H-FI assigned (PR #2425, frieren):** EMA-Nesterov γ linear anneal through cooldown (0.99 → 0.97 / 0.90 over steps 2068→2890). EN contributes the largest single-component Δ in the stack (−0.0028). The 1cycle momentum literature suggests lowering momentum during cooldown helps tighten basin landing. n=2 each = ~6.5h total. Orthogonal to β₂ pulse (Muon-side vs aux Adam-side).
+
+---
+
+# SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
+
 ## 2026-06-09 16:50 — PR #2421 alphonse H-FC MECHANISM FALSIFIED; H-FD per-group β₂ pulse assigned (PR #2422)
 
 **Closed MECHANISM FALSIFIED (high-value negative result):**
