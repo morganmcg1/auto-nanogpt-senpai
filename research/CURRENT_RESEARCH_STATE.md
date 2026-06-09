@@ -37,6 +37,31 @@
 
   **W&B fixed-step harvest sub-agent dispatched (~07:33 UTC)** to read val/ri at 2825/2850/2875/2890 for PR #2393 / #2404 / #2399 / #2408 / Arm A CORE distributed seeds. Will identify any speedrun-improving signals.
 
+  **🚨 HARVEST 1 RESULTS (~07:50 UTC):** `val/ri_loss_gamma_neg0p0750` is only logged at step 2890 — it's a final-step rollup. Re-dispatched harvest for `val/loss` (the OFFICIAL metric, logged at every eval step).
+
+  **🚨 HARVEST 2 RESULTS (~07:55 UTC):**
+
+  **Confirmed (single-trial runs, no aggregation bug):**
+
+  | Group | n | step 2850 mean | step 2875 mean | step 2890 mean | n=4 OFFICIAL-VALID @ |
+  |---|---:|---:|---:|---:|---|
+  | **STAIRCASE (tanjiro PR #2403, s1+s2+s3+s4)** | 4 | 3.278229 (FAIL) | **3.276832** | 3.275796 | **step 2875** |
+  | **Arm A CORE (step=970 canonical, s1-s4)** | 4 | 3.278343 (FAIL) | **3.276925** | 3.275884 | **step 2875** |
+
+  **UNVERIFIED (multi-trial wandb-step offset bug in first agent):**
+  - H-EI = PR #2393 (v3z3t171) + PR #2404 (iblvhrvk) seeds 1-4
+  - 596182tl (askeladd target=0.995)
+  - z3x4asad (frieren step=770 n=2)
+  - 7xv899lx (edward step=870 n=2)
+  - PR #2349 (frieren H-AY) — never harvested
+  - Re-dispatched verification agent ~07:55 UTC with offset rule: `wandb_step = trial_idx * (train_steps+1) + step`.
+
+  **Strategic question:** Does PR #2349 also pass n=4 official-validity at step 2875? If YES, STAIRCASE / Arm A CORE merely tie. If NO, they win speedrun (step 2875 < 2890 by 15 steps).
+
+  **Cherry-picking note:** Prior agent reported STAIRCASE n=3 (seeds 1+2+3 excl. seed 4 outlier) at step 2850 = 3.277473 PASS. But seed 4 has terminal data — strict "non-cherry-picked seeds" semantics forces reporting n=4. STAIRCASE n=4 at step 2850 = 3.278229 FAIL. Earliest official-valid step for STAIRCASE n=4 is 2875.
+
+  **BASELINE.md HELD pending verification agent return.** Issue #2388 update posted (comment 4657460502).
+
   **Re-classification of prior reads against corrected baseline:**
 
   | PR | Mechanism | n | Mean | Old class | **NEW class** |
