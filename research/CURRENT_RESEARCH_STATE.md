@@ -1,5 +1,34 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
+- **As of:** 2026-06-09 ~03:15 UTC — **🏆 RANK-1 HOLDS = 3.274835 (PR #2393).** H-EG continuous-β₂-rule family DEFINITIVELY FALSIFIED across all 4 arms — discrete pulse is essential. H-EH STACK FALSIFIED. **Basin × Amplitude grid now in flight (5 PRs).** First INCONCLUSIVE candidate: tanjiro H-EH-3 STAIRCASE seed 1 = 3.27512 (n=2 pending).
+
+  **H-EG (continuous β₂ rule) closed — 4/4 FALSIFIED:**
+  - PR #2398 askeladd linear-step ramp: 3.277801 FALSIFIED (Δ +0.002966)
+  - PR #2400 frieren LR-coupled β₂: 3.276251 FALSIFIED (Δ +0.001416)
+  - PR #2397 nezuko cooldown smooth ramp: 3.277980 FALSIFIED (Δ +0.003145)
+  - PR #2399 alphonse cooldown-aligned **step** pulse (parameter-free): in flight `gd044r7b` step 882/2890 — last sub-arm of family
+  - **Conclusion:** smooth schedules fail; the *discrete jump itself* is load-bearing. Time-integrated ⟨β₂⟩ argument: rank-1 ≈0.979 vs ramp ≈0.962 ⇒ +0.003 gap.
+
+  **H-EH STACK closed — FALSIFIED:**
+  - PR #2401 edward EARLIER + MILD stack (820 + cd_start 0.97): 3.276647 FALSIFIED — stacking hurts.
+
+  **H-EH/J/K/L/M Basin × Amplitude grid (in flight, vs rank-1 3.274835):**
+
+  | Axis | PR | Step | Amplitude | W&B run | Progress | ETA |
+  |---:|---:|---:|---:|---|---|---|
+  | step=720 (s1) | #2402 fern | 720 | 0.95→0.99 | bnv7clty (re-RI) | s1 relaunched 02:25 UTC | ~04:05 |
+  | step=770 | #2406 frieren | 770 | 0.95→0.99 | pickup pending | — | — |
+  | step=820★ | rank-1 | 820 | 0.95→0.99 | v3z3t171 | (merged) | — |
+  | step=820 n=4 | #2404 thorfinn | 820 | 0.95→0.99 | iblvhrvk seed 3 | 33.6% at 02:16 UTC | ~05:30 |
+  | step=870 | #2407 edward | 870 | 0.95→0.99 | pickup pending | — | — |
+  | target=0.995 | #2405 askeladd | 820 | 0.95→0.995 | pickup pending | — | — |
+  | target=0.999 | #2408 nezuko | 820 | 0.95→0.999 | pickup pending | — | — |
+  | STAIRCASE | #2403 tanjiro | 820+1156 | 0.95→0.97→0.99 | onbpdqpa seed 1 | **3.27512 (INCONCLUSIVE)** seed 2 launched 02:24 | ~04:30 |
+
+  **First decision point:** tanjiro H-EH-3 STAIRCASE seed 2 terminal ~04:30 UTC → n=2 mean decision. If sub-3.274835 → MERGE-eligible STAIRCASE rule.
+
+  **Posted Issue #2388 synthesis** (~03:14 UTC): explained discrete pulse generalizes as piecewise-constant law `β₂(t) = β₂_low if t < pulse_step else β₂_high`; outlined (f, Δ) parameter space probe.
+
 - **As of:** 2026-06-09 ~00:45 UTC (launch day +5) — **🏆 NEW RANK-1: PR #2393 MERGED. val/ri_loss_gamma_neg0p0750 = 3.274835 (n=2, thorfinn H-EF Arm B EARLIER β₂ pulse@820 0.95→0.99).** H-EF round closed. H-EG (generalization) + H-EH (extensions) active. thorfinn n=4 confirm assigned (PR #2404).
 
   **H-EF round final results (closed):**
