@@ -1,6 +1,45 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-09 ~03:15 UTC — **🏆 RANK-1 HOLDS = 3.274835 (PR #2393).** H-EG continuous-β₂-rule family DEFINITIVELY FALSIFIED across all 4 arms — discrete pulse is essential. H-EH STACK FALSIFIED. **Basin × Amplitude grid now in flight (5 PRs).** First INCONCLUSIVE candidate: tanjiro H-EH-3 STAIRCASE seed 1 = 3.27512 (n=2 pending).
+- **As of:** 2026-06-09 ~05:30 UTC — **🚨 RANK-1 REVERTED to PR #2349 (n=4 = 3.276172).** PR #2393 (n=2 = 3.274835) FALSIFIED at n=4 by PR #2404 (thorfinn iblvhrvk) — n=4 mean **3.276616** (sample std 0.002958), +0.000444 REGRESSION vs PR #2349. PR #2393 seeds 1+2 were a lucky pair; seed 4 even missed the 3.28 target (val/ri = 3.280989).
+
+  **BASELINE.md updated** (commit dee6be86). Code merge KEPT — `--aux_b2_*` flags remain available; default `aux_b2_start=-1.0` disables the pulse (no behavior change vs PR #2349 baseline). Issue #2388 critical-update comment posted (~05:29 UTC).
+
+  **Corrected decision gates (vs PR #2349 = 3.276172):**
+  - STRONG ≤ 3.275772
+  - MERGE-eligible (3.275772, 3.276172]
+  - INCONCLUSIVE (3.276172, 3.276572)
+  - FALSIFIED ≥ 3.276572
+
+  **Re-classification of prior reads against corrected baseline:**
+
+  | PR | Mechanism | n | Mean | Old class | **NEW class** |
+  |---:|---|---:|---:|---|---|
+  | #2404 | step=820 pulse | 4 | 3.276616 | n=2 STRONG (cherry) | **FALSIFIED** |
+  | (Arm A CORE portfolio) | step=970 pulse | 4 dist | 3.275884 | MERGE-eligible | **MERGE-eligible** (single-PR n=4 confirm needed) |
+  | #2399 (closed) | step=1156 cd_start | 1 | 3.27565 | FALSIFIED | **STRONG-band** (n=4 needed) |
+  | #2402 fern s1 (re-RI) | step=720 | 1 | 3.275366 | INCONCLUSIVE | **STRONG-band** (n=2 in flight) |
+  | #2403 tanjiro s1 | STAIRCASE | 1 | 3.27512 | INCONCLUSIVE | **STRONG-band** (n=2 in flight) |
+  | #2405 askeladd T0 | target=0.995 | 1 | 3.276595 | FALSIFIED | **INCONCLUSIVE** (T1 pending) |
+  | #2400 frieren | LR-coupled β₂ | 1 | 3.276251 | FALSIFIED | **INCONCLUSIVE** (single-seed) |
+
+  **Thorfinn (idle after #2404 close) reassigned PR #2410 H-EO:** single-PR n=4 confirm of canonical step=970 pulse (the audited #1532/#1614 pulse_step). This is the highest-value next experiment because (a) the distributed-seed portfolio reported 3.275884 MERGE-eligible vs corrected baseline, and (b) we need a clean single-PR n=4 to validate or falsify the audited canonical step in our stack.
+
+  **Open basin/amplitude/STAIRCASE/eps experiments (re-anchored gates posted to all 7 PRs):**
+
+  | PR | Student | Mechanism | Status |
+  |---:|---|---|---|
+  | #2410 | thorfinn | H-EO step=970 n=4 (CANONICAL TEST) | just assigned ~05:28 UTC |
+  | #2402 | fern | step=720 | re-RI s1=3.275366 STRONG-band, s2 in flight |
+  | #2403 | tanjiro | STAIRCASE 820+cd_start | s1=3.27512 STRONG-band, s2 in flight |
+  | #2405 | askeladd | target=0.995 | T0=3.276595 INCONCLUSIVE, T1 in flight |
+  | #2406 | frieren | step=770 | z3x4asad active post-jorwplzm-kill |
+  | #2407 | edward | step=870 | trial 1 in flight |
+  | #2408 | nezuko | target=0.999 | not yet picked up (stale_wip) |
+  | #2409 | alphonse | H-EN eps pulse @ 820 | just assigned |
+
+  **Key generalizable lesson:** for high-variance optimizer-state perturbations (sample std ~3 millinats per seed on this stack), n=2 is insufficient evidence — cherry-picking risk is too high. **Mandatory n=4 single-PR confirm from now on for any β₂-pulse-direction MERGE.**
+
+- **As of:** 2026-06-09 ~03:15 UTC — *[SUPERSEDED]* RANK-1 HOLDS = 3.274835 (PR #2393). H-EG continuous-β₂-rule family DEFINITIVELY FALSIFIED across all 4 arms — discrete pulse is essential. H-EH STACK FALSIFIED. **Basin × Amplitude grid now in flight (5 PRs).** First INCONCLUSIVE candidate: tanjiro H-EH-3 STAIRCASE seed 1 = 3.27512 (n=2 pending).
 
   **H-EG (continuous β₂ rule) closed — 4/4 FALSIFIED:**
   - PR #2398 askeladd linear-step ramp: 3.277801 FALSIFIED (Δ +0.002966)
