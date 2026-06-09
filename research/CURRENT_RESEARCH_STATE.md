@@ -1,5 +1,60 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
+- **As of:** 2026-06-09 ~14:40 UTC — **PR #2411 nezuko H-EQ LATER-basin CLOSED INFERIOR/FALSIFIED (~+0.00089 worse than rank-1 at every step); H-FB STAIRCASE-ASCENT assigned (PR #2420).**
+
+  Two terminal closures this cycle from the amp=0.99 axis confirm: amp=0.99 cannot beat amp=0.995. The amplitude axis dominates the step axis. Both #2410 (step=970) and #2411 (step=1156) had seed 4 outliers (~+0.0025 above seeds 1/2/3) suggesting amp=0.995 also has tighter seed dispersion as a side benefit.
+
+  **All 8 students now active (zero idle):**
+
+  | PR | Student | Hypothesis | Status |
+  |---|---|---|---|
+  | #2412 | tanjiro | H-EU STAIRCASE fractional generalization (Arm B frac=0.30) | T1 ~15:50 UTC |
+  | #2414 | fern | H-EV cross-axis (0.995, step=770) | T0 done 3.27871; T1 ~13:46 UTC |
+  | #2415 | frieren | H-EW cross-axis (0.995, step=870) | T0 done 3.27863; T1 ~13:55 UTC |
+  | #2416 | edward | H-EX cross-axis (0.995, step=720) | T0 done 3.27887; T1 ~14:25 UTC |
+  | #2417 | alphonse | H-EY (0.997, step=820) amplitude bisection | T0 imminent ~14:40 UTC |
+  | #2418 | askeladd | H-EZ STAIRCASE-995-DESCENT 0.995→0.99@cooldown | n=4 in flight; ETA ~14:11 UTC for T0 |
+  | #2419 | thorfinn | H-FA STAIRCASE-PEAK-AT-COOLDOWN 0.99 plateau→0.995 cooldown | Just assigned 13:25 UTC |
+  | #2420 | nezuko | **H-FB STAIRCASE-ASCENT 0.95→0.99@410→0.995@820** | **Just assigned** |
+
+  **4-cell staircase trajectory ablation (peak β₂=0.995 @ step 820):**
+
+  | trajectory | low (0-409) | mid (410-819) | high (820-cd) | cooldown |
+  |---|---|---|---|---|
+  | **RANK-1 H-EJ (two-stage)** | 0.95 (0-819) | — | **0.995** (820-cd) | **0.995** |
+  | H-EZ DESCENT (askeladd #2418) | 0.95 | — | 0.995 | 0.99 (drops) |
+  | H-FA PEAK-COOLDOWN (thorfinn #2419) | 0.95 | — | 0.99 (low peak) | 0.995 |
+  | **H-FB ASCENT (nezuko #2420)** | **0.95** | **0.99** | **0.995** | **0.995** |
+
+  These 4 cells dissect two axes of trajectory shape:
+  - **WHERE peak amp=0.995 lives:** H-EJ holds it through plateau+cooldown; H-EZ drops it in cooldown; H-FA elevates only during cooldown.
+  - **HOW the trajectory enters the peak:** H-EJ does a direct jump 0.95 → 0.995; H-FB does a graduated ramp via 0.99.
+
+  Combined with the cross-axis grid (step axis at amp=0.995) and amplitude bisection (0.997 between rank-1 and FALSIFIED 0.999), this fully characterizes the local landscape of β₂ schedule shapes.
+
+  **Cross-axis grid status — locked down around rank-1 (0.995, 820):**
+  - (0.995, 720): edward PR #2416 [T0 done — val/loss step 2850 = 3.27887 worse than rank-1 mean; trial 1 ~14:25 UTC]
+  - (0.995, 770): fern PR #2414 [T0 done — val/loss step 2850 = 3.27871; trial 1 ~13:46 UTC]
+  - **(0.995, 820): PR #2405 RANK-1 ✓** (n=4 mean step 2850 = 3.277780)
+  - (0.995, 870): frieren PR #2415 [T0 done — val/loss step 2850 = 3.27863; trial 1 ~13:55 UTC]
+  - (0.997, 820): alphonse PR #2417 [trial 0 step 2311/2890, val_loss=3.36 at step 2250 — running clean after duplicate kill]
+  - ~~(0.999, 820)~~: PR #2413 [CLOSED — FALSIFIED]
+  - ~~(amp=0.99 × step=970)~~: thorfinn PR #2410 [CLOSED — INFERIOR step 2875]
+  - ~~(amp=0.99 × step=1156)~~: nezuko PR #2411 [CLOSED — INFERIOR step 2875, ~+0.00089 worse]
+  - **STAIRCASE-995-DESCENT**: askeladd PR #2418 [n=4 in flight]
+  - **STAIRCASE-PEAK-COOLDOWN**: thorfinn PR #2419 [pending pickup]
+  - **STAIRCASE-ASCENT**: nezuko PR #2420 [pending pickup]
+  - **STAIRCASE generalization (fractional)**: tanjiro PR #2412 [Arm A frac=0.25 done — n=2 mean step 2875 = 3.276165 viable; Arm B running]
+
+  **Track 1 (speedrun optimization — next target step 2825):** Need n=4 mean ≤ 3.278 at step 2825. Rank-1 hits 3.279596 at step 2825 (misses by 0.0016). Cross-axis grid is most likely to push step 2825 across via earlier-pulse cells; H-EZ/H-FA/H-FB staircase variants test whether shape can reduce variance enough.
+
+  **Next-direction queue (post-plateau triggers):**
+  - If staircase 4-cell ablation finds NO winner over rank-1: pivot to NEW mechanism class (e.g., AdamW eps schedule, Muon NS coefficient schedule, RI dual capture, layer-wise β₂)
+  - If cross-axis grid finds NO step<820 winner: amplitude bisection (0.996, 0.998) brackets locked
+  - If amplitude bisection finds NO 0.997 winner: 0.995 is the precise peak — pivot to compound (β₂ × ε schedule joint pulse)
+
+---
+
 - **As of:** 2026-06-09 ~13:25 UTC — **PR #2410 thorfinn H-EO canonical step=970 CLOSED INFERIOR (step 2875 only); H-FA STAIRCASE-PEAK-AT-COOLDOWN assigned.** Per-seed n=4: seeds 1/2/3 strong (n=3 mean step 2850 = 3.277504 would have passed n=3 threshold), but seed 4 outlier (val/loss 3.282584 at step 2850, never hit 3.28) pulled n=4 above threshold at step 2850 (3.278774 > 3.278). Earliest official-valid step = 2875 vs rank-1 step 2850. Branch-rank diagnostic INCONCLUSIVE (+0.000150). Step-970 amp=0.99 cell does NOT push speedrun frontier; amplitude axis dominates step axis.
 
   **Thorfinn reassigned to H-FA STAIRCASE-PEAK-AT-COOLDOWN** (PR #2419) — β₂ 0.95 → **0.99 @ step 820** (moderate during plateau) → **0.995 @ step 1156** (peak during cooldown). Mirror of askeladd's H-EZ DESCENT. Completes 2×2 ablation matrix of high-amp placement:

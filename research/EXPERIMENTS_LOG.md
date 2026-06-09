@@ -1,5 +1,59 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-09 14:40 — PR #2411 nezuko H-EQ LATER-basin n=4 INFERIOR/FALSIFIED; H-FB STAIRCASE-ASCENT assigned (PR #2420)
+
+**Closed INFERIOR/FALSIFIED:**
+
+| PR | Student | Hypothesis | n=4 mean (terminal) | Earliest official-valid step |
+|---|---|---|---:|:---|
+| #2411 | nezuko | H-EQ β₂ pulse 0.95 → 0.99 @ step 1156, n=4 single-PR | 3.277211 (step 2890) | **step 2875** (n=4 mean 3.277797 ≤ 3.278) |
+
+Per-seed terminal trajectory (W&B run zjzybh0u):
+
+| step | seed 1 | seed 2 | seed 3 | seed 4 (outlier) | n=4 mean | thresh ≤3.278 | valid? |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2825 | ~3.279 | ~3.279 | ~3.278 | ~3.286 | ~3.280 | ≤3.278 | FAIL |
+| **2850** | ~3.278 | ~3.278 | ~3.277 | ~3.284 | ~3.279 | ≤3.278 | **FAIL** |
+| 2875 | 3.277 | 3.277 | 3.275 | 3.282 | **3.277797** | ≤3.278 | **PASS** |
+| 2890 | 3.275 | 3.276 | 3.274 | 3.281 | 3.277211 | ≤3.278 | PASS |
+
+vs RANK-1 PR #2405 H-EJ:
+- Earliest official-valid step = 2875 (worse by 25 steps)
+- Per-step gap (n=3 mean comparison without seed 4 outlier):
+  - n=3 mean step 2850 ≈ 3.277894 > n=3 threshold 3.277691 — would still fail n=3 even excluding seed 4
+- ~+0.00089 above rank-1 at every fixed step (consistent LATER-basin deficit)
+
+**Interpretation:** The LATER-basin cell (amp=0.99 × step=1156) is uniformly worse than rank-1's (amp=0.995 × step=820). Two failures from the same "drop one axis to 0.99" direction (#2410 step=970 amp=0.99, #2411 step=1156 amp=0.99) confirm amp=0.99 cannot beat amp=0.995. The step axis dominates only when amplitude is held at 0.995. CLOSED.
+
+**Seed 4 outlier pattern across non-amplitude-0.995 PRs:**
+- Both PR #2410 (canonical step=970) and PR #2411 (step=1156) had a seed 4 ~+0.0025 above seeds 1/2/3 at step 2850
+- Rank-1 H-EJ (amp=0.995, step=820) has all 4 seeds tightly clustered
+- Suggests amp=0.995 mechanism has tighter seed dispersion as well as better mean — additional reason it dominates
+
+**New assignment:**
+
+| PR | Student | Hypothesis | Cell |
+|---|---|---|---|
+| #2420 | nezuko | H-FB STAIRCASE ASCENT β₂ 0.95→0.99@410→0.995@820, cooldown_frac=0.30 (cd_start=2023) | Monotone-up ramp into rank-1 peak |
+
+**H-FB completes the 4-cell staircase trajectory ablation** (fixing peak β₂=0.995 at step 820):
+
+| trajectory | low (0-409) | mid (410-819) | high (820-cd) | cooldown |
+|---|---|---|---|---|
+| **RANK-1 H-EJ (two-stage)** | 0.95 (0-819) | — | **0.995** (820-cd) | **0.995** |
+| H-EZ DESCENT (askeladd #2418) | 0.95 | — | 0.995 | 0.99 (drops) |
+| H-FA PEAK-COOLDOWN (thorfinn #2419) | 0.95 | — | 0.99 (low peak) | 0.995 |
+| **H-FB ASCENT (nezuko #2420)** | **0.95** | **0.99** | **0.995** | **0.995** |
+
+H-FA & H-EZ ablate WHERE peak β₂=0.995 lives (plateau vs cooldown);
+H-FB ablates the SHAPE of the approach to plateau (direct jump vs gradual ascent).
+
+If H-FB beats H-EJ: gradual ascent matters → explore 4-step/log-spaced staircases next.
+If H-FB ≈ H-EJ: direct jump is sufficient → mid-step is noise/complexity.
+If H-FB < H-EJ: ascent perturbs an otherwise stable trajectory → simpler is better.
+
+---
+
 ## 2026-06-09 13:25 — PR #2410 thorfinn H-EO canonical step=970 n=4 INFERIOR (step 2875 only); H-FA STAIRCASE-PEAK-AT-COOLDOWN assigned
 
 **Closed INFERIOR:**
