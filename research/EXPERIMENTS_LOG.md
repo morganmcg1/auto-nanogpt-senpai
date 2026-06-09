@@ -1,5 +1,30 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-09 00:45 — PR #2393 MERGED: NEW RANK-1 = 3.274835 (β₂ pulse@820, thorfinn H-EF Arm B EARLIER)
+
+**MERGE EXECUTED.** PR #2393 (thorfinn H-EF Arm B EARLIER: single β₂ pulse 0.95→0.99 @ step 820) squash-merged into `auto-nanogpt-open-sota-v2-20260604`. BASELINE.md updated.
+
+**New rank-1: val/ri_loss_gamma_neg0p0750 = 3.274835** (n=2, seeds 1-2, variance gate passed).
+- Δ vs old rank-1 (PR #2349, 3.276172): **−0.001337** (largest single improvement since H-EF round opened)
+- Stat contract: (3.28 − 3.274835) × √2 = 0.007304 ≥ 0.004 ✓
+- W&B run: `v3z3t171`
+
+**Merge cascade — H-EF held PRs closed as SUPERSEDED:**
+- PR #2389 (frieren Arm A seed=1) → closed, mechanism confirmed by Arm B
+- PR #2390 (edward Arm A seed=2) → closed, mechanism confirmed by Arm B
+- PR #2391 (nezuko Arm A seed=3) → closed, mechanism confirmed by Arm B
+- PR #2394 (tanjiro Arm C LATER) → closed, monotone-EARLIER axis concluded in favor of Arm B
+- PR #2395 (askeladd Arm D MILD) → closed, both timing AND target magnitude improvement confirmed by Arm B
+
+**thorfinn n=4 confirm assigned (PR #2404):** Run seeds 3 and 4 for official n=4 record.
+
+**Key mechanistic finding:** The β₂ pulse axis is MONOTONE in the EARLIER direction. Single pulse from 0.95→0.99 at step 820 (28.4% of T) outperforms pulses at step 970 (33.6%) and 1120 (38.8%). The mechanism: starting β₂ low means AdamW uses short EMA window initially (low noise averaging), then the pulse widens the window before cooldown — giving more steps to benefit from the wider v-buffer before LR shrinks.
+
+**Active follow-on experiments:**
+- H-EG round (PRs #2397-2400): 4 arms testing generalizable β₂ schedule rules vs. new rank-1 3.274835
+- H-EH round (PRs #2401-2403): 3 arms testing stacks/extensions (step 720, staircase, combined)
+- H-EI (PR #2404, thorfinn): n=4 confirm for official record
+
 ## 2026-06-09 00:25 — 🎯 THORFINN ARM B EARLIER n=2 TERMINAL = 3.274835 STRONG (MERGE CANDIDATE)
 
 **Thorfinn Arm B EARLIER (pulse @ step 820, target β₂=0.99) n=2 terminal landed in single combined run `v3z3t171` (5780 steps = 2×2890):**

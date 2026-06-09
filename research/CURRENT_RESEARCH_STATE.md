@@ -1,44 +1,28 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-09 ~00:25 UTC (launch day +5) — **🎯 THORFINN ARM B EARLIER n=2 TERMINAL = 3.274835 STRONG, MERGE CANDIDATE. NEW RANK-1 PENDING SENPAI-RESULT POST.** Trial 0 = 3.274580, Trial 1 = 3.275090. Variance gate |0.000510| < 0.0008 ✓. Stat contract 0.007304 ≥ 0.004 ✓. Δ vs old rank-1 = **−0.001337** (largest improvement in entire H-EF round). Advisor comment posted on PR #2393 requesting SENPAI-RESULT post.
+- **As of:** 2026-06-09 ~00:45 UTC (launch day +5) — **🏆 NEW RANK-1: PR #2393 MERGED. val/ri_loss_gamma_neg0p0750 = 3.274835 (n=2, thorfinn H-EF Arm B EARLIER β₂ pulse@820 0.95→0.99).** H-EF round closed. H-EG (generalization) + H-EH (extensions) active. thorfinn n=4 confirm assigned (PR #2404).
 
-  | Arm | Pulse Step | (β₂_low, β₂_high) | Individual val/ri | Status |
-  |---|---|---|---|---|
-  | A CORE seed=1 (frieren `h7l4x7e4`) | 970 | (0.95, 0.99) | 3.275745 | STRONG individual |
-  | A CORE seed=2 (edward `ejlax86f`) | 970 | (0.95, 0.99) | **3.274684** | STRONG individual (BEST in Arm A) |
-  | A CORE seed=3 (nezuko `573hzih0`) | 970 | (0.95, 0.99) | 3.274814 | STRONG individual |
-  | A CORE seed=4 (alphonse `wej11n4u`) | 970 | (0.95, 0.99) | 3.278294 | FALSIFIED outlier |
-  | **A CORE n=4 mean** | — | — | **3.275884** | **MERGE-eligible (Δ=−0.000288, stat OK 0.00823≥0.004)** |
-  | **B EARLIER trial 0 (thorfinn `v3z3t171`)** | **820** | **(0.95, 0.99)** | **3.27458** | **STRONG, BEST individual; first_step_to_target=2825** |
-  | **B EARLIER trial 1 (thorfinn `v3z3t171` step 5781)** | **820** | **(0.95, 0.99)** | **3.275090** | **STRONG, second trial confirms** |
-  | **B EARLIER n=2 mean** | **820** | **(0.95, 0.99)** | **3.274835** | **🎯 STRONG (MERGE CANDIDATE — pending SENPAI-RESULT)** |
-  | **C LATER (tanjiro `efb7ixbq`)** | **1120** | **(0.95, 0.99)** | **3.275900** | **MERGE-eligible (Δ=−0.000272)** |
-  | D MILD (askeladd `8ui1azlg`) | 970 | (0.95, **0.97**) | 3.275856 | MERGE-eligible n=1 (n=2 `dmklf5al` ~step 2312 inflight) |
-  | E LOWER (fern `44w3mv75`) | 970 | (**0.90**, 0.99) | 3.27775 | FALSIFIED n=1 |
+  **H-EF round final results (closed):**
+  - B EARLIER (820, 0.95→0.99): **3.274835 STRONG → MERGED** (PR #2393)
+  - A CORE (970, 0.95→0.99): 3.275884 MERGE-eligible → CLOSED SUPERSEDED
+  - D MILD (970, 0.95→0.97): 3.275856 MERGE-eligible → CLOSED SUPERSEDED
+  - C LATER (1120, 0.95→0.99): 3.275900 MERGE-eligible → CLOSED SUPERSEDED
+  - E LOWER (970, 0.90→0.99): 3.27775 FALSIFIED → CLOSED
 
-  **Cross-arm monotonicity conclusion:** pulse-step axis MONOTONE in direction of EARLIER. B EARLIER (820, Δ=−0.001592) > A CORE (970, Δ=−0.000288) > C LATER (1120, Δ=−0.000272). Mechanism is sensitive to pulse timing — earlier wins.
+  **Mechanistic finding:** β₂ pulse axis is MONOTONE EARLIER. Single pulse 0.95→0.99 at step 820 (28.4% of T) is optimal tested point. Mechanism: shorter EMA window during high-LR phase, then widen before cooldown. H-EH-2 tests if 720 (24.9%) is even better.
 
-  **Merge cascade (next cycle):** Thorfinn Arm B EARLIER n=2 STRONG → MERGE PR #2393 as new rank-1 (3.274835). Then CLOSE held PRs as SUPERSEDED:
-  - #2389/2390/2391 (Arm A CORE seeds 1/2/3 — single-arm variants of same mechanism, Arm B has larger Δ)
-  - #2394 (Arm C LATER — same mechanism, later step is monotone-worse)
-  - #2395 (Arm D MILD — same mechanism, milder target slightly worse)
+  **Active H-EG generalization round (4 arms, all running, baseline now 3.274835):**
+  - PR #2397 nezuko G-1: LR-cooldown-coupled β₂ ramp. Run `zrt3d7or` step 2425/2890 (84%).
+  - PR #2398 askeladd G-2: Linear-step β₂ ramp. Run `6c1e2by5` step 1450/2890 (50%).
+  - PR #2399 alphonse G-3: Cooldown-aligned step pulse. Run `u4hewbps` step 2023/2890 (70%).
+  - PR #2400 frieren G-4: LR-coupled continuous β₂. Run `4yo48v2f` step 1351/2890 (47%).
 
-  Post-merge, assign cleanup PR to one student to make `--aux_b2_rule single_step --aux_b2_pulse_step 820 --aux_b2_high 0.99` the default behavior (no flag needed). Other students continue H-EG (generalization) + H-EH-1/2/3 (stacks/extensions) which still test orthogonal axes.
+  **Active H-EH extensions round (3 arms, all running, baseline now 3.274835):**
+  - PR #2401 edward H-EH-1: Stack Arm B EARLIER + Arm D MILD (820 + 0.97). Run `te0wptlm` step 750/2890 (26%).
+  - PR #2402 fern H-EH-2: EVEN-EARLIER pulse@720. Run `bnv7clty` step 1475/2890 (51%).
+  - PR #2403 tanjiro H-EH-3: STAIRCASE two-pulse (0.95→0.97@820, 0.97→0.99@cd_start). Run `onbpdqpa` step 350/2890 (12%).
 
-  **H-EG generalization round (per human Issue #2388 19:48 UTC ask) — 4 arms:**
-  - PR #2397 nezuko G-1: LR-cooldown-coupled β₂ ramp (β₂(t) = 0.95 pre-cd_start, ramp 0.95→0.99 across cooldown). Run `zrt3d7or` step 875/2890.
-  - PR #2398 askeladd G-2: Linear-step β₂ (β₂(t) = 0.95 + 0.04 × t/T, parameter-free). Pickup pending (askeladd finishing Arm D seed=2 `dmklf5al` first).
-  - PR #2399 alphonse G-3: Cooldown-aligned STEP pulse (β₂ steps at cd_start=1156, rule-based). Pickup pending.
-  - PR #2400 frieren G-4: LR-coupled CONTINUOUS β₂ (β₂(t) = 0.95 + 0.04 × (1 − lr(t)/lr_max), throughout training). Run `5u2ynlrl` step 1.
-
-  **H-EH STACK + EXTENSION round (NEW, 23:40 UTC → 00:10 UTC):**
-  - PR #2401 edward H-EH-1: Stack Arm B EARLIER (820) + Arm D MILD (target 0.97). Tests whether better timing + gentler target compose additively. If lands ≤ 3.275 between Arm B trial 0 and STRONG gate, becomes merge candidate over Arm A CORE n=4 (3.275884) and Arm B EARLIER alone.
-  - PR #2402 fern H-EH-2: EVEN-EARLIER pulse@720 (24.9% of T) — extends monotone-EARLIER axis past Arm B (820). Tests whether the EARLIER signal continues, or whether 820 is near-optimal. Pure single_step rule, target 0.99 (no MILD).
-  - PR #2403 tanjiro H-EH-3: STAIRCASE two-pulse rule (0.95→0.97 @ step 820, 0.97→0.99 @ cd_start=1156). Tests whether smooth gradual widening beats single sharp jump. Combines Arm B EARLIER timing + Arm D MILD intermediate + cooldown alignment.
-
-  **PR #2394 tanjiro Arm C LATER**: terminal SENPAI-RESULT posted at 23:46 UTC = 3.275900 MERGE-eligible (held with #2389/2390/2391/2395 pending thorfinn Arm B EARLIER n=2 decision ~01:23 UTC).
-
-  **Idle students cleared:** 8 of 8 students now have active wip PRs (or held review-PRs queued behind a wip).
+  **thorfinn H-EI (PR #2404):** n=4 confirm — run seeds 3+4 of PR #2393 for official record.
 - **Earlier:** ~19:55 UTC mass pivot to Issue #2388 executed: 8 in-flight PRs closed, 8 H-EF arm PRs assigned (#2389–#2396) covering 5 arms — Core (n=4 across 4 students), Earlier-pulse (820), Later-pulse (1120), Mild-target (0.97), Lower-start (0.90). **Preserved state for re-open after H-EF signal:** frieren H-DS MERGE-eligible n=2 mean 3.276080 (seeds 6omk0f3n, 6rap87sh).
 - **Tag:** `auto-nanogpt-open-sota-v2-20260604`
 - **Branch:** `auto-nanogpt-open-sota-v2-20260604`
@@ -46,20 +30,21 @@
 - **Students (8):** open2-alphonse, open2-askeladd, open2-edward, open2-fern,
   open2-frieren, open2-nezuko, open2-tanjiro, open2-thorfinn
 
-## 🏆 RANK-1 BASELINE (updated ~23:30 UTC 2026-06-07, PR #2349 merged)
+## 🏆 RANK-1 BASELINE (updated ~00:45 UTC 2026-06-09, PR #2393 merged)
 
-**PR #2349 (frieren H-AY): NC × Arbor + EMA-Nesterov + RI + eps=1e-12 = 3.276172 at 2890 steps**
-- Stack: Cautious-Muon (NC) + Sinkhorn Arbor + EMA-Nesterov (γ=0.99) + RI (capture=2375, γ=−0.075) + **AdamW eps=1e-12** (tightened from 1e-10)
-- W&B: `521ky42j`/`nbptdumy`. Contract margin: 0.007656.
+**PR #2393 (thorfinn H-EF Arm B EARLIER): β₂ pulse 0.95→0.99 @ step 820 = 3.274835 at 2890 steps (n=2)**
+- Stack: rank-1 PR #2349 stack + single-step β₂ pulse: optimizer1 (AdamW embed/lm_head/scalars) initialized β₂=0.95, pulsed to 0.99 at step 820 (28.4% of T). Muon untouched.
+- W&B: `v3z3t171`. Contract margin (n=2): 0.007304. Variance gate: |T0−T1|=0.000510 < 0.0008 ✓.
+- Reproduce: `cd records/track_3_optimization && torchrun --standalone --nproc_per_node=1 train_gpt_simple.py --aux_b2_start 0.95 --aux_b2_target 0.99 --aux_b2_pulse_step 820 --ri_capture_step 2375 --ri_gamma -0.075 --ri_extra_gammas "0,-0.05" --seed_offset 1`
 
-**Previous rank-1**: PR #2317 (nezuko H-W) = 3.276193 (margin 0.007615). Delta: −0.000021.
+**Previous rank-1**: PR #2349 (frieren H-AY) = 3.276172 (n=4, eps=1e-12). Delta: **−0.001337**.
 
-## Decision gates (rank-1 = 3.276172)
+## Decision gates (rank-1 = 3.274835, n=2 variance-gate-passed)
 
-- STRONG ≤ 3.275772 → n=4 confirm → MERGE
-- (3.275772, 3.276172] → MERGE-eligible → n=4 confirm
-- (3.276172, 3.276572) → INCONCLUSIVE → close axis
-- ≥ 3.276572 → FALSIFIED → close axis
+- **STRONG** ≤ 3.274435 → escalate to n=4 immediately
+- **MERGE-eligible** (3.274435, 3.274835] → n=4 confirm then merge
+- **INCONCLUSIVE** (3.274835, 3.275235) → post result, evaluate
+- **FALSIFIED** ≥ 3.275235 → close axis
 - **Variance gate**: |T0 − T1| > 0.0008 → mandatory n=4 before any merge
 
 ## 🔬 NC-PLACEMENT AXIS FULLY CLOSED (58th lever, 18:30 UTC)
