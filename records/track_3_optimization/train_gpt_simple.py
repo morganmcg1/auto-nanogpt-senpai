@@ -165,6 +165,8 @@ def parse_args():
                         help="Final β₂ from cd_start onwards under 'staircase'.")
     parser.add_argument("--aux_b2_pulse_step_1", type=int, default=820,
                         help="First pulse step under 'staircase' (low→mid).")
+    parser.add_argument("--aux_b2_pulse_frac_1", type=float, default=-1.0,
+                        help="Pulse 1 position as fraction of train_steps (overrides aux_b2_pulse_step_1 if > 0).")
     parser.add_argument("--aux_b2_cooldown_frac", type=float, default=0.60,
                         help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
                              "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
@@ -1252,6 +1254,7 @@ if dist.get_rank() == 0:
             "aux_b2_mid": args.aux_b2_mid,
             "aux_b2_high": args.aux_b2_high,
             "aux_b2_pulse_step_1": args.aux_b2_pulse_step_1,
+            "aux_b2_pulse_frac_1": args.aux_b2_pulse_frac_1,
             "aux_b2_cooldown_frac": args.aux_b2_cooldown_frac,
             "aux_b2_enabled": args.aux_b2_rule != "none",
         },
@@ -1316,6 +1319,8 @@ for trial_idx in range(args.num_trials):
             beta1 = group["betas"][0]
             group["betas"] = (beta1, args.aux_b2_low)
         print0(f"[init] aux_b2 OVERRIDDEN: β₂ → {args.aux_b2_low} (rule={args.aux_b2_rule})", console=True)
+    if args.aux_b2_pulse_frac_1 > 0.0:
+        args.aux_b2_pulse_step_1 = round(args.aux_b2_pulse_frac_1 * train_steps)
     aux_b2_cd_start = int(train_steps * (1.0 - args.aux_b2_cooldown_frac))
     if args.aux_b2_rule == "staircase":
         print0(
