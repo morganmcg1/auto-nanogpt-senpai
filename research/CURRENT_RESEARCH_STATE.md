@@ -1,5 +1,21 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
+- **As of:** 2026-06-09 ~10:15 UTC — **Cross-axis grid completion cycle.** Three (0.99 × pulse_step) PRs closed as INFERIOR to rank-1 PR #2405: frieren PR #2406 (step=770, official @ 2875), edward PR #2407 (step=870, official @ 2875), alphonse PR #2409 (eps-pulse, official @ 2890 only). Three new (amp=0.995 cross-axis × amp curve) PRs assigned: frieren PR #2415 (amp=0.995 × step=870), edward PR #2416 (amp=0.995 × step=720), alphonse PR #2417 (amp=0.997 × step=820 amplitude bisection). PR #2411 nezuko (amp=0.99 × step=1156) still running; ETA ~14:00 UTC; W&B sub-agent triage shows official-valid at step 2875 only — projected INFERIOR.
+
+  **Cross-axis grid status — locked down around rank-1 (0.995, 820):**
+  - (0.995, 720): edward PR #2416 [running]
+  - (0.995, 770): fern PR #2414 [running]
+  - **(0.995, 820): PR #2405 RANK-1 ✓**
+  - (0.995, 870): frieren PR #2415 [running]
+  - (0.997, 820): alphonse PR #2417 [running]
+  - (0.999, 820): askeladd PR #2413 [running]
+
+  **Track 1 (speedrun optimization — next target step 2825):** Need n=4 mean ≤ 3.278 at step 2825. Rank-1 hits 3.279596 at step 2825 (misses by 0.0016). The cross-axis cells (0.995 × earlier-pulse) are the most likely to push step 2825 across the threshold; the amplitude curve (0.997, 0.999) characterizes whether bidding amplitude higher continues monotone gain.
+
+  **Track 2 (generalization study):** tanjiro PR #2412 H-EU fraction-based pulse timing in flight. Thorfinn PR #2410 canonical step=970 n=4 confirm running (run `71390416`, mid-trial 2, ETA ~14:00-15:00 UTC).
+
+  **Plateau check:** Not yet — last 8 cycles produced 2 merges (STAIRCASE → H-EJ amplitude=0.995) and active frontier discovery. Cross-axis × amplitude space has 5-6 unexplored cells.
+
 - **As of:** 2026-06-09 ~09:20 UTC — **✅ H-EJ MERGED (PR #2405) — NEW SPEEDRUN RANK-1 = step 2850** (−25 steps vs STAIRCASE). β₂ single-pulse 0.95→0.995 @ step 820, n=4 mean 3.277780, margin 0.004440. BASELINE.md updated. Two active tracks:
 
   **Track 1 (speedrun optimization — next target: step 2825):** Need n=4 mean ≤ 3.278 at step 2825. Currently step 2850 is new rank-1. Seed 2 of PR #2405 already hit 3.277865 at step 2825 (barely under threshold) — if amplitude=0.999 or earlier-pulse+0.995 combination tightens variance, step 2825 may be reachable.

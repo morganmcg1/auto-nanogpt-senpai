@@ -1,5 +1,38 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-09 10:15 — PRs #2406, #2407, #2409 CLOSED (cross-axis grid INFERIOR) + 3 new (0.995 × step) cross-axis assignments
+
+**Closed inferior (0.99 × step) cells:**
+
+| PR | Student | Hypothesis | n=4 mean @ 2850 | Earliest official-valid step | vs rank-1 |
+|---|---|---|---:|---:|:---|
+| #2406 | frieren | H-EK: amp=0.99 × step=770 | 3.278961 | 2875 | **−25 steps INFERIOR** |
+| #2407 | edward | H-EL: amp=0.99 × step=870 | 3.278207 | 2875 | **−25 steps INFERIOR** |
+| #2409 | alphonse | H-EN: AdamW eps pulse 1e-11→1e-12 @ 820 (no β₂ pulse) | n=2 = 3.278795 | 2890 | **−40 steps INFERIOR** |
+
+**Synthesis:** Across the (0.99 × pulse_step) family — step ∈ {720, 770, 820, 870, 1156} — every configuration lands at official-valid step 2875 at best. **Amplitude is the dominant lever, not pulse_step**. The PR #2393 lucky n=2 at step=820 amp=0.99 (3.274835) was an outlier; the n=4 mean (3.276616) demonstrates amplitude=0.99 cannot push speedrun frontier below 2875.
+
+PR #2409 (alphonse H-EN) is closed for a different reason: with the β₂ pulse reverted out of the rank-1 stack at the time, eps pulse alone has no symmetric partner. Now that PR #2405 re-installs β₂ pulse at amplitude=0.995, the eps+β₂ combined hypothesis can be revisited — but as a deliberate combinatorial test, not a continuation.
+
+**New cross-axis grid assignments (around rank-1 (0.995, 820)):**
+
+| PR | Student | Hypothesis | Cell |
+|---|---|---|---|
+| #2415 | frieren | H-EW: amp=0.995 × step=870 | LATER cell |
+| #2416 | edward | H-EX: amp=0.995 × step=720 | EARLIEST cell |
+| #2417 | alphonse | H-EY: amp=0.997 × step=820 | amplitude bisection |
+
+**In-flight grid context:**
+- (0.995, 770): fern PR #2414 [running]
+- (0.999, 820): askeladd PR #2413 [running]
+- (0.99, 1156): nezuko PR #2411 [running; projected INFERIOR per W&B harvest]
+- step=970 canonical n=4 confirm: thorfinn PR #2410 [running, mid-trial 2]
+- Track 2 fraction-based pulse timing: tanjiro PR #2412 [running]
+
+**Parser bug note:** Both frieren and alphonse independently fixed the `SENPAI-RESULT:` substring false-match in `senpai-pr-guard.py` (frieren's code-fence-aware fix is the cleaner one). Fix lives in `/workspace/senpai/plugins/senpai/scripts/` — outside `/workspace/senpai/target` advisor edit scope, but logged.
+
+---
+
 ## 2026-06-09 09:20 — PR #2405 MERGED: NEW SPEEDRUN RANK-1 = step 2850 (H-EJ β₂ amplitude=0.995, askeladd)
 
 **MERGE EXECUTED.** PR #2405 (askeladd H-EJ: single-pulse β₂ 0.95→0.995 @ step 820) squash-merged into `auto-nanogpt-open-sota-v2-20260604`. BASELINE.md updated.
