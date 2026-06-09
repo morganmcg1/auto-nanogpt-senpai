@@ -1,5 +1,38 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
+- **As of:** 2026-06-09 ~13:25 UTC — **PR #2410 thorfinn H-EO canonical step=970 CLOSED INFERIOR (step 2875 only); H-FA STAIRCASE-PEAK-AT-COOLDOWN assigned.** Per-seed n=4: seeds 1/2/3 strong (n=3 mean step 2850 = 3.277504 would have passed n=3 threshold), but seed 4 outlier (val/loss 3.282584 at step 2850, never hit 3.28) pulled n=4 above threshold at step 2850 (3.278774 > 3.278). Earliest official-valid step = 2875 vs rank-1 step 2850. Branch-rank diagnostic INCONCLUSIVE (+0.000150). Step-970 amp=0.99 cell does NOT push speedrun frontier; amplitude axis dominates step axis.
+
+  **Thorfinn reassigned to H-FA STAIRCASE-PEAK-AT-COOLDOWN** (PR #2419) — β₂ 0.95 → **0.99 @ step 820** (moderate during plateau) → **0.995 @ step 1156** (peak during cooldown). Mirror of askeladd's H-EZ DESCENT. Completes 2×2 ablation matrix of high-amp placement:
+
+  | | plateau β₂ | cooldown β₂ | source |
+  |---|---|---|---|
+  | RANK-1 H-EJ | 0.995 | 0.995 | PR #2405 MERGED ✓ |
+  | H-EZ DESCENT (askeladd) | 0.995 | 0.99 | PR #2418 [running] |
+  | **H-FA PEAK-COOLDOWN (thorfinn)** | **0.99** | **0.995** | **PR #2419 [just assigned]** |
+  | H-EQ baseline (nezuko) | 0.95 | 0.99 | PR #2411 [running, trial 3] |
+
+  Once H-EZ and H-FA land, we'll know whether peak amplitude β₂=0.995 helps MORE during plateau, MORE during cooldown, or both equally.
+
+  **Cross-axis grid status — locked down around rank-1 (0.995, 820):**
+  - (0.995, 720): edward PR #2416 [T0 done — val/loss step 2850 = 3.27887 worse than rank-1 mean; trial 1 ~14:25 UTC]
+  - (0.995, 770): fern PR #2414 [T0 done — val/loss step 2850 = 3.27871; trial 1 ~13:46 UTC]
+  - **(0.995, 820): PR #2405 RANK-1 ✓** (n=4 mean step 2850 = 3.277780)
+  - (0.995, 870): frieren PR #2415 [T0 done — val/loss step 2850 = 3.27863; trial 1 ~13:55 UTC]
+  - (0.997, 820): alphonse PR #2417 [trial 0 step 2311/2890, val_loss=3.36 at step 2250 — running clean after duplicate kill]
+  - ~~(0.999, 820)~~: PR #2413 [CLOSED — FALSIFIED]
+  - **(amp=0.99 × step=1156)**: nezuko PR #2411 [n=3 partial step 2850 = 3.277894 ≈ tied with rank-1 step 2850 + ~0.0001 worse; trial 3 ~14:19 UTC]
+  - **STAIRCASE-995-DESCENT**: askeladd PR #2418 [smoke gate]
+  - **STAIRCASE-PEAK-COOLDOWN**: thorfinn PR #2419 [just assigned]
+  - **STAIRCASE generalization (fractional)**: tanjiro PR #2412 [Arm A frac=0.25 done — n=2 mean step 2875 = 3.276165 viable, matches PR #2403 baseline; Arm B frac=0.30 running, ETA 15:50 UTC]
+
+  **Preliminary cross-axis T0 finding:** ALL fern/frieren/edward T0 single-seed val/loss at step 2850 are 3.2786-3.2789 — WORSE than rank-1 n=4 mean at step 2850 (3.277780). Consistent with inverted-U peak at step=820. Even if seeds 2/3 strong, n=2 partial unlikely to beat rank-1 at step 2850.
+
+  **Track 1 (speedrun optimization — next target step 2825):** Need n=4 mean ≤ 3.278 at step 2825. Rank-1 hits 3.279596 at step 2825 (misses by 0.0016). Cross-axis grid is most likely to push step 2825 across via earlier-pulse cells; H-EZ/H-FA staircase variants test whether shape can reduce variance enough.
+
+  **Track 2 (generalization study):** tanjiro PR #2412 Arm A frac=0.25 result confirms fractional rule generalizes (matches PR #2403 baseline). Arm B will confirm whether 30% fraction also works.
+
+  **Plateau check:** Not yet — 2 merges in last 8 cycles + 5+ in-flight terminals expected next 4 hours. Active 2D characterization of (amp × step × shape) landscape.
+
 - **As of:** 2026-06-09 ~11:40 UTC — **PR #2413 askeladd amp=0.999 FALSIFIED; INVERTED-U amplitude curve confirmed.** Single completed trial (W&B dy9cdabc) hit val/loss 3.279641 at step 2890 — fails n=1 threshold (3.276) at ALL fixed steps, +0.006 worse than rank-1 seed 2 reference. **The amplitude lever has been characterized: 0.99 → step 2875 only; 0.995 → step 2850 (RANK-1); 0.999 → no official validity.** Peak at 0.995 (W≈200); pushing higher breaks adaptive moment tracking.
 
   **Askeladd reassigned to H-EZ: STAIRCASE-995-DESCENT** (PR #2418) — β₂ 0.95 → 0.995 (step 820, overshoot) → 0.99 (step 1156, cd_start settle). Combines proven STAIRCASE structure (PR #2403) with dominant amplitude 0.995. Tests whether SCHEDULE SHAPE (descent during cooldown) can reduce variance and push step 2825 across threshold (rank-1 currently misses by 0.0016 at step 2825).

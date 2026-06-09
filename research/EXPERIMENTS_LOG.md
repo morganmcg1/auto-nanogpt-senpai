@@ -1,5 +1,49 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-09 13:25 — PR #2410 thorfinn H-EO canonical step=970 n=4 INFERIOR (step 2875 only); H-FA STAIRCASE-PEAK-AT-COOLDOWN assigned
+
+**Closed INFERIOR:**
+
+| PR | Student | Hypothesis | n=4 mean (terminal) | Earliest official-valid step |
+|---|---|---|---:|:---|
+| #2410 | thorfinn | H-EO canonical β₂ pulse 0.95 → 0.99 @ step 970, n=4 single-PR | 3.276322 (step 2890) | **step 2875** (n=4 mean 3.277348 ≤ 3.278) |
+
+W&B run 71390416 — per-seed fixed-step trajectory:
+
+| step | seed 1 | seed 2 | seed 3 | seed 4 (outlier) | n=4 mean | thresh ≤3.278 | valid? |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2825 | 3.279076 | 3.279937 | 3.278781 | 3.284409 | 3.280551 | ≤3.278 | FAIL |
+| **2850** | 3.277332 | 3.278128 | 3.277052 | **3.282584** | **3.278774** | ≤3.278 | **FAIL** |
+| 2875 | 3.275906 | 3.276698 | 3.275627 | 3.281161 | 3.277348 | ≤3.278 | PASS |
+| 2890 | 3.274827 | 3.275679 | 3.274581 | 3.280201 | 3.276322 | ≤3.278 | PASS |
+
+vs RANK-1 PR #2405 H-EJ (step 2850 official-valid):
+- This PR earliest valid = step 2875 (worse by 25 steps)
+- Seeds 1/2/3 strong (n=3 mean step 2850 = 3.277504 — would have PASSED n=3 ≤ 3.277691)
+- Seed 4 outlier (first_step_to_target=−1, val/loss at step 2890 = 3.280201 vs ~3.275 for others) dragged n=4 above n=4 threshold
+- Decision_gate: INCONCLUSIVE on branch-rank (+0.000150 above PR #2349)
+
+**Interpretation:** The canonical #1532/#1614 step=970 amp=0.99 mechanism IS validated by 3/4 seeds, but the AMPLITUDE axis (amp=0.995 at step 820 = rank-1) consistently beats the STEP axis (step=970 at amp=0.99). The amplitude bisection toward 0.995 dominates the canonical step. Not worth n=8 follow-up — opportunity cost too high vs new mechanisms.
+
+**Cross-axis grid + amplitude bisection + staircase variants now characterizing the 2D (step × amp) × shape landscape around rank-1.**
+
+**New assignment:**
+
+| PR | Student | Hypothesis |
+|---|---|---|
+| #2419 | thorfinn | **H-FA: STAIRCASE PEAK-AT-COOLDOWN** β₂ 0.95 → 0.99 @ step 820 → 0.995 @ step 1156. Mirror of askeladd's H-EZ DESCENT (0.95 → 0.995 → 0.99). Tests whether peak amplitude β₂=0.995 helps MORE during the LR cooldown phase (step 1156+) than the plateau phase (step 820-1155). Completes 2x2 ablation: {plateau-only, plateau+cooldown, cooldown-only, baseline} of high-amp placement. |
+
+**Forward look — 2×2 ablation matrix** (peak amp position vs schedule):
+
+| | plateau β₂ | cooldown β₂ | source |
+|---|---|---|---|
+| RANK-1 (H-EJ) | 0.995 | 0.995 | PR #2405 MERGED |
+| H-EZ DESCENT | 0.995 | 0.99 | askeladd #2418 (in-flight) |
+| H-FA PEAK-COOLDOWN | 0.99 | 0.995 | thorfinn #2419 (this assignment) |
+| H-EQ baseline | 0.95 | 0.99 | nezuko #2411 (in-flight, n=3 partial tied at 2850 with worse mean) |
+
+Once H-EZ + H-FA land, we'll know whether the peak amplitude's value comes from PLATEAU phase, COOLDOWN phase, or BOTH.
+
 ## 2026-06-09 11:40 — PR #2413 askeladd H-EJ Arm B (amp=0.999) FALSIFIED — INVERTED-U amplitude curve established; H-EZ STAIRCASE-995-DESCENT assigned
 
 **Closed FALSIFIED:**
