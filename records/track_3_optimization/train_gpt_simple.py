@@ -153,6 +153,14 @@ def parse_args():
     parser.add_argument("--aux_b2_pulse_step", type=int, default=970,
                         help="H-EF: Training step at which to apply the step-function β₂ change. "
                              "Arm B (EARLIER) uses 820; Arm A (CORE) uses 970.")
+    parser.add_argument("--aux_eps_low", type=float, default=1e-12,
+                        help="H-EN: AdamW eps during pre-pulse phase. Default 1e-12 keeps baseline "
+                             "no-op (equal to aux_eps_high).")
+    parser.add_argument("--aux_eps_high", type=float, default=1e-12,
+                        help="H-EN: AdamW eps after pulse step. Default 1e-12 (rank-1 value).")
+    parser.add_argument("--aux_eps_pulse_step", type=int, default=820,
+                        help="H-EN: Training step at which to apply the step-function eps change. "
+                             "Aligned with aux_b2 pulse (820) by default.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1231,6 +1239,10 @@ if dist.get_rank() == 0:
             "aux_b2_target": args.aux_b2_target,
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_enabled": args.aux_b2_start > 0.0,
+            "aux_eps_low": args.aux_eps_low,
+            "aux_eps_high": args.aux_eps_high,
+            "aux_eps_pulse_step": args.aux_eps_pulse_step,
+            "aux_eps_pulse_enabled": args.aux_eps_low != args.aux_eps_high,
         },
     )
 
@@ -1288,6 +1300,12 @@ for trial_idx in range(args.num_trials):
             beta1 = group["betas"][0]
             group["betas"] = (beta1, initial_b2)
         print0(f"[init] aux_b2 OVERRIDDEN: β₂ → {initial_b2}", console=True)
+    # H-EN: override initial aux eps on optimizer1 (AdamW) at construction. Only fires
+    # when aux_eps_low != aux_eps_high; default leaves baseline (1e-12) untouched.
+    if args.aux_eps_low != args.aux_eps_high:
+        for group in optimizer1.param_groups:
+            group["eps"] = args.aux_eps_low
+        print0(f"[init] aux_eps OVERRIDDEN: eps → {args.aux_eps_low}", console=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1523,6 +1541,15 @@ for trial_idx in range(args.num_trials):
                 beta1 = group["betas"][0]
                 group["betas"] = (beta1, new_b2)
             print0(f"[step {step}] aux_b2 PULSE: β₂ → {new_b2}", console=True)
+        # H-EN: aux Adam eps step-function pulse. Fires exactly once when
+        # step == aux_eps_pulse_step, switching all aux (AdamW) param groups
+        # from aux_eps_low to aux_eps_high. Only fires if low != high.
+        if (args.aux_eps_low != args.aux_eps_high
+                and args.aux_eps_pulse_step > 0
+                and step == args.aux_eps_pulse_step):
+            for group in optimizer1.param_groups:
+                group["eps"] = args.aux_eps_high
+            print0(f"[step {step}] aux_eps PULSE: eps → {args.aux_eps_high}", console=True)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1540,6 +1567,7 @@ for trial_idx in range(args.num_trials):
             wandb.log(slope_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             aux_beta2_now = optimizer1.param_groups[0]["betas"][1]
+            aux_eps_now = optimizer1.param_groups[0]["eps"]
             ema_extras = {
                 "train/ema_nesterov/it": optimizer_ema.it,
                 "train/ema_nesterov/lookahead_stepsize": optimizer_ema.current_lookahead_stepsize,
@@ -1548,6 +1576,7 @@ for trial_idx in range(args.num_trials):
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
                 ),
                 "train/aux_b2": aux_beta2_now,
+                "train/aux_eps": aux_eps_now,
             }
             log_training_telemetry(
                 model=model,
