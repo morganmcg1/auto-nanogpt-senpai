@@ -1,5 +1,40 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-09 11:40 — PR #2413 askeladd H-EJ Arm B (amp=0.999) FALSIFIED — INVERTED-U amplitude curve established; H-EZ STAIRCASE-995-DESCENT assigned
+
+**Closed FALSIFIED:**
+
+| PR | Student | Hypothesis | Per-seed result | Earliest official-valid step |
+|---|---|---|---:|:---|
+| #2413 | askeladd | H-EJ Arm B: target=0.999 × step=820 | seed 0 @ step 2890 = 3.279641 (3 other seeds crashed at step ≤150) | NONE — fails n=1 threshold (3.276) at ALL fixed steps |
+
+W&B run dy9cdabc fixed-step trajectory:
+
+| Step | seed 0 val/loss | n=1 threshold | Pass? | vs rank-1 seed 2 |
+|---:|---:|---:|:---|---:|
+| 2825 | 3.283778 | 3.276 | ✗ | +0.005913 |
+| 2850 | 3.282017 | 3.276 | ✗ | +0.005972 |
+| 2875 | 3.280650 | 3.276 | ✗ | +0.005983 |
+| 2890 | 3.279641 | 3.276 | ✗ | +0.006057 |
+
+**KEY DISCOVERY: Inverted-U amplitude curve** (peak at target=0.995):
+
+| target | first-pulse step | earliest official-valid step | source |
+|---:|---:|---|---|
+| 0.99 | 770 / 870 | step 2875 only (loses to STAIRCASE) | frieren #2406 + edward #2407 (closed cycle 10:15) |
+| **0.995** | **820** | **step 2850 (RANK-1)** | askeladd #2405 ✓ MERGED |
+| 0.999 | 820 | NONE | this PR (CLOSED) |
+
+The peak amplitude is 0.995 (effective second-moment window W ≈ 1/(1−β₂) ≈ 200). Pushing higher (W ≈ 1000) breaks adaptive moment estimation — too-long window cannot track curvature changes during the cooldown phase.
+
+**New assignment:**
+
+| PR | Student | Hypothesis |
+|---|---|---|
+| #2418 | askeladd | **H-EZ: STAIRCASE-995-DESCENT** β₂ 0.95 → 0.995 (820) → 0.99 (1156). Combines proven STAIRCASE schedule structure (PR #2403) with dominant amplitude finding. Overshoots to 0.995 during high-LR plateau, settles to 0.99 during cooldown for tighter adaptive moment tracking. |
+
+**Forward look:** Cross-axis grid still has 3 cells in flight (frieren #2415, edward #2416, fern #2414) plus alphonse #2417 (amp=0.997 bisection). If alphonse's 0.997 bisection lands intermediate between 0.99 and 0.995 results, the amplitude lever is fully characterized. If H-EZ STAIRCASE-995-DESCENT improves over single-pulse rank-1, schedule shape becomes the next exploitable axis.
+
 ## 2026-06-09 10:15 — PRs #2406, #2407, #2409 CLOSED (cross-axis grid INFERIOR) + 3 new (0.995 × step) cross-axis assignments
 
 **Closed inferior (0.99 × step) cells:**

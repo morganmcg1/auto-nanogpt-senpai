@@ -1,5 +1,24 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
+- **As of:** 2026-06-09 ~11:40 UTC — **PR #2413 askeladd amp=0.999 FALSIFIED; INVERTED-U amplitude curve confirmed.** Single completed trial (W&B dy9cdabc) hit val/loss 3.279641 at step 2890 — fails n=1 threshold (3.276) at ALL fixed steps, +0.006 worse than rank-1 seed 2 reference. **The amplitude lever has been characterized: 0.99 → step 2875 only; 0.995 → step 2850 (RANK-1); 0.999 → no official validity.** Peak at 0.995 (W≈200); pushing higher breaks adaptive moment tracking.
+
+  **Askeladd reassigned to H-EZ: STAIRCASE-995-DESCENT** (PR #2418) — β₂ 0.95 → 0.995 (step 820, overshoot) → 0.99 (step 1156, cd_start settle). Combines proven STAIRCASE structure (PR #2403) with dominant amplitude 0.995. Tests whether SCHEDULE SHAPE (descent during cooldown) can reduce variance and push step 2825 across threshold (rank-1 currently misses by 0.0016 at step 2825).
+
+  **Cross-axis grid status — locked down around rank-1 (0.995, 820):**
+  - (0.995, 720): edward PR #2416 [running]
+  - (0.995, 770): fern PR #2414 [running]
+  - **(0.995, 820): PR #2405 RANK-1 ✓**
+  - (0.995, 870): frieren PR #2415 [running]
+  - (0.997, 820): alphonse PR #2417 [running — amplitude bisection]
+  - ~~(0.999, 820)~~: askeladd PR #2413 [CLOSED — FALSIFIED, inverted-U peak confirmed]
+  - **schedule-shape probe**: askeladd PR #2418 STAIRCASE-995-DESCENT [just assigned]
+
+  **Track 1 (speedrun optimization — next target step 2825):** Need n=4 mean ≤ 3.278 at step 2825. Rank-1 hits 3.279596 at step 2825 (misses by 0.0016). Cross-axis (0.995 × earlier-pulse) cells most likely to push step 2825 across; H-EZ STAIRCASE-995-DESCENT tests whether late-cooldown amplitude descent (0.995 → 0.99) reduces variance enough to recover step 2825 even at the current pulse position.
+
+  **Track 2 (generalization study):** tanjiro PR #2412 H-EU fraction-based pulse timing in flight. Thorfinn PR #2410 canonical step=970 n=4 confirm running (run `71390416`, mid-trial 2, ETA ~14:00-15:00 UTC).
+
+  **Plateau check:** Not yet — 2 merges in last 8 cycles (STAIRCASE → H-EJ amplitude=0.995) and active frontier discovery. Amplitude axis now characterized; schedule-shape axis (STAIRCASE-995-DESCENT) and cross-axis grid cells (step ∈ {720, 770, 870}) still active.
+
 - **As of:** 2026-06-09 ~10:15 UTC — **Cross-axis grid completion cycle.** Three (0.99 × pulse_step) PRs closed as INFERIOR to rank-1 PR #2405: frieren PR #2406 (step=770, official @ 2875), edward PR #2407 (step=870, official @ 2875), alphonse PR #2409 (eps-pulse, official @ 2890 only). Three new (amp=0.995 cross-axis × amp curve) PRs assigned: frieren PR #2415 (amp=0.995 × step=870), edward PR #2416 (amp=0.995 × step=720), alphonse PR #2417 (amp=0.997 × step=820 amplitude bisection). PR #2411 nezuko (amp=0.99 × step=1156) still running; ETA ~14:00 UTC; W&B sub-agent triage shows official-valid at step 2875 only — projected INFERIOR.
 
   **Cross-axis grid status — locked down around rank-1 (0.995, 820):**
