@@ -14,6 +14,29 @@
     - INCONCLUSIVE (3.276172, 3.276572)
     - "Diagnostic worse" ≥ 3.276572 — but check ALL fixed-step official passes before closing.
 
+  **🚨 IN-FLIGHT STRONG SIGNALS (per latest student posts at ~06:14-07:25 UTC):**
+
+  | PR | Student | Mechanism | n=k mean | Per-seed first_step_to_target | Branch class | Official class |
+  |---:|---|---|---:|---|---|---|
+  | #2402 | fern | step=720 | n=2 = **3.274656** (s1=3.275366, s2=3.273947) | not yet posted; var spread 0.001419 | STRONG | likely n=1 OV @ 2825 for s2 |
+  | #2403 | tanjiro | STAIRCASE 820+1156 | n=3 = **3.275037** (3.27512, 3.27501, 3.27498) | **2825 for ALL 3 seeds** | STRONG (very tight var 0.00014) | **n=3 OFFICIAL-VALID @ step 2825** ✓ |
+  | #2405 | askeladd | target=0.995 @820 | n=2 = 3.275966 (3.27659, 3.27534) | not yet posted; var spread 0.00125 | MERGE-eligible | likely n=2 OV @ 2850 |
+  | #2406 | frieren | step=770 | n=2 = **3.275876** (s0=3.276646 fs2T=2850, s1=3.275106 fs2T=2825) | mixed | MERGE-eligible | **n=2 OV @ step 2850** ✓ |
+  | #2407 | edward | step=870 | n=2 = **3.275606** (T0=3.276859, T1=3.274354) | not yet posted; var spread 0.002506 | STRONG | likely n=2 OV @ 2850 |
+
+  **Note:** The mechanism IS working — multiple basin positions show n=2/n=3 STRONG-band means and per-seed `first_step_to_target = 2825`. PR #2393's failure was variance, not absence of effect. Tanjiro STAIRCASE is the strongest signal: **n=3 official-valid at step 2825** (per-seed first_step_to_target all hit 2825). Seed 4 imminent (ETA ~07:35 UTC).
+
+  **Active n=4 confirms in flight (4 students):**
+  - tanjiro PR #2403 STAIRCASE — seed 4 sj3ebdm9 imminent
+  - fern PR #2402 step=720 — seeds 3+4 launching
+  - frieren PR #2406 step=770 — seeds 2+3 launching (ETA ~3.3h)
+  - edward PR #2407 step=870 — seeds 2+3 launching
+  - askeladd PR #2405 target=0.995 — seeds 2+3 launching (per n=4 policy)
+  - thorfinn PR #2410 canonical step=970 n=4 — just assigned
+  - nezuko PR #2411 step=1156 n=4 — just launched 07:19 UTC
+
+  **W&B fixed-step harvest sub-agent dispatched (~07:33 UTC)** to read val/ri at 2825/2850/2875/2890 for PR #2393 / #2404 / #2399 / #2408 / Arm A CORE distributed seeds. Will identify any speedrun-improving signals.
+
   **Re-classification of prior reads against corrected baseline:**
 
   | PR | Mechanism | n | Mean | Old class | **NEW class** |
