@@ -1,6 +1,49 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-09 ~16:50 UTC — **H-FC MECHANISM FALSIFIED (PR #2421 closed); H-FD per-group β₂ pulse ablation assigned (PR #2422 alphonse). Fleet: 8/8 active.**
+- **As of:** 2026-06-09 ~18:05 UTC — **PR #2423 fern H-FE AMSGrad assigned. Thorfinn pod PENDING (cluster GPU capacity). All other 7/8 students active.**
+
+  **NEW ASSIGNMENT — H-FE (PR #2423, fern):** AMSGrad on aux Adam, two-arm test.
+  - Arm A (isolation): AMSGrad alone, no β₂ pulse — does the monotonic v_hat = max(v_hat, v_t) mechanism match rank-1 WITHOUT timing hyperparameter?
+  - Arm B (composition): AMSGrad + rank-1 β₂ pulse 0.95→0.995@820 — do the mechanisms stack?
+  - This fills the NON-β₂-MECHANISM gap. H-FC (v warm-restart) was FALSIFIED; AMSGrad is the cleanest non-β₂ alternative. Trivially generalizable (no timing parameter).
+  - Code change: `AdamW(..., amsgrad=True)` + new `--aux_amsgrad` flag.
+
+  **⚠️ INFRA ISSUE — thorfinn pod PENDING:**
+  - Pod `senpai-auto-nanogpt-open-sota-v2-20260604-open2-thorfinn-6ws7hj` has been Pending ~35 min.
+  - Reason: "0/30 nodes: 1 Insufficient cpu, 21+ untolerated taints, cluster autoscaler not triggering."
+  - PR #2419 H-FA experiment (STAIRCASE PEAK-AT-COOLDOWN) has NOT started yet (or restarted from scratch). Last run `80qb017u` was at step 4916/11560 before pod died.
+  - Action: Nothing advisor-side can do. Pod will schedule when cluster has capacity. PR #2419 comment already has fresh restart instructions.
+
+  **Active fleet status (18:05 UTC):**
+
+  | PR | Student | Hypothesis | Status |
+  |---|---|---|---|
+  | #2412 | tanjiro | H-EU STAIRCASE fractional generalization | Arm A frac=0.25 DONE (n=2 step 2875 pass); Arm B frac=0.30 done — both generalize |
+  | #2415 | frieren | H-EW cross-axis (0.995, step=870) | n=4 in flight |
+  | #2416 | edward | H-EX cross-axis (0.995, step=720, earliest cell) | n=4 in flight |
+  | #2418 | askeladd | H-EZ STAIRCASE-DESCENT 0.995→0.99@cooldown | n=4 in flight |
+  | #2419 | thorfinn | H-FA STAIRCASE-PEAK-AT-COOLDOWN | Pod PENDING (cluster capacity) |
+  | #2420 | nezuko | H-FB STAIRCASE-ASCENT 0.95→0.99@410→0.995@820 | In flight |
+  | #2422 | alphonse | H-FD per-group β₂ pulse ablation (embed/lm_head/scalars) | In flight |
+  | #2423 | **fern** | **H-FE AMSGrad on aux Adam (isolation + composition)** | **Just assigned** |
+
+  **Portfolio coverage (18:05 UTC):**
+  1. Schedule trajectory: STAIRCASE DESCENT (H-EZ), PEAK-AT-COOLDOWN (H-FA), ASCENT (H-FB) — 3-cell ablation
+  2. Cross-axis step grid at amp=0.995: step=720 (H-EX), step=870 (H-EW) + rank-1 step=820
+  3. Generalization study: frac-based STAIRCASE (H-EU, frac=0.25+0.30 both confirmed) ← answers human directive
+  4. Per-group β₂ ablation: H-FD (embed vs lm_head vs scalars) — localization
+  5. **NEW non-β₂ mechanism: H-FE AMSGrad** ← fills mechanism gap
+
+  **Two-track goals:**
+  - Track 1 (speedrun): Need n=4 mean ≤ 3.278 at step **2825** (rank-1 currently hits 3.279596, gap = 0.0016). Best bets: H-EZ DESCENT / H-FB ASCENT if staircase shapes reduce variance.
+  - Track 2 (generalization): H-EU confirmed both frac=0.25 and frac=0.30 reproduce PR #2403 STAIRCASE step 2875 baseline. Principled fraction-based timing IS generalizable.
+
+  **Next hypotheses to assign (on next idle slots):**
+  - Resonance scan near step 820: pulse_step ∈ {800, 810} at amp=0.995, n=4
+  - Compound: rank-1 + STAIRCASE DESCENT (H-EZ winner if positive) — full composition test
+  - Different train_steps budget: STAIRCASE at train_steps=2500 (direct generalization proof-of-concept for human directive)
+  - β₁ pulse symmetric to β₂: pulse β₁ from 0.8 → 0.9 @ step 820
+
 
   **KEY MECHANISM RESULT:** H-FC (explicit v warm-restart at step 820) caused catastrophic +6.33 val_loss spike. This **definitively proves the H-EJ rank-1 mechanism is smoothing-rate change, NOT v-reset**. v-reset class mechanisms are deprioritized. Future mechanism exploration should target smoothing-dynamics, per-group differentiation, and Muon-side analogs.
 
