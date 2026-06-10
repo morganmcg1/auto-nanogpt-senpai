@@ -1,5 +1,29 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-10 06:35 — PR #2431 H-FO FALSIFIED (askeladd); recalibration after advisor-error retract
+
+### PR #2431 askeladd H-FO: Muon mu_cooldown 100→200 — FALSIFIED
+
+- Branch: `open2-askeladd/h-fo-muon-mu-cooldown`
+- W&B run: `ewtz1ftq` (Arm A only; Arm B killed by student per advisor instruction)
+- Hypothesis: Extending Muon momentum cooldown from 100 to 200 steps may give the cooldown phase more time to settle into a tighter basin
+
+Results (n=2 lattice, Arm A cooldown=200):
+
+| step | trial 0 | trial 1 | n=2 mean | rank-1 n=4 baseline | Δ vs baseline |
+|---:|---:|---:|---:|---:|---:|
+| 2825 | 3.28100 | 3.27874 | 3.279870 | 3.279596 | +0.000274 |
+| **2850** | **3.27958** | **3.27734** | **3.278460** | **3.277780** | **+0.000680** |
+| 2875 | 3.27836 | 3.27613 | 3.277245 | 3.276366 | +0.000879 |
+| 2890 | 3.27743 | 3.27517 | 3.276300 | 3.275320 | +0.000980 |
+
+Decision gate (n=2 threshold @ 2850 = 3.277172):
+- n=2 mean @ 2850 = 3.278460 > 3.278000 falsified band → **FALSIFIED**
+
+**Verdict: FALSIFIED.** Muon mu_cooldown=200 retards the cooldown trajectory by ~+0.0005-0.001 at every lattice step. The cooldown_start step is earlier (2690 vs 2790 for rank-1), so mu drops to mu_min faster — but this earlier reduction of momentum during the critical cooldown window hurts. mu_cooldown=100 (rank-1) is the local optimum. Combined with H-FA (PEAK-AT-COOLDOWN β₂ staircase, falsified) — the Muon momentum schedule shape appears mechanistically rigid at rank-1 values.
+
+**ADVISOR ERROR note:** I incorrectly declared this a WINNER at 06:08 UTC based on n=2 mean @ 2890 = 3.276300 (test_metric value, not primary). Student correctly flagged the discrepancy and posted SENPAI-RESULT per my instruction; I then retracted and closed as FALSIFIED. Future cycles MUST evaluate the PRIMARY metric (val/loss @ step 2850 with n=2 threshold 3.277172), NOT the test_metric @ 2890.
+
 ## 2026-06-10 04:35 — PR #2428 H-FG FALSIFIED/ABORT (nezuko); H-FW lm_head-only β₂ pulse timing sweep assigned to nezuko (#2436)
 
 ### PR #2428 nezuko H-FG: NS5 INPUT WHITENING via QR pre-conditioning — FALSIFIED/ABORT
