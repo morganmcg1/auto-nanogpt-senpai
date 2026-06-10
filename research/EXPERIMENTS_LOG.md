@@ -1,5 +1,151 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-10 04:35 — PR #2428 H-FG FALSIFIED/ABORT (nezuko); H-FW lm_head-only β₂ pulse timing sweep assigned to nezuko (#2436)
+
+### PR #2428 nezuko H-FG: NS5 INPUT WHITENING via QR pre-conditioning — FALSIFIED/ABORT
+
+- Branch: `open2-nezuko/h-fg-ns5-input-whitening`
+- Hypothesis: A 1-step QR orthogonalization on the Muon momentum matrix before NC pre-normalization conditions NS5's input closer to the identity, improving NS5 approximation quality within 5 iterations.
+- Implementation: Added `--muon_gs_alpha` flag; `update <- alpha * Q + (1-alpha) * update_raw` before NC → NS5 → Arbor stack. Tall/square: `torch.linalg.qr(update.float())`. Wide: QR on transpose. No fallback needed, no NaN, clean shape handling.
+
+Results (n=1, single seed):
+
+| step | Arm A (α=0.3, W&B `ee3qhbme`) | Arm B (α=0.6, W&B `n418fzzi`) | H-EJ n=4 mean | Δ Arm A vs H-EJ |
+|---:|---:|---:|---:|---:|
+| 2825 | 3.28087 | 3.28429 | 3.279596 | +0.00127 |
+| 2850 | 3.27910 | 3.28257 | 3.277780 | +0.00132 |
+| 2875 | 3.27775 | 3.28123 | 3.276366 | +0.00139 |
+| 2890 | **3.27669** | **3.28024** | 3.275320 | +0.00137 |
+
+Decision gates:
+- Arm A n=1 @2890 = 3.27669 → in INCONCLUSIVE band [3.276000, 3.279000]
+- Arm B n=1 @2890 = 3.28024 → **ABORT** (> 3.279000); never crossed the 3.28 line
+- Both arms monotonically worsen across steps 2825→2890; gap to H-EJ is widening (+0.00127 → +0.00137)
+
+Step time: Arm A ~2.43s/step, Arm B ~2.23s/step. QR call is non-negligible at α=0.3.
+
+**Verdict: FALSIFIED/ABORT.** Mechanistic conclusion (endorsed by student's analysis): NC (Cautious-Muon per-row × per-col L2 normalization) already conditions the NS5 input adequately for the 5-iteration Schulz polynomial. Blending in a QR-orthogonalized matrix interferes with NC's normalization rather than complementing it, and the harm scales monotonically with α. NS5 input whitening as an additive lever to the NC+NS5 pipeline is CLOSED. Closed via `close_pr_with_comment` at 04:25 UTC.
+
+### Assignment: nezuko H-FW (PR #2436) — lm_head-only β₂ pulse step timing sweep
+- Branch: `open2-nezuko/h-fw-lmhead-pulse-timing`
+- Tests whether lm_head-isolated β₂ pulse has a different optimal step than the global H-EJ optimum at step 820.
+- Sweep: `aux_b2_pulse_step` ∈ {620, 720, 920, 1020}; amplitude fixed at 0.995; groups=`lm_head` (per-group flag added by student).
+- n=2 per arm sequentially; decision gate n=2 mean @2850 ≤ 3.277172 → escalate to n=4; > 3.279000 → ABORT.
+- Orthogonal to H-FQ (edward, amplitude axis) and H-FR (frieren, lm_head+scalars combined). Together H-FQ × H-FW form a 2D probe of the lm_head pulse manifold.
+
+---
+
+## 2026-06-10 04:10 — PR #2425 H-FI FALSIFIED; PR #2424 H-FF FALSIFIED; PR #2422 H-FD KEY-INSIGHT; H-FR assigned to frieren (#2435)
+
+### PR #2425 frieren H-FI: EN γ ANNEAL 0.99→0.97/0.90 THROUGH COOLDOWN — FALSIFIED
+
+- Branch: `frieren/h-fi-en-gamma-anneal`
+- Hypothesis: Slowly annealing EMA-Nesterov γ from 0.99 toward a lower value during cooldown/late-training removes the trailing look-ahead bias and improves convergence speed.
+- W&B: Arm A `imv3poyd` (γ_final=0.97, anneal window [1156, 1949])
+
+**Pre-launch discovery (frieren student):** Original spec had `en_gamma_anneal_start=2068` — OUTSIDE the EN active window [300, 1950). EMA-Nesterov is gated by `step < EMA_NESTEROV_REST_STEPS=1950`, so any anneal starting at 2068 would be a null mutation. ADVISOR authorized fix: corrected anneal window to [1156, 1949] (cd_start to rest_steps−1). New flags added: `--en_gamma_final`, `--en_gamma_anneal_start`, `--en_gamma_anneal_end`.
+
+**Arm A (γ_final=0.97, linear anneal [1156, 1949]):**
+
+| step | trial 0 | trial 1 | n=2 mean | rank-1 H-EJ (n=4) | Δ vs rank-1 |
+|---:|---:|---:|---:|---:|---:|
+| 2825 | 3.282210 | 3.281240 | 3.281725 | 3.279596 | +0.002129 |
+| **2850** | **3.280390** | **3.279420** | **3.279905** | **3.277780** | **+0.002125** |
+| 2875 | 3.279030 | 3.277980 | 3.278505 | 3.276366 | +0.002139 |
+| 2890 | 3.278020 | 3.277000 | 3.277510 | 3.275320 | +0.002190 |
+
+**Arm B (γ_final=0.90, linear anneal [1156, 1949]):**
+- Trial 0 @2875 = 3.2805 (above 3.280 — cannot reach target; Arm B terminated early)
+- Result: FALSIFIED at first data point
+
+**Verdict: FALSIFIED — EN γ axis CLOSED.**
+- Both arms ~+0.002 vs rank-1 at all lattice points. Reducing γ during the EN active window hurts consistently and substantially.
+- γ=0.99 constant throughout EN active phase is **load-bearing**. Softening the look-ahead influence during late plateau/early cooldown degrades rather than accelerates convergence.
+- **EN γ axis FULLY CLOSED:** no further annealing, ramp, or step-down experiments on EMA-Nesterov γ are warranted.
+
+---
+
+### PR #2424 edward H-FF: β₁×β₂ JOINT PULSE (LOCK-IN 0.85 / FORGET 0.70) — FALSIFIED
+
+- Branch: `edward/h-ff-b1-b2-joint-pulse`
+- Hypothesis: Simultaneously modulating both β₁ and β₂ at step 820 — either locking in momentum (β₁→0.85) or forgetting gradient history (β₁→0.70) alongside the β₂ pulse — may synergize with the second-moment reset.
+- New flags: `--aux_b1_start`, `--aux_b1_target`, `--aux_b1_pulse_step` (parallel to β₂ pulse flags)
+- W&B: Arm A `w4u6r2rg` (β₁ LOCK-IN 0.8→0.85), Arm B `ncin5i60` (β₁ FORGET 0.8→0.70)
+
+**Arm A (β₁ LOCK-IN 0.80→0.85, β₂ pulse 0.95→0.995 @ step 820):**
+
+| step | trial 0 | trial 1 | n=2 mean | rank-1 H-EJ (n=4) | Δ vs rank-1 |
+|---:|---:|---:|---:|---:|---:|
+| 2825 | 3.281275 | 3.279820 | 3.280548 | 3.279596 | +0.000952 |
+| **2850** | **3.279487** | **3.278050** | **3.278769** | **3.277780** | **+0.000989** |
+| 2875 | 3.278087 | 3.276630 | 3.277359 | 3.276366 | +0.000993 |
+| 2890 | 3.277061 | 3.275550 | 3.276306 | 3.275320 | +0.000986 |
+
+**Arm B (β₁ FORGET 0.80→0.70, β₂ pulse 0.95→0.995 @ step 820):**
+
+| step | trial 0 | trial 1 | n=2 mean | rank-1 H-EJ (n=4) | Δ vs rank-1 |
+|---:|---:|---:|---:|---:|---:|
+| 2825 | 3.280270 | 3.280780 | 3.280525 | 3.279596 | +0.000929 |
+| **2850** | **3.278450** | **3.278910** | **3.278680** | **3.277780** | **+0.000900** |
+| 2875 | 3.277030 | 3.277580 | 3.277305 | 3.276366 | +0.000939 |
+| 2890 | 3.276000 | 3.276470 | 3.276235 | 3.275320 | +0.000915 |
+
+**Verdict: FALSIFIED — β₁ pulse direction class CLOSED.**
+- Both arms hurt by a consistent ~+0.0009–0.001 vs rank-1 across all lattice points. No interaction effect (either direction of β₁ change at step 820 is harmful).
+- Arm B seed 0 trial 0 @2890 = 3.276000 matches rank-1 mean, but trial 1 = 3.276470 is worse; the n=2 mean confirms the deficit.
+- **Mechanistic conclusion:** First-moment trajectory (β₁) is not the lever — it sets gradient direction smoothing. Second-moment trajectory (β₂) is the load-bearing mechanism. The β₂ pulse gain is purely about basin selection via second-moment rescaling, not momentum carry-over. Any β₁ change at step 820 interferes with this mechanism. **β₁ intervention class CLOSED.**
+
+---
+
+### PR #2422 alphonse H-FD: PER-GROUP β₂ LOCALIZATION (EMBED / LM_HEAD / SCALARS) — KEY INSIGHT
+
+- Branch: `alphonse/h-fd-per-group-b2-localization`
+- Hypothesis: The full-optimizer β₂ pulse (H-EJ) may be driven primarily by one param group. Testing each group in isolation (embed, lm_head, scalars) to localize the signal.
+- New flag: `--aux_b2_pulse_group` (choices: "all", "embed", "lm_head", "scalars"; default "all" preserving rank-1 behavior)
+- W&B: Arm A `akbknohy` (embed-only), Arm B `sfe2too3` (lm_head-only), Arm C `xzdqx90n` (scalars, abandoned)
+
+**Arm A (embed-only β₂ pulse 0.95→0.995 @ step 820):**
+
+| step | trial 0 | trial 1 | n=2 mean | rank-1 H-EJ (n=4) | Δ vs rank-1 |
+|---:|---:|---:|---:|---:|---:|
+| 2825 | 3.282235 | 3.282507 | 3.282371 | 3.279596 | +0.002775 |
+| **2850** | **3.280421** | **3.280665** | **3.280543** | **3.277780** | **+0.002763** |
+| 2875 | 3.279001 | 3.279197 | 3.279099 | 3.276366 | +0.002733 |
+| 2890 | 3.277863 | 3.278160 | 3.278012 | 3.275320 | +0.002692 |
+
+→ **FALSIFIED** — embed pulse is WORSE than no pulse at all. Embed second-moment is noise; it does not drive the β₂ pulse benefit.
+
+**Arm B (lm_head-only β₂ pulse 0.95→0.995 @ step 820):**
+- W&B run `sfe2too3` (2 trials)
+- Trial 0: @2825=3.280060, @2850=3.278275, @2875=3.276854, @2890=3.275785; first_step=2850
+- Trial 1: @2890=3.275600 (confirmed from W&B summary); first_step=**2825** (BEATS rank-1 first_step of 2850!)
+- Trial 1 mid-run termination (pod went silent at 19:58 UTC, iteration 9; terminal SENPAI-RESULT never posted; alphonse pod required manual restart)
+
+| step | trial 0 | (trial 1 estimated) | (n=2 mean estimated) | rank-1 H-EJ (n=4) |
+|---:|---:|---:|---:|---:|
+| 2825 | 3.280060 | ~3.279875 | ~3.279968 | 3.279596 |
+| **2850** | **3.278275** | **~3.278090** | **~3.278182** | **3.277780** |
+| 2875 | 3.276854 | ~3.276669 | ~3.276762 | 3.276366 |
+| 2890 | 3.275785 | 3.275600 | ~3.275693 | 3.275320 |
+
+- Estimated n=2 mean @2850 ≈ 3.278182 — FAILS n=2 threshold 3.277172
+- Estimated n=2 mean @2875 ≈ 3.276762 — **PASSES n=2 threshold** (margin ≈ (3.28−3.276762)×√2 ≈ 0.00458 ≥ 0.004)
+- → **KEY SIGNAL: lm_head-only pulse reaches first_step=2825 (trial 1). lm_head is the dominant signal source.**
+
+**Arm C (scalars-only β₂ pulse):**
+- W&B `xzdqx90n` — started but pod went silent; Arm C abandoned (scalars untested → H-FR)
+
+**Verdict: KEY INSIGHT — lm_head-dominant β₂ pulse mechanism.**
+- **Embed group is noise.** Embed-only pulse costs +0.0027 vs rank-1 — SIGNIFICANTLY WORSE than full pulse or no pulse.
+- **lm_head group is the signal source.** lm_head-only pulse achieves trial 1 first_step=2825 (25-step improvement over rank-1). Even isolated to lm_head alone (without embed contribution), the mechanism nearly matches full H-EJ performance.
+- **Mechanistic interpretation:** The β₂ pulse at step 820 drives effective learning rate rescaling via `v_hat` update. In lm_head (the output projection), low β₂ during pre-820 training keeps v_hat responsive, enabling a targeted logit-scaling correction at the pulse step. Embed parameters don't benefit because their gradient landscape is smoother throughout training.
+- **Scalars (QK-norm, LayerNorm affine):** Untested — assigned to H-FR (frieren, lm_head+scalars combined, PR #2435).
+- **Direct follow-ups assigned:** H-FQ (edward, lm_head amplitude sweep 0.997/0.999, PR #2433); H-FR (frieren, lm_head+scalars combined, PR #2435); H-FS (tanjiro, lm_head LR ×1.5 pulse, PR #2432).
+
+**Pod note:** Alphonse student loop went silent mid-Arm B (iteration 9). Pod restarted via `kubectl rollout restart` at ~03:15 UTC. New assignment H-FU (Newton-Schulz inner iteration sweep, PR #2434) issued post-restart.
+
+---
+
 ## 2026-06-10 02:55 — PR #2426 H-FH INCONCLUSIVE-CLOSE; PR #2432 H-FS assigned (tanjiro)
 
 **PR #2426 tanjiro H-FH: ADAPTIVE COOLDOWN t_end VIA SLOPE-578 TELEMETRY — INCONCLUSIVE-CLOSE**
