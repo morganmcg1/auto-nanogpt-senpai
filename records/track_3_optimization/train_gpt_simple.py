@@ -169,6 +169,11 @@ def parse_args():
                         help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
                              "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
                              "(cd_start = 1156 for train_steps=2890).")
+    parser.add_argument("--muon_gs_alpha", type=float, default=0.0,
+                        help="H-FG: Blend weight for QR pre-conditioning of the muon_update input. "
+                             "0=off (baseline), 0.3=light blend, 0.6=strong blend. update <- "
+                             "alpha * Q + (1-alpha) * update_raw before NC pre-normalization, "
+                             "pushing singular values toward 1 so NS5 converges closer to its fixed point.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -913,7 +918,21 @@ def arbor_sinkhorn_equilibrate(G: Tensor, n_iters: int = ARBOR_ITERS,
 
 
 def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, use_soft=True,
-                apply_arbor: bool = False):
+                apply_arbor: bool = False, muon_gs_alpha: float = 0.0):
+    # H-FG: QR pre-conditioning. Blend toward an orthogonal matrix before NC -> NS5
+    # so NS5 starts closer to its fixed point (singular values near 1).
+    if muon_gs_alpha > 0.0 and update.dim() >= 2:
+        try:
+            update_f = update.float()
+            if update.size(-2) >= update.size(-1):
+                Q, _ = torch.linalg.qr(update_f)  # shape (m, n) for tall
+            else:
+                Q2, _ = torch.linalg.qr(update_f.mT)  # (n, m) with orthonormal columns
+                Q = Q2.mT  # (m, n) with orthonormal rows
+            if Q.shape == update.shape:
+                update = (muon_gs_alpha * Q + (1.0 - muon_gs_alpha) * update_f).to(update.dtype)
+        except Exception:
+            pass  # QR failure (singular matrix) -> skip blend, training continues
     if update.dim() >= 2:
         r_norm = update.norm(dim=-1, keepdim=True)
         c_norm = update.norm(dim=-2, keepdim=True)
@@ -954,8 +973,9 @@ def muon_update(update, second_moment, step, beta2=NOR_BETA2, use_contra=True, u
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95, muon_gs_alpha: float = 0.0):
         assert isinstance(named_params, list) and len(named_params) >= 1
+        self.muon_gs_alpha = float(muon_gs_alpha)
         self.soap_params = {p for n, p in named_params if should_soap_param(n)}
         self.attn_soap_params = {p for n, p in named_params if should_soap_param(n) and is_attn_param(n)}
         self.attn_proj_soap_params = {p for n, p in named_params if should_soap_param(n) and is_attn_proj_param(n)}
@@ -1039,6 +1059,7 @@ class Muon(torch.optim.Optimizer):
                         use_contra=p not in self.no_contra_params,
                         use_soft=p not in self.no_soft_params,
                         apply_arbor=p_apply_arbor,
+                        muon_gs_alpha=self.muon_gs_alpha,
                     )
                     if p_apply_arbor and arbor_diag:
                         param_name = self.arbor_param_names.get(p, "unknown")
@@ -1324,8 +1345,11 @@ for trial_idx in range(args.num_trials):
             console=True,
         )
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU,
+                      muon_gs_alpha=args.muon_gs_alpha)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if args.muon_gs_alpha > 0.0:
+        print0(f"[init] muon_gs_alpha={args.muon_gs_alpha} (QR pre-conditioning ON)", console=True)
     inner_optimizers = [optimizer1, optimizer2]
     optimizer_ema = EMA_Nesterov(
         [p for p in model.parameters()],
