@@ -24,6 +24,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -169,6 +170,13 @@ def parse_args():
                         help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
                              "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
                              "(cd_start = 1156 for train_steps=2890).")
+    parser.add_argument("--adamw_eps_initial", type=float, default=1e-12,
+                        help="H-FJ: Initial AdamW eps for optimizer1 (all groups). Log-linearly anneals to "
+                             "1e-12 over [0, --adamw_eps_anneal_step]. Default 1e-12 (no schedule, matches "
+                             "rank-1 baseline). Test value: 1e-10 to test phase-dependent normalization.")
+    parser.add_argument("--adamw_eps_anneal_step", type=int, default=820,
+                        help="H-FJ: Step at which eps reaches 1e-12 (from --adamw_eps_initial). "
+                             "Default 820 (β₂ pulse step). No-op when --adamw_eps_initial <= 1e-12.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1254,6 +1262,9 @@ if dist.get_rank() == 0:
             "aux_b2_pulse_step_1": args.aux_b2_pulse_step_1,
             "aux_b2_cooldown_frac": args.aux_b2_cooldown_frac,
             "aux_b2_enabled": args.aux_b2_rule != "none",
+            "adamw_eps_initial": args.adamw_eps_initial,
+            "adamw_eps_anneal_step": args.adamw_eps_anneal_step,
+            "adamw_eps_anneal_enabled": args.adamw_eps_initial > 1e-12,
         },
     )
 
@@ -1299,10 +1310,14 @@ for trial_idx in range(args.num_trials):
             block.norm2.gains.data.copy_((1.0 + _CGI_ALPHA * s).to(block.norm2.gains.dtype))
 
     # Optimizers (PR #309: AdamW betas (0.8, 0.99)).
+    # H-FJ: eps starts at args.adamw_eps_initial (default 1e-12; test value 1e-10) and
+    # log-linearly anneals to 1e-12 by step args.adamw_eps_anneal_step (default 820).
+    _eps_initial = args.adamw_eps_initial
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.99), eps=1e-12, weight_decay=0, fused=True)
+                       betas=(0.8, 0.99), eps=_eps_initial, weight_decay=0, fused=True)
+    print0(f"[init] adamw_eps_initial={_eps_initial:.2e}, adamw_eps_anneal_step={args.adamw_eps_anneal_step}", console=True)
     # H-EF: override initial aux β₂ on optimizer1 (AdamW) at construction. Only fires
     # when aux_b2_start > 0.0; default -1.0 leaves baseline (0.8, 0.99) untouched.
     if args.aux_b2_start > 0.0:
@@ -1364,6 +1379,18 @@ for trial_idx in range(args.num_trials):
         else:
             return _MU_MAX
 
+    # H-FJ: log-linear anneal from args.adamw_eps_initial → 1e-12 over [0, anneal_step].
+    # No-op when initial == 1e-12 (rank-1 baseline).
+    _eps_anneal_enabled = args.adamw_eps_initial > 1e-12
+    _eps_log_initial = math.log10(args.adamw_eps_initial) if _eps_anneal_enabled else -12.0
+    _eps_log_final = -12.0
+
+    def _adamw_eps_at_step(step):
+        if not _eps_anneal_enabled:
+            return 1e-12
+        frac = min(1.0, step / max(args.adamw_eps_anneal_step, 1))
+        return 10 ** (_eps_log_initial + frac * (_eps_log_final - _eps_log_initial))
+
     def set_hparams(step):
         for opt in inner_optimizers:
             for group in opt.param_groups:
@@ -1371,6 +1398,10 @@ for trial_idx in range(args.num_trials):
         mu_step = _muon_mu_at_step(step)
         for group in optimizer2.param_groups:
             group["mu"] = mu_step
+        if _eps_anneal_enabled:
+            eps_t = _adamw_eps_at_step(step)
+            for group in optimizer1.param_groups:
+                group["eps"] = eps_t
 
 
     ########################################
@@ -1587,6 +1618,7 @@ for trial_idx in range(args.num_trials):
             wandb.log(slope_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             aux_beta2_now = optimizer1.param_groups[0]["betas"][1]
+            adamw_eps_now = optimizer1.param_groups[0]["eps"]
             ema_extras = {
                 "train/ema_nesterov/it": optimizer_ema.it,
                 "train/ema_nesterov/lookahead_stepsize": optimizer_ema.current_lookahead_stepsize,
@@ -1595,6 +1627,7 @@ for trial_idx in range(args.num_trials):
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
                 ),
                 "train/aux_b2": aux_beta2_now,
+                "train/adamw_eps": adamw_eps_now,
             }
             log_training_telemetry(
                 model=model,
