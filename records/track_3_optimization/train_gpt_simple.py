@@ -169,6 +169,8 @@ def parse_args():
                         help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
                              "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
                              "(cd_start = 1156 for train_steps=2890).")
+    parser.add_argument("--aux_b2_exclude_embed", action="store_true", default=False,
+                        help="H-FR: pulse β₂ for lm_head+scalars only; exclude adam_embed group from pulse.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1254,6 +1256,7 @@ if dist.get_rank() == 0:
             "aux_b2_pulse_step_1": args.aux_b2_pulse_step_1,
             "aux_b2_cooldown_frac": args.aux_b2_cooldown_frac,
             "aux_b2_enabled": args.aux_b2_rule != "none",
+            "aux_b2_exclude_embed": args.aux_b2_exclude_embed,
         },
     )
 
@@ -1554,10 +1557,18 @@ for trial_idx in range(args.num_trials):
                 and args.aux_b2_pulse_step > 0
                 and step == args.aux_b2_pulse_step):
             new_b2 = args.aux_b2_target
+            pulsed_groups = []
             for group in optimizer1.param_groups:
+                if args.aux_b2_exclude_embed and group.get("name") == "adam_embed":
+                    continue
                 beta1 = group["betas"][0]
                 group["betas"] = (beta1, new_b2)
-            print0(f"[step {step}] aux_b2 PULSE: β₂ → {new_b2}", console=True)
+                pulsed_groups.append(group.get("name", "?"))
+            print0(
+                f"[step {step}] aux_b2 PULSE: β₂ → {new_b2} "
+                f"(exclude_embed={args.aux_b2_exclude_embed}, pulsed={pulsed_groups})",
+                console=True,
+            )
         # H-EH-3 STAIRCASE two-pulse aux β₂ rule (PR #2403).
         if args.aux_b2_rule == "staircase":
             new_b2 = None
