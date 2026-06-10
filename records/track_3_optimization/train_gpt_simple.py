@@ -169,6 +169,9 @@ def parse_args():
                         help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
                              "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
                              "(cd_start = 1156 for train_steps=2890).")
+    parser.add_argument("--ns_inner_iters", type=int, default=12,
+                        help="H-FU: Inner Newton-Schulz quintic iteration count for Muon orthogonalization "
+                             "(_ns_inner). Default 12 matches rank-1. Test 8 (looser) / 16 (tighter).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -580,9 +583,13 @@ def gram_frobenius_norm_estimate(G: Tensor, keepdim: bool = False, eps: float = 
     gram = X.mT @ X if X.size(-2) > X.size(-1) else X @ X.mT
     return gram.norm(dim=(-2, -1), keepdim=keepdim).sqrt().clamp_min(eps)
 
+# H-FU: Newton-Schulz inner iteration count, overridable via --ns_inner_iters
+# (default 12 matches the rank-1 baseline).
+_NS_INNER_ITERS = args.ns_inner_iters
+
 def _ns_inner(X: Tensor) -> Tensor:
     a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    for _ in range(_NS_INNER_ITERS):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -1173,6 +1180,7 @@ print0(code)
 print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
+print0(f"[init] NS inner iterations: {_NS_INNER_ITERS}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -1254,6 +1262,7 @@ if dist.get_rank() == 0:
             "aux_b2_pulse_step_1": args.aux_b2_pulse_step_1,
             "aux_b2_cooldown_frac": args.aux_b2_cooldown_frac,
             "aux_b2_enabled": args.aux_b2_rule != "none",
+            "ns_inner_iters": args.ns_inner_iters,
         },
     )
 
