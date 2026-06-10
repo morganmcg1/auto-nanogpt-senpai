@@ -1,8 +1,25 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-10 ~04:35 UTC — **H-FG FALSIFIED/ABORT (#2428 closed). H-FW (nezuko, lm_head-only β₂ pulse step timing sweep) assigned (#2436). Fleet: 8/8 active.**
+- **As of:** 2026-06-10 ~05:15 UTC — **STRONG NEW SIGNAL: fern H-FN Arm A trial 0 @ 2890 = 3.276316.** Awaiting trial 1 for n=2 verdict. Fleet: 8/8 active.
 
-## Most important open signal: lm_head-dominant β₂ pulse (alphonse H-FD Arm B)
+## TOP OPEN SIGNAL — fern H-FN Muon mu warmup 500 (trial 0 strong)
+
+Fern H-FN Arm A (Muon mu_warmup 300→500, run `kqadlpxd`):
+- Trial 0 @ step 2890 = **3.276316** (`speedrun/final_best_val_loss` from summary)
+- Trial 0 `first_step_to_target` = **2850**
+- Trial 1 in progress (train/step ~601/2890 at 05:12 UTC) — ETA ~06:25 UTC
+- Decision: if n=2 mean @ 2850 ≤ 3.277172 → ESCALATE to n=4; if ≤ 3.278000 → INFORMATIVE
+- **OPERATIONAL NOTE:** fern student loop dead since 02:24 UTC; training subprocess healthy. Will respawn pod after trial 1 finishes; may need advisor-side SENPAI-RESULT post.
+
+## Second open signal — askeladd H-FO Muon mu cooldown 200 (borderline)
+
+Askeladd H-FO Arm A (Muon mu_cooldown 100→200, run `ewtz1ftq`):
+- Trial 0 @ step 2890 = **3.277430** (`speedrun/final_best_val_loss` from summary)
+- Trial 0 `first_step_to_target` = **2850**
+- Trial 1 in progress (train/step ~2251/2890) — ETA ~05:55 UTC
+- Likely lands INFORMATIVE-NOT-MERGE; long-shot escalation if trial 1 outperforms trial 0.
+
+## Prior strongest signal: lm_head-dominant β₂ pulse (alphonse H-FD Arm B)
 
 Alphonse H-FD Arm B (lm_head-only β₂ pulse, n=2 run `sfe2too3`):
 - Trial 0 @2890 post-RI = 3.275785, Trial 1 @2890 post-RI = 3.275600
@@ -12,18 +29,18 @@ Alphonse H-FD Arm B (lm_head-only β₂ pulse, n=2 run `sfe2too3`):
 - **β₂ pulse mechanism is primarily LMHEAD-driven**
 - Two orthogonal follow-up axes now in flight: H-FQ (amplitude at lm_head), H-FW (timing at lm_head)
 
-## Active fleet status (04:35 UTC):
+## Active fleet status (05:15 UTC):
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| **#2436** | **nezuko** | **H-FW lm_head-only β₂ pulse STEP TIMING sweep {620,720,920,1020}** | **Just assigned** |
-| #2435 | frieren | H-FR lm_head + scalars combined β₂ pulse (embed stays fixed) | In flight |
-| #2434 | alphonse | H-FU Newton-Schulz inner iteration count sweep (8/16 vs 12) | In flight |
-| #2433 | edward | H-FQ lm_head-only β₂ amplitude sweep (0.997 / 0.999) | In flight |
-| #2432 | tanjiro | H-FS lm_head AdamW LR ×1.5 pulse @ step 820 (100 steps) | In flight |
-| #2431 | askeladd | H-FO Muon mu cooldown extension 100→200/300 | In flight |
-| #2430 | thorfinn | H-FJ AdamW eps phase schedule 1e-10→1e-12 by step 820 | In flight |
-| #2429 | fern | H-FN Muon mu warmup extension 300→500/1000 steps | In flight |
+| **#2429** | **fern** | **H-FN Muon mu warmup 500 (Arm A only)** | **TRIAL 0 STRONG (3.276316@2890); trial 1 in flight** |
+| #2431 | askeladd | H-FO Muon mu cooldown 200 (Arm A) | TRIAL 0 borderline (3.277430@2890); trial 1 in flight |
+| #2433 | edward | H-FQ lm_head-only β₂ amplitude sweep (Arm A 0.997 in flight, restart after `8qv7h8ck` crash → `bj2g9xkv` at step ~2100) | In flight |
+| #2436 | nezuko | H-FW lm_head-only β₂ pulse STEP TIMING sweep {620,720,920,1020} | Arm A trial 1 ETA 06:09 UTC |
+| #2435 | frieren | H-FR lm_head + scalars combined β₂ pulse (embed stays fixed) | Arm A in flight (`gj3zqbbk` step 1500) |
+| #2434 | alphonse | H-FU Newton-Schulz inner iteration count sweep (8/16 vs 12) | Arm A in flight (`merl8y2r` step 1445, dup killed) |
+| #2432 | tanjiro | H-FS lm_head AdamW LR ×1.5 pulse @ step 820 (100 steps) | Arm A in flight (`jtkqon4p` step 1950) |
+| #2430 | thorfinn | H-FJ AdamW eps phase schedule 1e-10→1e-12 by step 820 | Arm A in flight (`0oy17382` step 2550) |
 
 ## Recently closed this cycle (03:00–04:35 UTC):
 
