@@ -169,6 +169,10 @@ def parse_args():
                         help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
                              "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
                              "(cd_start = 1156 for train_steps=2890).")
+    parser.add_argument("--focal_gamma", type=float, default=0.0,
+                        help="H-GM: focal-loss exponent (Lin et al. 2017). 0.0 disables "
+                             "(standard CE, baseline). >0 applies (1-p_correct)^gamma weighting "
+                             "to per-token training CE; validation loss is unchanged.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -553,14 +557,31 @@ class Block(nn.Module):
         x = x + self.mlp(self.norm2(x))
         return x
 
+def focal_cross_entropy_sum(logits: Tensor, targets: Tensor, gamma: float) -> Tensor:
+    """Focal loss (Lin et al. 2017, RetinaNet) for LM, sum reduction.
+
+    FL(p_t) = (1 - p_t)^gamma * CE(p_t). The focal weight is detached so
+    gradients flow only through CE. Sum reduction keeps the existing
+    step_loss / batch_size accumulator and gradient scale consistent
+    with standard CE; the focal weight still scales gradients per token.
+    p_correct = exp(-ce_loss) avoids a redundant log_softmax pass.
+    """
+    ce_loss = F.cross_entropy(logits, targets, reduction="none")
+    with torch.no_grad():
+        p_correct = (-ce_loss).exp().clamp(max=1.0)
+        focal_weight = (1.0 - p_correct).pow(gamma)
+    return (focal_weight * ce_loss).sum()
+
+
 class GPT(nn.Module):
-    def __init__(self, vocab_size: int, num_layers: int, model_dim: int):
+    def __init__(self, vocab_size: int, num_layers: int, model_dim: int, focal_gamma: float = 0.0):
         super().__init__()
         self.embed = nn.Embedding(vocab_size, model_dim).bfloat16()
         self.blocks = nn.ModuleList([Block(model_dim) for _ in range(num_layers)])
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        self.focal_gamma = float(focal_gamma)
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
@@ -568,7 +589,13 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        flat_logits = logits.view(targets.numel(), -1)
+        flat_targets = targets.view(-1)
+        # H-GM: focal loss during training only. Validation always uses
+        # standard CE so val/loss stays comparable to the baseline rule.
+        if self.training and self.focal_gamma > 0.0:
+            return focal_cross_entropy_sum(flat_logits, flat_targets, self.focal_gamma)
+        return F.cross_entropy(flat_logits, flat_targets, reduction="sum")
 
 
 ########################################
@@ -1180,7 +1207,7 @@ batch_size = 8 * 64 * 1024
 mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
-model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+model = GPT(vocab_size=50304, num_layers=12, model_dim=768, focal_gamma=args.focal_gamma).cuda()
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -1254,6 +1281,8 @@ if dist.get_rank() == 0:
             "aux_b2_pulse_step_1": args.aux_b2_pulse_step_1,
             "aux_b2_cooldown_frac": args.aux_b2_cooldown_frac,
             "aux_b2_enabled": args.aux_b2_rule != "none",
+            "focal_gamma": args.focal_gamma,
+            "focal_enabled": args.focal_gamma > 0.0,
         },
     )
 
