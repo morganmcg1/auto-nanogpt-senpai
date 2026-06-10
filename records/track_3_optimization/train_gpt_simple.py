@@ -169,6 +169,13 @@ def parse_args():
                         help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
                              "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
                              "(cd_start = 1156 for train_steps=2890).")
+    parser.add_argument("--lmhead_lr_pulse_mult", type=float, default=1.0,
+                        help="H-FS: Multiplier applied to the adam_lm_head group LR during a pulse window. "
+                             "Default 1.0 (off). Test 1.5 / 1.3 for synchronized LR+β₂ pulse on lm_head.")
+    parser.add_argument("--lmhead_lr_pulse_start", type=int, default=820,
+                        help="H-FS: Step at which the lm_head LR pulse begins.")
+    parser.add_argument("--lmhead_lr_pulse_steps", type=int, default=100,
+                        help="H-FS: Duration of the lm_head LR pulse (steps).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1254,6 +1261,10 @@ if dist.get_rank() == 0:
             "aux_b2_pulse_step_1": args.aux_b2_pulse_step_1,
             "aux_b2_cooldown_frac": args.aux_b2_cooldown_frac,
             "aux_b2_enabled": args.aux_b2_rule != "none",
+            "lmhead_lr_pulse_mult": args.lmhead_lr_pulse_mult,
+            "lmhead_lr_pulse_start": args.lmhead_lr_pulse_start,
+            "lmhead_lr_pulse_steps": args.lmhead_lr_pulse_steps,
+            "lmhead_lr_pulse_enabled": args.lmhead_lr_pulse_mult != 1.0,
         },
     )
 
@@ -1367,7 +1378,16 @@ for trial_idx in range(args.num_trials):
     def set_hparams(step):
         for opt in inner_optimizers:
             for group in opt.param_groups:
-                group["lr"] = _power_lr(step, group["initial_lr"], group["power_c"])
+                base_lr = _power_lr(step, group["initial_lr"], group["power_c"])
+                # H-FS: lm_head LR pulse — multiplies ONLY the adam_lm_head group's LR
+                # during a pulse window synchronized with the β₂ pulse at step 820.
+                if (group.get("name") == "adam_lm_head"
+                        and args.lmhead_lr_pulse_mult != 1.0
+                        and args.lmhead_lr_pulse_start <= step
+                            < args.lmhead_lr_pulse_start + args.lmhead_lr_pulse_steps):
+                    group["lr"] = base_lr * args.lmhead_lr_pulse_mult
+                else:
+                    group["lr"] = base_lr
         mu_step = _muon_mu_at_step(step)
         for group in optimizer2.param_groups:
             group["mu"] = mu_step
@@ -1570,6 +1590,36 @@ for trial_idx in range(args.num_trials):
                     beta1 = group["betas"][0]
                     group["betas"] = (beta1, new_b2)
                 print0(f"[step {step}] aux_b2 STAIRCASE: β₂ → {new_b2}", console=True)
+        # H-FS: log lm_head LR around the pulse window.
+        if (args.lmhead_lr_pulse_mult != 1.0
+                and dist.get_rank() == 0):
+            pulse_end = args.lmhead_lr_pulse_start + args.lmhead_lr_pulse_steps
+            if step == args.lmhead_lr_pulse_start:
+                lmh_group = next(g for g in optimizer1.param_groups
+                                 if g.get("name") == "adam_lm_head")
+                base_lr = _power_lr(step, lmh_group["initial_lr"], lmh_group["power_c"])
+                boosted_lr = lmh_group["lr"]
+                print0(f"[step {step}] H-FS lm_head LR PULSE START: "
+                       f"base={base_lr:.6g} → boosted={boosted_lr:.6g} "
+                       f"(mult={args.lmhead_lr_pulse_mult}, until step {pulse_end})",
+                       console=True)
+            elif step == pulse_end:
+                lmh_group = next(g for g in optimizer1.param_groups
+                                 if g.get("name") == "adam_lm_head")
+                print0(f"[step {step}] H-FS lm_head LR PULSE END: lr={lmh_group['lr']:.6g}",
+                       console=True)
+            if (args.lmhead_lr_pulse_start
+                    <= step < args.lmhead_lr_pulse_start + 5):
+                lmh_group = next(g for g in optimizer1.param_groups
+                                 if g.get("name") == "adam_lm_head")
+                base_lr = _power_lr(step, lmh_group["initial_lr"], lmh_group["power_c"])
+                wandb.log({
+                    "trial": trial_idx,
+                    "lmhead_lr/base": base_lr,
+                    "lmhead_lr/boosted": lmh_group["lr"],
+                    "lmhead_lr/mult": args.lmhead_lr_pulse_mult,
+                    "lmhead_lr/step": step,
+                }, step=trial_idx * (train_steps + 1) + step + 1)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
