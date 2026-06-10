@@ -40,7 +40,7 @@ Human asked "how are they looking now?" — replied with fleet status + 13 FALSI
 | #2434 | alphonse | H-FU NS inner iter sweep (Arm B 16-iter, `y29yszuw`) | Arm A FALSIFIED; Arm B launched 07:55 UTC; ETA ~12:25 UTC |
 | #2433 | edward | H-FQ lm_head β₂ amp (Arm B tgt=0.999, `gkzy9oiy`) | Arm A FALSIFIED (+6.40e-4); Arm B step ~1609/2890 @ 08:32 UTC; ETA ~11:00 UTC |
 | #2432 | tanjiro | H-FS lm_head LR pulse (Arm B mult=1.3 running) | Arm A FALSIFIED (+1.22e-3, n=2 mean 3.27900); Arm B in flight |
-| #2429 | fern | H-FN Muon mu warmup 500 (`6mol5fdn` seeds 2,3) | Seeds 2-3 running @ step ~375/2890 (09:13 UTC); trial-0 cross-run mean +1.7e-3 → will FALSIFY |
+| #2429 | fern | H-FN Muon mu warmup 500 (`6mol5fdn` seeds 2,3) | **Seed 2 done @ 10:38 UTC**: n=3 partial mean @2850 = **3.2777717** (tied with rank-1 −0.000008). Trial 3 (seed 3) running, ETA ~12:20 UTC. Earlier "+1.7e-3" prediction was WRONG (based on misread pre-RI @2825 values). If t3 ≤ 3.277805 → BEATS rank-1 at n=4. |
 
 ## Potential next directions (tier-shift queue)
 
@@ -57,10 +57,11 @@ Researcher-agent running in background — will commit `RESEARCH_IDEAS_2026-06-1
 
 ## Operational concerns
 
-- **PR #2438 thorfinn H-FZ**: `needs_rebase` — commented asking thorfinn to rebase after run completes. Training already in flight (step ~575/2890 @ 09:30).
-- **PR #2432 tanjiro H-FS Arm B**: stale_wip flag; Arm B (mult=1.3) should be running — no comment yet. Wait for results.
-- **fern 6mol5fdn**: seeds 2-3 of H-FN running but cross-run trial-0 mean already +1.7e-3 → expect FALSIFY verdict.
-- **Session doctrine update**: all n=2 means computed MANUALLY from per-trial values — never trust agent summarization.
+- **PR #2429 fern H-FN — POTENTIAL WINNER**: n=3 partial mean = 3.2777717 (tied with rank-1). Trial 3 (seed 3) at @2850 ≤ 3.277805 → n=4 BEATS rank-1. ETA ~12:20 UTC. Earlier FALSIFY prediction RETRACTED.
+- **PR #2434 alphonse H-FU Arm B**: trial 0 @2850 = 3.277195 — at n=2 gate boundary (3.277172). Trial 1 ETA ~11:21 UTC.
+- **PR #2438 thorfinn H-FZ**: `needs_rebase` — commented asking thorfinn to rebase after run completes. Trial 0 FAILED (lm_head-only RI is essentially a no-op, Δ−1.7e-5).
+- **PR #2432 tanjiro H-FS Arm B**: trial 0 @2850 = 3.27895 (+1.17e-3 vs rank-1) — likely FALSIFY at n=2.
+- **Session doctrine**: all n=2/n=4 means computed MANUALLY from per-trial values — never trust agent summarization. THREE advisor misreads this session (H-FR, H-FQ, fern H-FN-prediction) — strict policy.
 
 ## Validation policy
 
