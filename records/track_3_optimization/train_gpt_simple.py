@@ -169,6 +169,15 @@ def parse_args():
                         help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
                              "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
                              "(cd_start = 1156 for train_steps=2890).")
+    parser.add_argument("--sam_rho", type=float, default=0.0,
+                        help="H-GC: SAM perturbation radius applied to lm_head only "
+                             "(model.proj.{weight,bias}). 0.0 disables (baseline no-op). "
+                             "Foret et al. 2021 (https://arxiv.org/abs/2010.01412). "
+                             "Arm A: 0.05 (full run). Arm B: 0.02 (last 500 steps).")
+    parser.add_argument("--sam_start_step", type=int, default=0,
+                        help="H-GC: step at which SAM perturbation activates. "
+                             "0 = active from start (Arm A). "
+                             "2390 = active only in last 500 steps (Arm B).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1254,6 +1263,9 @@ if dist.get_rank() == 0:
             "aux_b2_pulse_step_1": args.aux_b2_pulse_step_1,
             "aux_b2_cooldown_frac": args.aux_b2_cooldown_frac,
             "aux_b2_enabled": args.aux_b2_rule != "none",
+            "sam_rho": args.sam_rho,
+            "sam_start_step": args.sam_start_step,
+            "sam_enabled": args.sam_rho > 0.0,
         },
     )
 
@@ -1528,6 +1540,7 @@ for trial_idx in range(args.num_trials):
             break
 
         # --------------- TRAINING SECTION -----------------
+        step_train_start = time.perf_counter()
         inputs, targets = next(train_loader)
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
@@ -1545,6 +1558,47 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        # H-GC: SAM lm_head-only one-step perturbation (Foret et al. 2021).
+        # Compute e_hat from the clean lm_head gradient, perturb p.data on
+        # model.proj.{weight,bias} only, redo the FULL forward+backward, then
+        # restore p.data exactly before the optimizer step. The optimizer then
+        # consumes the perturbed-point gradients for ALL params (standard SAM).
+        sam_active = (args.sam_rho > 0.0) and (step >= args.sam_start_step)
+        sam_grad_norm_value = 0.0
+        sam_perturbed_loss = 0.0
+        if sam_active:
+            lm_head_params = [
+                (n, p) for n, p in model.named_parameters()
+                if n in ("proj.weight", "proj.bias") and p.grad is not None
+            ]
+            assert lm_head_params, "H-GC SAM: no lm_head params found"
+            grad_sq_sum = sum(p.grad.float().pow(2).sum() for _, p in lm_head_params)
+            grad_norm = grad_sq_sum.sqrt().clamp_min(1e-12)
+            sam_grad_norm_value = float(grad_norm.item())
+            scale = args.sam_rho / grad_norm
+            # Save typed deltas so the restore step is exact in the param dtype.
+            perturbations: list[tuple[Tensor, Tensor]] = []
+            for _, p in lm_head_params:
+                delta = (scale * p.grad.float()).to(p.dtype)
+                p.data.add_(delta)
+                perturbations.append((p, delta))
+            model.zero_grad(set_to_none=True)
+            sam_loss_acc = torch.zeros((), device=device)
+            for i in range(len(inputs) // mbs):
+                loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+                if not torch.isfinite(loss).all():
+                    raise RuntimeError(
+                        f"non-finite SAM perturbed loss at trial {trial_idx} step {step} mb {i}: {loss.item()}"
+                    )
+                sam_loss_acc += loss.detach()
+                loss.backward()
+            for _, p in model.named_parameters():
+                if p.grad is not None:
+                    dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
+            dist.all_reduce(sam_loss_acc, op=dist.ReduceOp.SUM)
+            sam_perturbed_loss = float((sam_loss_acc / batch_size).item())
+            for p, delta in perturbations:
+                p.data.sub_(delta)
         # set optimization hyperparameters and take a step
         set_hparams(step)
         # H-EF: aux Adam β₂ step-function pulse. Fires exactly once when
@@ -1649,9 +1703,23 @@ for trial_idx in range(args.num_trials):
                 param_histogram_limit=args.param_histogram_limit,
             )
         model.zero_grad(set_to_none=True)
+        step_train_ms = (time.perf_counter() - step_train_start) * 1000
+        if dist.get_rank() == 0:
+            sam_log = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/step_time_ms": step_train_ms,
+                "train/sam_active": int(sam_active),
+            }
+            if sam_active:
+                sam_log["train/sam_lm_head_grad_norm"] = sam_grad_norm_value
+                sam_log["train/sam_perturbed_loss"] = sam_perturbed_loss
+                sam_log["train/sam_loss_delta"] = sam_perturbed_loss - train_loss
+            wandb.log(sam_log, step=wandb_step)
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
-               + f" step_avg:{1000*approx_training_time/(step + 1):.2f}ms", console=True, log=False)
+               + f" step_avg:{1000*approx_training_time/(step + 1):.2f}ms"
+               + f" step_time:{step_train_ms:.1f}ms sam:{int(sam_active)}", console=True, log=False)
 
     if dist.get_rank() == 0:
         print0(
