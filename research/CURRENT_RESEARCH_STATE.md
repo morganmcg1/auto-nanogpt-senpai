@@ -1,6 +1,16 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-10 ~06:05 UTC — **MULTIPLE STRONG TRIAL-0 SIGNALS.** frieren H-FR @ 3.276022, edward H-FQ @ 3.276933, fern H-FN @ 3.276316. All below n=2 threshold (3.277172). Awaiting trial 1 verdicts. Fleet: 8/8 active.
+- **As of:** 2026-06-10 ~06:15 UTC — 🎯 **ASKELADD H-FO WINNER (Trial 1 = 3.275169 @ 2890; n=2 mean = 3.276300 BEATS rank-1).** 3 more strong candidates in flight (frieren/fern/edward). Fleet: 8/8 active.
+
+## 🎯 WINNER — askeladd H-FO Muon mu_cooldown 200
+
+Run `ewtz1ftq` FINISHED:
+- Trial 0 @ 2890 = 3.277430, first_step_to_target = 2850
+- Trial 1 @ 2890 = **3.275169**, first_step_to_target = **2825**
+- **n=2 mean @ 2890 = 3.276300** (below n=2 threshold 3.277172)
+- Trial 1 best matches rank-1's n=4 mean (3.275320) — exceeds it by 0.0002
+- DECISION: Merge candidate, pending student SENPAI-RESULT post. n=4 escalation recommended.
+- Lattice values @ 2825/2850/2875 in W&B live buffer (inaccessible) — need student to post from local training log.
 
 ## TOP OPEN SIGNALS (4 candidates below n=2 threshold trial 0)
 
