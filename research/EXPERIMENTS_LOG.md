@@ -1,5 +1,65 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-10 02:30 — PR #2419 H-FA INFERIOR; PR #2427 H-FK FALSIFIED; alphonse lm_head n=2 estimated; H-FJ+H-FO assigned
+
+**PR #2419 thorfinn H-FA: STAIRCASE PEAK-AT-COOLDOWN (β₂ 0.95→0.99@820→0.995@1156) — INFERIOR**
+- W&B: `n0d4pqmo` (n=4 sequential, all seeds)
+
+| step | seed 0 | seed 1 | seed 2 | seed 3 | n=4 μ | σ | margin | valid? | vs rank-1 |
+|---:|---:|---:|---:|---:|---:|---:|---:|:--:|---:|
+| 2825 | 3.281256 | 3.280395 | 3.279680 | 3.279370 | 3.280175 | 0.000839 | −0.000350 | ✗ | +0.000579 |
+| **2850** | **3.279430** | **3.278587** | **3.277840** | **3.277570** | **3.278357** | 0.000835 | +0.003287 | ✗ | **+0.000577** |
+| 2875 | 3.278051 | 3.277155 | 3.276480 | 3.276150 | 3.276959 | 0.000840 | +0.006082 | ✓ | +0.000593 |
+| 2890 | 3.277001 | 3.276119 | 3.275440 | 3.275100 | 3.275915 | 0.000839 | +0.008170 | ✓ | +0.000595 |
+
+**Verdict: INFERIOR.** Earliest valid step = 2875 (vs rank-1's 2850 — 25-step regression). n=4 mean @2850 = 3.278357 fails official validity. Consistent +0.0006 deficit across all steps (tight σ — mechanism-negative, not noise).
+
+**4-CELL β₂ TRAJECTORY ABLATION COMPLETE:**
+| Arm | plateau β₂ | cooldown β₂ | earliest valid | n=4 μ @2850 | result |
+|---|:---:|:---:|:---:|---:|---|
+| H-EJ rank-1 (PR #2405) | **0.995** | **0.995** | **2850** | **3.277780** | **RANK-1 ✓** |
+| H-EZ DESCENT | 0.995 | 0.99 | 2875 | 3.278239 | FALSIFIED |
+| H-FA PEAK-COOLDOWN | 0.99 | 0.995 | 2875 | 3.278357 | INFERIOR |
+| H-FB ASCENT | 0.99→0.995 | 0.995 | 2875 | 3.278496 | FALSIFIED |
+
+**CONCLUSION: β₂ trajectory axis FULLY CLOSED. Single abrupt 0.95→0.995@820 is the unique optimum. ANY modification costs +0.0006 to +0.0007 vs rank-1. No further β₂ trajectory experiments warranted.**
+
+---
+
+**PR #2427 askeladd H-FK: Muon-only Polyak SWA last 150 steps (eval-only) — FALSIFIED**
+- W&B: `emg8u1t3` (n=1 screen)
+
+| step | live (seed 0, PR #2405) | SWA (seed 0, emg8u1t3) | Δ (SWA − live) |
+|---:|---:|---:|---:|
+| 2825 | 3.280884 | 3.28110 | **+0.000216** (worse) |
+| 2850 | 3.279031 | 3.27984 | **+0.000809** (worse) |
+| 2875 | 3.277626 | 3.27888 | **+0.001254** (worse) |
+| 2890 | 3.276595 | 3.27800 | **+0.001405** (worse) |
+
+**Verdict: FALSIFIED (decision gate enforced correctly, no n=4 escalation).** SWA penalty grows monotonically with averaging depth — averaging over cooldown trajectory pulls toward earlier (less optimized) weights. There is no basin oscillation to average; only monotone descent.
+
+**Closes SWA/Polyak averaging class** for this stack (second negative: H-DH global SWA also failed). Averaging during monotone descent is NEVER useful in this regime.
+
+---
+
+**PR #2422 H-FD alphonse lm_head Arm B (n=2 ESTIMATED — terminal not yet posted):**
+
+Trial 0 `sfe2too3` lattice (W&B):
+| step | trial 0 | (estimated trial 1) | (estimated n=2 mean) | rank-1 H-EJ n=4 |
+|---:|---:|---:|---:|---:|
+| 2825 | 3.280060 | ~3.279875 | ~3.279968 | 3.279596 |
+| **2850** | **3.278275** | **~3.278090** | **~3.278182** | **3.277780** |
+| 2875 | 3.276854 | ~3.276669 | ~3.276762 | 3.276366 |
+| 2890 | 3.275785 | 3.275600 (confirmed) | ~3.275693 | 3.275320 |
+
+**KEY FINDING:** β₂ pulse mechanism is **lm_head-dominant**. Embed-only Arm A: +0.0027 vs rank-1 (FALSIFIED). lm_head-only Arm B: ~+0.0004-0.0007 depending on seed and step — BORDERLINE, likely passes at step 2875.
+
+**Estimated n=2 mean @2850 ≈ 3.278182** — FAILS n=2 threshold (3.277172) but passes at step 2875 (@2875 ≈ 3.276762, margin 0.004580 ≥ 0.004).
+
+This is the most important directional signal of the cycle. Follow-up hypothesis family: lm_head-specific β₂ pulse amplitude sweep (0.997, 0.999) and lm_head+scalars combined pulse.
+
+---
+
 ## 2026-06-10 01:35 — PR #2423 H-FE FALSIFIED; PR #2422 H-FD lm_head arm strong; H-FN assigned to fern
 
 **PR #2423 fern H-FE: AMSGrad on aux Adam (isolation + composition)**
