@@ -1,23 +1,66 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-10 ~05:15 UTC — **STRONG NEW SIGNAL: fern H-FN Arm A trial 0 @ 2890 = 3.276316.** Awaiting trial 1 for n=2 verdict. Fleet: 8/8 active.
+- **As of:** 2026-06-10 ~06:05 UTC — **MULTIPLE STRONG TRIAL-0 SIGNALS.** frieren H-FR @ 3.276022, edward H-FQ @ 3.276933, fern H-FN @ 3.276316. All below n=2 threshold (3.277172). Awaiting trial 1 verdicts. Fleet: 8/8 active.
 
-## TOP OPEN SIGNAL — fern H-FN Muon mu warmup 500 (trial 0 strong)
+## TOP OPEN SIGNALS (4 candidates below n=2 threshold trial 0)
+
+### #1 — frieren H-FR lm_head+scalars combined β₂ pulse (STRONGEST)
+
+Frieren H-FR Arm A (lm_head+scalars combined β₂ pulse, run `gj3zqbbk`):
+- **Trial 0 @ step 2890 = 3.276022** (`speedrun/final_best_val_loss` from summary)
+- Trial 0 `first_step_to_target` = **2850**
+- Trial 1 in progress (W&B _step 2941, train/step ~51/2890) — ETA ~07:30 UTC
+- THE strongest single-seed in the entire H-F* program (+0.0007 above rank-1 n=4 mean).
+
+### #2 — fern H-FN Muon mu warmup 500
 
 Fern H-FN Arm A (Muon mu_warmup 300→500, run `kqadlpxd`):
-- Trial 0 @ step 2890 = **3.276316** (`speedrun/final_best_val_loss` from summary)
+- Trial 0 @ step 2890 = **3.276316**
 - Trial 0 `first_step_to_target` = **2850**
-- Trial 1 in progress (train/step ~601/2890 at 05:12 UTC) — ETA ~06:25 UTC
-- Decision: if n=2 mean @ 2850 ≤ 3.277172 → ESCALATE to n=4; if ≤ 3.278000 → INFORMATIVE
-- **OPERATIONAL NOTE:** fern student loop dead since 02:24 UTC; training subprocess healthy. Will respawn pod after trial 1 finishes; may need advisor-side SENPAI-RESULT post.
+- Trial 1 in progress (W&B _step 3758, train/step ~868/2890) — ETA ~06:25 UTC
+- **OPERATIONAL:** fern student loop dead since 02:24 UTC; training healthy. Respawn pod after trial 1 finishes.
 
-## Second open signal — askeladd H-FO Muon mu cooldown 200 (borderline)
+### #3 — edward H-FQ lm_head-only β₂=0.997
 
-Askeladd H-FO Arm A (Muon mu_cooldown 100→200, run `ewtz1ftq`):
-- Trial 0 @ step 2890 = **3.277430** (`speedrun/final_best_val_loss` from summary)
+Edward H-FQ Arm A (lm_head-only β₂ amplitude 0.997, run `bj2g9xkv` after 3 crashes):
+- Trial 0 @ step 2890 = **3.276933**
 - Trial 0 `first_step_to_target` = **2850**
-- Trial 1 in progress (train/step ~2251/2890) — ETA ~05:55 UTC
-- Likely lands INFORMATIVE-NOT-MERGE; long-shot escalation if trial 1 outperforms trial 0.
+- Trial 1 in progress (W&B _step 3291, train/step ~401/2890) — ETA ~07:15 UTC
+- Multiple crashed prior attempts (`8qv7h8ck`, `ylwyhs1f`, `dprs7rr0`).
+
+### #4 — alphonse H-FU NS inner iters 8 (borderline)
+
+Alphonse H-FU Arm A (ns_inner_iters=8, run `merl8y2r`):
+- Trial 0 @ step 2890 = **3.277176** — just at n=2 threshold
+- Trial 1 in progress (W&B _step 2892, just starting) — ETA ~07:25 UTC
+
+## Borderline signals (trial 0 above n=2 threshold)
+
+### askeladd H-FO Muon mu cooldown 200
+
+- Trial 0 @ step 2890 = **3.277430** (just above n=2 thresh of 3.277172)
+- Trial 1 at W&B _step 5691 (nearly done, ~06:05 UTC) — verdict imminent
+
+### tanjiro H-FS lm_head LR ×1.5 pulse
+
+- Trial 0 best = **3.277728 @ step 2875** (best_val_step 2875, not 2890 — peak shifted earlier)
+- first_step_to_target = 2875 (later than rank-1's 2850)
+- Trial 1 at W&B _step 3391, train/step ~501/2890
+
+## Falsified this cycle
+
+### thorfinn H-FJ AdamW eps phase schedule (FALSIFIED at trial 0)
+
+- Trial 0 @ 2890 = 3.27753, deltas +0.0022 above rank-1 at every lattice step
+- Trial 1 will complete for completeness but H-FJ axis CLOSING.
+
+## Prior strongest signal: lm_head-dominant β₂ pulse (alphonse H-FD Arm B)
+
+Alphonse H-FD Arm B (lm_head-only β₂ pulse, n=2 run `sfe2too3`):
+- Trial 0 @2890 = 3.275785, Trial 1 @2890 = 3.275600
+- Estimated n=2 mean @2850 ≈ 3.278182 (FAILED n=2 threshold)
+- Embed-only Arm A: FALSIFIED
+- **Established: β₂ pulse mechanism is LMHEAD-driven** (and now H-FR data suggests SCALARS adds further signal)
 
 ## Prior strongest signal: lm_head-dominant β₂ pulse (alphonse H-FD Arm B)
 
@@ -29,18 +72,18 @@ Alphonse H-FD Arm B (lm_head-only β₂ pulse, n=2 run `sfe2too3`):
 - **β₂ pulse mechanism is primarily LMHEAD-driven**
 - Two orthogonal follow-up axes now in flight: H-FQ (amplitude at lm_head), H-FW (timing at lm_head)
 
-## Active fleet status (05:15 UTC):
+## Active fleet status (06:05 UTC):
 
-| PR | Student | Hypothesis | Status |
-|---|---|---|---|
-| **#2429** | **fern** | **H-FN Muon mu warmup 500 (Arm A only)** | **TRIAL 0 STRONG (3.276316@2890); trial 1 in flight** |
-| #2431 | askeladd | H-FO Muon mu cooldown 200 (Arm A) | TRIAL 0 borderline (3.277430@2890); trial 1 in flight |
-| #2433 | edward | H-FQ lm_head-only β₂ amplitude sweep (Arm A 0.997 in flight, restart after `8qv7h8ck` crash → `bj2g9xkv` at step ~2100) | In flight |
-| #2436 | nezuko | H-FW lm_head-only β₂ pulse STEP TIMING sweep {620,720,920,1020} | Arm A trial 1 ETA 06:09 UTC |
-| #2435 | frieren | H-FR lm_head + scalars combined β₂ pulse (embed stays fixed) | Arm A in flight (`gj3zqbbk` step 1500) |
-| #2434 | alphonse | H-FU Newton-Schulz inner iteration count sweep (8/16 vs 12) | Arm A in flight (`merl8y2r` step 1445, dup killed) |
-| #2432 | tanjiro | H-FS lm_head AdamW LR ×1.5 pulse @ step 820 (100 steps) | Arm A in flight (`jtkqon4p` step 1950) |
-| #2430 | thorfinn | H-FJ AdamW eps phase schedule 1e-10→1e-12 by step 820 | Arm A in flight (`0oy17382` step 2550) |
+| PR | Student | Hypothesis | Trial 0 @ 2890 | Status |
+|---|---|---|---:|---|
+| **#2435** | **frieren** | **H-FR lm_head+scalars combined β₂ pulse** | **3.276022** | **STRONGEST; trial 1 ETA 07:30** |
+| **#2429** | **fern** | **H-FN Muon mu warmup 500** | **3.276316** | **STRONG; trial 1 ETA 06:25** |
+| **#2433** | **edward** | **H-FQ lm_head β₂=0.997** | **3.276933** | **STRONG; trial 1 ETA 07:15** |
+| #2434 | alphonse | H-FU NS inner_iters=8 | 3.277176 | Borderline; trial 1 just started |
+| #2431 | askeladd | H-FO Muon mu cooldown 200 | 3.277430 | Trial 1 nearly done, verdict imminent |
+| #2432 | tanjiro | H-FS lm_head LR ×1.5 pulse | 3.277728 @ 2875 | Borderline; trial 1 ETA ~07:30 |
+| #2430 | thorfinn | H-FJ AdamW eps phase | 3.277533 | FALSIFIED; trial 1 ETA ~07:00 |
+| #2436 | nezuko | H-FW lm_head timing {620,720,920,1020} | pending | Arm A trial 0 in flight |
 
 ## Recently closed this cycle (03:00–04:35 UTC):
 
