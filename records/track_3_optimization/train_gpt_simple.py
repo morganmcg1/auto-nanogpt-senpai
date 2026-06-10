@@ -169,6 +169,9 @@ def parse_args():
                         help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
                              "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
                              "(cd_start = 1156 for train_steps=2890).")
+    parser.add_argument("--muon_mu_warmup_steps", type=int, default=300,
+                        help="Muon momentum warmup duration in steps. Overrides _MU_WARMUP_STEPS. "
+                             "Default 300 (rank-1 baseline).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -183,6 +186,9 @@ def parse_args():
 
 
 args = parse_args()
+_MU_WARMUP_STEPS = args.muon_mu_warmup_steps
+_mu_at_820 = _MU_MIN + min(1.0, 820 / max(_MU_WARMUP_STEPS, 1)) * (_MU_MAX - _MU_MIN)
+print(f"[init] muon_mu_warmup_steps={_MU_WARMUP_STEPS}, mu_at_820={_mu_at_820:.4f}")
 
 
 def clean_metric_name(name: str) -> str:
@@ -1254,8 +1260,14 @@ if dist.get_rank() == 0:
             "aux_b2_pulse_step_1": args.aux_b2_pulse_step_1,
             "aux_b2_cooldown_frac": args.aux_b2_cooldown_frac,
             "aux_b2_enabled": args.aux_b2_rule != "none",
+            "muon_mu_warmup_steps": args.muon_mu_warmup_steps,
+            "muon_mu_cooldown_steps": _MU_COOLDOWN_STEPS,
+            "muon_mu_min": _MU_MIN,
+            "muon_mu_max": _MU_MAX,
         },
     )
+    if dist.get_rank() == 0:
+        wandb.log({"muon/mu_at_820": _mu_at_820}, step=0)
 
 for trial_idx in range(args.num_trials):
 
