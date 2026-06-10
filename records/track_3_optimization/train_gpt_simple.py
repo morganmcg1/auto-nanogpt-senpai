@@ -172,6 +172,13 @@ def parse_args():
     parser.add_argument("--muon_mu_warmup_steps", type=int, default=300,
                         help="Muon momentum warmup duration in steps. Overrides _MU_WARMUP_STEPS. "
                              "Default 300 (rank-1 baseline).")
+    parser.add_argument("--mlp_drop_rate", type=float, default=0.0,
+                        help="H-GL: Stochastic depth drop rate on MLP residual branch (per-sample). "
+                             "0.0 disables (baseline). Applies to ALL transformer layers. "
+                             "Eval is automatically clean via self.training.")
+    parser.add_argument("--mlp_drop_ramp", action="store_true",
+                        help="H-GL Arm B: Linearly ramp drop rate from 0 to --mlp_drop_rate over "
+                             "first half of training, then hold constant. Default off (constant rate).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -547,23 +554,38 @@ class MLP(nn.Module):
         return x
 
 class Block(nn.Module):
-    def __init__(self, dim: int):
+    def __init__(self, dim: int, mlp_drop_rate: float = 0.0):
         super().__init__()
         self.attn = CausalSelfAttention(dim)
         self.mlp = MLP(dim)
         self.norm1 = RMSNorm(dim)
         self.norm2 = RMSNorm(dim)
+        # H-GL: stochastic depth drop rate on MLP residual branch (per-sample).
+        # Stored as a buffer so torch.compile sees value changes without recompile.
+        self.register_buffer("mlp_drop_rate_buf",
+                             torch.tensor(mlp_drop_rate, dtype=torch.float32),
+                             persistent=False)
+        self.mlp_drop_enabled = mlp_drop_rate > 0.0
 
     def forward(self, x: Tensor):
         x = x + self.attn(self.norm1(x))
-        x = x + self.mlp(self.norm2(x))
+        mlp_out = self.mlp(self.norm2(x))
+        if self.mlp_drop_enabled and self.training:
+            # Stochastic depth: per-sample Bernoulli on the MLP residual branch.
+            # Implemented as rand < keep_prob (the timm DropPath idiom) for clean
+            # torch.compile behavior and to keep the buffer-driven drop rate dynamic.
+            keep_prob = 1.0 - self.mlp_drop_rate_buf
+            rand = torch.rand(x.shape[0], 1, 1, device=x.device, dtype=torch.float32)
+            mask = (rand < keep_prob).to(mlp_out.dtype)
+            mlp_out = mlp_out * mask / keep_prob.to(mlp_out.dtype)
+        x = x + mlp_out
         return x
 
 class GPT(nn.Module):
-    def __init__(self, vocab_size: int, num_layers: int, model_dim: int):
+    def __init__(self, vocab_size: int, num_layers: int, model_dim: int, mlp_drop_rate: float = 0.0):
         super().__init__()
         self.embed = nn.Embedding(vocab_size, model_dim).bfloat16()
-        self.blocks = nn.ModuleList([Block(model_dim) for _ in range(num_layers)])
+        self.blocks = nn.ModuleList([Block(model_dim, mlp_drop_rate=mlp_drop_rate) for _ in range(num_layers)])
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
@@ -1186,7 +1208,8 @@ batch_size = 8 * 64 * 1024
 mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
-model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+model = GPT(vocab_size=50304, num_layers=12, model_dim=768,
+            mlp_drop_rate=args.mlp_drop_rate).cuda()
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -1264,6 +1287,9 @@ if dist.get_rank() == 0:
             "muon_mu_cooldown_steps": _MU_COOLDOWN_STEPS,
             "muon_mu_min": _MU_MIN,
             "muon_mu_max": _MU_MAX,
+            "mlp_drop_rate": args.mlp_drop_rate,
+            "mlp_drop_ramp": args.mlp_drop_ramp,
+            "mlp_drop_enabled": args.mlp_drop_rate > 0.0,
         },
     )
     if dist.get_rank() == 0:
@@ -1376,6 +1402,14 @@ for trial_idx in range(args.num_trials):
         else:
             return _MU_MAX
 
+    def _mlp_drop_rate_at_step(step):
+        # H-GL Arm B: linearly ramp 0 -> args.mlp_drop_rate over first half of training,
+        # then hold constant. When --mlp_drop_ramp is off (default), use constant rate.
+        if not args.mlp_drop_ramp:
+            return args.mlp_drop_rate
+        half = max(1, train_steps // 2)
+        return min(step / half, 1.0) * args.mlp_drop_rate
+
     def set_hparams(step):
         for opt in inner_optimizers:
             for group in opt.param_groups:
@@ -1383,6 +1417,11 @@ for trial_idx in range(args.num_trials):
         mu_step = _muon_mu_at_step(step)
         for group in optimizer2.param_groups:
             group["mu"] = mu_step
+        if args.mlp_drop_rate > 0.0 and args.mlp_drop_ramp:
+            cur_drop = _mlp_drop_rate_at_step(step)
+            # Update buffer in place so torch.compile sees the new value without recompile.
+            for block in model.blocks:
+                block.mlp_drop_rate_buf.fill_(cur_drop)
 
 
     ########################################
