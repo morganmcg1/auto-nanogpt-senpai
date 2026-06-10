@@ -1,5 +1,39 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-10 01:35 — PR #2423 H-FE FALSIFIED; PR #2422 H-FD lm_head arm strong; H-FN assigned to fern
+
+**PR #2423 fern H-FE: AMSGrad on aux Adam (isolation + composition)**
+- W&B: `7hgpy0f3` (Arm A isolation, n=2), `umnfclbe` (Arm B composition, n=2)
+
+**Arm A (AMSGrad isolation, no β₂ pulse):**
+
+| step | trial 0 | trial 1 | n=2 mean | rank-1 H-EJ (n=4) | Δ |
+|---:|---:|---:|---:|---:|---:|
+| 2825 | 3.290080 | 3.288300 | 3.289190 | 3.279596 | +0.009594 |
+| **2850** | **3.288350** | **3.286580** | **3.287465** | **3.277780** | **+0.009685** |
+| 2875 | 3.287060 | 3.285300 | 3.286180 | 3.276366 | +0.009814 |
+| 2890 | 3.286110 | 3.284330 | 3.285220 | 3.275320 | +0.009900 |
+
+**Arm B (AMSGrad + rank-1 β₂ pulse composition):**
+
+| step | trial 0 | trial 1 | n=2 mean | rank-1 H-EJ (n=4) | Δ |
+|---:|---:|---:|---:|---:|---:|
+| 2825 | 3.294040 | 3.292790 | 3.293415 | 3.279596 | +0.013819 |
+| **2850** | **3.292370** | **3.291090** | **3.291730** | **3.277780** | **+0.013950** |
+| 2875 | 3.291070 | 3.289760 | 3.290415 | 3.276366 | +0.014049 |
+| 2890 | 3.290160 | 3.288870 | 3.289515 | 3.275320 | +0.014195 |
+
+**Verdict: FULLY FALSIFIED.** Both arms far miss target. AMSGrad isolation +0.0097; composition +0.0140 — composition is **WORSE than either mechanism alone**, indicating direct conflict.
+
+**Mechanism insight (clean scientific result):**
+1. AMSGrad's monotone v_hat = max(v_hat_{t-1}, v_t) prevents the β₂ pulse from "resetting" the second moment. The pulse mechanism relies on a *transient drop and recovery* of v_hat around step 820 — AMSGrad's projection kills this transient.
+2. β₂ pulse gain is NOT "effective β₂ averaging globally" — it's specific to the transient dynamics window where low β₂ allows fast v_hat response.
+3. **Closes the entire v_hat monotonicity sub-family** of follow-ups. Any mechanism imposing v_hat_t ≥ v_hat_{t-1} is incompatible with the β₂ pulse.
+
+**Follow-up:** fern assigned H-FN (Muon mu warmup extension 300→500/1000 steps, KJ PR #318 port, PR #2429).
+
+---
+
 ## 2026-06-09 23:10 — PR #2420 H-FB FALSIFIED; H-FG NS5 whitening assigned to nezuko
 
 **PR #2420 nezuko H-FB: STAIRCASE-ASCENT β₂ 0.95→0.99@410→0.995@820**
