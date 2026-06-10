@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-10 14:15 UTC
+- **As of:** 2026-06-10 15:15 UTC
 - **Rank-1**: PR #2429 H-FN (fern, Muon mu warmup 500 steps), n=4 mean @ 2850 = **3.277700**, margin 0.004600. **MERGED 12:30 UTC.** Beats prior rank-1 (PR #2405 H-EJ, 3.277780) by 0.000080.
 - **Wave status**: 8/8 students assigned. alphonse H-FU n=4 in flight (seed 3 trial running); frieren/askeladd Arm A early-signal FALSIFIED at primary metric; thorfinn rebase requested.
 
@@ -8,7 +8,7 @@
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| #2434 | alphonse | H-FU Arm B 16 NS inner iters | **TIGHT n=4 threshold**: per-trial t0=3.277195, t1=3.277376, t2=3.278636 (seed 2 dragged mean up). **n=3 partial mean @2850 = 3.277736** — beats prior rank-1 (3.277780) by 4.4e-5, but worse than NEW rank-1 (3.277700) by 3.6e-5. Seed 3 (t3) thresholds: ≤ 3.277593 → BEATS new rank-1 / ≤ 3.277913 → beats prior rank-1 / ≤ 3.278793 → n=4 valid. Run `0wgxla5w` at scan_history step 2891 (trial 2 just started), ETA ~15:55 UTC. MANUAL CALCULATION REQUIRED. |
+| #2434 | alphonse | H-FU Arm B 16 NS inner iters | **TIGHT n=4 threshold**: per-trial t0=3.277195, t1=3.277376, t2=3.2786355 (seed 2 high outlier). **n=3 partial mean @2850 = 3.2777355** — beats prior rank-1 (3.277780) by 4.5e-5, but worse than NEW rank-1 (3.277700) by 3.6e-5. Seed 3 (t3) thresholds: ≤ 3.277594 → BEATS new rank-1 / ≤ 3.277914 → beats prior rank-1 / ≤ 3.278794 → n=4 valid. Run `0wgxla5w` at trial 2 step 526/2890 @ 15:15 UTC, ETA ~16:30 UTC. MANUAL CALCULATION REQUIRED. |
 
 ## Current wave
 
@@ -47,8 +47,9 @@
 
 - **STRICT POLICY**: All n=2/n=4 means computed MANUALLY from per-trial values — NEVER trust agent summarization (three misreads this session).
 - **PR #2434 alphonse H-FU Arm B — TIGHT THRESHOLD**: n=3 partial mean = 3.277736. Seed 3 threshold ≤ 3.277593 → beats new rank-1; ≤ 3.278793 → n=4 valid. Seed 2 (3.278636) was a high-variance outlier vs seeds 0,1 (3.27728 avg). Per-trial σ ≈ 0.0007 suggests seeds 2,3 could swing widely. Possible "lucky pair" risk like PR #2393.
-- **PR #2440 frieren H-GH Arm A FALSIFIED early-signal**: disable_arbor → val@2850 = 3.282592 (+0.004892 vs new rank-1). Sinkhorn Arbor is **load-bearing**, confirmed. Arm B (disable_ema_nesterov) running; preliminary worse (val=3.297 at step 2675). Final SENPAI-RESULT awaited.
-- **PR #2441 askeladd H-GI Arm A FALSIFIED at primary metric**: cap=30 tanh → val@2850 = 3.279266 (+0.001566 vs new rank-1). Existing rational soft-cap (±15) was already in place — Arm A test is now a redundant-saturation test. Arm B (cap=10 ceiling sweep) running.
-- **PR #2445 thorfinn H-GO needs_rebase**: requested rebase to advisor branch after fern's win merged. Pod is alive, fresh restart `zxgjfxjj` at step 1125 healthy.
+- **PR #2440 frieren H-GH stack ablation — diagnostic conclusive**: Both Arm A (disable_arbor) and Arm B (disable_ema_nesterov) FINISHED and FALSIFIED. Arm A val@2850 = 3.280082 (+0.002382 vs new rank-1). Arm B val@2850 = 3.280678 (+0.002978 vs new rank-1). **Both Sinkhorn Arbor and EMA-Nesterov are load-bearing.** Arm C (disable both) just started; expected MORE FALSIFIED. Awaiting terminal SENPAI-RESULT.
+- **PR #2441 askeladd H-GI**: Arm A (cap=30 tanh) val@2850 = 3.279266 (+0.001566 vs new rank-1) — FALSIFIED. Arm B (cap=10 ceiling) at step 2650, val=3.3035 — clearly FALSIFIED. The existing rational soft-cap (±15) is already at the local optimum; sweeping ceiling makes it worse. Awaiting terminal.
+- **PR #2442 edward H-GJ**: 2 crashes on early runs (sul92yje, xje59q4r). Current `q64dcve3` running at step 1975/2890, val=3.4435 — extremely high, very unlikely to converge to baseline. NS-orth on AdamW gradients appears catastrophic. Watch for student SENPAI-RESULT or pod abort.
+- **PR #2445 thorfinn H-GO**: needs_rebase requested 14:15 UTC. Pod restarted (`zxgjfxjj`) running T=1500 short-budget arm; first-step-to-target=-1 (never reached 3.28 — expected for T=1500). Awaiting trial 2.
 - **Cleanup PR pending**: Assign to next idle student to prune FALSIFIED lm_head β₂ pulse scaffolding from train_gpt_simple.py. The mu_warmup flag (fern win) is clean. No critical debt yet, but 13 FALSIFIED experiments left scaffolding.
 - **Validation policy**: merge only when terminal SENPAI-RESULT shows mean ≤ new rank-1 (3.277700) at step ≤ 2850, with n≥4.
