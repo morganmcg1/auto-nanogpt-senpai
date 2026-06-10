@@ -153,6 +153,11 @@ def parse_args():
     parser.add_argument("--aux_b2_pulse_step", type=int, default=970,
                         help="H-EF: Training step at which to apply the step-function β₂ change. "
                              "Arm B (EARLIER) uses 820; Arm A (CORE) uses 970.")
+    parser.add_argument("--aux_b2_lmhead_target", type=float, default=-1.0,
+                        help="H-FQ: Per-group β₂ pulse target for adam_lm_head group ONLY. "
+                             "If < 0, falls back to --aux_b2_target (baseline behavior — pulse all aux groups uniformly). "
+                             "If > 0, only the lm_head group is pulsed to this value while embed/scalars stay at "
+                             "their pre-pulse β₂ (typically the aux_b2_start value). Default -1.0 (off).")
     parser.add_argument("--aux_b2_rule", type=str, default="none",
                         choices=["none", "staircase"],
                         help="β₂ rule for aux AdamW (optimizer1): 'none' (off, baseline) or "
@@ -1247,6 +1252,8 @@ if dist.get_rank() == 0:
             "aux_b2_target": args.aux_b2_target,
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_enabled": args.aux_b2_start > 0.0,
+            "aux_b2_lmhead_target": args.aux_b2_lmhead_target,
+            "aux_b2_lmhead_only_mode": args.aux_b2_lmhead_target > 0.0,
             "aux_b2_rule": args.aux_b2_rule,
             "aux_b2_low": args.aux_b2_low,
             "aux_b2_mid": args.aux_b2_mid,
@@ -1548,16 +1555,44 @@ for trial_idx in range(args.num_trials):
         # set optimization hyperparameters and take a step
         set_hparams(step)
         # H-EF: aux Adam β₂ step-function pulse. Fires exactly once when
-        # step == aux_b2_pulse_step, switching all aux (AdamW) param groups
+        # step == aux_b2_pulse_step, switching aux (AdamW) param groups
         # from aux_b2_start to aux_b2_target. Only fires if aux_b2_start > 0.
+        # H-FQ: when --aux_b2_lmhead_target > 0, ONLY the lm_head group is pulsed
+        # to that per-group amplitude; embed/scalars stay at their pre-pulse β₂.
         if (args.aux_b2_start > 0.0
                 and args.aux_b2_pulse_step > 0
                 and step == args.aux_b2_pulse_step):
-            new_b2 = args.aux_b2_target
-            for group in optimizer1.param_groups:
-                beta1 = group["betas"][0]
-                group["betas"] = (beta1, new_b2)
-            print0(f"[step {step}] aux_b2 PULSE: β₂ → {new_b2}", console=True)
+            lmhead_only = args.aux_b2_lmhead_target > 0.0
+            if lmhead_only:
+                for group in optimizer1.param_groups:
+                    if group.get("name") == "adam_lm_head":
+                        beta1 = group["betas"][0]
+                        group["betas"] = (beta1, args.aux_b2_lmhead_target)
+                        print0(
+                            f"[step {step}] aux_b2 LMHEAD-ONLY PULSE: "
+                            f"β₂[lm_head] → {args.aux_b2_lmhead_target}",
+                            console=True,
+                        )
+            else:
+                new_b2 = args.aux_b2_target
+                for group in optimizer1.param_groups:
+                    beta1 = group["betas"][0]
+                    group["betas"] = (beta1, new_b2)
+                print0(f"[step {step}] aux_b2 PULSE: β₂ → {new_b2}", console=True)
+        # H-FQ diagnostic: one-shot verification of β₂ across all three groups
+        # one step after the pulse, so we can confirm in W&B/console that embed
+        # and scalars stayed at the pre-pulse value when lm_head-only mode is on.
+        if (args.aux_b2_start > 0.0
+                and args.aux_b2_pulse_step > 0
+                and step == args.aux_b2_pulse_step + 1):
+            betas_by_name = {g.get("name"): g["betas"][1] for g in optimizer1.param_groups}
+            print0(
+                f"[verify @ step {step}] "
+                f"embed β₂ = {betas_by_name.get('adam_embed')}, "
+                f"lmhead β₂ = {betas_by_name.get('adam_lm_head')}, "
+                f"scalars β₂ = {betas_by_name.get('adam_scalars')}",
+                console=True,
+            )
         # H-EH-3 STAIRCASE two-pulse aux β₂ rule (PR #2403).
         if args.aux_b2_rule == "staircase":
             new_b2 = None
