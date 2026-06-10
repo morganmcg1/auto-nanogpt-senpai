@@ -120,7 +120,7 @@ Alphonse H-FD Arm B (lm_head-only β₂ pulse, n=2 run `sfe2too3`):
 | #2432 | tanjiro | H-FS lm_head LR ×1.5 pulse | 3.277728 @ 2875 | Trial 1 ETA ~07:30; likely FALSIFIED |
 | #2430 | thorfinn | H-FJ AdamW eps phase | 3.277533 | FALSIFIED; trial 1 ETA ~07:00 |
 | #2436 | nezuko | H-FW lm_head timing sweep | pending | Arm A trial 0 in flight |
-| — | **askeladd** | **IDLE** — H-FO closed FALSIFIED | — | **Awaiting H-FY assignment** |
+| TBD | **askeladd** | **H-GC SAM lm_head perturbation** | — | **ASSIGNING NOW** |
 
 ## Recently closed this cycle (03:00–04:35 UTC):
 
@@ -175,8 +175,25 @@ Alphonse H-FD Arm B (lm_head-only β₂ pulse, n=2 run `sfe2too3`):
 3. **H-FR (frieren, in flight)**: lm_head+scalars combined pulse — tests whether scalars contribute additively.
 4. **H-FS (tanjiro, in flight)**: lm_head LR ×1.5 simultaneous with β₂ pulse — first LR-modulation test on lm_head.
 
-## Hypothesis queue (not yet assigned):
-- **H-FT**: lm_head-only β₂ pulse + LR combined sweep (follows after H-FQ + H-FS land)
-- **H-FV**: Amplitude 0.997 specifically for lm_head+scalars group (follows after H-FR)
-- H-FM: Nesterov-RI pre-fetch last 150 steps (Tier 3, Lookahead-adjacent risk)
-- H-FL: NS5 coefficient distribution-specific fit (Tier 2, offline phase required)
+## Hypothesis queue — TIER SHIFT wave (generated 2026-06-10 06:30 UTC)
+
+All below are mechanistically distinct from all closed/in-flight axes. Priority order for assignment as students become idle:
+
+| Priority | ID | Student | Mechanism | Tier |
+|---|---|---|---|---|
+| 1 | **H-GC** | **askeladd (ASSIGNED)** | SAM one-step perturbation on lm_head only | 2 |
+| 2 | H-FZ | thorfinn (next idle) | Per-group RI — lm_head only (γ=−0.075/−0.100) | 2 |
+| 3 | H-FY | fern (next idle) | Two-stage RI — double-capture quadratic extrapolation | 2 |
+| 4 | H-GA | — | Sophia-H diagonal Hessian for lm_head | 2 |
+| 5 | H-GD | — | Decoupled weight decay zero'd during cooldown | 2 |
+| 6 | H-GB | — | Adafactor row/column factored second moment for lm_head | 3 |
+| 7 | H-GE | — | NS5 polynomial coefficient distribution-specific fit | 2 |
+| 8 | H-GF | — | LARS per-group LR scaling (trust ratio) | 2 |
+
+**Research mode: TIER SHIFT** — local neighborhood (β₂ pulse manifold) exhausted; all 7 in-flight experiments are likely FALSIFIED at n=2 step 2850. New wave operates at different levels of abstraction: post-training weight readout (H-FY/H-FZ), second-moment geometry (H-GA/H-GB), sharpness geometry (H-GC), optimizer-state alignment (H-GF), schedule modulation (H-GD), NS5 polynomial fitting (H-GE).
+
+**Deprecated from older queue (superseded by tier-shift wave):**
+- H-FT (lm_head β₂ + LR combined): being tested by H-GC/H-GD; deprioritized
+- H-FV (0.997 for lm_head+scalars): follow H-FR result; assign only if H-FR shows INFORMATIVE
+- H-FM (Nesterov-RI pre-fetch): Lookahead-adjacent risk; Lookahead CATASTROPHIC in prior work; HOLD
+- H-FL (NS5 coeff fit): now formalized as H-GE
