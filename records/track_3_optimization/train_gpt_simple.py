@@ -146,6 +146,14 @@ def parse_args():
                         help="Training step at which to snapshot params for Tail Reference Interpolation. "
                              "Snapshot taken after the optimizer.step() that completes this step. "
                              "PR #307 default is 2375 (~82pct of 2890 steps).")
+    parser.add_argument("--ri_param_filter", type=str, default="all",
+                        choices=["all", "lm_head", "lm_head_and_final_norm"],
+                        help="H-FZ: Which parameters receive RI extrapolation. "
+                             "'all' (default) = global RI applied to every named parameter (PR #2405 baseline). "
+                             "'lm_head' = restrict RI to model.proj.* (output projection). "
+                             "'lm_head_and_final_norm' = restrict RI to model.proj.* + model.norm2.* "
+                             "(last RMSNorm before the projection). "
+                             "Non-matching params are reverted to their final post-train weights with no extrapolation.")
     parser.add_argument("--aux_b2_start", type=float, default=-1.0,
                         help="H-EF: Starting aux Adam β₂ before pulse. -1 disables (baseline no-op).")
     parser.add_argument("--aux_b2_target", type=float, default=0.99,
@@ -1241,6 +1249,7 @@ if dist.get_rank() == 0:
             "ri_gamma": args.ri_gamma,
             "ri_capture_step": args.ri_capture_step,
             "ri_enabled": args.ri_gamma != 0.0,
+            "ri_param_filter": args.ri_param_filter,
             "arbor_iters": ARBOR_ITERS,
             "arbor_clamp_k": ARBOR_CLAMP_K,
             "aux_b2_start": args.aux_b2_start,
@@ -1427,7 +1436,17 @@ for trial_idx in range(args.num_trials):
                     final_snapshot = {name: p.detach().clone() for name, p in model.named_parameters()}
                 # Helper: in-place set p.data = final + gamma*(final - capture).
                 # gamma=0 == restore to final unchanged.
+                # H-FZ: when --ri_param_filter != "all", only matching params get the
+                # gamma extrapolation; non-matching params are restored to final.
                 delta_sq_sum = 0.0
+                def _ri_target(name: str) -> bool:
+                    if args.ri_param_filter == "all":
+                        return True
+                    if args.ri_param_filter == "lm_head":
+                        return name.startswith("proj.")
+                    if args.ri_param_filter == "lm_head_and_final_norm":
+                        return name.startswith("proj.") or name.startswith("norm2.")
+                    return False
                 def _apply_gamma(g):
                     nonlocal_delta = 0.0
                     with torch.no_grad():
@@ -1436,9 +1455,12 @@ for trial_idx in range(args.num_trials):
                             ref = ri_snapshot.get(name)
                             if final is None or ref is None:
                                 continue
-                            delta = final - ref
-                            p.data.copy_(final).add_(delta, alpha=g)
-                            nonlocal_delta += float(delta.float().pow(2).sum().item())
+                            if _ri_target(name):
+                                delta = final - ref
+                                p.data.copy_(final).add_(delta, alpha=g)
+                                nonlocal_delta += float(delta.float().pow(2).sum().item())
+                            else:
+                                p.data.copy_(final)
                     return nonlocal_delta ** 0.5
                 # Pre-RI val_loss == gamma=0 eval (no perturbation from final).
                 model.eval()
