@@ -169,6 +169,18 @@ def parse_args():
                         help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
                              "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
                              "(cd_start = 1156 for train_steps=2890).")
+    parser.add_argument("--adaptive_cd", action="store_true", default=False,
+                        help="H-FH: Adaptively adjust LR schedule t_end based on train/slope at measure_step.")
+    parser.add_argument("--adaptive_cd_measure_step", type=int, default=578,
+                        help="Step at which to measure train loss slope for adaptive cooldown (default=2x slope_interval).")
+    parser.add_argument("--adaptive_cd_steep_thresh", type=float, default=-0.0010,
+                        help="If slope <= this at measure_step: model descending fast -> extend t_end.")
+    parser.add_argument("--adaptive_cd_flat_thresh", type=float, default=-0.0004,
+                        help="If slope >= this at measure_step: model plateaued early -> shorten t_end.")
+    parser.add_argument("--adaptive_cd_delay", type=int, default=100,
+                        help="Steps to extend FINAL_SCHEDULE_STEPS if steep (default +100 -> 3080).")
+    parser.add_argument("--adaptive_cd_advance", type=int, default=75,
+                        help="Steps to shorten FINAL_SCHEDULE_STEPS if flat (default -75 -> 2905).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1254,6 +1266,12 @@ if dist.get_rank() == 0:
             "aux_b2_pulse_step_1": args.aux_b2_pulse_step_1,
             "aux_b2_cooldown_frac": args.aux_b2_cooldown_frac,
             "aux_b2_enabled": args.aux_b2_rule != "none",
+            "adaptive_cd": args.adaptive_cd,
+            "adaptive_cd_measure_step": args.adaptive_cd_measure_step,
+            "adaptive_cd_steep_thresh": args.adaptive_cd_steep_thresh,
+            "adaptive_cd_flat_thresh": args.adaptive_cd_flat_thresh,
+            "adaptive_cd_delay": args.adaptive_cd_delay,
+            "adaptive_cd_advance": args.adaptive_cd_advance,
         },
     )
 
@@ -1348,8 +1366,12 @@ for trial_idx in range(args.num_trials):
     optimizer1.param_groups[2]["power_c"] = ADAM_OTHER_POWER_C
     optimizer2.param_groups[0]["power_c"] = MUON_POWER_C
 
+    # H-FH: adaptive cooldown — mutable closure for _power_lr's t_end. Updated at
+    # adaptive_cd_measure_step based on train-loss slope; reset per trial below.
+    adaptive_cd_t_end = [FINAL_SCHEDULE_STEPS]
+
     def _power_lr(step, initial_lr, power_c, power=FINAL_LR_POWER):
-        t_end = FINAL_SCHEDULE_STEPS
+        t_end = adaptive_cd_t_end[0]
         downward_lr = power_c * max(0.0, t_end - step) ** power
         return min(initial_lr, downward_lr)
 
@@ -1577,6 +1599,42 @@ for trial_idx in range(args.num_trials):
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
+        # H-FH: Adaptive cooldown trigger. Reads the train-loss slope at
+        # adaptive_cd_measure_step (default 578 = 2 x slope_interval) and either
+        # extends or shortens the LR-schedule endpoint depending on whether the
+        # model is still descending fast or has plateaued. Training-loss-only —
+        # no val-loss peeking. Note: train_loss_history is populated only on
+        # rank 0, so this trigger updates adaptive_cd_t_end on rank 0; on a
+        # single-GPU run that is the only rank.
+        if (args.adaptive_cd
+                and step == args.adaptive_cd_measure_step
+                and dist.get_rank() == 0
+                and len(train_loss_history) >= 2):
+            slope_now = loss_slope_stats(train_loss_history, slope_window_steps)["loss_per_step"]
+            if slope_now <= args.adaptive_cd_steep_thresh:
+                adaptive_cd_t_end[0] = FINAL_SCHEDULE_STEPS + args.adaptive_cd_delay
+                branch = "STEEP"
+                print0(f"[adaptive_cd] step={step} slope={slope_now:.5f} STEEP -> extend t_end to {adaptive_cd_t_end[0]}",
+                       console=True)
+            elif slope_now >= args.adaptive_cd_flat_thresh:
+                adaptive_cd_t_end[0] = FINAL_SCHEDULE_STEPS - args.adaptive_cd_advance
+                branch = "FLAT"
+                print0(f"[adaptive_cd] step={step} slope={slope_now:.5f} FLAT -> shorten t_end to {adaptive_cd_t_end[0]}",
+                       console=True)
+            else:
+                branch = "NEUTRAL"
+                print0(f"[adaptive_cd] step={step} slope={slope_now:.5f} NEUTRAL -> t_end unchanged ({adaptive_cd_t_end[0]})",
+                       console=True)
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "adaptive_cd/measure_step": step,
+                "adaptive_cd/slope_at_measure": slope_now,
+                "adaptive_cd/t_end": adaptive_cd_t_end[0],
+                "adaptive_cd/branch_steep": int(branch == "STEEP"),
+                "adaptive_cd/branch_flat": int(branch == "FLAT"),
+                "adaptive_cd/branch_neutral": int(branch == "NEUTRAL"),
+            }, step=wandb_step)
         if dist.get_rank() == 0 and slope_due:
             slope_metrics = {
                 "trial": trial_idx,
