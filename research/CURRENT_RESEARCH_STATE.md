@@ -1,199 +1,69 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-10 ~06:35 UTC — **askeladd H-FO FALSIFIED at n=2 lattice step 2850. Recalibrating expectations: incremental single-mechanism wins exhausted; rank-1 H-EJ is local optimum on current portfolio. Researcher-agent generating fresh hypotheses (will write `RESEARCH_IDEAS_2026-06-10_0630.md`).** Fleet: 7/8 active (askeladd idle).
+- **As of:** 2026-06-10 09:30 UTC
+- **Rank-1 holds**: PR #2405 H-EJ (askeladd β₂ pulse 0.95→0.995 @ step 820), n=4 mean @ 2850 = **3.277780**, margin 0.004440. Unchanged since 2026-06-09 09:20 UTC.
+- **Wave status**: 8/8 students assigned. 13+ FALSIFIED experiments overnight in the lm_head β₂ pulse mechanism class. Plateau Protocol active — tier-shift assignments begun.
 
-## RECALIBRATION NOTE — n=2 step 2850 threshold gate is sharp
+## Plateau diagnosis
 
-Rank-1 H-EJ n=4 mean @ 2850 = 3.277780 — passes n=4 threshold (3.278000) by only 0.000220.
+The lm_head β₂ pulse family is saturated at rank-1 H-EJ. Every permutation tested shows either no improvement or uniform +0.0006-0.0013 regression at step 2850:
 
-For an n=2 candidate to BEAT rank-1, n=2 mean @ 2850 ≤ 3.277172 (tighter than rank-1's n=4 mean by 0.000608).
+- H-FQ Arm A (tgt=0.997): +6.40e-4 vs rank-1 → FALSIFIED
+- H-FR (lm_head + scalars combined): +8.2e-5 vs rank-1 (regression in noise) → FALSIFIED
+- H-FW Arm A (pulse@step620): +1.09e-3 → FALSIFIED
+- H-FO (cooldown=200): +6.80e-4 → FALSIFIED
+- H-FA (staircase peak), H-FB (staircase ascent), H-FD (per-group embed), H-FE (AMSGrad), H-FF (joint β₁×β₂), H-FH (adaptive CD), H-FI (EN-γ anneal), H-FK (Muon SWA), H-FJ (?): all FALSIFIED
+- H-FN (Muon mu warmup 500): trial-0 cross-run mean @ 2850 already +1.7e-3; will FALSIFY at n=2
 
-This requires SINGLE-SEED values @ 2850 averaging ≤ 3.277172. Current "strong trial-0 signals" (frieren 3.276022 @ 2890, fern 3.276316 @ 2890) are LIKELY to be FALSIFIED at n=2 step 2850 because:
-- Trial 0 @ 2850 values are estimated ~3.278-3.279 (extrapolating from @ 2890)
-- Trial 1 would need to be substantially better (delta ~0.002-0.003) to drag n=2 mean below threshold
+## Most recent human directive (issue #2388, 09:20 UTC)
 
-**askeladd H-FO actually showed this pattern**: trial 0 @ 2890 = 3.277430, trial 1 @ 2890 = 3.275169 (large delta of 0.00226), but n=2 mean @ 2850 = 3.278460 — FALSIFIED.
+Human asked "how are they looking now?" — replied with fleet status + 13 FALSIFIED summary + tier-shift action. Note: skill-forked answer claimed fern trial 1 hit valid @ step 2825 — this is INCORRECT. Verified: fern kqadlpxd trial 1 first crosses n=1 thresh at trial-relative step 2876, not 2825. Correction pending on issue thread.
 
-## Updated expectations for in-flight strong signals
+## Current research focus
 
-| PR | Student | Trial 0 @ 2890 | est. Trial 0 @ 2850 | n=2 mean @ 2850 needed | likely outcome |
-|---|---|---:|---:|---:|---|
-| #2435 | frieren | 3.276022 | ~3.2785 | trial 1 @ 2850 ≤ 3.276 | likely FALSIFIED |
-| #2429 | fern | 3.276316 | 3.278708 (verified) | trial 1 @ 2850 ≤ 3.275636 | likely FALSIFIED |
-| #2433 | edward | 3.276933 | ~3.279 | trial 1 @ 2850 ≤ 3.275 | likely FALSIFIED |
-| #2434 | alphonse | 3.277176 | ~3.279 | trial 1 @ 2850 ≤ 3.275 | likely FALSIFIED |
+**Strategy shift**: From lm_head β₂ pulse hyperparameter tuning to:
+1. **Meta-optimizer wrappers** (Lookahead, SWA — already partially via EMA-Nesterov)
+2. **Different optimizer families** (Sophia, Lion, Adan, Apollo)
+3. **Init / reparameterization** (LSUV, μP, learned readout temperature)
+4. **Architecture pruning** (test whether Sinkhorn Arbor / EMA-Nesterov are net positive)
+5. **Schedule restarts** (cosine restarts, mu cycling)
+6. **Token-level loss reweighting** (focal-style, hard-token mining)
 
-## Fern trial 0 lattice (verified from W&B history scan)
+## Live in-flight wave
 
-| step | trial 0 | rank-1 n=4 mean | delta |
-|---:|---:|---:|---:|
-| 2825 | 3.280593 | 3.279596 | +0.000997 |
-| 2850 | 3.278708 | 3.277780 | +0.000928 |
-| 2875 | 3.277332 | 3.276366 | +0.000966 |
-| 2890 | 3.276316 | 3.275320 | +0.000996 |
+| PR | Student | Hypothesis | Status |
+|---|---|---|---|
+| #2439 | frieren | H-GG Lookahead-AdamW wrapper (k=5, α=0.5) | Just assigned — tier-shift |
+| #2438 | thorfinn | H-FZ lm_head-only RI γ sweep | Running, step ~575/2890 |
+| #2437 | askeladd | H-GC SAM lm_head perturbation (ρ=0.05) | Running, step ~1374/2890 |
+| #2436 | nezuko | H-FW lm_head β₂ pulse timing (Arm B step720 in flight) | Arm A FALSIFIED; Arms C/D to be aborted on respawn |
+| #2434 | alphonse | H-FU NS inner iter sweep (Arm B 16-iter running) | Arm A FALSIFIED at 2890 |
+| #2433 | edward | H-FQ lm_head β₂ amp (Arm B tgt=0.999 running) | Arm A FALSIFIED; Arm B last hope |
+| #2432 | tanjiro | H-FS lm_head LR pulse (Arm B mult=1.3 running) | Arm A FALSIFIED |
+| #2429 | fern | H-FN Muon mu warmup 500 (chained; 6mol5fdn running seeds 2,3) | kqadlpxd n=2 incomplete due to 672xz9fr crash; trial-0 cross-run mean already regressing |
 
-Fern's curve is UNIFORMLY ~+0.001 above rank-1's n=4 mean — similar shift to askeladd. mu_warmup=500 (vs rank-1's 300) appears to RETARD the cooldown trajectory by ~0.001.
+## Potential next directions (tier-shift queue)
 
-## Closed this cycle (mid-cycle update)
+1. **H-GG (assigned)**: Lookahead optimizer wrapper around AdamW (frieren)
+2. **H-GH** (planned): Sophia-G optimizer for AdamW groups (second-order via Hutchinson)
+3. **H-GI** (planned): Architecture pruning audit — remove Sinkhorn Arbor; show whether it's net positive on current stack
+4. **H-GJ** (planned): μP-style readout reparameterization with learned temperature
+5. **H-GK** (planned): Cosine restart schedule for Muon mu (rather than fixed warmup → cooldown)
+6. **H-GL** (planned): Stochastic depth / DropPath schedule (currently absent)
+7. **H-GM** (planned): Apollo or Lion optimizer for the embed group only (lighter than full replacement)
+8. **H-GN** (planned): Focal-style hard-token loss reweighting (currently uniform CE)
 
-- **H-FO (askeladd #2431)**: FALSIFIED — n=2 mean @ 2850 = 3.278460 > 3.278000 falsified band. Muon mu_cooldown 200 axis closed. mu_cooldown=100 (rank-1) is the local optimum.
-- **H-FJ (thorfinn #2430)**: FALSIFIED at trial 0 (+0.0022 above rank-1 at every step); trial 1 in progress for completeness, will close as FALSIFIED.
+Researcher-agent running in background — will commit `RESEARCH_IDEAS_2026-06-10_0835.md` with concrete implementation plans.
 
-## TOP OPEN SIGNALS (4 candidates below n=2 threshold trial 0)
+## Operational concerns
 
-### #1 — frieren H-FR lm_head+scalars combined β₂ pulse (STRONGEST)
+- **Dead student loops** (frieren, tanjiro, fern): the training subprocess kept running but the loop iteration didn't progress. K8s deployments will respawn when the pod restarts. No action needed unless they don't recover within next cycle.
+- **fern run 672xz9fr crashed** at step 4991 (trial 1 never started). Replacement 6mol5fdn launched seeds 2,3.
+- **Edward arm-b (gkzy9oiy) ETA**: ~1h to trial-1 completion; ~3.5h to n=2 completion.
+- **Researcher-agent background task**: tier-shift hypothesis generation — will surface ~5-8 ideas with implementation costs.
 
-Frieren H-FR Arm A (lm_head+scalars combined β₂ pulse, run `gj3zqbbk`):
-- **Trial 0 @ step 2890 = 3.276022** (`speedrun/final_best_val_loss` from summary)
-- Trial 0 `first_step_to_target` = **2850**
-- Trial 1 in progress (W&B _step 2941, train/step ~51/2890) — ETA ~07:30 UTC
-- THE strongest single-seed in the entire H-F* program (+0.0007 above rank-1 n=4 mean).
+## Validation policy
 
-### #2 — fern H-FN Muon mu warmup 500
+Per CLAUDE.md and BASELINE.md: merge only when terminal SENPAI-RESULT shows mean ≤ rank-1's mean (3.277780) at step ≤ 2850, with n≥4 robustness. n=2 winners are escalated to n=4 confirmation, NOT merged directly.
 
-Fern H-FN Arm A (Muon mu_warmup 300→500, run `kqadlpxd`):
-- Trial 0 @ step 2890 = **3.276316**
-- Trial 0 `first_step_to_target` = **2850**
-- Trial 1 in progress (W&B _step 3758, train/step ~868/2890) — ETA ~06:25 UTC
-- **OPERATIONAL:** fern student loop dead since 02:24 UTC; training healthy. Respawn pod after trial 1 finishes.
-
-### #3 — edward H-FQ lm_head-only β₂=0.997
-
-Edward H-FQ Arm A (lm_head-only β₂ amplitude 0.997, run `bj2g9xkv` after 3 crashes):
-- Trial 0 @ step 2890 = **3.276933**
-- Trial 0 `first_step_to_target` = **2850**
-- Trial 1 in progress (W&B _step 3291, train/step ~401/2890) — ETA ~07:15 UTC
-- Multiple crashed prior attempts (`8qv7h8ck`, `ylwyhs1f`, `dprs7rr0`).
-
-### #4 — alphonse H-FU NS inner iters 8 (borderline)
-
-Alphonse H-FU Arm A (ns_inner_iters=8, run `merl8y2r`):
-- Trial 0 @ step 2890 = **3.277176** — just at n=2 threshold
-- Trial 1 in progress (W&B _step 2892, just starting) — ETA ~07:25 UTC
-
-## Borderline signals (trial 0 above n=2 threshold)
-
-### askeladd H-FO Muon mu cooldown 200
-
-- Trial 0 @ step 2890 = **3.277430** (just above n=2 thresh of 3.277172)
-- Trial 1 at W&B _step 5691 (nearly done, ~06:05 UTC) — verdict imminent
-
-### tanjiro H-FS lm_head LR ×1.5 pulse
-
-- Trial 0 best = **3.277728 @ step 2875** (best_val_step 2875, not 2890 — peak shifted earlier)
-- first_step_to_target = 2875 (later than rank-1's 2850)
-- Trial 1 at W&B _step 3391, train/step ~501/2890
-
-## Falsified this cycle
-
-### thorfinn H-FJ AdamW eps phase schedule (FALSIFIED at trial 0)
-
-- Trial 0 @ 2890 = 3.27753, deltas +0.0022 above rank-1 at every lattice step
-- Trial 1 will complete for completeness but H-FJ axis CLOSING.
-
-## Prior strongest signal: lm_head-dominant β₂ pulse (alphonse H-FD Arm B)
-
-Alphonse H-FD Arm B (lm_head-only β₂ pulse, n=2 run `sfe2too3`):
-- Trial 0 @2890 = 3.275785, Trial 1 @2890 = 3.275600
-- Estimated n=2 mean @2850 ≈ 3.278182 (FAILED n=2 threshold)
-- Embed-only Arm A: FALSIFIED
-- **Established: β₂ pulse mechanism is LMHEAD-driven** (and now H-FR data suggests SCALARS adds further signal)
-
-## Prior strongest signal: lm_head-dominant β₂ pulse (alphonse H-FD Arm B)
-
-Alphonse H-FD Arm B (lm_head-only β₂ pulse, n=2 run `sfe2too3`):
-- Trial 0 @2890 post-RI = 3.275785, Trial 1 @2890 post-RI = 3.275600
-- Trial 1 first_step_to_target = **2825** (beats rank-1's 2850!)
-- Estimated n=2 mean @2850 ≈ 3.278182 (FAILS n=2 threshold 3.277172 but passes at step 2875 ≈ 3.276762)
-- Embed-only Arm A: FALSIFIED (+0.0027 vs rank-1) — embed is NOT the signal source
-- **β₂ pulse mechanism is primarily LMHEAD-driven**
-- Two orthogonal follow-up axes now in flight: H-FQ (amplitude at lm_head), H-FW (timing at lm_head)
-
-## Active fleet status (06:35 UTC):
-
-| PR | Student | Hypothesis | Trial 0 @ 2890 | Status |
-|---|---|---|---:|---|
-| #2435 | frieren | H-FR lm_head+scalars combined β₂ pulse | 3.276022 | Trial 1 ETA 07:30; likely FALSIFIED at n=2 step 2850 |
-| #2429 | fern | H-FN Muon mu warmup 500 | 3.276316 | Trial 1 ETA 06:45; lattice verified — FALSIFIED-track |
-| #2433 | edward | H-FQ lm_head β₂=0.997 | 3.276933 | Trial 1 ETA 07:15; likely FALSIFIED |
-| #2434 | alphonse | H-FU NS inner_iters=8 | 3.277176 | Trial 1 in flight; likely FALSIFIED |
-| #2432 | tanjiro | H-FS lm_head LR ×1.5 pulse | 3.277728 @ 2875 | Trial 1 ETA ~07:30; likely FALSIFIED |
-| #2430 | thorfinn | H-FJ AdamW eps phase | 3.277533 | FALSIFIED; trial 1 ETA ~07:00 |
-| #2436 | nezuko | H-FW lm_head timing sweep | pending | Arm A trial 0 in flight |
-| TBD | **askeladd** | **H-GC SAM lm_head perturbation** | — | **ASSIGNING NOW** |
-
-## Recently closed this cycle (03:00–04:35 UTC):
-
-- **H-FG (nezuko #2428)**: FALSIFIED/ABORT — NS5 input whitening (QR blend). Arm B (α=0.6) n=1 @2890 = 3.28024 > 3.279000 ABORT gate; Arm A (α=0.3) n=1 @2890 = 3.27669 INCONCLUSIVE but monotone Δ widening. NC pre-step (per-row × per-col L2) already conditions NS5 input adequately; QR blend interferes with normalization. NS5 input whitening axis CLOSED.
-- **H-FI (frieren #2425)**: FALSIFIED — EN γ anneal 0.99→0.97/0.90 through cooldown. Both arms ≈+0.002 vs rank-1 @2850. γ=0.99 constant is load-bearing; EN γ axis CLOSED.
-- **H-FF (edward #2424)**: FALSIFIED — β₁×β₂ joint pulse. Arm A (β₁→0.85, lock-in): +0.001 vs rank-1. Arm B (β₁→0.70, forget): final trial +0.003 vs rank-1. β₁ pulse direction CLOSED.
-- **H-FD (alphonse #2422)**: CLOSED KEY-INSIGHT — per-group β₂ localization. Arm B (lm_head-only) achieves trial 1 first_step=2825; Arm A (embed-only) FALSIFIED; Arm C (scalars-only) abandoned. **Embed is noise; lm_head is the signal source.**
-
-## Closed earlier this cycle:
-- **H-FH (tanjiro #2426)**: INCONCLUSIVE-CLOSE — slope-578 class exhausted (adaptive CD t_end misfires)
-- **H-FA (thorfinn #2419)**: INFERIOR — PEAK-AT-COOLDOWN β₂ staircase
-- **H-FK (askeladd #2427)**: FALSIFIED — Muon SWA monotone descent issue; SWA class CLOSED
-
-## Completed ablations — β₂ trajectory axis (FULLY CLOSED):
-
-| Arm | plateau β₂ | cooldown β₂ | earliest valid | n=4 μ @2850 | result |
-|---|:---:|:---:|:---:|---:|---|
-| **H-EJ rank-1** | **0.995** | **0.995** | **2850** | **3.277780** | **RANK-1 ✓** |
-| H-EZ DESCENT | 0.995 | 0.99 | 2875 | 3.278239 | FALSIFIED |
-| H-FA PEAK-CD | 0.99 | 0.995 | 2875 | 3.278357 | INFERIOR |
-| H-FB ASCENT | 0.99→0.995 | 0.995 | 2875 | 3.278496 | FALSIFIED |
-
-**Verdict: rank-1 abrupt single-pulse is mechanistically unique. β₂ trajectory axis CLOSED.**
-
-## Mechanism portfolio coverage (as of 04:35 UTC):
-
-| Mechanism class | Best result | Status |
-|---|---|---|
-| β₂ pulse amplitude (whole-optimizer) | 0.995 (H-EJ) | RANK-1 |
-| β₂ pulse timing (whole-optimizer) | step 820 (H-EJ) | Closed (±50 step window) |
-| β₂ trajectory shape | 4-cell ablation done | ALL FALSIFIED — single pulse optimal |
-| Per-group β₂ localization | lm_head dominant | KEY INSIGHT (H-FD Arm B); scalars being tested (H-FR) |
-| β₂ pulse amplitude (lm_head-only) | in flight (H-FQ) | edward testing 0.997 / 0.999 |
-| **β₂ pulse timing (lm_head-only)** | **in flight (H-FW)** | **nezuko testing {620,720,920,1020}** |
-| lm_head+scalars combined β₂ pulse | in flight (H-FR) | frieren #2435 |
-| AMSGrad / v_hat monotonicity | both arms CATASTROPHIC | CLOSED — incompatible with pulse |
-| EN γ anneal 0.99→0.97/0.90 | both arms +0.002 | FALSIFIED — γ=0.99 is load-bearing; EN γ axis CLOSED |
-| β₁ lock-in 0.85 / forget 0.70 at pulse | both arms FALSIFIED | CLOSED — β₁ pulse direction CLOSED |
-| NS5 input whitening (QR) | both arms FALSIFIED/ABORT | CLOSED — NC pre-step adequate; QR blend interferes |
-| Muon SWA last 150 | +0.0014 vs live | FALSIFIED — monotone descent issue; SWA class CLOSED |
-| Muon momentum warmup | in flight (H-FN) | fern #2429 |
-| AdamW eps phase schedule | in flight (H-FJ) | thorfinn #2430 |
-| Muon momentum cooldown | in flight (H-FO) | askeladd #2431 |
-| Adaptive CD t_end (slope-578) | INCONCLUSIVE | CLOSED — slope-578 class exhausted |
-| lm_head LR ×1.5 pulse @ 820 | in flight (H-FS) | tanjiro #2432 |
-| Muon NS inner iteration sweep | in flight (H-FU) | alphonse #2434 |
-
-## Current highest-priority follow-ups (pending in-flight results):
-
-1. **H-FQ (edward, in flight)**: lm_head-only β₂ amplitude sweep 0.997/0.999 — if lm_head-dominant, amplitude may be tunable beyond 0.995.
-2. **H-FW (nezuko, just assigned)**: lm_head-only β₂ timing sweep — orthogonal to H-FQ. Together H-FQ+H-FW form a 2D probe of the lm_head pulse manifold.
-3. **H-FR (frieren, in flight)**: lm_head+scalars combined pulse — tests whether scalars contribute additively.
-4. **H-FS (tanjiro, in flight)**: lm_head LR ×1.5 simultaneous with β₂ pulse — first LR-modulation test on lm_head.
-
-## Hypothesis queue — TIER SHIFT wave (generated 2026-06-10 06:30 UTC)
-
-All below are mechanistically distinct from all closed/in-flight axes. Priority order for assignment as students become idle:
-
-| Priority | ID | Student | Mechanism | Tier |
-|---|---|---|---|---|
-| 1 | **H-GC** | **askeladd (ASSIGNED)** | SAM one-step perturbation on lm_head only | 2 |
-| 2 | H-FZ | thorfinn (next idle) | Per-group RI — lm_head only (γ=−0.075/−0.100) | 2 |
-| 3 | H-FY | fern (next idle) | Two-stage RI — double-capture quadratic extrapolation | 2 |
-| 4 | H-GA | — | Sophia-H diagonal Hessian for lm_head | 2 |
-| 5 | H-GD | — | Decoupled weight decay zero'd during cooldown | 2 |
-| 6 | H-GB | — | Adafactor row/column factored second moment for lm_head | 3 |
-| 7 | H-GE | — | NS5 polynomial coefficient distribution-specific fit | 2 |
-| 8 | H-GF | — | LARS per-group LR scaling (trust ratio) | 2 |
-
-**Research mode: TIER SHIFT** — local neighborhood (β₂ pulse manifold) exhausted; all 7 in-flight experiments are likely FALSIFIED at n=2 step 2850. New wave operates at different levels of abstraction: post-training weight readout (H-FY/H-FZ), second-moment geometry (H-GA/H-GB), sharpness geometry (H-GC), optimizer-state alignment (H-GF), schedule modulation (H-GD), NS5 polynomial fitting (H-GE).
-
-**Deprecated from older queue (superseded by tier-shift wave):**
-- H-FT (lm_head β₂ + LR combined): being tested by H-GC/H-GD; deprioritized
-- H-FV (0.997 for lm_head+scalars): follow H-FR result; assign only if H-FR shows INFORMATIVE
-- H-FM (Nesterov-RI pre-fetch): Lookahead-adjacent risk; Lookahead CATASTROPHIC in prior work; HOLD
-- H-FL (NS5 coeff fit): now formalized as H-GE
+**Future advisor cycles must compute n=2 means manually from the per-trial values** — two misreads this session (08:10 H-FR "near-miss", 08:11 H-FQ "near-miss") were caused by trusting an agent's summary that confused per-trial values with n=2 means.
