@@ -153,6 +153,12 @@ def parse_args():
     parser.add_argument("--aux_b2_pulse_step", type=int, default=970,
                         help="H-EF: Training step at which to apply the step-function β₂ change. "
                              "Arm B (EARLIER) uses 820; Arm A (CORE) uses 970.")
+    parser.add_argument("--aux_b1_start", type=float, default=-1.0,
+                        help="H-FF: Initial aux Adam β₁ (≤0 disables pulse, baseline 0.8 used).")
+    parser.add_argument("--aux_b1_target", type=float, default=0.8,
+                        help="H-FF: Target aux Adam β₁ after pulse.")
+    parser.add_argument("--aux_b1_pulse_step", type=int, default=820,
+                        help="H-FF: Step at which to pulse β₁.")
     parser.add_argument("--aux_b2_rule", type=str, default="none",
                         choices=["none", "staircase"],
                         help="β₂ rule for aux AdamW (optimizer1): 'none' (off, baseline) or "
@@ -1247,6 +1253,10 @@ if dist.get_rank() == 0:
             "aux_b2_target": args.aux_b2_target,
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
             "aux_b2_pulse_enabled": args.aux_b2_start > 0.0,
+            "aux_b1_start": args.aux_b1_start,
+            "aux_b1_target": args.aux_b1_target,
+            "aux_b1_pulse_step": args.aux_b1_pulse_step,
+            "aux_b1_pulse_enabled": args.aux_b1_start > 0.0,
             "aux_b2_rule": args.aux_b2_rule,
             "aux_b2_low": args.aux_b2_low,
             "aux_b2_mid": args.aux_b2_mid,
@@ -1311,6 +1321,13 @@ for trial_idx in range(args.num_trials):
             beta1 = group["betas"][0]
             group["betas"] = (beta1, initial_b2)
         print0(f"[init] aux_b2 OVERRIDDEN: β₂ → {initial_b2}", console=True)
+    # H-FF: override initial aux β₁ on optimizer1 (AdamW) at construction. Only fires
+    # when aux_b1_start > 0.0; default -1.0 leaves baseline (0.8, …) untouched.
+    if args.aux_b1_start > 0.0:
+        for group in optimizer1.param_groups:
+            beta2 = group["betas"][1]
+            group["betas"] = (args.aux_b1_start, beta2)
+        print0(f"[init] aux_b1 OVERRIDDEN: β₁ → {args.aux_b1_start}", console=True)
     if args.aux_b2_rule != "none":
         for group in optimizer1.param_groups:
             beta1 = group["betas"][0]
@@ -1558,6 +1575,17 @@ for trial_idx in range(args.num_trials):
                 beta1 = group["betas"][0]
                 group["betas"] = (beta1, new_b2)
             print0(f"[step {step}] aux_b2 PULSE: β₂ → {new_b2}", console=True)
+        # H-FF: aux Adam β₁ step-function pulse. Fires exactly once when
+        # step == aux_b1_pulse_step, switching all aux (AdamW) param groups
+        # from aux_b1_start to aux_b1_target. Only fires if aux_b1_start > 0.
+        if (args.aux_b1_start > 0.0
+                and args.aux_b1_pulse_step > 0
+                and step == args.aux_b1_pulse_step):
+            new_b1 = args.aux_b1_target
+            for group in optimizer1.param_groups:
+                beta2 = group["betas"][1]
+                group["betas"] = (new_b1, beta2)
+            print0(f"[step {step}] aux_b1 PULSE: β₁ → {new_b1}", console=True)
         # H-EH-3 STAIRCASE two-pulse aux β₂ rule (PR #2403).
         if args.aux_b2_rule == "staircase":
             new_b2 = None
@@ -1586,6 +1614,7 @@ for trial_idx in range(args.num_trials):
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
             wandb.log(slope_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
+            aux_beta1_now = optimizer1.param_groups[0]["betas"][0]
             aux_beta2_now = optimizer1.param_groups[0]["betas"][1]
             ema_extras = {
                 "train/ema_nesterov/it": optimizer_ema.it,
@@ -1594,6 +1623,7 @@ for trial_idx in range(args.num_trials):
                     optimizer_ema.it >= EMA_NESTEROV_PREFILL_STEPS
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
                 ),
+                "train/aux_b1": aux_beta1_now,
                 "train/aux_b2": aux_beta2_now,
             }
             log_training_telemetry(
