@@ -1,5 +1,74 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-10 08:35 — Tier-shift wave; H-FR/H-FQ-arm-a/H-FW-arm-a all FALSIFIED; H-GG Lookahead assigned
+
+### PR #2435 frieren H-FR: lm_head + scalars combined β₂ pulse — FALSIFIED (closed)
+
+- Branch: `frieren/h-fr-lmhead-scalars-combined-b2-pulse`
+- W&B run: `gj3zqbbk` (n=2, seeds 0+1)
+- Hypothesis: pulsing β₂ for lm_head + scalars (excluding embed) gives additive contribution beyond lm_head-only
+
+Results (n=2 lattice):
+
+| step | trial 0 | trial 1 | n=2 mean | rank-1 H-EJ (n=4) | Δ vs rank-1 |
+|---:|---:|---:|---:|---:|---:|
+| 2825 | 3.280223 | 3.279085 | 3.279654 | 3.279596 | +0.000058 |
+| **2850** | **3.278494** | **3.277231** | **3.277862** | **3.277780** | **+0.000082** |
+| 2875 | 3.277100 | 3.275839 | 3.276470 | 3.276366 | +0.000104 |
+| 2890 | 3.276022 | 3.274790 | 3.275406 | 3.275320 | +0.000086 |
+
+n=2 mean @ 2850 = 3.277862 → above rank-1 by +0.000082 (regression within noise). Earliest valid crossing step (n=2) = 2875 (loses 25 steps vs rank-1's 2850). **Verdict: FALSIFIED.** Mechanism is indistinguishable from rank-1 at the speedrun objective. Closed without merge.
+
+**ADVISOR ERROR note:** I incorrectly labeled this a "near-miss" at 08:10 UTC by misreading the per-trial structure (computed 3.277231 as n=2 mean instead of trial 1 value). Retracted and closed. Second misread of the session — future advisor cycles must compute n=2 means manually rather than trusting an agent summarization.
+
+### PR #2433 edward H-FQ Arm A (tgt0.997): lm_head β₂ pulse amplitude sweep — FALSIFIED (Arm B still in flight)
+
+- Branch: `open2-edward/h-fq-lmhead-b2-amp`
+- W&B run Arm A: `bj2g9xkv` (n=2)
+
+Results (n=2 lattice, Arm A target=0.997):
+
+| step | trial 0 | trial 1 | n=2 mean | rank-1 H-EJ | Δ vs rank-1 |
+|---:|---:|---:|---:|---:|---:|
+| 2825 | 3.28118 | 3.27926 | 3.28022 | 3.279596 | +0.000624 |
+| **2850** | **3.27939** | **3.27745** | **3.27842** | **3.277780** | **+0.000640** |
+| 2875 | 3.27796 | 3.27601 | 3.26990 | 3.276366 | +0.000624 |
+| 2890 | 3.27693 | 3.27500 | 3.27597 | 3.275320 | +0.000650 |
+
+Uniform +6e-4 shift above rank-1 at every step. **Arm A FALSIFIED.** Arm B (target=0.999, run `gkzy9oiy`) still in flight; will assess on completion. **Advisor n=4 escalation instruction was retracted** (same misread as H-FR).
+
+### PR #2436 nezuko H-FW Arm A (pulse@step620): lm_head pulse timing sweep — FALSIFIED (Arm B still in flight)
+
+- Branch: `open2-nezuko/h-fw-lmhead-pulse-timing`
+- W&B run Arm A: `c58x0cuz` (n=2)
+
+Results (n=2 lattice, pulse @ step 620):
+
+| step | trial 0 | trial 1 | n=2 mean | rank-1 H-EJ | Δ vs rank-1 |
+|---:|---:|---:|---:|---:|---:|
+| 2825 | 3.281780 | 3.279608 | 3.280694 | 3.279596 | +0.001098 |
+| **2850** | **3.279951** | **3.277788** | **3.278870** | **3.277780** | **+0.001090** |
+| 2875 | 3.278564 | 3.276387 | 3.277475 | 3.276366 | +0.001109 |
+| 2890 | 3.277811 | 3.275639 | 3.276725 | 3.275320 | +0.001405 |
+
+Pulsing 200 steps earlier (620 vs rank-1 820) uniformly regresses by ~+1.1e-3 at every lattice step. **Arm A FALSIFIED.** Advisor asked student (when loop respawns) to abort Arms C/D and let Arm B (pulse@720) finish.
+
+### PR #2429 fern H-FN: Muon mu warmup 500 (n=2) — Trial 1 SINGLE-SEED STRONG, n=2 incomplete
+
+- Branch: `open2-fern/h-fn-muon-mu-warmup`
+- W&B runs: `672xz9fr` (CRASHED at step 4991, trial 1 never started), `kqadlpxd` (FINISHED n=2 chain), `6mol5fdn` (RUNNING seeds 2,3 arm, step ~875/2890)
+
+kqadlpxd single-run n=2 chain results:
+- Trial 0 @ 2890: 3.276316 (single seed)
+- Trial 1 @ 2890: 3.274784 (single seed)
+- Trial 1 earliest n=1 crossing (≤3.276): trial-relative step 2876 (NOT 2825 as previously claimed)
+
+**No n=2 mean computable yet** — 672xz9fr crash means only 1 wandb run has both trials. Group-wide cross-run trial-0 mean @ 2850 ≈ 3.27947 → already regressing. Final n=2 mean awaits 6mol5fdn completion. Likely outcome: borderline-fail to weak-fail.
+
+### Tier-shift action: H-GG Lookahead-AdamW assigned to frieren (PR #2439)
+
+After 13+ consecutive FALSIFIED variants in the lm_head β₂ pulse mechanism class, the family is exhausted. Assigned frieren a tier-shift mechanism: **Lookahead optimizer wrapper** around AdamW groups (k=5, α=0.5), Arm A wraps all 3 AdamW groups, Arm B wraps only lm_head+scalars. Researcher-agent running in background for additional tier-shift hypotheses.
+
 ## 2026-06-10 06:35 — PR #2431 H-FO FALSIFIED (askeladd); recalibration after advisor-error retract
 
 ### PR #2431 askeladd H-FO: Muon mu_cooldown 100→200 — FALSIFIED
