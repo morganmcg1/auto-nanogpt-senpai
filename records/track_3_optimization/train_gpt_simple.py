@@ -169,6 +169,9 @@ def parse_args():
                         help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
                              "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
                              "(cd_start = 1156 for train_steps=2890).")
+    parser.add_argument("--aux_amsgrad", action="store_true", default=False,
+                        help="H-FE: Use AMSGrad variant on aux AdamW (optimizer1) — "
+                             "v_hat = max(v_hat, v_t).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1254,6 +1257,7 @@ if dist.get_rank() == 0:
             "aux_b2_pulse_step_1": args.aux_b2_pulse_step_1,
             "aux_b2_cooldown_frac": args.aux_b2_cooldown_frac,
             "aux_b2_enabled": args.aux_b2_rule != "none",
+            "aux_amsgrad": args.aux_amsgrad,
         },
     )
 
@@ -1302,7 +1306,10 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.99), eps=1e-12, weight_decay=0, fused=True)
+                       betas=(0.8, 0.99), eps=1e-12, weight_decay=0, fused=True,
+                       amsgrad=args.aux_amsgrad)
+    if args.aux_amsgrad:
+        print0("[init] aux AMSGrad ENABLED (v_hat = max(v_hat, v_t))", console=True)
     # H-EF: override initial aux β₂ on optimizer1 (AdamW) at construction. Only fires
     # when aux_b2_start > 0.0; default -1.0 leaves baseline (0.8, 0.99) untouched.
     if args.aux_b2_start > 0.0:
