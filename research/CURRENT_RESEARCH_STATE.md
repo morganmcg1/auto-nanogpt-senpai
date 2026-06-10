@@ -1,16 +1,43 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-10 ~06:15 UTC — 🎯 **ASKELADD H-FO WINNER (Trial 1 = 3.275169 @ 2890; n=2 mean = 3.276300 BEATS rank-1).** 3 more strong candidates in flight (frieren/fern/edward). Fleet: 8/8 active.
+- **As of:** 2026-06-10 ~06:35 UTC — **askeladd H-FO FALSIFIED at n=2 lattice step 2850. Recalibrating expectations: incremental single-mechanism wins exhausted; rank-1 H-EJ is local optimum on current portfolio. Researcher-agent generating fresh hypotheses (will write `RESEARCH_IDEAS_2026-06-10_0630.md`).** Fleet: 7/8 active (askeladd idle).
 
-## 🎯 WINNER — askeladd H-FO Muon mu_cooldown 200
+## RECALIBRATION NOTE — n=2 step 2850 threshold gate is sharp
 
-Run `ewtz1ftq` FINISHED:
-- Trial 0 @ 2890 = 3.277430, first_step_to_target = 2850
-- Trial 1 @ 2890 = **3.275169**, first_step_to_target = **2825**
-- **n=2 mean @ 2890 = 3.276300** (below n=2 threshold 3.277172)
-- Trial 1 best matches rank-1's n=4 mean (3.275320) — exceeds it by 0.0002
-- DECISION: Merge candidate, pending student SENPAI-RESULT post. n=4 escalation recommended.
-- Lattice values @ 2825/2850/2875 in W&B live buffer (inaccessible) — need student to post from local training log.
+Rank-1 H-EJ n=4 mean @ 2850 = 3.277780 — passes n=4 threshold (3.278000) by only 0.000220.
+
+For an n=2 candidate to BEAT rank-1, n=2 mean @ 2850 ≤ 3.277172 (tighter than rank-1's n=4 mean by 0.000608).
+
+This requires SINGLE-SEED values @ 2850 averaging ≤ 3.277172. Current "strong trial-0 signals" (frieren 3.276022 @ 2890, fern 3.276316 @ 2890) are LIKELY to be FALSIFIED at n=2 step 2850 because:
+- Trial 0 @ 2850 values are estimated ~3.278-3.279 (extrapolating from @ 2890)
+- Trial 1 would need to be substantially better (delta ~0.002-0.003) to drag n=2 mean below threshold
+
+**askeladd H-FO actually showed this pattern**: trial 0 @ 2890 = 3.277430, trial 1 @ 2890 = 3.275169 (large delta of 0.00226), but n=2 mean @ 2850 = 3.278460 — FALSIFIED.
+
+## Updated expectations for in-flight strong signals
+
+| PR | Student | Trial 0 @ 2890 | est. Trial 0 @ 2850 | n=2 mean @ 2850 needed | likely outcome |
+|---|---|---:|---:|---:|---|
+| #2435 | frieren | 3.276022 | ~3.2785 | trial 1 @ 2850 ≤ 3.276 | likely FALSIFIED |
+| #2429 | fern | 3.276316 | 3.278708 (verified) | trial 1 @ 2850 ≤ 3.275636 | likely FALSIFIED |
+| #2433 | edward | 3.276933 | ~3.279 | trial 1 @ 2850 ≤ 3.275 | likely FALSIFIED |
+| #2434 | alphonse | 3.277176 | ~3.279 | trial 1 @ 2850 ≤ 3.275 | likely FALSIFIED |
+
+## Fern trial 0 lattice (verified from W&B history scan)
+
+| step | trial 0 | rank-1 n=4 mean | delta |
+|---:|---:|---:|---:|
+| 2825 | 3.280593 | 3.279596 | +0.000997 |
+| 2850 | 3.278708 | 3.277780 | +0.000928 |
+| 2875 | 3.277332 | 3.276366 | +0.000966 |
+| 2890 | 3.276316 | 3.275320 | +0.000996 |
+
+Fern's curve is UNIFORMLY ~+0.001 above rank-1's n=4 mean — similar shift to askeladd. mu_warmup=500 (vs rank-1's 300) appears to RETARD the cooldown trajectory by ~0.001.
+
+## Closed this cycle (mid-cycle update)
+
+- **H-FO (askeladd #2431)**: FALSIFIED — n=2 mean @ 2850 = 3.278460 > 3.278000 falsified band. Muon mu_cooldown 200 axis closed. mu_cooldown=100 (rank-1) is the local optimum.
+- **H-FJ (thorfinn #2430)**: FALSIFIED at trial 0 (+0.0022 above rank-1 at every step); trial 1 in progress for completeness, will close as FALSIFIED.
 
 ## TOP OPEN SIGNALS (4 candidates below n=2 threshold trial 0)
 
@@ -82,18 +109,18 @@ Alphonse H-FD Arm B (lm_head-only β₂ pulse, n=2 run `sfe2too3`):
 - **β₂ pulse mechanism is primarily LMHEAD-driven**
 - Two orthogonal follow-up axes now in flight: H-FQ (amplitude at lm_head), H-FW (timing at lm_head)
 
-## Active fleet status (06:05 UTC):
+## Active fleet status (06:35 UTC):
 
 | PR | Student | Hypothesis | Trial 0 @ 2890 | Status |
 |---|---|---|---:|---|
-| **#2435** | **frieren** | **H-FR lm_head+scalars combined β₂ pulse** | **3.276022** | **STRONGEST; trial 1 ETA 07:30** |
-| **#2429** | **fern** | **H-FN Muon mu warmup 500** | **3.276316** | **STRONG; trial 1 ETA 06:25** |
-| **#2433** | **edward** | **H-FQ lm_head β₂=0.997** | **3.276933** | **STRONG; trial 1 ETA 07:15** |
-| #2434 | alphonse | H-FU NS inner_iters=8 | 3.277176 | Borderline; trial 1 just started |
-| #2431 | askeladd | H-FO Muon mu cooldown 200 | 3.277430 | Trial 1 nearly done, verdict imminent |
-| #2432 | tanjiro | H-FS lm_head LR ×1.5 pulse | 3.277728 @ 2875 | Borderline; trial 1 ETA ~07:30 |
+| #2435 | frieren | H-FR lm_head+scalars combined β₂ pulse | 3.276022 | Trial 1 ETA 07:30; likely FALSIFIED at n=2 step 2850 |
+| #2429 | fern | H-FN Muon mu warmup 500 | 3.276316 | Trial 1 ETA 06:45; lattice verified — FALSIFIED-track |
+| #2433 | edward | H-FQ lm_head β₂=0.997 | 3.276933 | Trial 1 ETA 07:15; likely FALSIFIED |
+| #2434 | alphonse | H-FU NS inner_iters=8 | 3.277176 | Trial 1 in flight; likely FALSIFIED |
+| #2432 | tanjiro | H-FS lm_head LR ×1.5 pulse | 3.277728 @ 2875 | Trial 1 ETA ~07:30; likely FALSIFIED |
 | #2430 | thorfinn | H-FJ AdamW eps phase | 3.277533 | FALSIFIED; trial 1 ETA ~07:00 |
-| #2436 | nezuko | H-FW lm_head timing {620,720,920,1020} | pending | Arm A trial 0 in flight |
+| #2436 | nezuko | H-FW lm_head timing sweep | pending | Arm A trial 0 in flight |
+| — | **askeladd** | **IDLE** — H-FO closed FALSIFIED | — | **Awaiting H-FY assignment** |
 
 ## Recently closed this cycle (03:00–04:35 UTC):
 
