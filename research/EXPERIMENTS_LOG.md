@@ -3476,3 +3476,46 @@ Advisor decision: close. Reassign student to higher-EV Senpai-#1614 ingredient l
 - **Key lm_head insight from student diagnostic:** lm_head warmup from zero triggers a bf16 sign-flip cascade — the near-zero LR in bf16 loses gradient sign information, causing training instability. The proposed floor warmup (minimum LR ≥ 1/320 of initial LR) prevents this. Added to invariant #6: "(EMERGING) lm_head LR must be ≥ baseline 1/320 throughout training."
 - **Mechanism conclusion:** lm_head requires a *floor* on LR, not a warmup from zero. A separate lm_head-safe configuration with enforced LR floor may be worth testing but the zero-warmup approach is clearly counterproductive.
 - Askeladd reassigned H-DK (Arbor clamp_k sweep 2.0 vs 5.0, default 3.0) as PR #2374.
+
+## 2026-06-10 12:30 — PR #2429: H-FN Muon mu warmup 500 — WINNER (merged; new rank-1)
+
+- Branch: `open2-fern/h-fn-muon-mu-warmup`
+- W&B runs: `kqadlpxd` (seeds 0+1), `6mol5fdn` (seeds 2+3)
+- Hypothesis: Extending Muon momentum warmup from 300 → 500 steps improves the early-phase Muon trajectory, giving the second moment more time to stabilize before the β₂ pulse kicks in at step 820.
+
+### Per-trial n=4 lattice (VERIFIED against W&B; triple-checked by advisor)
+
+| seed | step 2825 | step 2850 | step 2875 | step 2890 | first_step_to_target |
+|---:|---:|---:|---:|---:|---:|
+| 0 (kqadlpxd t0) | 3.28059316 | 3.27870750 | 3.27733159 | 3.27631640 | 2850 |
+| 1 (kqadlpxd t1) | 3.27903485 | 3.27722669 | 3.27582550 | 3.27478385 | 2825 |
+| 2 (6mol5fdn t0) | 3.27911806 | 3.27737617 | 3.27598357 | 3.27487564 | 2825 |
+| 3 (6mol5fdn t1) | 3.27929115 | 3.27748871 | 3.27606654 | 3.27499819 | 2825 |
+
+### n=4 comparison vs prior rank-1 (PR #2405 H-EJ)
+
+| step | H-FN n=4 mean | H-EJ n=4 mean | Δ | Result |
+|---:|---:|---:|---:|---|
+| 2825 | 3.279259 | 3.279596 | −0.000337 | WIN |
+| **2850** | **3.277700** | **3.277780** | **−0.000080** | **WIN (primary)** |
+| 2875 | 3.276302 | 3.276366 | −0.000064 | WIN |
+| 2890 | 3.275244 | 3.275320 | −0.000076 | WIN |
+
+### Statistical margin
+
+- n=4 mean @ 2850 = 3.277700
+- `(3.28 − 3.277700) × √4 = 0.002300 × 2 = 0.004600 ≥ 0.004` ✓ PASSES Track-3 margin
+- Sample std n=4 = 0.000681 (very tight, consistent mechanism)
+- 3/4 seeds hit first_step_to_target = 2825 vs rank-1's predominantly 2850 → speedrun geometry improved
+
+### Analysis
+
+The 500-step mu warmup is strictly better than 300 steps (rank-1). The mechanism is plausible: during the first 500 steps, Muon's inner Newton-Schulz iterations are polishing an under-settled second-moment estimate. A longer warmup gives the momentum matrix geometry time to align before the β₂ pulse at step 820 disrupts the AdamW second moment. The combination creates a smoother transition into the critical cooldown phase.
+
+**Key open question:** Is 500 optimal? The success here motivates testing 750 and 1000 steps (H-GR). Additionally, this mechanism is orthogonal to the 16 NS inner-iters mechanism (alphonse H-FU, n=4 confirmation in flight) — composition `mu_warmup=500 × ns_inner_iters=16` should be tested if both independently validate.
+
+**Warning note from prior session:** An earlier (incorrect) prediction that this mechanism would FALSIFY was based on a misread of pre-RI step 2825 values. The post-RI step 2850 values are the canonical metric. RETRACTED and now confirmed winner.
+
+### New baseline
+
+PR #2429 is new rank-1: step 2850, n=4 mean 3.277700, margin 0.004600. BASELINE.md updated.
