@@ -1,5 +1,31 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-10 02:55 — PR #2426 H-FH INCONCLUSIVE-CLOSE; PR #2432 H-FS assigned (tanjiro)
+
+**PR #2426 tanjiro H-FH: ADAPTIVE COOLDOWN t_end VIA SLOPE-578 TELEMETRY — INCONCLUSIVE-CLOSE**
+- W&B: calibration `l4du7ie7`, Path B `3qfh1j2z` (n=1 each)
+
+| run | STEEP threshold | slope@578 | branch | first_step_to_target | val/loss@2850 | val/loss@2890 | vs rank-1@2850 |
+|---|---:|---:|---|---:|---:|---:|---:|
+| Calibration (Path A) | -0.0010 | -0.001021 | STEEP (misfire) | 2875 | 3.28148 | 3.276876 | +0.00370 |
+| **Path B** | **-0.0012** | **-0.001019** | **NEUTRAL** (no mutation) | **2850** | **3.27907** | **3.276651** | **+0.00129** |
+| rank-1 H-EJ (n=4 mean) | — | — | — | 2850 | 3.27778 | 3.27532 | — |
+
+**Analysis:** Slope-578 at natural rank-1 cooldown rate = -0.00102. This lands in a dead zone: threshold=-0.001 fires STEEP (extends t_end → hurts +0.0037 @ step 2850); threshold=-0.0012 doesn't fire (trivializes to rank-1 baseline). Bracket exhausted. Mechanism implementation is correct but the signal class is closed: rank-1 cooldown trajectory doesn't need LR extension, it's already well-calibrated. Note: Path B NEUTRAL result (+0.00129 @ step 2850) is single-seed noise — n=4 confirmation would be expected to converge on rank-1 mean.
+
+**Conclusions:**
+- Slope-578-based LR endpoint mutation: CLOSED for this stack.
+- Late-LR intervention needs a different signal (per-group readout slope, Hessian curvature, or held-out val slope).
+- Closed as INCONCLUSIVE (not FALSIFIED — the mechanism itself is valid, just the signal source is mismatched).
+
+**PR #2432 tanjiro H-FS: lm_head AdamW LR ×1.5 pulse @ step 820 — ASSIGNED**
+- Combination of AdamW group isolation insight (alphonse H-FD Arm B) with LR intervention
+- Arm A: mult=1.5 (×100 steps), Arm B: mult=1.3 (100 steps) — both synchronized with β₂ pulse at step 820
+- Decision: n=2 mean ≤3.277172 → escalate to n=4; above 3.278000 → FALSIFIED
+- ETA: ~5.5h for full chain
+
+---
+
 ## 2026-06-10 02:30 — PR #2419 H-FA INFERIOR; PR #2427 H-FK FALSIFIED; alphonse lm_head n=2 estimated; H-FJ+H-FO assigned
 
 **PR #2419 thorfinn H-FA: STAIRCASE PEAK-AT-COOLDOWN (β₂ 0.95→0.99@820→0.995@1156) — INFERIOR**
