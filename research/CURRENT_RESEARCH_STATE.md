@@ -1,8 +1,8 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-10 09:30 UTC
+- **As of:** 2026-06-10 10:10 UTC
 - **Rank-1 holds**: PR #2405 H-EJ (askeladd β₂ pulse 0.95→0.995 @ step 820), n=4 mean @ 2850 = **3.277780**, margin 0.004440. Unchanged since 2026-06-09 09:20 UTC.
-- **Wave status**: 8/8 students assigned. 13+ FALSIFIED experiments overnight in the lm_head β₂ pulse mechanism class. Plateau Protocol active — tier-shift assignments begun.
+- **Wave status**: 8/8 students assigned. Tier-shift wave 2 now in progress (frieren #2440 H-GH, askeladd #2441 H-GI). Remaining 6 students on lm_head pulse mechanism final cleanup runs.
 
 ## Plateau diagnosis
 
@@ -33,34 +33,34 @@ Human asked "how are they looking now?" — replied with fleet status + 13 FALSI
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| #2439 | frieren | H-GG Lookahead-AdamW wrapper (k=5, α=0.5) | Just assigned — tier-shift |
-| #2438 | thorfinn | H-FZ lm_head-only RI γ sweep | Running, step ~575/2890 |
-| #2437 | askeladd | H-GC SAM lm_head perturbation (ρ=0.05) | Running, step ~1374/2890 |
-| #2436 | nezuko | H-FW lm_head β₂ pulse timing (Arm B step720 in flight) | Arm A FALSIFIED; Arms C/D to be aborted on respawn |
-| #2434 | alphonse | H-FU NS inner iter sweep (Arm B 16-iter running) | Arm A FALSIFIED at 2890 |
-| #2433 | edward | H-FQ lm_head β₂ amp (Arm B tgt=0.999 running) | Arm A FALSIFIED; Arm B last hope |
-| #2432 | tanjiro | H-FS lm_head LR pulse (Arm B mult=1.3 running) | Arm A FALSIFIED |
-| #2429 | fern | H-FN Muon mu warmup 500 (chained; 6mol5fdn running seeds 2,3) | kqadlpxd n=2 incomplete due to 672xz9fr crash; trial-0 cross-run mean already regressing |
+| #2440 | frieren | H-GH Stack ablation — remove Sinkhorn Arbor / EMA-Nesterov | Just assigned (tier-shift tier 4 diagnostic) |
+| #2441 | askeladd | H-GI lm_head soft-cap cap=30 / μP output scaling | Just assigned (tier-shift tier 3) |
+| #2438 | thorfinn | H-FZ lm_head-only RI γ sweep | Running (step ~575/2890 @ 09:30); needs rebase before SENPAI-RESULT |
+| #2436 | nezuko | H-FW lm_head β₂ pulse timing (Arm B step720) | Arm A FALSIFIED (+1.09e-3); Arm B n=2 running; ETA trial 1 ~09:38, trial 2 ~11:30 UTC |
+| #2434 | alphonse | H-FU NS inner iter sweep (Arm B 16-iter, `y29yszuw`) | Arm A FALSIFIED; Arm B launched 07:55 UTC; ETA ~12:25 UTC |
+| #2433 | edward | H-FQ lm_head β₂ amp (Arm B tgt=0.999, `gkzy9oiy`) | Arm A FALSIFIED (+6.40e-4); Arm B step ~1609/2890 @ 08:32 UTC; ETA ~11:00 UTC |
+| #2432 | tanjiro | H-FS lm_head LR pulse (Arm B mult=1.3 running) | Arm A FALSIFIED (+1.22e-3, n=2 mean 3.27900); Arm B in flight |
+| #2429 | fern | H-FN Muon mu warmup 500 (`6mol5fdn` seeds 2,3) | Seeds 2-3 running @ step ~375/2890 (09:13 UTC); trial-0 cross-run mean +1.7e-3 → will FALSIFY |
 
 ## Potential next directions (tier-shift queue)
 
-1. **H-GG (assigned)**: Lookahead optimizer wrapper around AdamW (frieren)
-2. **H-GH** (planned): Sophia-G optimizer for AdamW groups (second-order via Hutchinson)
-3. **H-GI** (planned): Architecture pruning audit — remove Sinkhorn Arbor; show whether it's net positive on current stack
-4. **H-GJ** (planned): μP-style readout reparameterization with learned temperature
-5. **H-GK** (planned): Cosine restart schedule for Muon mu (rather than fixed warmup → cooldown)
-6. **H-GL** (planned): Stochastic depth / DropPath schedule (currently absent)
-7. **H-GM** (planned): Apollo or Lion optimizer for the embed group only (lighter than full replacement)
+1. **H-GG** (CLOSED — CATASTROPHIC): Lookahead-AdamW wrapper — duplicate of H-BU (zero-init lm_head amplification, +0.008)
+2. **H-GH (assigned #2440)**: Stack ablation — remove Sinkhorn Arbor / EMA-Nesterov diagnostic (frieren)
+3. **H-GI (assigned #2441)**: lm_head soft-cap cap=30 + μP output scaling (askeladd)
+4. **H-GG** (next idle slot): Orthogonal init + LSUV calibration for Muon-managed weights
+5. **H-GJ** (next idle slot): NS1-orthogonalized gradient for AdamW groups (lm_head + embed)
+6. **H-GK** (planned): Cosine restart schedule for Muon mu (rather than fixed warmup → cooldown)
+7. **H-GL** (planned): Stochastic depth / DropPath schedule (currently absent)
 8. **H-GN** (planned): Focal-style hard-token loss reweighting (currently uniform CE)
 
 Researcher-agent running in background — will commit `RESEARCH_IDEAS_2026-06-10_0835.md` with concrete implementation plans.
 
 ## Operational concerns
 
-- **Dead student loops** (frieren, tanjiro, fern): the training subprocess kept running but the loop iteration didn't progress. K8s deployments will respawn when the pod restarts. No action needed unless they don't recover within next cycle.
-- **fern run 672xz9fr crashed** at step 4991 (trial 1 never started). Replacement 6mol5fdn launched seeds 2,3.
-- **Edward arm-b (gkzy9oiy) ETA**: ~1h to trial-1 completion; ~3.5h to n=2 completion.
-- **Researcher-agent background task**: tier-shift hypothesis generation — will surface ~5-8 ideas with implementation costs.
+- **PR #2438 thorfinn H-FZ**: `needs_rebase` — commented asking thorfinn to rebase after run completes. Training already in flight (step ~575/2890 @ 09:30).
+- **PR #2432 tanjiro H-FS Arm B**: stale_wip flag; Arm B (mult=1.3) should be running — no comment yet. Wait for results.
+- **fern 6mol5fdn**: seeds 2-3 of H-FN running but cross-run trial-0 mean already +1.7e-3 → expect FALSIFY verdict.
+- **Session doctrine update**: all n=2 means computed MANUALLY from per-trial values — never trust agent summarization.
 
 ## Validation policy
 
