@@ -169,6 +169,12 @@ def parse_args():
                         help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
                              "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
                              "(cd_start = 1156 for train_steps=2890).")
+    parser.add_argument("--muon_swa", action="store_true", default=False,
+                        help="H-FK: Polyak-average Muon block weight matrices from --muon_swa_start onward; "
+                             "swap shadow in for eval only (live training trajectory unchanged).")
+    parser.add_argument("--muon_swa_start", type=int, default=2740,
+                        help="H-FK: train_step at which Muon-SWA shadow accumulation begins "
+                             "(default 2740 = FINAL_TRAIN_STEPS - 150).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1254,6 +1260,8 @@ if dist.get_rank() == 0:
             "aux_b2_pulse_step_1": args.aux_b2_pulse_step_1,
             "aux_b2_cooldown_frac": args.aux_b2_cooldown_frac,
             "aux_b2_enabled": args.aux_b2_rule != "none",
+            "muon_swa": args.muon_swa,
+            "muon_swa_start": args.muon_swa_start,
         },
     )
 
@@ -1326,6 +1334,27 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # H-FK: Muon-SWA shadow buffers (Polyak running mean of Muon-updated block weight matrices).
+    # Resets fresh each trial: zero-init shadow + k=0 + empty live_bak.
+    muon_swa_shadow: dict[str, Tensor] = {}
+    muon_swa_live_bak: dict[str, Tensor] = {}
+    muon_param_names: set[str] = set()
+    muon_swa_pairs: list[tuple[Tensor, Tensor]] = []
+    muon_swa_param_map: dict[str, Tensor] = {}
+    muon_swa_k = 0
+    if args.muon_swa:
+        for name, p in model.blocks.named_parameters():
+            if p.ndim >= 2:
+                full_name = "blocks." + name
+                muon_param_names.add(full_name)
+                muon_swa_shadow[full_name] = torch.zeros_like(p.data)
+        # Precompute (buf, p) pairs and name→param map once per trial (param objects persist).
+        for n, p in model.named_parameters():
+            if n in muon_param_names:
+                muon_swa_pairs.append((muon_swa_shadow[n], p))
+                muon_swa_param_map[n] = p
+        print0(f"[init] muon_swa ENABLED: shadow buffers for {len(muon_param_names)} Muon block weight matrices, "
+               f"accumulate from train_step {args.muon_swa_start}", console=True)
     inner_optimizers = [optimizer1, optimizer2]
     optimizer_ema = EMA_Nesterov(
         [p for p in model.parameters()],
@@ -1413,6 +1442,22 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
+            # H-FK: Muon-SWA eval-only swap. Replace Muon block weight matrices with the
+            # Polyak running mean of their post-step values from muon_swa_start onward,
+            # back up the live tensors, and restore them after the val eval (including RI).
+            # Gated on the last 4 val events of the default 2890-step schedule.
+            muon_swa_active_this_eval = (
+                args.muon_swa
+                and muon_swa_k > 0
+                and step in {2825, 2850, 2875, 2890}
+            )
+            if muon_swa_active_this_eval:
+                with torch.no_grad():
+                    for full_name, buf in muon_swa_shadow.items():
+                        p = muon_swa_param_map.get(full_name)
+                        if p is not None:
+                            muon_swa_live_bak[full_name] = p.data.clone()
+                            p.data.copy_(buf)
             # H15 Tail Reference Interpolation: extrapolate from snapshot before final eval.
             # theta_eval = theta_final + gamma * (theta_final - theta_capture).
             # If multiple gammas were requested, evaluate each from the same final
@@ -1520,6 +1565,15 @@ for trial_idx in range(args.num_trials):
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
+            # H-FK: restore live Muon block weights after the SWA eval so training resumes
+            # from the unmodified trajectory.
+            if muon_swa_live_bak:
+                with torch.no_grad():
+                    for full_name, live_copy in muon_swa_live_bak.items():
+                        p = muon_swa_param_map.get(full_name)
+                        if p is not None:
+                            p.data.copy_(live_copy)
+                muon_swa_live_bak = {}
             # start the clock again
             dist.barrier()
             t0 = time.perf_counter()
@@ -1611,6 +1665,17 @@ for trial_idx in range(args.num_trials):
         # then accumulates lookahead = γ * lookahead + (1-γ) * (p_after - prev_p).
         for opt in optimizers:
             opt.step()
+        # H-FK: Polyak running mean of Muon block weight matrices over the last
+        # (train_step - muon_swa_start + 1) post-step snapshots. Runs identically on all ranks
+        # because params stay replicated after optimizer.step.
+        if args.muon_swa and train_step >= args.muon_swa_start:
+            muon_swa_k += 1
+            with torch.no_grad():
+                for buf, p in muon_swa_pairs:
+                    if muon_swa_k == 1:
+                        buf.copy_(p.data)
+                    else:
+                        buf.mul_((muon_swa_k - 1) / muon_swa_k).add_(p.data, alpha=1.0 / muon_swa_k)
         # H15 Tail Reference Interpolation: snapshot params after the optimizer.step that
         # completes ri_capture_step. Snapshot is per-rank but params are all-gathered inside
         # the Muon.step (and AdamW is replicated), so every rank has the same post-step
