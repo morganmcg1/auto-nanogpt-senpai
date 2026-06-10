@@ -153,6 +153,11 @@ def parse_args():
     parser.add_argument("--aux_b2_pulse_step", type=int, default=970,
                         help="H-EF: Training step at which to apply the step-function β₂ change. "
                              "Arm B (EARLIER) uses 820; Arm A (CORE) uses 970.")
+    parser.add_argument("--aux_b2_pulse_groups", type=str, default="all",
+                        choices=["all", "embed", "lm_head", "scalars",
+                                 "embed_lm_head", "lm_head_scalars", "embed_scalars"],
+                        help="H-FW: Restrict aux_b2 pulse to a subset of AdamW param groups. "
+                             "Default 'all' = rank-1 H-EJ behavior. 'lm_head' isolates the H-FD signal.")
     parser.add_argument("--aux_b2_rule", type=str, default="none",
                         choices=["none", "staircase"],
                         help="β₂ rule for aux AdamW (optimizer1): 'none' (off, baseline) or "
@@ -1246,6 +1251,7 @@ if dist.get_rank() == 0:
             "aux_b2_start": args.aux_b2_start,
             "aux_b2_target": args.aux_b2_target,
             "aux_b2_pulse_step": args.aux_b2_pulse_step,
+            "aux_b2_pulse_groups": args.aux_b2_pulse_groups,
             "aux_b2_pulse_enabled": args.aux_b2_start > 0.0,
             "aux_b2_rule": args.aux_b2_rule,
             "aux_b2_low": args.aux_b2_low,
@@ -1303,14 +1309,29 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.99), eps=1e-12, weight_decay=0, fused=True)
+    # H-FW: helper to restrict per-group β₂ application to a subset of AdamW groups.
+    def _group_matches(name: str, selector: str) -> bool:
+        if selector == "all":
+            return True
+        selected = {
+            "embed": {"adam_embed"},
+            "lm_head": {"adam_lm_head"},
+            "scalars": {"adam_scalars"},
+            "embed_lm_head": {"adam_embed", "adam_lm_head"},
+            "lm_head_scalars": {"adam_lm_head", "adam_scalars"},
+            "embed_scalars": {"adam_embed", "adam_scalars"},
+        }[selector]
+        return name in selected
     # H-EF: override initial aux β₂ on optimizer1 (AdamW) at construction. Only fires
     # when aux_b2_start > 0.0; default -1.0 leaves baseline (0.8, 0.99) untouched.
+    # H-FW: restrict to selected groups via --aux_b2_pulse_groups.
     if args.aux_b2_start > 0.0:
         initial_b2 = args.aux_b2_start
         for group in optimizer1.param_groups:
-            beta1 = group["betas"][0]
-            group["betas"] = (beta1, initial_b2)
-        print0(f"[init] aux_b2 OVERRIDDEN: β₂ → {initial_b2}", console=True)
+            if _group_matches(group["name"], args.aux_b2_pulse_groups):
+                beta1 = group["betas"][0]
+                group["betas"] = (beta1, initial_b2)
+        print0(f"[init] aux_b2 OVERRIDDEN: β₂ → {initial_b2} (groups={args.aux_b2_pulse_groups})", console=True)
     if args.aux_b2_rule != "none":
         for group in optimizer1.param_groups:
             beta1 = group["betas"][0]
@@ -1548,16 +1569,18 @@ for trial_idx in range(args.num_trials):
         # set optimization hyperparameters and take a step
         set_hparams(step)
         # H-EF: aux Adam β₂ step-function pulse. Fires exactly once when
-        # step == aux_b2_pulse_step, switching all aux (AdamW) param groups
+        # step == aux_b2_pulse_step, switching aux (AdamW) param groups
         # from aux_b2_start to aux_b2_target. Only fires if aux_b2_start > 0.
+        # H-FW: restrict to selected groups via --aux_b2_pulse_groups.
         if (args.aux_b2_start > 0.0
                 and args.aux_b2_pulse_step > 0
                 and step == args.aux_b2_pulse_step):
             new_b2 = args.aux_b2_target
             for group in optimizer1.param_groups:
-                beta1 = group["betas"][0]
-                group["betas"] = (beta1, new_b2)
-            print0(f"[step {step}] aux_b2 PULSE: β₂ → {new_b2}", console=True)
+                if _group_matches(group["name"], args.aux_b2_pulse_groups):
+                    beta1 = group["betas"][0]
+                    group["betas"] = (beta1, new_b2)
+            print0(f"[step {step}] aux_b2 PULSE: β₂ → {new_b2} (groups={args.aux_b2_pulse_groups})", console=True)
         # H-EH-3 STAIRCASE two-pulse aux β₂ rule (PR #2403).
         if args.aux_b2_rule == "staircase":
             new_b2 = None
