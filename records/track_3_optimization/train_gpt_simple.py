@@ -169,6 +169,10 @@ def parse_args():
                         help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
                              "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
                              "(cd_start = 1156 for train_steps=2890).")
+    parser.add_argument("--muon_mu_cooldown_steps", type=int, default=_MU_COOLDOWN_STEPS,
+                        help="H-FO: Muon momentum cooldown duration in steps. Overrides module constant "
+                             "_MU_COOLDOWN_STEPS for the cooldown half of the mu schedule (warmup unchanged). "
+                             f"Default {_MU_COOLDOWN_STEPS} (rank-1 baseline). Test 200/300 for extended cooldown.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -179,6 +183,8 @@ def parse_args():
         raise ValueError("--train_steps must be positive")
     if args.ri_capture_step < 0 or args.ri_capture_step >= args.train_steps:
         raise ValueError(f"--ri_capture_step must be in [0, train_steps); got {args.ri_capture_step}")
+    if args.muon_mu_cooldown_steps < 1 or args.muon_mu_cooldown_steps >= args.train_steps:
+        raise ValueError(f"--muon_mu_cooldown_steps must be in [1, train_steps); got {args.muon_mu_cooldown_steps}")
     return args
 
 
@@ -1254,6 +1260,10 @@ if dist.get_rank() == 0:
             "aux_b2_pulse_step_1": args.aux_b2_pulse_step_1,
             "aux_b2_cooldown_frac": args.aux_b2_cooldown_frac,
             "aux_b2_enabled": args.aux_b2_rule != "none",
+            "muon_mu_cooldown_steps": args.muon_mu_cooldown_steps,
+            "muon_mu_warmup_steps": _MU_WARMUP_STEPS,
+            "muon_mu_min": _MU_MIN,
+            "muon_mu_max": _MU_MAX,
         },
     )
 
@@ -1353,13 +1363,22 @@ for trial_idx in range(args.num_trials):
         downward_lr = power_c * max(0.0, t_end - step) ** power
         return min(initial_lr, downward_lr)
 
+    mu_cooldown_steps = args.muon_mu_cooldown_steps  # H-FO: CLI-overridable cooldown duration
+    if trial_idx == 0:
+        print0(
+            f"[init] muon_mu_cooldown_steps={mu_cooldown_steps}, "
+            f"cooldown_start={train_steps - mu_cooldown_steps}, "
+            f"warmup_steps={_MU_WARMUP_STEPS}, mu range=[{_MU_MIN}, {_MU_MAX}]",
+            console=True,
+        )
+
     def _muon_mu_at_step(step):
-        cd_start = train_steps - _MU_COOLDOWN_STEPS
+        cd_start = train_steps - mu_cooldown_steps
         if step < _MU_WARMUP_STEPS:
             frac = step / max(_MU_WARMUP_STEPS, 1)
             return _MU_MIN + frac * (_MU_MAX - _MU_MIN)
         elif step > cd_start:
-            frac = (step - cd_start) / max(_MU_COOLDOWN_STEPS, 1)
+            frac = (step - cd_start) / max(mu_cooldown_steps, 1)
             return _MU_MAX - frac * (_MU_MAX - _MU_MIN)
         else:
             return _MU_MAX
@@ -1587,6 +1606,7 @@ for trial_idx in range(args.num_trials):
             wandb.log(slope_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             aux_beta2_now = optimizer1.param_groups[0]["betas"][1]
+            muon_mu_now = optimizer2.param_groups[0]["mu"]
             ema_extras = {
                 "train/ema_nesterov/it": optimizer_ema.it,
                 "train/ema_nesterov/lookahead_stepsize": optimizer_ema.current_lookahead_stepsize,
@@ -1595,6 +1615,7 @@ for trial_idx in range(args.num_trials):
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
                 ),
                 "train/aux_b2": aux_beta2_now,
+                "train/muon_mu": muon_mu_now,
             }
             log_training_telemetry(
                 model=model,
