@@ -1,5 +1,61 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-12 17:00 — Three review-ready PRs closed; fleet paused awaiting pulse-protocol approval (#2447)
+
+### PR #2446 fern H-GL: Stochastic depth / DropPath on MLP residual branches — FALSIFIED (closed)
+
+- Branch: `fern/h-gl-stochastic-depth`
+- W&B run: `qhb2pvx1` (n=1, seed 0)
+- Hypothesis: Per-sample DropPath (drop_rate=0.05) on MLP residual branches in all 6 layers reduces training variance and improves generalization
+
+Results (n=1 lattice):
+
+| step | val/loss (Arm A, n=1) | rank-1 PR #2429 (n=4) | Δ vs rank-1 |
+|---:|---:|---:|---:|
+| 2825 | 3.29506 | 3.279596 (approx) | +0.015 |
+| **2850** | **3.29335** | **3.277700** | **+0.016** |
+| 2875 | 3.29196 | — | — |
+| 2890 | 3.29121 | — | — |
+
+Gap to baseline widens through cooldown (~+0.012 at step 1625 → ~+0.015 at step 2890). Target val/loss ≤ 3.28 never reached (`first_step_to_target=-1`). **Verdict: FALSIFIED, closed.** The rank-1 composite stack (NC × Sinkhorn Arbor × EN × RI × β₂ pulse × Muon mu_warmup 500) already provides strong implicit regularization; additive stochastic depth over-regularizes and interferes with late-cooldown convergence.
+
+### PR #2443 nezuko H-GM: focal / hard-token loss reweighting γ=2.0 — FALSIFIED (closed)
+
+- Branch: `nezuko/h-gm-focal-loss`
+- W&B run: `3iixfbkv` (n=1, seed 0)
+- Hypothesis: Focal loss down-weighting easy tokens (γ=2.0) concentrates gradient signal on uncertain tokens, lowering val/loss
+
+Results (n=1 lattice, training loss = focal CE, val loss = standard CE):
+
+| step | val/loss | rank-1 PR #2429 (approx) | Δ |
+|---:|---:|---:|---:|
+| 2825 | 3.33488 | ~3.278 | +0.057 |
+| **2850** | **3.33274** | **3.277700** | **+0.055** |
+| 2875 | 3.33177 | ~3.276 | +0.056 |
+| 2890 | 3.33070 | ~3.275 | +0.055 |
+
+**Verdict: FALSIFIED, closed.** Catastrophic regression (~5.5e-2). Focal loss removes the bulk gradient from high-confidence tokens that drives the LM cooldown — unlike the imbalanced detection setting it was designed for. Rules out focal reweighting as a candidate axis for this stack.
+
+### PR #2434 alphonse H-FU: Newton-Schulz inner iteration count sweep (8 / 16 vs 12) — INFORMATIVE-NOT-MERGE (closed)
+
+- Branch: `open2-alphonse/h-fu-ns-inner-iters`
+- W&B runs: `merl8y2r` (Arm A, 8 iters, n=2), `y29yszuw` (Arm B, 16 iters, n=2 seeds 0+1), `0wgxla5w` (Arm B n=4 confirmation, seeds 2+3)
+- Hypothesis: Composite rank-1 stack may prefer a different NS inner iteration count than the hardcoded 12
+
+Results (lattice @ step 2850):
+
+| Arm | NS iters | n | mean val/loss | Δ vs rank-1 (3.277700) | step_avg overhead |
+|---|---:|---:|---:|---:|---:|
+| A | 8 | 2 | 3.280032 | +0.002332 (FALSIFIED) | −cheaper |
+| B (s 0+1) | 16 | 2 | 3.277285 | −0.000415 (noise-positive) | — |
+| B (s 2+3) | 16 | 2 | 3.278342 | +0.000642 | — |
+| **B (n=4)** | **16** | **4** | **3.277814** | **+0.000114 (within noise)** | **+2.5%** |
+| rank-1 | 12 | 4 | 3.277700 | — | — |
+
+**Verdict: INFORMATIVE-NOT-MERGE, closed.** Arm A clean falsification (looser orthogonalization hurts). Arm B initial n=2 lead collapsed at n=4 — seeds 2+3 came in ~1e-3 above seeds 0+1, revealing the n=2 signal as a noise-positive. Adds 2.5% step overhead with no validation benefit. **Key learning: hardcoded NS=12 is near-optimal for this composite stack; the polar-decomposition operator saturates by 12 iterations.** Also useful precedent: n=2 confirmation is unreliable for sub-5e-4 effect sizes — the n=4 escalation gate is essential.
+
+**Fleet state after closures:** All 8 pods scaled to 0 replicas (human researcher paused operations). Three review-ready PRs cleared. Five WIP PRs remain stale from 2026-06-10 (will need rebase + relaunch when fleet returns). All forward research blocked on human approval of the pulse-generalization protocol proposed on issue #2447.
+
 ## 2026-06-10 08:35 — Tier-shift wave; H-FR/H-FQ-arm-a/H-FW-arm-a all FALSIFIED; H-GG Lookahead assigned
 
 ### PR #2435 frieren H-FR: lm_head + scalars combined β₂ pulse — FALSIFIED (closed)
