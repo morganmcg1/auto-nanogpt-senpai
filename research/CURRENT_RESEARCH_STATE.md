@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-12 13:00 UTC
+- **As of:** 2026-06-12 13:18 UTC
 - **Rank-1**: PR #2429 H-FN (fern, Muon mu warmup 500 steps), n=4 mean @ 2850 = **3.277700**, margin 0.004600. **MERGED 2026-06-10 12:30 UTC.** Beats prior rank-1 (PR #2405 H-EJ, 3.277780) by 0.000080.
 - **Fleet status**: **8/8 student replicas live**, all actively training. Human researcher (morganmcg1) approved resumption on 2026-06-12 10:29 UTC.
 - **Operations**: **ACTIVE** under the frozen β₂-pulse generalization protocol (#2447). All 8 students executing single slots in the 24-run matrix; no other mechanisms are being explored until the matrix completes.
@@ -25,42 +25,44 @@ W&B group: `beta2-generalization-protocol-v1`. All four T=1500 control runs are 
 | 4 | fern | `34a4sy91` | 3.477639 |
 | **mean** |   |   | **3.479849** |
 
-### T=1500 f=0.25 arm — 1/4 done, 2/4 running, 1/4 pending
+### T=1500 f=0.25 arm — **3/4 done**, 1/4 running
 
 | Seed | Student | W&B run | Status | val/loss @ 1500 | Δ vs control |
 |---:|---|---|---|---:|---:|
-| 1 | alphonse | `7tfszy1p` | running, step ~1100 | — | — |
-| 2 | askeladd | (not started — see #2449 advisor comment) | pending | — | — |
-| 3 | edward | `0vfxt7ln` | finished | **3.474925** | **−0.003091** |
-| 4 | fern | `hlpwn3pa` | running, step ~1450 | — | — |
+| 1 | alphonse | `7tfszy1p` | finished | 3.483414 | **−0.004311** |
+| 2 | askeladd | `cwp90ivr` | running, just launched | — | — |
+| 3 | edward | `0vfxt7ln` | finished | 3.474925 | **−0.003091** |
+| 4 | fern | `hlpwn3pa` | finished | 3.475986 | **−0.001653** |
 
-Edward's single-seed Δ = −0.003091 is a **strong** signal at n=1; aggregate decision must wait for n=4.
+n=3 mean Δ so far = **−0.003018**. All three negative — **strong signal** that f=0.25 transfers to T=1500. Awaiting askeladd's seed 2 to call.
 
-### T=1500 f=0.284 arm — 1/4 running, 3/4 pending
+### T=1500 f=0.284 arm — 3/4 running, 1/4 pending
 
 | Seed | Student | W&B run | Status |
 |---:|---|---|---|
-| 1 | alphonse | pending | will launch after f=0.25 finishes |
+| 1 | alphonse | `dkr7zp4x` (keeper), `jihotesj` (dup, advised kill) | running, step ~1 — **dup intervention sent 13:18** |
 | 2 | askeladd | pending | will launch after f=0.25 finishes |
-| 3 | edward | `cvsla0xs` | running, step ~150 |
-| 4 | fern | pending | will launch after f=0.25 finishes |
+| 3 | edward | `cvsla0xs` | running, step ~600 |
+| 4 | fern | `62bj7pmv` | running, step ~375 |
 
 ### T=4500 control arm — all 4 running
 
 | Seed | Student | W&B run | Started | Current step | ETA |
 |---:|---|---|---|---:|---|
-| 1 | frieren | `wjhc8pe9` | 10:52 UTC | 3325 / 4500 | ~40 min remaining |
-| 2 | nezuko | `x1ecrbzn` | 10:52 UTC | 3550 / 4500 | ~30 min remaining |
-| 3 | tanjiro | `j47czkhz` | 10:52 UTC | 2500 / 4500 | ~1.7 h remaining (RTX PRO 6000 Blackwell, ~3.1 s/step) |
-| 4 | thorfinn | `x7m9akxm` | 10:54 UTC | 3250 / 4500 | ~40 min remaining |
+| 1 | frieren | `wjhc8pe9` | 10:52 UTC | 3800 / 4500 | ~25 min remaining |
+| 2 | nezuko | `x1ecrbzn` | 10:52 UTC | 4025 / 4500 | ~20 min remaining |
+| 3 | tanjiro | `j47czkhz` | 10:52 UTC | 2975 / 4500 | ~1.3 h remaining (RTX PRO 6000 Blackwell, ~3.1 s/step) |
+| 4 | thorfinn | `x7m9akxm` | 10:54 UTC | 3725 / 4500 | ~30 min remaining |
 
 ### T=4500 pulse arms — all 8 pending (waiting on control finish)
 
 ## Operational anomalies and interventions
 
-- **Duplicate torchrun problem**: On the heartbeat iteration around 11:08–11:15 UTC, six students (edward, fern, frieren, thorfinn, tanjiro, plus the dropout above) launched a SECOND torchrun for the control arm in parallel with the original. Advisor sent the kill-duplicate intervention to PRs #2450/#2451/#2452/#2455 at 11:21 UTC — all four students confirmed kill by 11:31 UTC.
-- **Tanjiro self-recovered**: Tanjiro detected and killed its own duplicate (`vndyzc95`) at 12:14 UTC and posted at 12:49 UTC; also noted its pod has an RTX PRO 6000 Blackwell (not H100), giving ~3.1 s/step at T=4500 — total ~3.9 h/arm there.
-- **Alphonse (#2448) and askeladd (#2449)** are the remaining anomaly cases (no comments before today). Advisor sent dedicated duplicate-killer comments at ~13:00 UTC. alphonse's f=0.25 (`7tfszy1p`) is healthy and should continue; the duplicate control (`b0tc03iq`) must die. askeladd's original control (`gx4ke0x1`) is canonical; the duplicate (`kmide6c7`) must die and arms 2+3 must launch cleanly afterward.
+- **Duplicate torchrun problem (iteration 2, ~11:08–11:15 UTC)**: edward, fern, frieren, thorfinn launched a SECOND control torchrun. Advisor intervention at 11:21 UTC; all confirmed kill by 11:31 UTC.
+- **Tanjiro self-recovered**: detected and killed its own duplicate (`vndyzc95`) at 12:14 UTC; also has an RTX PRO 6000 Blackwell (not H100), ~3.1 s/step at T=4500.
+- **Alphonse / askeladd intervention (13:00 UTC)**: advisor sent dedicated duplicate-killer comments. Askeladd's duplicate control `kmide6c7` finished anyway (val/loss=3.476156, basically identical to canonical `gx4ke0x1`=3.476017, well within noise); askeladd then launched f=0.25 (`cwp90ivr`) cleanly at 13:15 UTC. Alphonse's duplicate control `b0tc03iq` crashed at 12:34 UTC; alphonse then launched f=0.284 (`dkr7zp4x`) at 13:14 UTC.
+- **Alphonse second duplicate (13:18 UTC)**: alphonse launched TWO f=0.284 torchruns 30 seconds apart (`dkr7zp4x` at 13:14:36 and `jihotesj` at 13:15:05). Advisor intervention sent at 13:18 UTC requesting kill of `jihotesj`. This is the same iteration-race pattern; need to watch alphonse's response.
+- **Nezuko stale_wip flag (13:15 UTC)** — false positive. Pod is healthy (146 min, 0 restarts), `x1ecrbzn` control progressing normally at step 4025/4500. Student has not posted any comments yet but heartbeat is still ticking.
 
 ## Decision gates (advisor-side aggregation when all 8 PRs return)
 
