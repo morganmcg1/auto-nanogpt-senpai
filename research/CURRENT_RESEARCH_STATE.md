@@ -1,7 +1,8 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-12 13:45 UTC
-- **PROTOCOL BLOCKER**: nezuko caught a hardcoded `FINAL_SCHEDULE_STEPS = 2980` bug at `train_gpt_simple.py:49` that breaks T=4500 (LR=0 from step 2980 onward, model frozen). Escalated to human via Issue #2447 at 13:45 UTC. T=4500 students paused (control finishes only, no pulse arms launched). T=1500 students continue.
+- **As of:** 2026-06-12 14:05 UTC
+- **PROTOCOL BLOCKER**: nezuko caught a hardcoded `FINAL_SCHEDULE_STEPS = 2980` bug at `train_gpt_simple.py:49` that breaks T=4500 (LR=0 from step 2980 onward, model frozen). Escalated to human via Issue #2447 at 13:47 UTC. T=4500 students paused (control finishes only, no pulse arms launched). T=1500 students continue.
+- **T=1500 protocol progress**: edward (#2450) and fern (#2451) closed with terminal results. n=3 mean Δ for f=0.25 = −0.003018; n=2 mean Δ for f=0.284 = −0.002974. Awaiting alphonse + askeladd to close the n=4 matrix.
 - **Rank-1**: PR #2429 H-FN (fern, Muon mu warmup 500 steps), n=4 mean @ 2850 = **3.277700**, margin 0.004600. **MERGED 2026-06-10 12:30 UTC.** Beats prior rank-1 (PR #2405 H-EJ, 3.277780) by 0.000080.
 - **Fleet status**: **8/8 student replicas live**, all actively training. Human researcher (morganmcg1) approved resumption on 2026-06-12 10:29 UTC.
 - **Operations**: **PAUSED on T=4500 axis** pending human direction on Issue #2447 (LR schedule bug). T=1500 axis continues to completion. nezuko is idle awaiting decision; will NOT be assigned new work because protocol is scope-frozen.
@@ -31,20 +32,22 @@ W&B group: `beta2-generalization-protocol-v1`. All four T=1500 control runs are 
 | Seed | Student | W&B run | Status | val/loss @ 1500 | Δ vs control |
 |---:|---|---|---|---:|---:|
 | 1 | alphonse | `7tfszy1p` | finished | 3.483414 | **−0.004311** |
-| 2 | askeladd | `cwp90ivr` | running, just launched | — | — |
-| 3 | edward | `0vfxt7ln` | finished | 3.474925 | **−0.003091** |
-| 4 | fern | `hlpwn3pa` | finished | 3.475986 | **−0.001653** |
+| 2 | askeladd | `cwp90ivr` | running | — | — |
+| 3 | edward | `0vfxt7ln` | finished, PR #2450 closed | 3.474925 | **−0.003091** |
+| 4 | fern | `hlpwn3pa` | finished, PR #2451 closed | 3.475986 | **−0.001653** |
 
 n=3 mean Δ so far = **−0.003018**. All three negative — **strong signal** that f=0.25 transfers to T=1500. Awaiting askeladd's seed 2 to call.
 
-### T=1500 f=0.284 arm — 3/4 running, 1/4 pending
+### T=1500 f=0.284 arm — 2/4 done, 1/4 running, 1/4 pending
 
-| Seed | Student | W&B run | Status |
-|---:|---|---|---|
-| 1 | alphonse | `dkr7zp4x` (keeper), `jihotesj` (dup, advised kill) | running, step ~1 — **dup intervention sent 13:18** |
-| 2 | askeladd | pending | will launch after f=0.25 finishes |
-| 3 | edward | `cvsla0xs` | running, step ~600 |
-| 4 | fern | `62bj7pmv` | running, step ~375 |
+| Seed | Student | W&B run | Status | val/loss @ 1500 | Δ vs control |
+|---:|---|---|---|---:|---:|
+| 1 | alphonse | `dkr7zp4x` | running, post-dup-cleanup | — | — |
+| 2 | askeladd | pending | will launch after f=0.25 finishes | — | — |
+| 3 | edward | `cvsla0xs` | finished, PR #2450 closed | 3.474098 | **−0.003918** |
+| 4 | fern | `62bj7pmv` | finished, PR #2451 closed | 3.475610 | **−0.002029** |
+
+n=2 mean Δ so far = **−0.002974**. Both negative; f=0.284 is the better arm vs f=0.25 on the two completed seeds (matches T=2890 ordering).
 
 ### T=4500 control arm — nezuko done; others let to finish, NO pulse arms
 

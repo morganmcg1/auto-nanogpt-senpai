@@ -1,5 +1,44 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-12 14:00 — β₂-pulse generalization protocol (#2447) results in flight
+
+### PR #2453 — open2-nezuko — T=4500 seed 2 — **HALTED: critical schedule bug**
+
+- Control arm finished: `x1ecrbzn`, val/loss@4500 = 3.273832.
+- **Discovery**: `train_gpt_simple.py:49` hardcodes `FINAL_SCHEDULE_STEPS=2980`; `_power_lr` (line 1364) uses this constant instead of `--train_steps`. For T=4500, LR=0 from step 2980 and the model freezes for the trailing 1520 steps. W&B `val/loss` byte-identical (3.273831605911255) for 28 consecutive eval steps from 3000 to 4500.
+- Student paused before arms 2 and 3. T=4500 generalization probe cannot be answered with the current script. Escalated to human on Issue #2447 at 13:47 UTC; 4 options offered (weak rec: add `--final_schedule_steps` CLI flag and re-run T=4500 matrix).
+- Other 3 T=4500 students (frieren #2452, tanjiro #2454, thorfinn #2455) sent pause comments: let current control finish, do NOT launch pulse arms.
+
+### PR #2450 — open2-edward — T=1500 seed 3 — **complete (3 arms)**
+
+- W&B runs: `xflzxs2m` (control), `0vfxt7ln` (f=0.25), `cvsla0xs` (f=0.284). Pulse step 375 / 426. Rank-1 stack (mu_warmup=500, ri_capture_step=1233).
+- Result: control 3.478016, f=0.25 3.474925 (Δ −0.003091), f=0.284 3.474098 (Δ −0.003918). Both pulse arms beat control; f=0.284 best.
+- Single-seed Δs both exceed protocol "strong signal" threshold (≤ −0.0003 single-seed equivalent). Order f=0.284 < f=0.25 < control matches T=2890 evidence (#2405). Pulse rule appears to transfer to T=1500 at seed 3.
+
+### PR #2451 — open2-fern — T=1500 seed 4 — **complete (3 arms)**
+
+- W&B runs: `34a4sy91` (control), `hlpwn3pa` (f=0.25), `62bj7pmv` (f=0.284). Same pulse step / stack as above.
+- Result: control 3.477639, f=0.25 3.475986 (Δ −0.001653), f=0.284 3.475610 (Δ −0.002029). Both negative; f=0.284 best.
+- `val/ri_pre_loss` also shows Δ control → f=0.284 of −0.00188, so the win is not a RI artefact at the final step.
+- Smaller magnitudes than edward but same direction.
+
+### Running tallies (as of 2026-06-12 14:00 UTC)
+
+T=1500 control arm n=4 (all done): mean val/loss = 3.479849 (3.487725, 3.476017, 3.478016, 3.477639).
+
+T=1500 f=0.25 partial (3 of 4 done; askeladd `cwp90ivr` still running):
+- seed 1 alphonse Δ = −0.004311
+- seed 3 edward Δ = −0.003091
+- seed 4 fern Δ = −0.001653
+- n=3 mean Δ = **−0.003018** (all negative, strong signal)
+
+T=1500 f=0.284 partial (2 of 4 done; alphonse `dkr7zp4x` and askeladd pending):
+- seed 3 edward Δ = −0.003918
+- seed 4 fern Δ = −0.002029
+- n=2 mean Δ = **−0.002974** (both negative, strong signal)
+
+Awaiting alphonse f=0.284 and askeladd f=0.25 / f=0.284 to call the n=4 T=1500 aggregate.
+
 ## 2026-06-12 17:30 — Stale WIP PR cleanup; four closed, only #2444 kept open
 
 After confirming pods remain at 0/0 and no human reply on issue #2447, cleaned up four stale-since-2026-06-10 WIP PRs that either had clear negative signals, completed diagnostics, or were superseded by the frozen pulse protocol.
