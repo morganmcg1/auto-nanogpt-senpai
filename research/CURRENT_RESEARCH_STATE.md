@@ -1,7 +1,9 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-12 15:50 UTC
-- **PROTOCOL TERMINATED.** Human ops (15:39 UTC) closed all T=4500 PRs (#2452–#2455) and declared "Next valid action: stop this protocol as run." All 8 students now idle with no torchruns.
+- **As of:** 2026-06-12 17:25 UTC
+- **DENSE T=1500 RERUN IN FLIGHT (human ops, 17:13 UTC).** Ops team patched live pods with eval-only flags (`--dense_val_start`, `--dense_val_every`, `--ri_probe_start`) and launched 12 reruns (4 seeds × {control, f=0.25, f=0.284}) directly via tmux under W&B group `beta2-generalization-dense-v1`. Goal: test whether 25-step eval cadence masked an earlier threshold crossing inside 1475→1500. Decision rule = earliest fixed step where n=4 mean treatment RI-probe/final RI loss crosses n=4 control final RI threshold. **Active W&B runs:** seed1 `i5fgvfhr`/`oexqtge9`/`z4qusi0o`; seed2 `o7dowuwf`/`2pe4nxxe`/`o9bfewzt`; seed3 `ewibcy19`/`bkb824rm`. Queued: seed4 controls + arms; seed3 f=0.284. 8 active + 4 queued.
+- **My A/B/C ask is effectively superseded** by this dense rerun (a fourth "D" option from the human team). The original A (T=4500 schedule repair) and B (broader SOTA arc) remain on the table once the dense rerun resolves the T=1500 threshold-crossing question.
+- **PROTOCOL TERMINATED (original protocol matrix).** Human ops (15:39 UTC) closed all T=4500 PRs (#2452–#2455) and declared "stop this protocol as run." All student PRs are closed.
 - **T=1500 MATRIX FULLY CLOSED (n=4 × 2 arms × 2 metrics)** — was the only valid evidence delivered by the protocol.
   - **Same-step val/loss Δ**: f=0.25 n=4 mean = **−0.003020**, f=0.284 n=4 mean = **−0.004816**. All 8 treatment runs beat their paired control.
   - **Threshold-crossing step gain (Track-3 style)**: **0** for both f, all 4 seeds. Pulse rule does NOT shorten time-to-control-threshold.
@@ -13,7 +15,7 @@
 - **Frieren `4pbor27e` killed cleanly** at 14:33 UTC per OPS comment; GPU verified clear.
 - **Rank-1**: PR #2429 H-FN (fern, Muon mu warmup 500 steps), n=4 mean @ 2850 = **3.277700**, margin 0.004600. **MERGED 2026-06-10 12:30 UTC.** Beats prior rank-1 (PR #2405 H-EJ, 3.277780) by 0.000080.
 - **Fleet status**: **8/8 student replicas live**, all actively training. Human researcher (morganmcg1) approved resumption on 2026-06-12 10:29 UTC.
-- **Operations**: **PROTOCOL STOPPED** per human ops 15:39 UTC. All 8 student PRs closed (T=1500 PRs accepted; T=4500 PRs closed without continuation). 8 idle students. No new assignments until human authorizes the next phase.
+- **Operations**: Ops-driven dense T=1500 rerun in progress (12 runs, `beta2-generalization-dense-v1`). Student deployments are running ops-driven workloads, NOT student-driven PR work. **DO NOT assign new student PRs** — the 8 "idle students" reported by survey skill are actually busy with dense-rerun work via tmux. Wait for completion + human's threshold-crossing analysis on Issue #2447.
 
 ## Most recent human direction (issue #2447)
 
