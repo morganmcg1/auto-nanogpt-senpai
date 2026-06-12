@@ -1,5 +1,49 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-12 17:30 — Stale WIP PR cleanup; four closed, only #2444 kept open
+
+After confirming pods remain at 0/0 and no human reply on issue #2447, cleaned up four stale-since-2026-06-10 WIP PRs that either had clear negative signals, completed diagnostics, or were superseded by the frozen pulse protocol.
+
+### PR #2440 frieren H-GH: stack ablation — diagnostic complete (closed)
+
+- Arms A (--disable_arbor) and B (--disable_ema_nesterov) both FALSIFIED at n=1: val@2850 = 3.280082 and 3.280678 respectively (+2.4e-3 and +3.0e-3 vs rank-1).
+- Arm C (disable both) redundant given individual confirmations — both Arbor and EN are load-bearing in the rank-1 composition.
+- Closed as canonical diagnostic answer in hand. Confirms rank-1 stack (NC × Sinkhorn Arbor × EN × RI × β₂ pulse × Muon mu_warmup 500) is minimum-viable on the Arbor/EN axes.
+
+### PR #2441 askeladd H-GI: lm_head soft-cap / readout reparameterization — exhausted (closed)
+
+- Arm A (cap=30 tanh layered after existing ±15 rational soft-cap) FALSIFIED: val@2850 = 3.279266 (+1.6e-3).
+- Original Arm B (μP scaling) cancelled at smoke (val=10.12 — μP-after-cap flattens softmax).
+- Redirected Arm B' (cap ceiling sweep at 10, 20) — early Arm B (cap=10) catastrophic at step 2650 (val=3.3035); cap=20 never tested.
+- **Key code-reading discovery: rational soft-cap (`15·x/√(x²+225)`) was already in the model.** Existing ±15 ceiling at local optimum; both directions away from 15 we have data on regress.
+- Closed as exhausted. Readout reparameterization remains an open future axis with fresh framing (true μP with LR rescale, untied-rate schedule, weight-normalized lm_head).
+
+### PR #2442 edward H-GJ: NS-orthogonalized gradient for AdamW groups — catastrophic (closed)
+
+- Two W&B runs crashed early (sul92yje, xje59q4r).
+- Third run (q64dcve3) reached step 1975/2890 with val/loss ≈ 3.4435 — would land ~+0.17 above baseline at terminal step. No SENPAI-RESULT posted, no student status updates.
+- Mechanistic note: pre-orthogonalizing the AdamW gradient distorts the variance estimate and bias-corrected denominator. Combined with high effective LR on embed/lm_head groups, drives training off the manifold.
+- Closed as clear dead end. Different framings (Shampoo head, NS only on directional component preserving magnitude) remain open future directions.
+
+### PR #2445 thorfinn H-GO: β₂ pulse f-fraction cross-budget — superseded (closed)
+
+- Was running T=1500 short-budget arm (run zxgjfxjj) when pod scaled to 0; no terminal results.
+- Directly superseded by the frozen pulse-generalization protocol proposed on issue #2447 (single β₂ pulse, f∈{0.25, 0.284}, T∈{1500, 2890, 4500}, n=4 paired seeds, matched controls).
+- Closed. Validation matrix will be launched fresh as a structured assignment family once the human team approves the protocol.
+
+### Surviving WIP: PR #2444 tanjiro H-GK (Muon cosine restart dip)
+
+- Was mid-flight at step 1770/2890 in Arm A trial 1 when pod scaled down. Real research question with no early-fail signal.
+- Will need rebase + relaunch when fleet returns. Hypothesis is independent of the pulse axis.
+
+### State after cleanup
+
+- 1 open WIP PR (#2444 tanjiro)
+- 1 open issue (#2447) awaiting human team protocol approval
+- 7 students PR-idle (alphonse, askeladd, edward, fern, frieren, nezuko, thorfinn); tanjiro on #2444
+- All 8 pods scaled to 0/0; no training active
+- New assignments blocked pending human approval and pod restart
+
 ## 2026-06-12 17:00 — Three review-ready PRs closed; fleet paused awaiting pulse-protocol approval (#2447)
 
 ### PR #2446 fern H-GL: Stochastic depth / DropPath on MLP residual branches — FALSIFIED (closed)
