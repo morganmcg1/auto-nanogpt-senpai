@@ -1,9 +1,9 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-12 20:20 UTC
+- **As of:** 2026-06-12 13:00 UTC
 - **Rank-1**: PR #2429 H-FN (fern, Muon mu warmup 500 steps), n=4 mean @ 2850 = **3.277700**, margin 0.004600. **MERGED 2026-06-10 12:30 UTC.** Beats prior rank-1 (PR #2405 H-EJ, 3.277780) by 0.000080.
-- **Fleet status**: **8/8 student replicas live**. Human researcher (morganmcg1) approved resumption on 2026-06-12 10:29 UTC.
-- **Operations**: **ACTIVE** under the frozen β₂-pulse generalization protocol (#2447). All 8 students assigned single slots in the 24-run matrix; no other mechanisms are being explored until the matrix completes.
+- **Fleet status**: **8/8 student replicas live**, all actively training. Human researcher (morganmcg1) approved resumption on 2026-06-12 10:29 UTC.
+- **Operations**: **ACTIVE** under the frozen β₂-pulse generalization protocol (#2447). All 8 students executing single slots in the 24-run matrix; no other mechanisms are being explored until the matrix completes.
 
 ## Most recent human direction (issue #2447)
 
@@ -11,24 +11,56 @@
 
 Hard scope limit: stop after the minimal protocol completes; no follow-up tuning or mechanism work without explicit human approval.
 
-## Active matrix (PRs #2448–#2455, 8 PRs, 24 runs total)
+## In-flight progress (live, as of 2026-06-12 13:00 UTC)
 
-W&B group for every run: `beta2-generalization-protocol-v1`. All arms share the rank-1 stack from PR #2429 (mu_warmup=500, RI capture scaled to ~82% of T, eps=1e-12, etc.) and differ only in the β₂ pulse flags.
+### T=1500 control arm — **n=4 complete** ✅
 
-| PR | Student | T | Seed | Arms | Pulse steps | ETA |
-|---:|---|---:|---:|---|---|---|
-| #2448 | open2-alphonse | 1500 | 1 | control + f=0.25 + f=0.284 | 375 / 426 | ~45–60 min |
-| #2449 | open2-askeladd | 1500 | 2 | control + f=0.25 + f=0.284 | 375 / 426 | ~45–60 min |
-| #2450 | open2-edward | 1500 | 3 | control + f=0.25 + f=0.284 | 375 / 426 | ~45–60 min |
-| #2451 | open2-fern | 1500 | 4 | control + f=0.25 + f=0.284 | 375 / 426 | ~45–60 min |
-| #2452 | open2-frieren | 4500 | 1 | control + f=0.25 + f=0.284 | 1125 / 1278 | ~2.5–3 h |
-| #2453 | open2-nezuko | 4500 | 2 | control + f=0.25 + f=0.284 | 1125 / 1278 | ~2.5–3 h |
-| #2454 | open2-tanjiro | 4500 | 3 | control + f=0.25 + f=0.284 | 1125 / 1278 | ~2.5–3 h |
-| #2455 | open2-thorfinn | 4500 | 4 | control + f=0.25 + f=0.284 | 1125 / 1278 | ~2.5–3 h |
+W&B group: `beta2-generalization-protocol-v1`. All four T=1500 control runs are finished with no pulse flags. Δ vs control will be computed per-seed once each pulse arm finishes.
 
-Within-student pairing: each student runs control + both pulse arms on the same hardware with the same seed, so per-seed Δ vs control is tight (no cross-machine variance).
+| Seed | Student | W&B run | val/loss @ 1500 |
+|---:|---|---|---:|
+| 1 | alphonse | `aepbts1a` | 3.487725 |
+| 2 | askeladd | `gx4ke0x1` | 3.476017 |
+| 3 | edward | `xflzxs2m` | 3.478016 |
+| 4 | fern | `34a4sy91` | 3.477639 |
+| **mean** |   |   | **3.479849** |
 
-40-shard FineWeb cache already present on the PVC (verified 2026-06-12); no pre-cache wait needed.
+### T=1500 f=0.25 arm — 1/4 done, 2/4 running, 1/4 pending
+
+| Seed | Student | W&B run | Status | val/loss @ 1500 | Δ vs control |
+|---:|---|---|---|---:|---:|
+| 1 | alphonse | `7tfszy1p` | running, step ~1100 | — | — |
+| 2 | askeladd | (not started — see #2449 advisor comment) | pending | — | — |
+| 3 | edward | `0vfxt7ln` | finished | **3.474925** | **−0.003091** |
+| 4 | fern | `hlpwn3pa` | running, step ~1450 | — | — |
+
+Edward's single-seed Δ = −0.003091 is a **strong** signal at n=1; aggregate decision must wait for n=4.
+
+### T=1500 f=0.284 arm — 1/4 running, 3/4 pending
+
+| Seed | Student | W&B run | Status |
+|---:|---|---|---|
+| 1 | alphonse | pending | will launch after f=0.25 finishes |
+| 2 | askeladd | pending | will launch after f=0.25 finishes |
+| 3 | edward | `cvsla0xs` | running, step ~150 |
+| 4 | fern | pending | will launch after f=0.25 finishes |
+
+### T=4500 control arm — all 4 running
+
+| Seed | Student | W&B run | Started | Current step | ETA |
+|---:|---|---|---|---:|---|
+| 1 | frieren | `wjhc8pe9` | 10:52 UTC | 3325 / 4500 | ~40 min remaining |
+| 2 | nezuko | `x1ecrbzn` | 10:52 UTC | 3550 / 4500 | ~30 min remaining |
+| 3 | tanjiro | `j47czkhz` | 10:52 UTC | 2500 / 4500 | ~1.7 h remaining (RTX PRO 6000 Blackwell, ~3.1 s/step) |
+| 4 | thorfinn | `x7m9akxm` | 10:54 UTC | 3250 / 4500 | ~40 min remaining |
+
+### T=4500 pulse arms — all 8 pending (waiting on control finish)
+
+## Operational anomalies and interventions
+
+- **Duplicate torchrun problem**: On the heartbeat iteration around 11:08–11:15 UTC, six students (edward, fern, frieren, thorfinn, tanjiro, plus the dropout above) launched a SECOND torchrun for the control arm in parallel with the original. Advisor sent the kill-duplicate intervention to PRs #2450/#2451/#2452/#2455 at 11:21 UTC — all four students confirmed kill by 11:31 UTC.
+- **Tanjiro self-recovered**: Tanjiro detected and killed its own duplicate (`vndyzc95`) at 12:14 UTC and posted at 12:49 UTC; also noted its pod has an RTX PRO 6000 Blackwell (not H100), giving ~3.1 s/step at T=4500 — total ~3.9 h/arm there.
+- **Alphonse (#2448) and askeladd (#2449)** are the remaining anomaly cases (no comments before today). Advisor sent dedicated duplicate-killer comments at ~13:00 UTC. alphonse's f=0.25 (`7tfszy1p`) is healthy and should continue; the duplicate control (`b0tc03iq`) must die. askeladd's original control (`gx4ke0x1`) is canonical; the duplicate (`kmide6c7`) must die and arms 2+3 must launch cleanly afterward.
 
 ## Decision gates (advisor-side aggregation when all 8 PRs return)
 
@@ -64,7 +96,7 @@ Pulse axis is under tight protocol control. When the human re-authorizes broader
 5. **Public SOTA porting**: lift mechanisms from KellerJordan #305 (current public record at 2925, n=8, val 3.27812750) and #300 (2930, n=16, val 3.27844375), specifically anything absent from our rank-1 stack.
 6. **Cleanup PR**: ~13 FALSIFIED lm_head β₂ pulse variants left scaffolding in train_gpt_simple.py — assign as cleanup with deletion default.
 
-PR #2444 (tanjiro H-GK Muon cosine restart) was closed during the 2026-06-12 17:30 UTC triage; if Muon-schedule restart is worth revisiting it would be a fresh hypothesis post-protocol.
+PR #2444 (tanjiro H-GK Muon cosine restart) was closed during earlier triage; if Muon-schedule restart is worth revisiting it would be a fresh hypothesis post-protocol.
 
 ## Idea backlog status
 
@@ -77,3 +109,4 @@ PR #2444 (tanjiro H-GK Muon cosine restart) was closed during the 2026-06-12 17:
 - **No mechanism additions while protocol active**: any PR that adds flags beyond the prescribed `--aux_b2_start/--aux_b2_target/--aux_b2_pulse_step` must be sent back.
 - **Terminal SENPAI-RESULT marker required** for each PR: includes regime, seed, all 3 arm val/loss values at final step, both Δ values vs control, and 3 W&B run ids.
 - **Human approval gate** for any work beyond the protocol matrix.
+- **Always check for duplicate torchruns** before declaring a student "active"; the iteration-2 launch pattern produced duplicates on 6 of 8 pods (now all resolved or being resolved).
