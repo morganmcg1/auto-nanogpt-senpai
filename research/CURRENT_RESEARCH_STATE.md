@@ -1,15 +1,17 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-12 14:55 UTC
-- **METRIC REFRAME (human 14:47 UTC)**: T=1500 transfer must be measured Track-3-style: earliest fixed-step crossing of a control-derived threshold, NOT same-step val/loss delta. By that metric, **step gain = 0** for both f=0.25 (n=4) and f=0.284 (n=3) — neither crosses the matched-control threshold earlier than control. Pulse lowers same-step val/loss but does NOT shorten time-to-threshold. Step-count transfer is NOT established at T=1500.
-- **PROTOCOL BLOCKER**: nezuko caught a hardcoded `FINAL_SCHEDULE_STEPS = 2980` bug at `train_gpt_simple.py:49` that breaks T=4500 (LR=0 from step 2980 onward). Escalated to human via Issue #2447 at 13:47 UTC with 4 options (weak rec: B = add `--final_schedule_steps` flag). Human confirmed at 14:47 UTC this is a real protocol bug; "do not run more T=4500 treatments until the human decides." **Awaiting decision.**
-- **T=1500 f=0.25 arm COMPLETE (n=4)** — same-step deltas: mean Δ = **−0.003054** (alphonse −0.004311, askeladd −0.003162, edward −0.003091, fern −0.001653). All four negative. **Threshold-crossing step gain = 0** (control & treatment both cross 3.479883909 at step 1500).
-- **T=1500 f=0.284 arm: n=3 done, askeladd running** (`v2bmp334`) — same-step deltas: alphonse −0.012874, edward −0.003918, fern −0.002029; n=3 mean Δ = **−0.006274**. **Threshold-crossing step gain = 0** so far (control & treatment both cross 3.481126706 at step 1500).
+- **As of:** 2026-06-12 15:20 UTC
+- **T=1500 MATRIX FULLY CLOSED (n=4 × 2 arms × 2 metrics)**. Final two-column report posted to Issue #2447 at 15:18 UTC.
+  - **Same-step val/loss Δ**: f=0.25 n=4 mean = **−0.003020**, f=0.284 n=4 mean = **−0.004816**. All 8 treatment runs beat their paired control.
+  - **Threshold-crossing step gain (Track-3 style)**: **0** for both f, all 4 seeds. Pulse rule does NOT shorten time-to-control-threshold.
+  - **Bottom line**: same-step val/loss is lower with the pulse rule at T=1500, but Track-3-style step-count transfer is NOT established.
+- **METRIC REFRAME (human 14:47 UTC)** was the basis for the two-column framing; verified per-seed via W&B history on all 8 treatment runs.
+- **PROTOCOL BLOCKER (T=4500)**: nezuko caught a hardcoded `FINAL_SCHEDULE_STEPS = 2980` bug at `train_gpt_simple.py:49` that breaks T=4500 (LR=0 from step 2980 onward). Human confirmed it's a real protocol bug; offered 4 options (A: abort, B: `--final_schedule_steps` flag, C: auto-scale `_power_lr`, D: continue with bug). **Awaiting decision.** Will not modify script without explicit pick.
 - **T=4500 controls all done (n=4)**: 3.273832, 3.274065, 3.275019, 3.275554. Clustered around 3.2745 ± 0.0008 due to schedule bug freezing all 4 from step 2980. Useful as a "T=2890-style schedule" reference, NOT as a T=4500 control.
 - **Frieren `4pbor27e` killed cleanly** at 14:33 UTC per OPS comment; GPU verified clear.
 - **Rank-1**: PR #2429 H-FN (fern, Muon mu warmup 500 steps), n=4 mean @ 2850 = **3.277700**, margin 0.004600. **MERGED 2026-06-10 12:30 UTC.** Beats prior rank-1 (PR #2405 H-EJ, 3.277780) by 0.000080.
 - **Fleet status**: **8/8 student replicas live**, all actively training. Human researcher (morganmcg1) approved resumption on 2026-06-12 10:29 UTC.
-- **Operations**: **PAUSED on T=4500 axis** pending human direction on Issue #2447 (LR schedule bug). T=1500 axis continues to completion. nezuko is idle awaiting decision; will NOT be assigned new work because protocol is scope-frozen.
+- **Operations**: **PAUSED on T=4500 axis** pending human decision on Issue #2447. **T=1500 axis fully closed (PR #2449 closed 15:18 UTC).** 4 idle students (alphonse, askeladd, edward, fern) + 4 paused T=4500 students (frieren, nezuko, tanjiro, thorfinn). No new assignments — scope-frozen per human's 10:29 UTC directive and reinforced at 14:47 UTC ("do not run more T=4500 treatments until the human decides").
 
 ## Most recent human direction (issue #2447)
 
@@ -45,17 +47,17 @@ Two-column reporting per human direction at 14:47 UTC:
 
 Same-step val/loss is consistently lower (strong by old framing), but earliest-threshold-crossing step gain is **zero**. The pulse rule does NOT shorten time-to-control-threshold at T=1500.
 
-### T=1500 f=0.284 arm — 3/4 done, askeladd running (`v2bmp334`)
+### T=1500 f=0.284 arm — **n=4 COMPLETE**
 
 | Seed | Student | W&B run | val/loss @ 1500 | same-step Δ | threshold-cross step (3.481126706) |
 |---:|---|---|---:|---:|---:|
 | 1 | alphonse | `dkr7zp4x` | 3.474851 | −0.012874 (outlier — control high) | 1500 |
-| 2 | askeladd | `v2bmp334` (running) | — | — | TBD |
+| 2 | askeladd | `v2bmp334` | 3.475576 | −0.000441 (smallest) | 1500 |
 | 3 | edward | `cvsla0xs` | 3.474098 | −0.003918 | 1500 |
 | 4 | fern | `62bj7pmv` | 3.475610 | −0.002029 | 1500 |
-| n=3 mean Δ |   |   |   | **−0.006274** | **step gain = 0** |
+| **n=4 mean Δ** |   |   |   | **−0.004816** | **step gain = 0** |
 
-Same-step Δ improvements ride mostly on seed-1's anomalously high control. Threshold-crossing analysis again shows no step gain. Will compute the full two-column table once `v2bmp334` lands and report on Issue #2447.
+All 4 same-step Δ negative; f=0.284 ordering vs f=0.25 flips between seeds (alphonse f=0.284 dominates; askeladd f=0.25 dominates) — single-seed noise. Threshold-crossing step gain = 0 across all 4 seeds.
 
 ### T=4500 control arm — **n=4 COMPLETE** (interpreted with caveats)
 

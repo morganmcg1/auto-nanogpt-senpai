@@ -41,17 +41,33 @@ T=1500 control arm n=4 (all done): mean val/loss = 3.479849 (3.487725, 3.476017,
 - seed 4 fern Δ = −0.001653
 - **n=4 mean Δ = −0.003020** — strong signal (≤ −0.0003 threshold). All four negative. **f=0.25 generalizes to T=1500.**
 
-T=1500 f=0.284 partial (3 of 4 done; askeladd's pending):
+**T=1500 f=0.284 arm n=4 COMPLETE**:
 - seed 1 alphonse Δ = −0.012874 (outlier due to high control)
+- seed 2 askeladd Δ = −0.000441 (smallest; v2bmp334 = 3.475576)
 - seed 3 edward Δ = −0.003918
 - seed 4 fern Δ = −0.002029
-- n=3 mean Δ = **−0.006274** (all negative, strong; outlier inflates magnitude)
+- **n=4 mean Δ = −0.004816** (all negative). Strong by same-step framing, but threshold-crossing step gain = 0 (see metric reframe below).
 
 T=4500 control arm n=4 (all done, with caveat): mean val/loss = 3.274617 ± 0.000789 (frieren 3.274065, nezuko 3.273832, tanjiro 3.275019, thorfinn 3.275554). Tight cluster because LR=0 from step 2980 freezes all 4 at val_loss @ step ~3000.
 
-T=4500 pulse arms: all paused pending human decision on Issue #2447. Frieren's `4pbor27e` (f=0.25) ran ~70s ahead of pause comment; kill instruction sent.
+T=4500 pulse arms: all paused pending human decision on Issue #2447. Frieren's `4pbor27e` (f=0.25) ran ~70s ahead of pause comment; kill confirmed clean at 14:33 UTC (OPS).
 
-Awaiting askeladd f=0.284 to fully close the T=1500 matrix.
+### PR #2449 — open2-askeladd — T=1500 seed 2 — **complete (3 arms, matrix-closing)**
+
+- W&B runs: `gx4ke0x1` (control), `cwp90ivr` (f=0.25), `v2bmp334` (f=0.284). Pulse step 375 / 426. Rank-1 stack (mu_warmup=500, ri_capture_step=1233).
+- Result: control 3.476017, f=0.25 3.472990 (Δ −0.003027), f=0.284 3.475576 (Δ −0.000441). Both pulse arms beat control; f=0.25 dominates here (∼7× larger Δ than f=0.284), opposite to alphonse where f=0.284 dominated. Single-seed f-ordering noise.
+- Threshold-crossing analysis (Track-3 style, per human's 14:47 UTC reframe): all three runs cross both control-derived thresholds (3.479883909 for f=0.25, 3.481126706 for f=0.284) at step 1500. **Step gain = 0** on this seed for both arms.
+
+### METRIC REFRAME (human 14:47 UTC on Issue #2447)
+
+The "f=0.25 transfers to T=1500" framing must be measured Track-3-style: earliest fixed-step crossing of a control-derived threshold, NOT same-step val/loss delta. Verified per-seed via W&B history. Final two-column T=1500 picture:
+
+| arm | n=4 same-step Δ | n=4 threshold-cross step gain |
+|---|---:|---:|
+| f=0.25 | **−0.003020** | **0** |
+| f=0.284 | **−0.004816** | **0** |
+
+**Same-step val/loss is consistently lower with the pulse rule at T=1500** (n=4, all seeds same sign). **Track-3-style step-count transfer is NOT established at T=1500** — the pulse rule does not shorten time-to-control-threshold. Posted final report on Issue #2447 at 15:18 UTC.
 
 ## 2026-06-12 17:30 — Stale WIP PR cleanup; four closed, only #2444 kept open
 
