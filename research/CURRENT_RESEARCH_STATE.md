@@ -1,9 +1,10 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-12 13:18 UTC
+- **As of:** 2026-06-12 13:45 UTC
+- **PROTOCOL BLOCKER**: nezuko caught a hardcoded `FINAL_SCHEDULE_STEPS = 2980` bug at `train_gpt_simple.py:49` that breaks T=4500 (LR=0 from step 2980 onward, model frozen). Escalated to human via Issue #2447 at 13:45 UTC. T=4500 students paused (control finishes only, no pulse arms launched). T=1500 students continue.
 - **Rank-1**: PR #2429 H-FN (fern, Muon mu warmup 500 steps), n=4 mean @ 2850 = **3.277700**, margin 0.004600. **MERGED 2026-06-10 12:30 UTC.** Beats prior rank-1 (PR #2405 H-EJ, 3.277780) by 0.000080.
 - **Fleet status**: **8/8 student replicas live**, all actively training. Human researcher (morganmcg1) approved resumption on 2026-06-12 10:29 UTC.
-- **Operations**: **ACTIVE** under the frozen β₂-pulse generalization protocol (#2447). All 8 students executing single slots in the 24-run matrix; no other mechanisms are being explored until the matrix completes.
+- **Operations**: **PAUSED on T=4500 axis** pending human direction on Issue #2447 (LR schedule bug). T=1500 axis continues to completion. nezuko is idle awaiting decision; will NOT be assigned new work because protocol is scope-frozen.
 
 ## Most recent human direction (issue #2447)
 
@@ -45,24 +46,26 @@ n=3 mean Δ so far = **−0.003018**. All three negative — **strong signal** t
 | 3 | edward | `cvsla0xs` | running, step ~600 |
 | 4 | fern | `62bj7pmv` | running, step ~375 |
 
-### T=4500 control arm — all 4 running
+### T=4500 control arm — nezuko done; others let to finish, NO pulse arms
 
-| Seed | Student | W&B run | Started | Current step | ETA |
-|---:|---|---|---|---:|---|
-| 1 | frieren | `wjhc8pe9` | 10:52 UTC | 3800 / 4500 | ~25 min remaining |
-| 2 | nezuko | `x1ecrbzn` | 10:52 UTC | 4025 / 4500 | ~20 min remaining |
-| 3 | tanjiro | `j47czkhz` | 10:52 UTC | 2975 / 4500 | ~1.3 h remaining (RTX PRO 6000 Blackwell, ~3.1 s/step) |
-| 4 | thorfinn | `x7m9akxm` | 10:54 UTC | 3725 / 4500 | ~30 min remaining |
+| Seed | Student | W&B run | Status |
+|---:|---|---|---|
+| 1 | frieren | `wjhc8pe9` | running, step ~4175 → let finish, PAUSE before arm 2 |
+| 2 | nezuko | `x1ecrbzn` | **FINISHED** — val/loss = 3.273832 (frozen tail from step 2980). PR #2453 in review. |
+| 3 | tanjiro | `j47czkhz` | running, step ~3400 → let finish, PAUSE before arm 2 |
+| 4 | thorfinn | `x7m9akxm` | running, step ~4100 → let finish, PAUSE before arm 2 |
 
-### T=4500 pulse arms — all 8 pending (waiting on control finish)
+**Critical caveat for all 4 T=4500 controls**: LR=0 from step ~2980 onward. `val/loss` is byte-identical from ~step 3000 to end. The "control" measurement is effectively the val/loss at step 2980 (per seed), not at step 4500.
+
+### T=4500 pulse arms — all PAUSED pending human decision on Issue #2447
 
 ## Operational anomalies and interventions
 
-- **Duplicate torchrun problem (iteration 2, ~11:08–11:15 UTC)**: edward, fern, frieren, thorfinn launched a SECOND control torchrun. Advisor intervention at 11:21 UTC; all confirmed kill by 11:31 UTC.
-- **Tanjiro self-recovered**: detected and killed its own duplicate (`vndyzc95`) at 12:14 UTC; also has an RTX PRO 6000 Blackwell (not H100), ~3.1 s/step at T=4500.
-- **Alphonse / askeladd intervention (13:00 UTC)**: advisor sent dedicated duplicate-killer comments. Askeladd's duplicate control `kmide6c7` finished anyway (val/loss=3.476156, basically identical to canonical `gx4ke0x1`=3.476017, well within noise); askeladd then launched f=0.25 (`cwp90ivr`) cleanly at 13:15 UTC. Alphonse's duplicate control `b0tc03iq` crashed at 12:34 UTC; alphonse then launched f=0.284 (`dkr7zp4x`) at 13:14 UTC.
-- **Alphonse second duplicate (13:18 UTC)**: alphonse launched TWO f=0.284 torchruns 30 seconds apart (`dkr7zp4x` at 13:14:36 and `jihotesj` at 13:15:05). Advisor intervention sent at 13:18 UTC requesting kill of `jihotesj`. This is the same iteration-race pattern; need to watch alphonse's response.
-- **Nezuko stale_wip flag (13:15 UTC)** — false positive. Pod is healthy (146 min, 0 restarts), `x1ecrbzn` control progressing normally at step 4025/4500. Student has not posted any comments yet but heartbeat is still ticking.
+- **CRITICAL: nezuko found LR schedule bug (13:37 UTC)** — `FINAL_SCHEDULE_STEPS = 2980` hardcoded at `train_gpt_simple.py:49`, `_power_lr` (line 1364) uses `t_end = FINAL_SCHEDULE_STEPS` instead of `train_steps`. For T=4500, LR=0 from step 2980; for T=1500, schedule never finishes cooling. Verified via W&B run `x1ecrbzn` (val/loss byte-identical 3.273831605911255 for 28 consecutive evals from step 3000). Escalated to human via Issue #2447 at 13:45 UTC with 4 options; T=4500 pulse-arm launches paused on all 4 students. T=1500 students continue (their Δ is still meaningful as paired comparison even if f×T interpretation is changed).
+- **Duplicate torchrun problem (iteration 2, ~11:08–11:15 UTC)**: edward, fern, frieren, thorfinn launched duplicate controls. Resolved by 11:31 UTC.
+- **Tanjiro self-recovered**: killed its own duplicate at 12:14 UTC; has an RTX PRO 6000 Blackwell, ~3.1 s/step at T=4500.
+- **Alphonse / askeladd intervention (13:00 UTC)**: duplicate-killer comments sent. Both resolved.
+- **Alphonse second duplicate (13:18 UTC)**: launched two f=0.284 torchruns 30 seconds apart. `jihotesj` crashed; `dkr7zp4x` continues clean.
 
 ## Decision gates (advisor-side aggregation when all 8 PRs return)
 
