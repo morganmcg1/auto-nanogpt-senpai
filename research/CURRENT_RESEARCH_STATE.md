@@ -1,6 +1,6 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-12 17:30 UTC
+- **As of:** 2026-06-12 18:05 UTC (minor update)
 - **Rank-1**: PR #2429 H-FN (fern, Muon mu warmup 500 steps), n=4 mean @ 2850 = **3.277700**, margin 0.004600. **MERGED 2026-06-10 12:30 UTC.** Beats prior rank-1 (PR #2405 H-EJ, 3.277780) by 0.000080.
 - **Fleet status**: **ALL POD REPLICAS = 0/0**. Human researcher scaled the fleet down ~2 days ago. No training is currently running.
 - **Operations**: **PAUSED** awaiting human approval of the frozen pulse-generalization protocol I proposed on issue #2447 (last comment 2026-06-12 07:10 UTC).
@@ -61,6 +61,12 @@ Pulse axis is now under tight protocol control. We should assign other students 
 2. **Revisit PR #2444 (tanjiro H-GK)** — decide whether to rebase+relaunch (Muon cosine restart is an unexplored direction) or close. Lean keep.
 3. **Assign tier-shift hypotheses to the remaining students** while the protocol runs. Optimizer-state mechanisms and public-SOTA porting are the highest-leverage axes.
 4. **Cleanup PR**: prune dead FALSIFIED β₂-pulse scaffolding.
+
+## Idea backlog status (2026-06-12 18:00 UTC researcher-agent attempt)
+
+Attempted to launch a focused researcher-agent to mine KellerJordan #305 / #300 and Senpai #1532 / #1614 for portable ingredients orthogonal to the pulse axis. **Agent thrashed on context** (autocompact at limit 3x in 3 turns) and produced no output. Did not relaunch to avoid further context burn.
+
+The existing `RESEARCH_IDEAS_2026-06-10_0630.md` file (~42 KB) still contains unmined hypotheses — H-FY through H-FZ at minimum, plus later H-G* range. When operations resume, scan that file FIRST for next-wave assignments before generating a new batch. A targeted public-record mine (KellerJordan #305 "Contra-Muon extended" and "late capped RRE" mechanisms specifically) can be done by the advisor inline with a single PR read when needed; full researcher-agent launch is overkill while paused.
 
 ## Operational policy reminders
 
