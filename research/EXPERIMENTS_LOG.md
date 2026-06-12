@@ -9,6 +9,14 @@
 - Student paused before arms 2 and 3. T=4500 generalization probe cannot be answered with the current script. Escalated to human on Issue #2447 at 13:47 UTC; 4 options offered (weak rec: add `--final_schedule_steps` CLI flag and re-run T=4500 matrix).
 - Other 3 T=4500 students (frieren #2452, tanjiro #2454, thorfinn #2455) sent pause comments: let current control finish, do NOT launch pulse arms.
 
+### PR #2448 — open2-alphonse — T=1500 seed 1 — **complete (3 arms)**
+
+- W&B runs: `aepbts1a` (control), `7tfszy1p` (f=0.25), `dkr7zp4x` (f=0.284). Pulse step 375 / 426.
+- Result: control 3.487725, f=0.25 3.483414 (Δ −0.004311), f=0.284 3.474851 (Δ −0.012874). Both pulse arms beat control; f=0.284 best.
+- Alphonse's control is anomalously high (3.487725 vs ~3.477 for the other 3 controls), inflating the seed-1 Δ. Treatment values (3.483414, 3.474851) are in line with the other seeds.
+- Cross-γ check confirms ordering control > f=0.25 > f=0.284 on val/ri_loss at γ = 0.0, −0.05, −0.075. Pulse effect is not RI-snapshot-specific.
+- Operational note: my anomaly comment at 13:17 UTC included a `SENPAI-RESULT:` template line with placeholder values, which broke the `mark_ready_for_review` JSON guard. Future advisor anomaly comments should never include SENPAI-RESULT-looking lines.
+
 ### PR #2450 — open2-edward — T=1500 seed 3 — **complete (3 arms)**
 
 - W&B runs: `xflzxs2m` (control), `0vfxt7ln` (f=0.25), `cvsla0xs` (f=0.284). Pulse step 375 / 426. Rank-1 stack (mu_warmup=500, ri_capture_step=1233).
@@ -22,22 +30,28 @@
 - `val/ri_pre_loss` also shows Δ control → f=0.284 of −0.00188, so the win is not a RI artefact at the final step.
 - Smaller magnitudes than edward but same direction.
 
-### Running tallies (as of 2026-06-12 14:00 UTC)
+### Running tallies (as of 2026-06-12 14:25 UTC)
 
 T=1500 control arm n=4 (all done): mean val/loss = 3.479849 (3.487725, 3.476017, 3.478016, 3.477639).
 
-T=1500 f=0.25 partial (3 of 4 done; askeladd `cwp90ivr` still running):
+**T=1500 f=0.25 arm n=4 COMPLETE**:
 - seed 1 alphonse Δ = −0.004311
+- seed 2 askeladd Δ = −0.003024
 - seed 3 edward Δ = −0.003091
 - seed 4 fern Δ = −0.001653
-- n=3 mean Δ = **−0.003018** (all negative, strong signal)
+- **n=4 mean Δ = −0.003020** — strong signal (≤ −0.0003 threshold). All four negative. **f=0.25 generalizes to T=1500.**
 
-T=1500 f=0.284 partial (2 of 4 done; alphonse `dkr7zp4x` and askeladd pending):
+T=1500 f=0.284 partial (3 of 4 done; askeladd's pending):
+- seed 1 alphonse Δ = −0.012874 (outlier due to high control)
 - seed 3 edward Δ = −0.003918
 - seed 4 fern Δ = −0.002029
-- n=2 mean Δ = **−0.002974** (both negative, strong signal)
+- n=3 mean Δ = **−0.006274** (all negative, strong; outlier inflates magnitude)
 
-Awaiting alphonse f=0.284 and askeladd f=0.25 / f=0.284 to call the n=4 T=1500 aggregate.
+T=4500 control arm n=4 (all done, with caveat): mean val/loss = 3.274617 ± 0.000789 (frieren 3.274065, nezuko 3.273832, tanjiro 3.275019, thorfinn 3.275554). Tight cluster because LR=0 from step 2980 freezes all 4 at val_loss @ step ~3000.
+
+T=4500 pulse arms: all paused pending human decision on Issue #2447. Frieren's `4pbor27e` (f=0.25) ran ~70s ahead of pause comment; kill instruction sent.
+
+Awaiting askeladd f=0.284 to fully close the T=1500 matrix.
 
 ## 2026-06-12 17:30 — Stale WIP PR cleanup; four closed, only #2444 kept open
 
