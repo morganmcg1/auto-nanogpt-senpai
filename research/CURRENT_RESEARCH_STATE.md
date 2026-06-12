@@ -1,8 +1,14 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-12 17:25 UTC
-- **DENSE T=1500 RERUN IN FLIGHT (human ops, 17:13 UTC).** Ops team patched live pods with eval-only flags (`--dense_val_start`, `--dense_val_every`, `--ri_probe_start`) and launched 12 reruns (4 seeds × {control, f=0.25, f=0.284}) directly via tmux under W&B group `beta2-generalization-dense-v1`. Goal: test whether 25-step eval cadence masked an earlier threshold crossing inside 1475→1500. Decision rule = earliest fixed step where n=4 mean treatment RI-probe/final RI loss crosses n=4 control final RI threshold. **Active W&B runs:** seed1 `i5fgvfhr`/`oexqtge9`/`z4qusi0o`; seed2 `o7dowuwf`/`2pe4nxxe`/`o9bfewzt`; seed3 `ewibcy19`/`bkb824rm`. Queued: seed4 controls + arms; seed3 f=0.284. 8 active + 4 queued.
-- **My A/B/C ask is effectively superseded** by this dense rerun (a fourth "D" option from the human team). The original A (T=4500 schedule repair) and B (broader SOTA arc) remain on the table once the dense rerun resolves the T=1500 threshold-crossing question.
+- **As of:** 2026-06-12 19:10 UTC
+- **DENSE T=1500 RERUN COMPLETE (12 finished runs, group `beta2-generalization-dense-v1`).** Per-seed paired n=4 same-step Δ and RI-probe Δ computed. Key finding:
+  - **f=0.25 REPLICATES original protocol direction**: same-step Δ = **−0.003890** (vs original −0.003020); RI-probe Δ = **−0.004770**. All 4 seeds negative on both metrics.
+  - **f=0.284 FAILS TO REPLICATE original protocol direction**: same-step Δ = **+0.001162** (vs original −0.004816); RI-probe Δ = **+0.001787**. 2 of 4 seeds POSITIVE (worse than control) on both metrics.
+  - **Threshold-crossing step gain (Track-3 style) = 0** for both arms on both metrics, all 4 seeds. Consistent with original protocol finding.
+- **Dense per-seed numbers (val/loss @ 1500):** ctl/f025/f0284 — seed1 3.476178/3.474540/3.484483; seed2 3.482578/3.471430/3.475082; seed3 3.476760/3.475719/3.473771; seed4 3.477784/3.476051/3.484612. f=0.284 seeds 1 and 4 are +0.008 and +0.007 vs paired control.
+- **Implication of reversal**: the original protocol's f=0.284 mean Δ = −0.0048 was dominated by the alphonse seed-1 outlier (−0.013). With independent n=4 replication, f=0.284 is essentially neutral / slightly worse. f=0.25 is the more reliable of the two pulse fractions at T=1500. Track-3-style step gain finding (=0) is unchanged.
+- **Not posting analysis to Issue #2447** — human team is running their own threshold-crossing analysis; their hourly status updates are the canonical channel. Will respond if asked.
+- **My A/B/C ask is effectively superseded** by this dense rerun (a fourth "D" option from the human team). The original A (T=4500 schedule repair) and B (broader SOTA arc) remain on the table once the human team resolves the T=1500 question.
 - **PROTOCOL TERMINATED (original protocol matrix).** Human ops (15:39 UTC) closed all T=4500 PRs (#2452–#2455) and declared "stop this protocol as run." All student PRs are closed.
 - **T=1500 MATRIX FULLY CLOSED (n=4 × 2 arms × 2 metrics)** — was the only valid evidence delivered by the protocol.
   - **Same-step val/loss Δ**: f=0.25 n=4 mean = **−0.003020**, f=0.284 n=4 mean = **−0.004816**. All 8 treatment runs beat their paired control.
