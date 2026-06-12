@@ -1,6 +1,7 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-12 19:10 UTC
+- **As of:** 2026-06-12 21:05 UTC
+- **CORRECTED T=4500 PROTOCOL IN FLIGHT (human ops, 21:00 UTC).** Group `beta2-generalization-t4500-fixed-v1`. 12 runs (4 seeds × 3 arms) with `--final_schedule_steps 4590` patch (option A from my original A/B/C ask). Pulse steps: f=0.25=1125, f=0.284=1278. Dense val + RI probe at every 5 steps in [4400, 4500]. 8 active (step 1400-1425 at 21:00 UTC) + 4 queued. Wave 1 expected completion ~22:55 UTC; wave 2 ~01:30 UTC. **Advisor ack posted 21:05 UTC.**
 - **DENSE T=1500 RERUN COMPLETE (12 finished runs, group `beta2-generalization-dense-v1`).** Per-seed paired n=4 same-step Δ and RI-probe Δ computed. Key finding:
   - **f=0.25 REPLICATES original protocol direction**: same-step Δ = **−0.003890** (vs original −0.003020); RI-probe Δ = **−0.004770**. All 4 seeds negative on both metrics.
   - **f=0.284 FAILS TO REPLICATE original protocol direction**: same-step Δ = **+0.001162** (vs original −0.004816); RI-probe Δ = **+0.001787**. 2 of 4 seeds POSITIVE (worse than control) on both metrics.
