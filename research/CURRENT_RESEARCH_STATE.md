@@ -1,11 +1,11 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-12 14:20 UTC
-- **PROTOCOL BLOCKER**: nezuko caught a hardcoded `FINAL_SCHEDULE_STEPS = 2980` bug at `train_gpt_simple.py:49` that breaks T=4500 (LR=0 from step 2980 onward). Escalated to human via Issue #2447 at 13:47 UTC. Awaiting decision.
-- **T=1500 f=0.25 arm COMPLETE (n=4)**: mean Δ vs control = **−0.003020** (alphonse −0.004311, askeladd −0.003024, edward −0.003091, fern −0.001653). All four negative, strong signal — f=0.25 transfers to T=1500.
-- **T=1500 f=0.284 arm: n=3 done** (alphonse −0.012874, edward −0.003918, fern −0.002029); awaiting askeladd. All three negative; alphonse outlier because their control was high (3.487725 vs other 3 controls clustered 3.476–3.478).
+- **As of:** 2026-06-12 14:40 UTC
+- **PROTOCOL BLOCKER**: nezuko caught a hardcoded `FINAL_SCHEDULE_STEPS = 2980` bug at `train_gpt_simple.py:49` that breaks T=4500 (LR=0 from step 2980 onward). Escalated to human via Issue #2447 at 13:47 UTC with 4 options (weak rec: B = add `--final_schedule_steps` flag). **Awaiting human decision; ops update at 14:34 UTC did not resolve it.**
+- **T=1500 f=0.25 arm COMPLETE (n=4)**: mean Δ vs control = **−0.003054** (alphonse −0.004311, askeladd −0.003162, edward −0.003091, fern −0.001653). All four negative, strong signal — f=0.25 transfers to T=1500. (n=4 mean corrected from ops authoritative 14:34 UTC; seed 2 final f=0.25 was tighter than the intermediate eval I'd used.)
+- **T=1500 f=0.284 arm: n=3 done, askeladd running** (`v2bmp334`): alphonse −0.012874, edward −0.003918, fern −0.002029; n=3 mean Δ = −0.006274. All three negative; alphonse outlier because their control was high (3.487725 vs other 3 controls clustered 3.476–3.478).
 - **T=4500 controls all done (n=4)**: 3.273832, 3.274065, 3.275019, 3.275554. Clustered around 3.2745 ± 0.0008 due to schedule bug freezing all 4 from step 2980. Useful as a "T=2890-style schedule" reference, NOT as a T=4500 control.
-- **Frieren anomaly**: launched f=0.25 (`4pbor27e`) at 13:45:15 UTC, ~70 s BEFORE my pause comment landed (13:46:23 UTC). Kill instruction sent at 14:15 UTC.
+- **Frieren `4pbor27e` killed cleanly** at 14:33 UTC per OPS comment; GPU verified clear.
 - **Rank-1**: PR #2429 H-FN (fern, Muon mu warmup 500 steps), n=4 mean @ 2850 = **3.277700**, margin 0.004600. **MERGED 2026-06-10 12:30 UTC.** Beats prior rank-1 (PR #2405 H-EJ, 3.277780) by 0.000080.
 - **Fleet status**: **8/8 student replicas live**, all actively training. Human researcher (morganmcg1) approved resumption on 2026-06-12 10:29 UTC.
 - **Operations**: **PAUSED on T=4500 axis** pending human direction on Issue #2447 (LR schedule bug). T=1500 axis continues to completion. nezuko is idle awaiting decision; will NOT be assigned new work because protocol is scope-frozen.
@@ -35,19 +35,19 @@ W&B group: `beta2-generalization-protocol-v1`. All four T=1500 control runs are 
 | Seed | Student | W&B run | val/loss @ 1500 | Δ vs control |
 |---:|---|---|---:|---:|
 | 1 | alphonse | `7tfszy1p` | 3.483414 | **−0.004311** |
-| 2 | askeladd | `cwp90ivr` | 3.472993 | **−0.003024** |
+| 2 | askeladd | `cwp90ivr` | 3.472855 | **−0.003162** |
 | 3 | edward | `0vfxt7ln` | 3.474925 | **−0.003091** |
 | 4 | fern | `hlpwn3pa` | 3.475986 | **−0.001653** |
-| **n=4 mean Δ** |   |   |   | **−0.003020** |
+| **n=4 mean Δ** |   |   |   | **−0.003054** |
 
 All four negative — **strong signal** (threshold ≤ −0.0003). f=0.25 transfers to T=1500.
 
-### T=1500 f=0.284 arm — 3/4 done, awaiting askeladd
+### T=1500 f=0.284 arm — 3/4 done, askeladd running (`v2bmp334`)
 
 | Seed | Student | W&B run | val/loss @ 1500 | Δ vs control |
 |---:|---|---|---:|---:|
 | 1 | alphonse | `dkr7zp4x` | 3.474851 | **−0.012874** (outlier — control high) |
-| 2 | askeladd | pending (next to launch) | — | — |
+| 2 | askeladd | `v2bmp334` (running) | — | — |
 | 3 | edward | `cvsla0xs` | 3.474098 | **−0.003918** |
 | 4 | fern | `62bj7pmv` | 3.475610 | **−0.002029** |
 | n=3 mean Δ |   |   |   | **−0.006274** |
@@ -69,7 +69,7 @@ Tight cluster (std ≈ 8e-4). All four reach `val/best_loss` at step 3000 then f
 
 ### T=4500 pulse arms — ALL PAUSED
 
-- frieren `4pbor27e` f=0.25 launched 13:45:15 UTC — pre-empted pause comment by 70 seconds. Kill instruction sent at 14:15 UTC.
+- frieren `4pbor27e` f=0.25 launched 13:45:15 UTC — pre-empted pause comment by 70 seconds. **Killed cleanly at 14:33 UTC** (OPS confirmation on PR #2452); GPU verified clear.
 - tanjiro and thorfinn confirmed pause hold (no pulse arms launched).
 - nezuko paused at advisor's instruction after control finished.
 
