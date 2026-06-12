@@ -24,6 +24,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -169,6 +170,12 @@ def parse_args():
                         help="Effective LR cooldown fraction; cd_start = int(train_steps * (1 - cooldown_frac)). "
                              "Default 0.60 mirrors training_schedule.cooldown_frac in train_gpt.py "
                              "(cd_start = 1156 for train_steps=2890).")
+    parser.add_argument("--muon_restart_step", type=int, default=-1,
+                        help="H-GK: Step at which to center the cosine momentum dip "
+                             "(SGDR-style restart for Muon). -1 disables (baseline trapezoid).")
+    parser.add_argument("--muon_restart_half_width", type=int, default=200,
+                        help="H-GK: Half-width of the cosine dip window in steps. The dip "
+                             "affects steps in [restart_step - hw, restart_step + hw].")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1254,6 +1261,11 @@ if dist.get_rank() == 0:
             "aux_b2_pulse_step_1": args.aux_b2_pulse_step_1,
             "aux_b2_cooldown_frac": args.aux_b2_cooldown_frac,
             "aux_b2_enabled": args.aux_b2_rule != "none",
+            "muon_restart_step": args.muon_restart_step,
+            "muon_restart_half_width": args.muon_restart_half_width,
+            "muon_restart_enabled": args.muon_restart_step > 0,
+            "muon_restart_frac_of_T": (args.muon_restart_step / args.train_steps
+                                       if args.muon_restart_step > 0 else -1.0),
         },
     )
 
@@ -1356,13 +1368,22 @@ for trial_idx in range(args.num_trials):
     def _muon_mu_at_step(step):
         cd_start = train_steps - _MU_COOLDOWN_STEPS
         if step < _MU_WARMUP_STEPS:
-            frac = step / max(_MU_WARMUP_STEPS, 1)
-            return _MU_MIN + frac * (_MU_MAX - _MU_MIN)
+            mu = _MU_MIN + (step / max(_MU_WARMUP_STEPS, 1)) * (_MU_MAX - _MU_MIN)
         elif step > cd_start:
             frac = (step - cd_start) / max(_MU_COOLDOWN_STEPS, 1)
-            return _MU_MAX - frac * (_MU_MAX - _MU_MIN)
+            mu = _MU_MAX - frac * (_MU_MAX - _MU_MIN)
         else:
-            return _MU_MAX
+            mu = _MU_MAX
+        # H-GK: Cosine momentum dip around restart_step (SGDR-style).
+        # Subtractive over the trapezoid; clamped to [_MU_MIN, _MU_MAX].
+        if args.muon_restart_step > 0:
+            dist_to_restart = abs(step - args.muon_restart_step)
+            hw = max(1, args.muon_restart_half_width)
+            if dist_to_restart < hw:
+                t = dist_to_restart / hw
+                dip_factor = 0.5 * (1.0 + math.cos(math.pi * t))
+                mu = mu - (_MU_MAX - _MU_MIN) * dip_factor
+        return max(_MU_MIN, min(_MU_MAX, mu))
 
     def set_hparams(step):
         for opt in inner_optimizers:
@@ -1587,6 +1608,7 @@ for trial_idx in range(args.num_trials):
             wandb.log(slope_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             aux_beta2_now = optimizer1.param_groups[0]["betas"][1]
+            muon_mu_now = optimizer2.param_groups[0]["mu"]
             ema_extras = {
                 "train/ema_nesterov/it": optimizer_ema.it,
                 "train/ema_nesterov/lookahead_stepsize": optimizer_ema.current_lookahead_stepsize,
@@ -1595,6 +1617,7 @@ for trial_idx in range(args.num_trials):
                     and optimizer_ema.it < EMA_NESTEROV_REST_STEPS
                 ),
                 "train/aux_b2": aux_beta2_now,
+                "train/muon_mu": muon_mu_now,
             }
             log_training_telemetry(
                 model=model,
