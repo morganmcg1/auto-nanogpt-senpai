@@ -1,9 +1,10 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-12 14:40 UTC
-- **PROTOCOL BLOCKER**: nezuko caught a hardcoded `FINAL_SCHEDULE_STEPS = 2980` bug at `train_gpt_simple.py:49` that breaks T=4500 (LR=0 from step 2980 onward). Escalated to human via Issue #2447 at 13:47 UTC with 4 options (weak rec: B = add `--final_schedule_steps` flag). **Awaiting human decision; ops update at 14:34 UTC did not resolve it.**
-- **T=1500 f=0.25 arm COMPLETE (n=4)**: mean Δ vs control = **−0.003054** (alphonse −0.004311, askeladd −0.003162, edward −0.003091, fern −0.001653). All four negative, strong signal — f=0.25 transfers to T=1500. (n=4 mean corrected from ops authoritative 14:34 UTC; seed 2 final f=0.25 was tighter than the intermediate eval I'd used.)
-- **T=1500 f=0.284 arm: n=3 done, askeladd running** (`v2bmp334`): alphonse −0.012874, edward −0.003918, fern −0.002029; n=3 mean Δ = −0.006274. All three negative; alphonse outlier because their control was high (3.487725 vs other 3 controls clustered 3.476–3.478).
+- **As of:** 2026-06-12 14:55 UTC
+- **METRIC REFRAME (human 14:47 UTC)**: T=1500 transfer must be measured Track-3-style: earliest fixed-step crossing of a control-derived threshold, NOT same-step val/loss delta. By that metric, **step gain = 0** for both f=0.25 (n=4) and f=0.284 (n=3) — neither crosses the matched-control threshold earlier than control. Pulse lowers same-step val/loss but does NOT shorten time-to-threshold. Step-count transfer is NOT established at T=1500.
+- **PROTOCOL BLOCKER**: nezuko caught a hardcoded `FINAL_SCHEDULE_STEPS = 2980` bug at `train_gpt_simple.py:49` that breaks T=4500 (LR=0 from step 2980 onward). Escalated to human via Issue #2447 at 13:47 UTC with 4 options (weak rec: B = add `--final_schedule_steps` flag). Human confirmed at 14:47 UTC this is a real protocol bug; "do not run more T=4500 treatments until the human decides." **Awaiting decision.**
+- **T=1500 f=0.25 arm COMPLETE (n=4)** — same-step deltas: mean Δ = **−0.003054** (alphonse −0.004311, askeladd −0.003162, edward −0.003091, fern −0.001653). All four negative. **Threshold-crossing step gain = 0** (control & treatment both cross 3.479883909 at step 1500).
+- **T=1500 f=0.284 arm: n=3 done, askeladd running** (`v2bmp334`) — same-step deltas: alphonse −0.012874, edward −0.003918, fern −0.002029; n=3 mean Δ = **−0.006274**. **Threshold-crossing step gain = 0** so far (control & treatment both cross 3.481126706 at step 1500).
 - **T=4500 controls all done (n=4)**: 3.273832, 3.274065, 3.275019, 3.275554. Clustered around 3.2745 ± 0.0008 due to schedule bug freezing all 4 from step 2980. Useful as a "T=2890-style schedule" reference, NOT as a T=4500 control.
 - **Frieren `4pbor27e` killed cleanly** at 14:33 UTC per OPS comment; GPU verified clear.
 - **Rank-1**: PR #2429 H-FN (fern, Muon mu warmup 500 steps), n=4 mean @ 2850 = **3.277700**, margin 0.004600. **MERGED 2026-06-10 12:30 UTC.** Beats prior rank-1 (PR #2405 H-EJ, 3.277780) by 0.000080.
@@ -30,29 +31,31 @@ W&B group: `beta2-generalization-protocol-v1`. All four T=1500 control runs are 
 | 4 | fern | `34a4sy91` | 3.477639 |
 | **mean** |   |   | **3.479849** |
 
-### T=1500 f=0.25 arm — **n=4 COMPLETE** ✅
+### T=1500 f=0.25 arm — **n=4 COMPLETE**
 
-| Seed | Student | W&B run | val/loss @ 1500 | Δ vs control |
-|---:|---|---|---:|---:|
-| 1 | alphonse | `7tfszy1p` | 3.483414 | **−0.004311** |
-| 2 | askeladd | `cwp90ivr` | 3.472855 | **−0.003162** |
-| 3 | edward | `0vfxt7ln` | 3.474925 | **−0.003091** |
-| 4 | fern | `hlpwn3pa` | 3.475986 | **−0.001653** |
-| **n=4 mean Δ** |   |   |   | **−0.003054** |
+Two-column reporting per human direction at 14:47 UTC:
 
-All four negative — **strong signal** (threshold ≤ −0.0003). f=0.25 transfers to T=1500.
+| Seed | Student | W&B run | val/loss @ 1500 | same-step Δ | threshold-cross step (3.479883909) |
+|---:|---|---|---:|---:|---:|
+| 1 | alphonse | `7tfszy1p` | 3.483414 | −0.004311 | 1500 |
+| 2 | askeladd | `cwp90ivr` | 3.472855 | −0.003162 | 1500 |
+| 3 | edward | `0vfxt7ln` | 3.474925 | −0.003091 | 1500 |
+| 4 | fern | `hlpwn3pa` | 3.475986 | −0.001653 | 1500 |
+| **n=4** |   |   |   | **−0.003054** | **step gain = 0** |
+
+Same-step val/loss is consistently lower (strong by old framing), but earliest-threshold-crossing step gain is **zero**. The pulse rule does NOT shorten time-to-control-threshold at T=1500.
 
 ### T=1500 f=0.284 arm — 3/4 done, askeladd running (`v2bmp334`)
 
-| Seed | Student | W&B run | val/loss @ 1500 | Δ vs control |
-|---:|---|---|---:|---:|
-| 1 | alphonse | `dkr7zp4x` | 3.474851 | **−0.012874** (outlier — control high) |
-| 2 | askeladd | `v2bmp334` (running) | — | — |
-| 3 | edward | `cvsla0xs` | 3.474098 | **−0.003918** |
-| 4 | fern | `62bj7pmv` | 3.475610 | **−0.002029** |
-| n=3 mean Δ |   |   |   | **−0.006274** |
+| Seed | Student | W&B run | val/loss @ 1500 | same-step Δ | threshold-cross step (3.481126706) |
+|---:|---|---|---:|---:|---:|
+| 1 | alphonse | `dkr7zp4x` | 3.474851 | −0.012874 (outlier — control high) | 1500 |
+| 2 | askeladd | `v2bmp334` (running) | — | — | TBD |
+| 3 | edward | `cvsla0xs` | 3.474098 | −0.003918 | 1500 |
+| 4 | fern | `62bj7pmv` | 3.475610 | −0.002029 | 1500 |
+| n=3 mean Δ |   |   |   | **−0.006274** | **step gain = 0** |
 
-All three negative; alphonse outlier due to anomalously high control (3.487725 vs ~3.477 for the others). Treatment values are tightly clustered (3.474–3.476) regardless of seed — pulse appears to compress the seed-dependent variance.
+Same-step Δ improvements ride mostly on seed-1's anomalously high control. Threshold-crossing analysis again shows no step gain. Will compute the full two-column table once `v2bmp334` lands and report on Issue #2447.
 
 ### T=4500 control arm — **n=4 COMPLETE** (interpreted with caveats)
 
@@ -83,12 +86,17 @@ Tight cluster (std ≈ 8e-4). All four reach `val/best_loss` at step 3000 then f
 
 ## Decision gates (advisor-side aggregation when all 8 PRs return)
 
-For each T regime (n=4 across seeds 1–4):
-- **Strong signal**: pulse_mean − control_mean ≤ −0.0003
-- **Weak signal**: pulse_mean − control_mean ≤ −0.0001
-- **No generalization**: |effect| < 0.0001, or sign flips between regimes
+**Revised after 14:47 UTC human clarification.** Per-regime n=4 aggregation reports TWO signals separately:
+1. **Same-step val/loss Δ** (treatment − control at step T). Already what we've been reporting.
+2. **Threshold-crossing step gain** (Track-3 style): predeclare a control-derived threshold; report earliest step at which each curve crosses. Step gain = control_cross_step − treatment_cross_step (positive = transfer wins).
 
-Escalate to n=8 only if effect < 0.0001 or sign disagreement. Decisions on what to do next live with the human, not the advisor — the directive says "stop after the minimal protocol completes."
+Old thresholds (still useful for column 1):
+- Strong: same-step Δ ≤ −0.0003
+- Weak: same-step Δ ≤ −0.0001
+
+For column 2 (Track-3-style transfer), only a positive step gain (treatment crosses earlier) counts as transfer. So far at T=1500: column 1 = strong negative, column 2 = zero.
+
+Decisions on what to do next live with the human — the directive says "stop after the minimal protocol completes."
 
 ## Validated rank-1 ingredients (current baseline composition)
 
