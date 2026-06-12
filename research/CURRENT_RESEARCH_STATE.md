@@ -1,17 +1,19 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-12 15:20 UTC
-- **T=1500 MATRIX FULLY CLOSED (n=4 × 2 arms × 2 metrics)**. Final two-column report posted to Issue #2447 at 15:18 UTC.
+- **As of:** 2026-06-12 15:50 UTC
+- **PROTOCOL TERMINATED.** Human ops (15:39 UTC) closed all T=4500 PRs (#2452–#2455) and declared "Next valid action: stop this protocol as run." All 8 students now idle with no torchruns.
+- **T=1500 MATRIX FULLY CLOSED (n=4 × 2 arms × 2 metrics)** — was the only valid evidence delivered by the protocol.
   - **Same-step val/loss Δ**: f=0.25 n=4 mean = **−0.003020**, f=0.284 n=4 mean = **−0.004816**. All 8 treatment runs beat their paired control.
   - **Threshold-crossing step gain (Track-3 style)**: **0** for both f, all 4 seeds. Pulse rule does NOT shorten time-to-control-threshold.
   - **Bottom line**: same-step val/loss is lower with the pulse rule at T=1500, but Track-3-style step-count transfer is NOT established.
-- **METRIC REFRAME (human 14:47 UTC)** was the basis for the two-column framing; verified per-seed via W&B history on all 8 treatment runs.
-- **PROTOCOL BLOCKER (T=4500)**: nezuko caught a hardcoded `FINAL_SCHEDULE_STEPS = 2980` bug at `train_gpt_simple.py:49` that breaks T=4500 (LR=0 from step 2980 onward). Human confirmed it's a real protocol bug; offered 4 options (A: abort, B: `--final_schedule_steps` flag, C: auto-scale `_power_lr`, D: continue with bug). **Awaiting decision.** Will not modify script without explicit pick.
+- **T=4500 unanswerable** without script repair due to `FINAL_SCHEDULE_STEPS=2980` bug.
+- **Frieren operational incident (15:30 UTC)**: relaunched a third invalid T=4500 f=0.25 attempt (`00q30fi9`), killed by ops. Three total invalid frieren launches (`4pbor27e`, …, `00q30fi9`) — pattern suggests the student's harness keeps re-triggering until told otherwise. Now resolved via PR closure.
+- **NEXT-PHASE DECISION PENDING**: human has not yet authorized either (a) a repaired protocol re-run (with scale-aware LR horizon) or (b) the broader Open-Context Auto-nanoGPT SOTA research arc (per the launch reminder: composing #1532/#1614 ingredients on top of #305 lineage). Posting an explicit ask on Issue #2447. Will hold all 8 students idle until response.
 - **T=4500 controls all done (n=4)**: 3.273832, 3.274065, 3.275019, 3.275554. Clustered around 3.2745 ± 0.0008 due to schedule bug freezing all 4 from step 2980. Useful as a "T=2890-style schedule" reference, NOT as a T=4500 control.
 - **Frieren `4pbor27e` killed cleanly** at 14:33 UTC per OPS comment; GPU verified clear.
 - **Rank-1**: PR #2429 H-FN (fern, Muon mu warmup 500 steps), n=4 mean @ 2850 = **3.277700**, margin 0.004600. **MERGED 2026-06-10 12:30 UTC.** Beats prior rank-1 (PR #2405 H-EJ, 3.277780) by 0.000080.
 - **Fleet status**: **8/8 student replicas live**, all actively training. Human researcher (morganmcg1) approved resumption on 2026-06-12 10:29 UTC.
-- **Operations**: **PAUSED on T=4500 axis** pending human decision on Issue #2447. **T=1500 axis fully closed (PR #2449 closed 15:18 UTC).** 4 idle students (alphonse, askeladd, edward, fern) + 4 paused T=4500 students (frieren, nezuko, tanjiro, thorfinn). No new assignments — scope-frozen per human's 10:29 UTC directive and reinforced at 14:47 UTC ("do not run more T=4500 treatments until the human decides").
+- **Operations**: **PROTOCOL STOPPED** per human ops 15:39 UTC. All 8 student PRs closed (T=1500 PRs accepted; T=4500 PRs closed without continuation). 8 idle students. No new assignments until human authorizes the next phase.
 
 ## Most recent human direction (issue #2447)
 
