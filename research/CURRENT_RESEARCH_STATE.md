@@ -1,8 +1,11 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-12 14:05 UTC
-- **PROTOCOL BLOCKER**: nezuko caught a hardcoded `FINAL_SCHEDULE_STEPS = 2980` bug at `train_gpt_simple.py:49` that breaks T=4500 (LR=0 from step 2980 onward, model frozen). Escalated to human via Issue #2447 at 13:47 UTC. T=4500 students paused (control finishes only, no pulse arms launched). T=1500 students continue.
-- **T=1500 protocol progress**: edward (#2450) and fern (#2451) closed with terminal results. n=3 mean Δ for f=0.25 = −0.003018; n=2 mean Δ for f=0.284 = −0.002974. Awaiting alphonse + askeladd to close the n=4 matrix.
+- **As of:** 2026-06-12 14:20 UTC
+- **PROTOCOL BLOCKER**: nezuko caught a hardcoded `FINAL_SCHEDULE_STEPS = 2980` bug at `train_gpt_simple.py:49` that breaks T=4500 (LR=0 from step 2980 onward). Escalated to human via Issue #2447 at 13:47 UTC. Awaiting decision.
+- **T=1500 f=0.25 arm COMPLETE (n=4)**: mean Δ vs control = **−0.003020** (alphonse −0.004311, askeladd −0.003024, edward −0.003091, fern −0.001653). All four negative, strong signal — f=0.25 transfers to T=1500.
+- **T=1500 f=0.284 arm: n=3 done** (alphonse −0.012874, edward −0.003918, fern −0.002029); awaiting askeladd. All three negative; alphonse outlier because their control was high (3.487725 vs other 3 controls clustered 3.476–3.478).
+- **T=4500 controls all done (n=4)**: 3.273832, 3.274065, 3.275019, 3.275554. Clustered around 3.2745 ± 0.0008 due to schedule bug freezing all 4 from step 2980. Useful as a "T=2890-style schedule" reference, NOT as a T=4500 control.
+- **Frieren anomaly**: launched f=0.25 (`4pbor27e`) at 13:45:15 UTC, ~70 s BEFORE my pause comment landed (13:46:23 UTC). Kill instruction sent at 14:15 UTC.
 - **Rank-1**: PR #2429 H-FN (fern, Muon mu warmup 500 steps), n=4 mean @ 2850 = **3.277700**, margin 0.004600. **MERGED 2026-06-10 12:30 UTC.** Beats prior rank-1 (PR #2405 H-EJ, 3.277780) by 0.000080.
 - **Fleet status**: **8/8 student replicas live**, all actively training. Human researcher (morganmcg1) approved resumption on 2026-06-12 10:29 UTC.
 - **Operations**: **PAUSED on T=4500 axis** pending human direction on Issue #2447 (LR schedule bug). T=1500 axis continues to completion. nezuko is idle awaiting decision; will NOT be assigned new work because protocol is scope-frozen.
@@ -27,40 +30,48 @@ W&B group: `beta2-generalization-protocol-v1`. All four T=1500 control runs are 
 | 4 | fern | `34a4sy91` | 3.477639 |
 | **mean** |   |   | **3.479849** |
 
-### T=1500 f=0.25 arm — **3/4 done**, 1/4 running
+### T=1500 f=0.25 arm — **n=4 COMPLETE** ✅
 
-| Seed | Student | W&B run | Status | val/loss @ 1500 | Δ vs control |
-|---:|---|---|---|---:|---:|
-| 1 | alphonse | `7tfszy1p` | finished | 3.483414 | **−0.004311** |
-| 2 | askeladd | `cwp90ivr` | running | — | — |
-| 3 | edward | `0vfxt7ln` | finished, PR #2450 closed | 3.474925 | **−0.003091** |
-| 4 | fern | `hlpwn3pa` | finished, PR #2451 closed | 3.475986 | **−0.001653** |
+| Seed | Student | W&B run | val/loss @ 1500 | Δ vs control |
+|---:|---|---|---:|---:|
+| 1 | alphonse | `7tfszy1p` | 3.483414 | **−0.004311** |
+| 2 | askeladd | `cwp90ivr` | 3.472993 | **−0.003024** |
+| 3 | edward | `0vfxt7ln` | 3.474925 | **−0.003091** |
+| 4 | fern | `hlpwn3pa` | 3.475986 | **−0.001653** |
+| **n=4 mean Δ** |   |   |   | **−0.003020** |
 
-n=3 mean Δ so far = **−0.003018**. All three negative — **strong signal** that f=0.25 transfers to T=1500. Awaiting askeladd's seed 2 to call.
+All four negative — **strong signal** (threshold ≤ −0.0003). f=0.25 transfers to T=1500.
 
-### T=1500 f=0.284 arm — 2/4 done, 1/4 running, 1/4 pending
+### T=1500 f=0.284 arm — 3/4 done, awaiting askeladd
 
-| Seed | Student | W&B run | Status | val/loss @ 1500 | Δ vs control |
-|---:|---|---|---|---:|---:|
-| 1 | alphonse | `dkr7zp4x` | running, post-dup-cleanup | — | — |
-| 2 | askeladd | pending | will launch after f=0.25 finishes | — | — |
-| 3 | edward | `cvsla0xs` | finished, PR #2450 closed | 3.474098 | **−0.003918** |
-| 4 | fern | `62bj7pmv` | finished, PR #2451 closed | 3.475610 | **−0.002029** |
+| Seed | Student | W&B run | val/loss @ 1500 | Δ vs control |
+|---:|---|---|---:|---:|
+| 1 | alphonse | `dkr7zp4x` | 3.474851 | **−0.012874** (outlier — control high) |
+| 2 | askeladd | pending (next to launch) | — | — |
+| 3 | edward | `cvsla0xs` | 3.474098 | **−0.003918** |
+| 4 | fern | `62bj7pmv` | 3.475610 | **−0.002029** |
+| n=3 mean Δ |   |   |   | **−0.006274** |
 
-n=2 mean Δ so far = **−0.002974**. Both negative; f=0.284 is the better arm vs f=0.25 on the two completed seeds (matches T=2890 ordering).
+All three negative; alphonse outlier due to anomalously high control (3.487725 vs ~3.477 for the others). Treatment values are tightly clustered (3.474–3.476) regardless of seed — pulse appears to compress the seed-dependent variance.
 
-### T=4500 control arm — nezuko done; others let to finish, NO pulse arms
+### T=4500 control arm — **n=4 COMPLETE** (interpreted with caveats)
 
-| Seed | Student | W&B run | Status |
-|---:|---|---|---|
-| 1 | frieren | `wjhc8pe9` | running, step ~4175 → let finish, PAUSE before arm 2 |
-| 2 | nezuko | `x1ecrbzn` | **FINISHED** — val/loss = 3.273832 (frozen tail from step 2980). PR #2453 in review. |
-| 3 | tanjiro | `j47czkhz` | running, step ~3400 → let finish, PAUSE before arm 2 |
-| 4 | thorfinn | `x7m9akxm` | running, step ~4100 → let finish, PAUSE before arm 2 |
+| Seed | Student | W&B run | val/loss @ 4500 (= val/loss @ ~3000 due to bug) |
+|---:|---|---|---:|
+| 1 | frieren | `wjhc8pe9` | 3.274065 |
+| 2 | nezuko | `x1ecrbzn` | 3.273832 |
+| 3 | tanjiro | `j47czkhz` | 3.275019 |
+| 4 | thorfinn | `x7m9akxm` | 3.275554 |
+| **n=4 mean** |   |   | **3.274617** |
+| **n=4 std**  |   |   | **±0.000789** |
 
-**Critical caveat for all 4 T=4500 controls**: LR=0 from step ~2980 onward. `val/loss` is byte-identical from ~step 3000 to end. The "control" measurement is effectively the val/loss at step 2980 (per seed), not at step 4500.
+Tight cluster (std ≈ 8e-4). All four reach `val/best_loss` at step 3000 then freeze. This is effectively a "T=2890-style schedule extended to 4500 nominal steps" cluster, NOT a T=4500 control.
 
-### T=4500 pulse arms — all PAUSED pending human decision on Issue #2447
+### T=4500 pulse arms — ALL PAUSED
+
+- frieren `4pbor27e` f=0.25 launched 13:45:15 UTC — pre-empted pause comment by 70 seconds. Kill instruction sent at 14:15 UTC.
+- tanjiro and thorfinn confirmed pause hold (no pulse arms launched).
+- nezuko paused at advisor's instruction after control finished.
 
 ## Operational anomalies and interventions
 
