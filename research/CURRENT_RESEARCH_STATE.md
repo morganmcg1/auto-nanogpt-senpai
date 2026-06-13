@@ -1,7 +1,25 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-13 12:06 UTC
-- **HUMAN IMPLICITLY PICKED OPTION B (BROADER SOTA ARC) AT 12:03 UTC** by creating 4 new PRs assigning a focused compositional probe: **PR321 dynamic aux-beta2** — test whether Senpai β₂-pulse mechanism (β₂_start=0.95→target at pulse step) improves ypwang61 public PR #321 SOAP-f1 + aux-beta2 stack at the T=2900 horizon.
+- **As of:** 2026-06-13 12:30 UTC
+- **ALL 8 STUDENTS ASSIGNED.** Two parallel tracks now running:
+
+## TRACK A: PR321 dynamic aux-beta2 compositional probe (human-directed, Issue #2461)
+  - **4 students** (alphonse/askeladd/edward/fern) running PR321 dynamic aux-beta2 surge.
+  - W&B group: `pr321-dynamic-auxb2-n4-v1`. All 4 static control arms confirmed running at step ~125.
+  - Each student runs 3 arms: static, f=0.25 (pulse step 725), f=0.284 (pulse step 824). STOP_STEP=2775.
+  - Test whether Senpai β₂-pulse mechanism improves ypwang61 public PR #321 SOAP-f1 + aux-beta2 stack.
+
+## TRACK B: H-F025-confirm — f=0.25 timing confirmation on #2429 official stack (human-directed, Issue #2460)
+  - **4 students** (frieren/nezuko/tanjiro/thorfinn) running confirmation experiment.
+  - Change ONLY `--aux_b2_pulse_step 820 → 722` (f=0.284 → f=0.25) on exact #2429 stack.
+  - n=4 paired-on-hardware comparison (each pod runs both arms at its assigned seeds).
+  - PRs: #2462 (frieren, treatment s0-1), #2463 (nezuko, treatment s2-3), #2464 (tanjiro, baseline s0-1), #2465 (thorfinn, baseline s2-3)
+  - W&B group: `h-f025-normal-track-confirm`
+  - Fixed steps: 2825, 2850, 2875, 2890.
+  - Decision rules (from Issue #2460): treatment n=4 mean at 2850 ≤3.277700 (beats #2429), ≤3.278000 (track3-valid), >3.278000 (fails official).
+
+## Historical pivot
+- **HUMAN PICKED OPTION B (BROADER SOTA ARC)** at 12:03 UTC via 4 new PRs (#2456-#2459). Separate human directives in Issues #2460 and #2461 made the scope explicit.
   - PR #2456 alphonse seed1, #2457 askeladd seed2, #2458 edward seed3, #2459 fern seed4
   - W&B group: `pr321-dynamic-auxb2-n4-v1`
   - Each student runs 3 arms: static control, f=0.25 (pulse step 725), f=0.284 (pulse step 824). STOP_STEP=2775.
