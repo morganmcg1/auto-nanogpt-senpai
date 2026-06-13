@@ -1,5 +1,44 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-13 16:40 — H-F025-confirm (Issue #2460) — TERMINAL n=4 PAIRED RESULT
+
+Track B protocol complete. Group `h-f025-normal-track-confirm`. All 4 pods posted terminal `SENPAI-RESULT` markers. Manual n=4 advisor-side aggregation from per-trial values at all 4 fixed steps.
+
+### Per-seed val/loss @ step 2850
+
+| Seed | Treatment (722, f=0.25) | Baseline (820, f=0.284) | Paired Δ (T−B) |
+|---:|---:|---:|---:|
+| 0 | 3.27875 (frieren `43ktkm9v`) | 3.28014 (tanjiro `s098thzv`) | −0.00139 (treat. wins) |
+| 1 | 3.27673 (frieren `43ktkm9v`) | 3.27691 (tanjiro `s098thzv`) | −0.00018 (≈ tied) |
+| 2 | 3.28041 (nezuko `po9wkwy8`)  | 3.27719 (thorfinn `3d1ntk76`) | +0.00322 (base. wins big) |
+| 3 | 3.27901 (nezuko `po9wkwy8`)  | 3.27737 (thorfinn `3d1ntk76`) | +0.00164 (base. wins) |
+
+### n=4 aggregates (advisor-computed from W&B run histories + student markers)
+
+| Step | T mean | T margin | B mean | B margin | Δ (T−B) |
+|---:|---:|---:|---:|---:|---:|
+| 2825 | 3.280529 | −0.001059 | 3.279708 | +0.000584 | +0.000820 |
+| **2850** | **3.278725** | **+0.002549** | **3.277903** | **+0.004195** | **+0.000823** |
+| 2875 | 3.277325 | +0.005349 | 3.276488 | +0.007025 | +0.000838 |
+| 2890 | 3.276272 | +0.007455 | 3.275441 | +0.009117 | +0.000831 |
+
+### Decision per Issue #2460 rules at step 2850
+
+- treatment mean 3.278725 > 3.278000 threshold → **f=0.25 does NOT preserve #2429 official Track 3 result.**
+- Treatment margin +0.002549 fails the ≥0.004 official validity criterion at n=4.
+- Baseline margin +0.004195 passes; baseline reproduces historical #2429 (3.277700) within Δ = +0.000203.
+
+### Interpretation
+
+The cross-budget pre-result (T=1500 and T=4500 generalized f=0.25; #2447) does NOT carry into the #2429 normal Track 3 stack. The paired Δ is small (+0.0008) but very stable across all 4 fixed steps (range +0.000820 → +0.000838). 3 of 4 seeds favor baseline; seed 2 alone contributes +0.00322 of the +0.00328 total seed-summed Δ. The "right" pulse step for the #2429 stack remains 820 (f=0.284); the generalized timing is a budget-conditional optimum, not a normal-track optimum. f=0.284 is co-tuned to the rest of the #2429 stack.
+
+### Operational
+
+- 4 PRs closed (no winners): #2462 frieren, #2463 nezuko (treatment); #2464 tanjiro, #2465 thorfinn (fresh baseline).
+- Unified result posted to Issue #2460 (comment 4699133331).
+- #2429 stays current Senpai Track 3 SOTA (2850, n=4, mean 3.277700, margin 0.004600).
+- Frieren+nezuko+tanjiro+thorfinn idle pending next assignment.
+
 ## 2026-06-13 14:30 — PR321 dynamic aux-beta2 (Issue #2461) — STATIC ARM n=4 COMPLETE
 
 Track A protocol, group `pr321-dynamic-auxb2-n4-v1`. Compositional probe: does Senpai's dynamic aux-beta2 surge improve ypwang61's public PR #321 SOAP-f1 + aux-beta2 stack at the T=2900 horizon?

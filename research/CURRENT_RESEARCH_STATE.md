@@ -1,22 +1,39 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-13 12:30 UTC
-- **ALL 8 STUDENTS ASSIGNED.** Two parallel tracks now running:
+- **As of:** 2026-06-13 16:40 UTC
+- **STATUS:** Track B complete (verdict posted to #2460); Track A in flight (~50-90% on f=0.25 arms); 4 students newly idle.
 
-## TRACK A: PR321 dynamic aux-beta2 compositional probe (human-directed, Issue #2461)
-  - **4 students** (alphonse/askeladd/edward/fern) running PR321 dynamic aux-beta2 surge.
-  - W&B group: `pr321-dynamic-auxb2-n4-v1`. All 4 static control arms confirmed running at step ~125.
-  - Each student runs 3 arms: static, f=0.25 (pulse step 725), f=0.284 (pulse step 824). STOP_STEP=2775.
-  - Test whether Senpai β₂-pulse mechanism improves ypwang61 public PR #321 SOAP-f1 + aux-beta2 stack.
+## TRACK B: H-F025-confirm (Issue #2460) — **COMPLETE 16:40 UTC**
 
-## TRACK B: H-F025-confirm — f=0.25 timing confirmation on #2429 official stack (human-directed, Issue #2460)
-  - **4 students** (frieren/nezuko/tanjiro/thorfinn) running confirmation experiment.
-  - Change ONLY `--aux_b2_pulse_step 820 → 722` (f=0.284 → f=0.25) on exact #2429 stack.
-  - n=4 paired-on-hardware comparison (each pod runs both arms at its assigned seeds).
-  - PRs: #2462 (frieren, treatment s0-1), #2463 (nezuko, treatment s2-3), #2464 (tanjiro, baseline s0-1), #2465 (thorfinn, baseline s2-3)
-  - W&B group: `h-f025-normal-track-confirm`
-  - Fixed steps: 2825, 2850, 2875, 2890.
-  - Decision rules (from Issue #2460): treatment n=4 mean at 2850 ≤3.277700 (beats #2429), ≤3.278000 (track3-valid), >3.278000 (fails official).
+  - **VERDICT: f=0.25 does NOT preserve #2429 official Track 3 result.**
+  - Treatment n=4 mean @ step 2850 = **3.278725** (> 3.278000 fail threshold; margin +0.002549 fails ≥0.004).
+  - Baseline n=4 mean @ step 2850 = **3.277903** (margin +0.004195 — meets, reproduces historical #2429 3.277700 within +0.000203).
+  - Paired Δ (T−B) very stable across 4 fixed steps (+0.000820 → +0.000838); 3 of 4 seeds favor baseline; seed 2 dominates the difference (+0.00322).
+  - All 4 PRs closed (#2462/#2463/#2464/#2465). Unified result on Issue #2460 (comment 4699133331).
+  - **Implication**: the cross-budget f=0.25 generalization (T=1500, T=4500 from #2447) is budget-conditional, NOT a normal-track optimum. #2429's pulse step 820 (f=0.284) is co-tuned to the rest of the stack.
+
+## TRACK A: PR321 dynamic aux-beta2 compositional probe (Issue #2461) — IN FLIGHT
+
+  - 4 students (alphonse/askeladd/edward/fern), W&B group `pr321-dynamic-auxb2-n4-v1`. STOP_STEP=2775.
+  - **Static arm n=4 COMPLETE** (16:40 UTC view): mean @ step 2775 = 3.277146, margin +0.005708 (official-valid).
+  - **f=0.25 arm in progress**: step 2125-2700 of 2900 across 4 pods. First finishers (fern, askeladd) ~16:55-17:10 UTC; last (alphonse) ~17:30 UTC.
+  - **f=0.284 arm**: not yet started (orchestrators run sequentially: static → f=0.25 → f=0.284).
+  - All 12 runs (3 arms × 4 seeds) terminal ~19:30-20:00 UTC.
+  - Decision rules (per #2461 PR body): escalate if (a) treatment beats matched static baseline by ~0.0003 at 2745/2750, (b) treatment produces official-valid earlier fixed step, or (c) treatment improves most of mean curve consistently.
+
+## CURRENT POSTURE — 4 students idle
+
+- Idle: frieren, nezuko, tanjiro, thorfinn (Track B is done; PRs closed).
+- Busy: alphonse, askeladd, edward, fern (Track A in flight).
+- Awaiting Issue #2460 human follow-up + Track A completion. No new directive in flight yet.
+- Per launch reminder ("push official fixed-step score below 2900" via composing #1532/#1614 with public PR #305/#300 lineages), the natural next move is compositional probes. The hard scope limit from #2447 applied to that specific protocol and is superseded by completion of #2460/#2461. Will compose 4 distinct hypotheses for the idle students once Track A results are partly in or human direction lands, whichever comes first.
+
+## Candidate next directions for idle 4
+
+1. **#1532/#1614 ingredient ablation on #2429**: which of Senpai's audited ingredients (RI/ri-gamma/muon-mu-warmup) is the single biggest contributor? Singleton ablation to identify the dominant ingredient.
+2. **PR #305 stack as base + Senpai aux-beta2 pulse**: take public KJ #305 (2925, n=8, 3.27813) and layer in the #2429 aux-beta2 pulse mechanism. Cross-lineage composition test.
+3. **PR321 stack + Senpai mu-warmup-500**: take ypwang61 PR #321 SOAP-f1 + aux-beta2 stack (Track A current best per static arm) and add Muon mu warmup 500 from #2429 (orthogonal ingredient).
+4. **Aux-β₂ pulse magnitude grid on #2429**: hold pulse step 820 fixed; vary β₂_target ∈ {0.993, 0.995 (current), 0.997, 0.999}. Tests whether the magnitude is optimal at 0.995.
 
 ## Historical pivot
 - **HUMAN PICKED OPTION B (BROADER SOTA ARC)** at 12:03 UTC via 4 new PRs (#2456-#2459). Separate human directives in Issues #2460 and #2461 made the scope explicit.
