@@ -1,7 +1,11 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-12 21:05 UTC
-- **CORRECTED T=4500 PROTOCOL IN FLIGHT (human ops, 21:00 UTC).** Group `beta2-generalization-t4500-fixed-v1`. 12 runs (4 seeds × 3 arms) with `--final_schedule_steps 4590` patch (option A from my original A/B/C ask). Pulse steps: f=0.25=1125, f=0.284=1278. Dense val + RI probe at every 5 steps in [4400, 4500]. 8 active (step 1400-1425 at 21:00 UTC) + 4 queued. Wave 1 expected completion ~22:55 UTC; wave 2 ~01:30 UTC. **Advisor ack posted 21:05 UTC.**
+- **As of:** 2026-06-13 05:00 UTC
+- **CORRECTED T=4500 PROTOCOL COMPLETE.** Group `beta2-generalization-t4500-fixed-v1`, all 12 runs finished (final run `sy1b3d0m` thorfinn/f=0.284-seed3 landed ~04:54 UTC). Unified advisor synthesis posted to Issue #2447 at 04:58 UTC (comment 4697558110) covering both T=1500 dense and corrected T=4500.
+- **β₂-PULSE GENERALIZATION RESULT (FINAL):**
+  - **f=0.25 (narrow pulse): GENERALIZES to both T=1500 and T=4500.** T=1500 dense: pooled 1-bin step gain, n=4 Δval=−0.0039; T=4500: paired 3/4 seeds (gains 10/40/45), pooled val 4-bin gain at step 4480, pooled RI 7-bin gain at step 4465, n=4 Δval=−0.0016.
+  - **f=0.284 (wider pulse): DOES NOT GENERALIZE.** T=1500: paired 0/4, pooled never crosses, n=4 Δval=+0.0012 (positive); T=4500: paired 2/4 seeds, pooled val never crosses, n=4 Δval=−0.0002 (null). Original protocol f=0.284 win was a `final_schedule_steps=2980` frozen-tail artifact.
+- **HOLDING POSTURE PER SCOPE FREEZE.** Per human 10:29/16:59 UTC ("no follow-up tuning or mechanism work without explicit human approval"), all 8 student slots remain idle awaiting human's next-phase pick: A=write-up, B=resume broader SOTA arc, C=mechanism follow-up. Strong advisor preference: A or B.
 - **DENSE T=1500 RERUN COMPLETE (12 finished runs, group `beta2-generalization-dense-v1`).** Per-seed paired n=4 same-step Δ and RI-probe Δ computed. Key finding:
   - **f=0.25 REPLICATES original protocol direction**: same-step Δ = **−0.003890** (vs original −0.003020); RI-probe Δ = **−0.004770**. All 4 seeds negative on both metrics.
   - **f=0.284 FAILS TO REPLICATE original protocol direction**: same-step Δ = **+0.001162** (vs original −0.004816); RI-probe Δ = **+0.001787**. 2 of 4 seeds POSITIVE (worse than control) on both metrics.
