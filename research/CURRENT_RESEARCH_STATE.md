@@ -1,11 +1,18 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-13 05:00 UTC
+- **As of:** 2026-06-13 12:06 UTC
+- **HUMAN IMPLICITLY PICKED OPTION B (BROADER SOTA ARC) AT 12:03 UTC** by creating 4 new PRs assigning a focused compositional probe: **PR321 dynamic aux-beta2** — test whether Senpai β₂-pulse mechanism (β₂_start=0.95→target at pulse step) improves ypwang61 public PR #321 SOAP-f1 + aux-beta2 stack at the T=2900 horizon.
+  - PR #2456 alphonse seed1, #2457 askeladd seed2, #2458 edward seed3, #2459 fern seed4
+  - W&B group: `pr321-dynamic-auxb2-n4-v1`
+  - Each student runs 3 arms: static control, f=0.25 (pulse step 725), f=0.284 (pulse step 824). STOP_STEP=2775.
+  - Per-seed terminal SENPAI-RESULT must report fixed steps 2725,2730,2735,2740,2745,2750,2755,2760,2775 + per-arm val/loss + Δ
+  - PR321 aux Adam groups: gains 0.99 (static), other aux 0.997, attn.proj.bias 0.9965. Dynamic surge: other_aux and attn.proj.bias start at 0.95, jump to target at pulse step.
+- **Decision rules from PR body** (advisor-side n=4 aggregate): escalate if (a) treatment beats matched static baseline by ~0.0003 at 2745/2750, (b) treatment produces official-valid earlier fixed step under (3.28-mean)*sqrt(n)≥0.004, or (c) treatment improves most of mean curve consistently.
 - **CORRECTED T=4500 PROTOCOL COMPLETE.** Group `beta2-generalization-t4500-fixed-v1`, all 12 runs finished (final run `sy1b3d0m` thorfinn/f=0.284-seed3 landed ~04:54 UTC). Unified advisor synthesis posted to Issue #2447 at 04:58 UTC (comment 4697558110) covering both T=1500 dense and corrected T=4500.
 - **β₂-PULSE GENERALIZATION RESULT (FINAL):**
   - **f=0.25 (narrow pulse): GENERALIZES to both T=1500 and T=4500.** T=1500 dense: pooled 1-bin step gain, n=4 Δval=−0.0039; T=4500: paired 3/4 seeds (gains 10/40/45), pooled val 4-bin gain at step 4480, pooled RI 7-bin gain at step 4465, n=4 Δval=−0.0016.
   - **f=0.284 (wider pulse): DOES NOT GENERALIZE.** T=1500: paired 0/4, pooled never crosses, n=4 Δval=+0.0012 (positive); T=4500: paired 2/4 seeds, pooled val never crosses, n=4 Δval=−0.0002 (null). Original protocol f=0.284 win was a `final_schedule_steps=2980` frozen-tail artifact.
-- **HOLDING POSTURE PER SCOPE FREEZE.** Per human 10:29/16:59 UTC ("no follow-up tuning or mechanism work without explicit human approval"), all 8 student slots remain idle awaiting human's next-phase pick: A=write-up, B=resume broader SOTA arc, C=mechanism follow-up. Strong advisor preference: A or B.
+- **CURRENT POSTURE.** 4 students assigned to PR321 protocol (alphonse, askeladd, edward, fern). 4 students still idle (frieren, nezuko, tanjiro, thorfinn) — no new assignment from human yet. Per the hard scope limit, holding the idle 4 until human picks a parallel target. Will compute n=4 paired Δ once all 12 PR321 runs complete.
 - **DENSE T=1500 RERUN COMPLETE (12 finished runs, group `beta2-generalization-dense-v1`).** Per-seed paired n=4 same-step Δ and RI-probe Δ computed. Key finding:
   - **f=0.25 REPLICATES original protocol direction**: same-step Δ = **−0.003890** (vs original −0.003020); RI-probe Δ = **−0.004770**. All 4 seeds negative on both metrics.
   - **f=0.284 FAILS TO REPLICATE original protocol direction**: same-step Δ = **+0.001162** (vs original −0.004816); RI-probe Δ = **+0.001787**. 2 of 4 seeds POSITIVE (worse than control) on both metrics.
