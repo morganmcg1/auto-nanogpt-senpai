@@ -21,19 +21,27 @@
   - All 12 runs (3 arms × 4 seeds) terminal ~19:30-20:00 UTC.
   - Decision rules (per #2461 PR body): escalate if (a) treatment beats matched static baseline by ~0.0003 at 2745/2750, (b) treatment produces official-valid earlier fixed step, or (c) treatment improves most of mean curve consistently.
 
-## CURRENT POSTURE — 4 students idle
+## CURRENT POSTURE — all 8 students assigned
 
-- Idle: frieren, nezuko, tanjiro, thorfinn (Track B is done; PRs closed).
-- Busy: alphonse, askeladd, edward, fern (Track A in flight).
-- Awaiting Issue #2460 human follow-up + Track A completion. No new directive in flight yet.
-- Per launch reminder ("push official fixed-step score below 2900" via composing #1532/#1614 with public PR #305/#300 lineages), the natural next move is compositional probes. The hard scope limit from #2447 applied to that specific protocol and is superseded by completion of #2460/#2461. Will compose 4 distinct hypotheses for the idle students once Track A results are partly in or human direction lands, whichever comes first.
+### Track A (Issue #2461, alphonse/askeladd/edward/fern) — f=0.284 arm running
+- **f=0.25 arm n=4 COMPLETE — FAILS (mean 3.284738 at step 2775, Δ +0.007592 vs static!)** The dynamic surge at f=0.25 (pulse step 725) makes PR #321 significantly WORSE than the static base. Consistent with Track B finding.
+- **f=0.284 arm just starting** (steps 0-375 of 2775). ETA ~19:30 UTC.
+- Static n=4 mean 3.277146 (margin 0.005708, official-valid) is the Track A reference.
 
-## Candidate next directions for idle 4
+### New assignments (PRs #2466-#2469) — frieren/nezuko/tanjiro/thorfinn
+All 4 newly-idle students assigned. Compositional/schedule probes orthogonal to aux-β₂ pulse (exhausted):
 
-1. **#1532/#1614 ingredient ablation on #2429**: which of Senpai's audited ingredients (RI/ri-gamma/muon-mu-warmup) is the single biggest contributor? Singleton ablation to identify the dominant ingredient.
-2. **PR #305 stack as base + Senpai aux-beta2 pulse**: take public KJ #305 (2925, n=8, 3.27813) and layer in the #2429 aux-beta2 pulse mechanism. Cross-lineage composition test.
-3. **PR321 stack + Senpai mu-warmup-500**: take ypwang61 PR #321 SOAP-f1 + aux-beta2 stack (Track A current best per static arm) and add Muon mu warmup 500 from #2429 (orthogonal ingredient).
-4. **Aux-β₂ pulse magnitude grid on #2429**: hold pulse step 820 fixed; vary β₂_target ∈ {0.993, 0.995 (current), 0.997, 0.999}. Tests whether the magnitude is optimal at 0.995.
+| PR | Student | Hypothesis | Key change vs #2429 |
+|---|---|---|---|
+| #2466 | frieren | **H-GR: mu_warmup 500→750** | Extend Muon μ-ramp plateau (schedule) |
+| #2467 | nezuko | **H-HL: RI capture step 2375→2500** | Later RI snapshot (readout/schedule) |
+| #2468 | tanjiro | **H-HM: PR #321 + mu_warmup=500** | Cross-lineage composition (#321 × #2429) |
+| #2469 | thorfinn | **H-HN: SOAP precond freq 10→{5,20}** | Preconditioner refresh rate screening |
+
+**Frieren/nezuko run n=2 (seeds 0+1) for initial screening at fixed steps 2825/2850/2875/2890.** Advisor will combine to n=4 if direction is positive.
+
+### Duplicate alert (open2-edward, Track A)
+A spurious `pr321-static-seed3` W&B run appeared at step N/A. Advisor posted alert on PR #2458 at 16:52 UTC. Likely the student's re-invoked agent re-launching the first arm — should be killed before it starts training.
 
 ## Historical pivot
 - **HUMAN PICKED OPTION B (BROADER SOTA ARC)** at 12:03 UTC via 4 new PRs (#2456-#2459). Separate human directives in Issues #2460 and #2461 made the scope explicit.
