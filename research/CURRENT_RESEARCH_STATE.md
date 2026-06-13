@@ -1,8 +1,8 @@
 # SENPAI Research State — Auto-nanoGPT Open SOTA v2
 
-- **As of:** 2026-06-13 19:00 UTC
+- **As of:** 2026-06-13 19:05 UTC
 - **Rank-1 SOTA:** PR #2429 (H-FN), step 2850, n=4 mean **3.277700**, margin **0.004600** (mu_warmup=500).
-- **Auxiliary reference:** PR #321 static stack, step 2775, n=4 mean **3.277146**, margin **0.005708** (Track A static arm; not merged — same lineage requires further composition).
+- **Auxiliary reference (NEW)**: PR #321 static stack, step 2775, n=4 mean **3.277146**, margin **0.005708** (Track A static arm audited 19:00 UTC; not merged — earlier crossing step but no margin improvement vs #2429).
 
 ## Latest human direction
 
@@ -17,11 +17,13 @@
 - 4 PRs closed (#2462-#2465). Verdict posted Issue #2460 comment 4699133331.
 - **Implication:** Cross-budget f=0.25 generalization (T=1500, T=4500) is budget-conditional, NOT a normal-track optimum. #2429's pulse step 820 (f=0.284) is co-tuned to the rest of the stack.
 
-### Track A (Issue #2461): PR #321 dynamic aux-β₂ surge — **f=0.25 arm CLOSED (FAILS); f=0.284 arm n=4 verdict imminent**
-- Static n=4 @ step 2775 = **3.277146** (margin 0.005708).
-- f=0.25 dynamic n=4 @ step 2775 = **3.284738** (Δ +0.007592 vs static — major regression).
-- f=0.284 dynamic: askeladd (seed 2) and fern (seed 4) terminal at +0.0067-0.0078 vs static (consistent with f=0.25 direction). alphonse (seed 1) and edward (seed 3) at 98-99% as of 18:55 UTC, terminal in <5 min.
-- Verdict will close PRs #2456-#2459.
+### Track A (Issue #2461): PR #321 dynamic aux-β₂ surge — **COMPLETE & CLOSED (BOTH ARMS FAIL)**
+- Static n=4 @ step 2775 = **3.277146** (margin +0.005708, OFFICIAL-VALID — reproduces PR #321 baseline).
+- f=0.25 (pulse 725) n=4 @ step 2775 = **3.284738** (Δ +0.00759 vs static, margin −0.00948, FAILS).
+- f=0.284 (pulse 824) n=4 @ step 2775 = **3.284237** (Δ +0.00709 vs static, margin −0.00848, FAILS).
+- All 8 paired (treatment − static) comparisons positive across 4 seeds × 2 arms.
+- 4 PRs closed (#2456 alphonse, #2457 askeladd, #2458 edward, #2459 fern). Unified verdict: Issue #2461 comment 4699480105.
+- **Cross-lineage implication:** dynamic aux-β₂ surge axis CLOSED across BOTH #2429 (Track B) and PR #321 (Track A) lineages.
 
 ## Current posture — 4 students in flight, 4 students returning to idle
 
@@ -33,9 +35,9 @@
 | #2468 | tanjiro | **H-HM**: PR #321 + mu_warmup=500 | Cross-lineage composition | ~21:00 UTC |
 | #2469 | thorfinn | **H-HN**: SOAP precond freq 10→{5,20} | Preconditioner refresh rate (2 arms × seeds 0,1) | ~22:00 UTC |
 
-### Returning to idle (after Track A f=0.284 closes)
-- askeladd, fern (terminal), alphonse, edward (terminal in ~5 min).
-- Need 4 fresh hypotheses orthogonal to in-flight. Researcher-agent dispatched at 18:55 UTC; output → `/research/RESEARCH_IDEAS_2026-06-13_19:00.md` (H-HO/H-HP/H-HQ/H-HR).
+### Idle now — 4 students awaiting fresh hypothesis assignments
+- **askeladd, fern, alphonse, edward** all idle (Track A closed 19:00 UTC).
+- Researcher-agent dispatched at 18:55 UTC for 4 orthogonal hypotheses H-HO/HP/HQ/HR. Output target: `/research/RESEARCH_IDEAS_2026-06-13_19:00.md`. ETA ~19:15-19:30 UTC. Once received, assign immediately via senpai:assign-experiment.
 
 ## Validated rank-1 ingredients (current baseline composition, MERGED)
 
