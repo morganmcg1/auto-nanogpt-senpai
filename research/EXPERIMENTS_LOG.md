@@ -1,5 +1,51 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-13 19:00 — Track A PR321 dynamic aux-β₂ (Issue #2461) — TERMINAL n=4 × 3-arm VERDICT
+
+Track A protocol complete. Group `pr321-dynamic-auxb2-n4-v1`. STOP_STEP=2775. All 12 runs (4 seeds × 3 arms) on PR #321 SOAP-f1 base.
+
+### n=4 means at fixed steps (val/loss)
+
+| step | static | f=0.25 (pulse 725) | f=0.284 (pulse 824) | Δf025 | Δf0284 |
+|---:|---:|---:|---:|---:|---:|
+| 2725 | 3.28125 | 3.28886 | 3.28835 | +0.00761 | +0.00710 |
+| 2750 | 3.27908 | 3.28665 | 3.28617 | +0.00756 | +0.00709 |
+| **2775** | **3.27715** | **3.28474** | **3.28424** | **+0.00759** | **+0.00709** |
+
+### Per-seed paired Δ at step 2775
+
+| seed | static | f=0.25 | Δf025 | f=0.284 | Δf0284 |
+|---:|---:|---:|---:|---:|---:|
+| 1 (alphonse) | 3.27706 | 3.28334 | +0.00628 | 3.28410 | +0.00704 |
+| 2 (askeladd) | 3.27697 | 3.28628 | +0.00931 | 3.28363 | +0.00666 |
+| 3 (edward)   | 3.27595 | 3.28269 | +0.00674 | 3.28278 | +0.00682 |
+| 4 (fern)     | 3.27860 | 3.28665 | +0.00804 | 3.28644 | +0.00784 |
+
+### Track 3 validity check at step 2775
+- static n=4 mean 3.277146, **margin +0.005708 (OFFICIAL-VALID)** — reproduces PR #321 baseline.
+- f=0.25 n=4 mean 3.284738, margin −0.009477 (FAILS).
+- f=0.284 n=4 mean 3.284237, margin −0.008475 (FAILS).
+
+### Decision per Issue #2461 rules
+
+Decision rules: escalate if (a) treatment beats matched static by ~0.0003 at 2745/2750, (b) treatment produces official-valid earlier fixed step, (c) treatment improves most of mean curve consistently.
+- (a) **FAILS catastrophically**: both treatments +0.0070-+0.0076 WORSE than static at 2750.
+- (b) **FAILS**: neither treatment official-valid.
+- (c) **FAILS**: 8/8 paired comparisons positive (worse than static).
+
+**Verdict: BOTH dynamic surges FAIL on PR #321 SOAP-f1 stack.** The pulse from `(0.95, 0.95)` → `(0.997, 0.9965)` for other-aux and attn.proj.bias param groups at either step 725 or step 824 creates an aux-Adam EMA snap that the trajectory does not recover from within 2775 steps. f=0.284 marginally less bad (later pulse → less wrong-EMA time) but both decisively worse.
+
+**Cross-lineage implication:** Dynamic aux-β₂ surge axis is now CLOSED across BOTH lineages — Track B (#2460) closed it on the #2429 stack, Track A (#2461) closes it on the PR #321 stack.
+
+**Static PR #321 audited:** mean 3.277146 @ 2775, margin 0.005708. Earlier crossing step than #2429 (3.277700 @ 2850) but no improvement on margin. Cross-lineage composition with #2429's mu_warmup=500 is in flight as PR #2468 (H-HM tanjiro).
+
+PRs closed: #2456 (alphonse), #2457 (askeladd), #2458 (edward), #2459 (fern). Unified verdict comment: Issue #2461 comment 4699480105.
+
+### W&B run ids for archive
+- static: alphonse `c2rfugwe`, askeladd `tehla1j8`, edward `oruxgk43`, fern `v43vdn2r`.
+- f=0.25 (pulse 725): alphonse `btsjuw1g`, askeladd `lykpe2dt`, edward `8n3nmy24`, fern `38pkk2uf`.
+- f=0.284 (pulse 824): alphonse `5ftdrshg`, askeladd `5gw0j1kq`, edward `y62mxkja`, fern `ekvf02be`.
+
 ## 2026-06-13 16:40 — H-F025-confirm (Issue #2460) — TERMINAL n=4 PAIRED RESULT
 
 Track B protocol complete. Group `h-f025-normal-track-confirm`. All 4 pods posted terminal `SENPAI-RESULT` markers. Manual n=4 advisor-side aggregation from per-trial values at all 4 fixed steps.
