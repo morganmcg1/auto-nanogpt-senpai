@@ -1,5 +1,67 @@
 # SENPAI Research Results — Auto-nanoGPT Open SOTA v2 Launch
 
+## 2026-06-13 14:30 — PR321 dynamic aux-beta2 (Issue #2461) — STATIC ARM n=4 COMPLETE
+
+Track A protocol, group `pr321-dynamic-auxb2-n4-v1`. Compositional probe: does Senpai's dynamic aux-beta2 surge improve ypwang61's public PR #321 SOAP-f1 + aux-beta2 stack at the T=2900 horizon?
+
+### Static arm (PR321 baseline reproduction, n=4)
+
+Each of 4 students ran 1 seed of 3 arms. Static arm finished cleanly for all 4 seeds:
+
+| Seed | Student | W&B run | val/loss @ 2775 |
+|---:|---|---|---:|
+| 1 | alphonse | `c2rfugwe` | 3.277058 |
+| 2 | askeladd | `tehla1j8` | 3.276969 |
+| 3 | edward | `oruxgk43` | 3.275952 |
+| 4 | fern | `v43vdn2r` | 3.278604 |
+| **n=4 mean** | — | — | **3.277146** |
+
+### Track 3 official validity (n=4 static at fixed steps)
+
+| step | n=4 mean | margin = (3.28−μ)·√4 | official-valid? |
+|---:|---:|---:|:---:|
+| 2725 | 3.281254 | −0.002508 | ❌ |
+| 2750 | 3.279085 | 0.001831 | ❌ |
+| 2760 | 3.278269 | 0.003462 | ❌ |
+| 2775 | **3.277146** | **0.005708** | **✅** |
+
+### Comparison to current SOTA records (different n, different step)
+- **PR321 H100 reference** (issue #2461): 2750 mean 3.278856, margin 0.00511, official-valid.
+- **Senpai #1532/#1614**: 2905, n=32, mean 3.279022, margin 0.005531.
+- **KellerJordan #305**: 2925, n=8, mean 3.27813, margin 0.005269.
+- **KellerJordan #300**: 2930, n=16, mean 3.27844, margin 0.005124.
+
+PR321 static reproduces directionally with our n=4 hitting Track-3-valid at step 2775 (150 steps earlier than KJ #305). NOT a novel result — confirms PR321 stack reproduces on our hardware.
+
+### Dynamic arms in progress
+- f=0.25 (pulse step 725): 4 runs started 14:22-14:32 UTC, all at step 125-250 of 2775. ETA ~16:30 UTC.
+- f=0.284 (pulse step 824): not yet started; pending after f=0.25.
+- Decision rules (per #2461 PR body): escalate dynamic arms if (a) Δ vs static ≤ −0.0003 at 2745/2750, (b) earlier official-valid fixed step, or (c) consistently better mean curve.
+
+## 2026-06-13 14:30 — H-F025-confirm (Issue #2460) — TRIAL 0 n=2 PARTIAL
+
+Track B protocol, group `h-f025-normal-track-confirm`. Confirm whether changing only `--aux_b2_pulse_step 820 → 722` (f=0.284 → f=0.25 timing) on the #2429 official stack preserves or improves the 2850-step result.
+
+### Trial 0 paired comparison (seeds 0 and 2)
+
+| Step | Treatment (f=0.25, step 722) | Baseline (f=0.284, step 820) | Δ (T − B) |
+|---:|---:|---:|---:|
+| 2825 | 3.281346 (frieren 3.280527, nezuko 3.282165) | 3.280460 (tanjiro 3.281991, thorfinn 3.278929) | **+0.000886** |
+| 2850 | 3.279580 (3.278749, 3.280411) | 3.278665 (3.280137, 3.277193) | **+0.000915** |
+| 2875 | 3.278177 (3.277294, 3.279060) | 3.277251 (3.278735, 3.275766) | **+0.000926** |
+| 2890 | 3.277140 (3.276255, 3.278025) | 3.276187 (3.277679, 3.274694) | **+0.000953** |
+
+### Early read (n=2, NOT TERMINAL)
+- **Treatment n=2 mean at step 2850 = 3.279580** — fails the >3.278000 threshold (per #2460 decision rule, f=0.25 does NOT preserve #2429 result at this n).
+- Direction: treatment is consistently +0.001 WORSE than baseline at all 4 reported steps.
+- Per-seed signal is mixed: seed 0 treatment beats seed 0 baseline (−0.001388); seed 2 treatment LOSES to seed 2 baseline (+0.003218). Net direction is treatment worse.
+- Trial 1 (seeds 1, 3) in progress on all 4 pods. Final n=4 expected ~16:00 UTC.
+
+### Note on GPU race incidents
+- nezuko (#2463): student caught 2 concurrent torchrun processes, killed the duplicate at 13:27 UTC. Recovered.
+- thorfinn (#2465): advisor alerted student to potential duplicate `izfyf0jz` run. Student confirmed it was killed at 14:20:51 UTC by cleanup pass. Only one torchrun active. Trial 0 finished cleanly (val_loss=3.27469 at step 2890, first_step_to_target=2825). Trial 1 (seed 3) now running.
+- frieren (#2462): `sw746uv9` was a duplicate that crashed within 39s; main run `43ktkm9v` healthy through trial 0 into trial 1.
+
 ## 2026-06-12 14:00 — β₂-pulse generalization protocol (#2447) results in flight
 
 ### PR #2453 — open2-nezuko — T=4500 seed 2 — **HALTED: critical schedule bug**
