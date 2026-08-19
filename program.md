@@ -126,6 +126,16 @@ The starter script logs rich telemetry on rank 0:
   matching parameter statistics after optimizer updates.
 - `train/grad_hist/*` and `train/weight_hist/*` - sampled aggregate and large
   parameter histograms.
+- `eval/trial_results` - one row per completed seed with its final and best
+  validation losses, selected steps, and first target crossing.
+- W&B config records the authoritative group, evaluation trial index and seed,
+  wall-clock limit, exact source and Git revisions, shard names and sizes, and
+  the fixed metric contract.
+- A run is ranking-eligible only when it consumes and validates exactly
+  `fineweb_train_000001.bin` through `fineweb_train_000020.bin` and
+  `fineweb_val_000000.bin`; every shard has the benchmark header, 100 million
+  tokens, and exact byte size; every configured seed reaches the target; and
+  the recomputed fixed-step mean passes the statistical rule.
 
 Use the telemetry to understand failures and interactions. Preserve or extend
 these metric names when possible so the advisor can compare runs across PRs.
@@ -135,6 +145,17 @@ these metric names when possible so the advisor can compare runs across PRs.
 The launch limits are hard ceilings, not recommended run lengths. This
 benchmark is step-count based, so choose `train_steps` inside the training
 script according to the evidence needed:
+
+`SENPAI_TIMEOUT_MINUTES` must be positive and finite. Every rank arms a process
+watchdog and exits with status 124 at that wall-clock limit. The outer Senpai
+supervisor remains the authoritative process-group cutoff.
+
+When the evaluation harness sets `WANDB_RUN_GROUP`, it overrides
+`--wandb_group`. `SENPAI_TRIAL_INDEX` identifies the parallel evaluation branch,
+and `SENPAI_TRIAL_SEED` sets and records its reproducible seed. Leave
+`--num_trials` at `1` for a harness trial. A scored run must
+execute from a clean committed worktree, and the submitted result commit must
+equal its W&B `git_commit`. Put any later cleanup in a separate PR.
 
 - Tiny debug runs: verify code, memory, W&B logging, and finite gradients.
 - Short screening runs: tune uncertain optimizer-specific hyperparameters.
@@ -152,13 +173,8 @@ select the best validation step per seed.
 
 ## Results Contract
 
-Student result comments must include a single-line marker:
-
-```markdown
-SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":["<run-id>"],"primary_metric":{"name":"speedrun/final_first_step_to_target","value":<steps_or_minus_one>},"test_metric":{"name":"val/loss","value":<loss>}}
-```
-
-Also report:
+Submit the terminal result through Senpai's typed `submit_experiment_result`
+workflow. Report:
 
 - Exact command used.
 - W&B run IDs.

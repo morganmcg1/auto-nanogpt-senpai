@@ -10,9 +10,28 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import hashlib
+import subprocess
 import uuid
 import time
 from pathlib import Path
+
+from eval_runtime import (
+    EXPECTED_TRAIN_SHARDS,
+    EXPECTED_VAL_SHARDS,
+    FINEWEB_SHARD_BYTES,
+    FINEWEB_SHARD_TOKENS,
+    apply_torch_seed,
+    arm_hard_timeout,
+    has_exact_fineweb_shards,
+    resolve_trial_seed,
+    resolve_wandb_group,
+    summarize_trials,
+    timeout_minutes_from_env,
+)
+
+timeout_minutes = timeout_minutes_from_env()
+hard_timeout = arm_hard_timeout(timeout_minutes)
 
 import torch
 from torch import Tensor, nn
@@ -36,12 +55,19 @@ def parse_args():
     parser.add_argument("--wandb_entity", default=os.environ.get("WANDB_ENTITY", ""))
     parser.add_argument("--wandb_tags", default=os.environ.get("WANDB_TAGS", ""))
     parser.add_argument("--wandb_mode", default=os.environ.get("WANDB_MODE", "online"))
+    parser.add_argument("--seed", type=int, default=int(os.environ.get("SENPAI_TRIAL_SEED", "1337")))
     parser.add_argument("--telemetry_interval", type=int, default=int(os.environ.get("NANOGPT_TELEMETRY_INTERVAL", "25")))
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
+    if args.num_trials < 1:
+        raise ValueError("--num_trials must be positive")
+    args.seed = resolve_trial_seed(args.seed)
+    args.wandb_group = resolve_wandb_group(args.wandb_group)
+    args.wandb_entity = os.environ.get("WANDB_ENTITY") or args.wandb_entity
+    args.wandb_project = os.environ.get("WANDB_PROJECT") or args.wandb_project
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
@@ -49,6 +75,43 @@ def parse_args():
 
 
 args = parse_args()
+apply_torch_seed(torch, args.seed)
+
+
+def git_metadata() -> dict[str, str | bool | None]:
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL, text=True
+        ).strip()
+        branch = subprocess.check_output(
+            ["git", "branch", "--show-current"], stderr=subprocess.DEVNULL, text=True
+        ).strip()
+        dirty = bool(subprocess.check_output(
+            ["git", "status", "--porcelain"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip())
+        return {"git_commit": commit, "git_branch": branch, "git_dirty": dirty}
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return {"git_commit": "unknown", "git_branch": "unknown", "git_dirty": None}
+
+
+def optimizer_group_config(optimizers: list[torch.optim.Optimizer]) -> list[dict]:
+    """Return the effective optimizer settings that determine each update."""
+    groups = []
+    for optimizer in optimizers:
+        for index, group in enumerate(optimizer.param_groups):
+            config = {
+                "optimizer": type(optimizer).__name__,
+                "group": group.get("name", f"group_{index}"),
+                "parameters": sum(parameter.numel() for parameter in group["params"]),
+            }
+            for key in ("initial_lr", "lr", "betas", "eps", "weight_decay", "mu"):
+                if key in group:
+                    value = group[key]
+                    config[key] = list(value) if isinstance(value, tuple) else value
+            groups.append(config)
+    return groups
 
 
 def clean_metric_name(name: str) -> str:
@@ -307,8 +370,8 @@ def _load_data_shard(file: Path):
         assert nbytes == 2 * num_tokens, "number of tokens read does not match header"
     return tokens
 
-def distributed_data_generator(filename_pattern: str, batch_size: int, seq_len=1024):
-    files = sorted(Path.cwd().glob(filename_pattern))
+def distributed_data_generator(files: list[Path], batch_size: int, seq_len=1024):
+    files = sorted(files)
     assert batch_size % dist.get_world_size() == 0
     local_batch_size = batch_size // dist.get_world_size()
     file_iter = iter(files)
@@ -519,13 +582,26 @@ print0("="*100)
 val_tokens = 20 * 524288
 batch_size = 8 * 64 * 1024
 mbs = 64
-val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
+train_steps = 3350
+cooldown_frac = 0.7
+data_root = Path.cwd() / "data" / "fineweb10B"
+train_shards = [data_root / name for name in EXPECTED_TRAIN_SHARDS]
+val_shards = [data_root / name for name in EXPECTED_VAL_SHARDS]
+if not has_exact_fineweb_shards(train_shards, val_shards):
+    raise RuntimeError(
+        "FineWeb shard manifest does not match the benchmark contract; "
+        "run `python data/cached_fineweb10B.py 20` to materialize the required files"
+    )
+val_inputs, val_targets = next(distributed_data_generator(val_shards, val_tokens))
 
-model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+model_config = {"vocab_size": 50304, "num_layers": 12, "model_dim": 768}
+model = GPT(**model_config).cuda()
 model.compile(dynamic=False)
+n_params = sum(parameter.numel() for parameter in model.parameters())
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
+    wandb_group = args.wandb_group or os.environ.get("RESEARCH_TAG") or None
     tags = ["track-3-optimization", "senpai"] + args.wandb_tags
     if os.environ.get("RESEARCH_TAG"):
         tags.append(os.environ["RESEARCH_TAG"])
@@ -535,18 +611,54 @@ if dist.get_rank() == 0:
         entity=args.wandb_entity or None,
         project=args.wandb_project,
         name=args.wandb_name or None,
-        group=args.wandb_group or os.environ.get("RESEARCH_TAG") or None,
+        group=wandb_group,
         tags=tags,
         mode=args.wandb_mode,
         config={
             "benchmark": "modded-nanogpt-track-3-optimization",
+            "run_kind": "full-training",
             "target_val_loss": TARGET_VAL_LOSS,
             "stat_sig_delta": STAT_SIG_DELTA,
             "num_trials": args.num_trials,
+            "train_steps": train_steps,
+            "seed": args.seed,
+            "senpai_trial_index": int(os.environ.get("SENPAI_TRIAL_INDEX", "0")),
+            "senpai_trial_seed": int(os.environ.get("SENPAI_TRIAL_SEED", str(args.seed))),
+            "senpai_timeout_minutes": timeout_minutes,
+            "wandb_entity": args.wandb_entity or None,
+            "wandb_project": args.wandb_project,
+            "wandb_group": wandb_group,
+            "wandb_run_group": wandb_group,
+            "source_sha256": hashlib.sha256(code.encode()).hexdigest(),
+            **git_metadata(),
             "world_size": dist.get_world_size(),
+            "model_config": model_config,
+            "n_params": n_params,
             "batch_size_tokens": batch_size,
             "microbatch_sequences": mbs,
+            "train_tokens_per_trial": train_steps * batch_size,
             "val_tokens": val_tokens,
+            "cooldown_fraction": cooldown_frac,
+            "validation_frequency": {"first_90_percent": 125, "last_10_percent": 25},
+            "torch_version": torch.__version__,
+            "cuda_version": torch.version.cuda,
+            "device_name": torch.cuda.get_device_name(device),
+            "train_shards": [{"name": path.name, "bytes": path.stat().st_size} for path in train_shards],
+            "val_shards": [{"name": path.name, "bytes": path.stat().st_size} for path in val_shards],
+            "data_contract": {
+                "train_shards": list(EXPECTED_TRAIN_SHARDS),
+                "val_shards": list(EXPECTED_VAL_SHARDS),
+                "tokens_per_shard": FINEWEB_SHARD_TOKENS,
+                "bytes_per_shard": FINEWEB_SHARD_BYTES,
+                "val_tokens": val_tokens,
+            },
+            "metric_contract": {
+                "primary": "speedrun/final_first_step_to_target",
+                "validation": "val/loss",
+                "direction": "minimize",
+                "target": TARGET_VAL_LOSS,
+                "significance_rule": "(target - mean_loss) * sqrt(num_trials) >= stat_sig_delta",
+            },
             "telemetry_interval": args.telemetry_interval,
             "histogram_interval": args.histogram_interval,
             "histogram_samples": args.histogram_samples,
@@ -555,6 +667,7 @@ if dist.get_rank() == 0:
         },
     )
 
+trial_results: list[dict[str, float | int]] = []
 for trial_idx in range(args.num_trials):
 
 
@@ -563,8 +676,6 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
-
     # initialize model parameters
     for name, p in model.named_parameters():
         w = p.data
@@ -596,9 +707,11 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+    if dist.get_rank() == 0 and trial_idx == 0:
+        wandb.config.update({"optimizer_groups": optimizer_group_config(optimizers)})
 
     # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    def set_hparams(step):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
@@ -614,7 +727,7 @@ for trial_idx in range(args.num_trials):
     #        Training and Validation       #
     ########################################
 
-    train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
+    train_loader = distributed_data_generator(train_shards, batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
     # start the clock
@@ -748,6 +861,14 @@ for trial_idx in range(args.num_trials):
                + f" step_avg:{1000*approx_training_time/(step + 1):.2f}ms", console=True, log=False)
 
     if dist.get_rank() == 0:
+        trial_results.append({
+            "trial": trial_idx,
+            "final_val_loss": val_loss_float,
+            "best_val_loss": best_val_loss,
+            "best_val_step": best_val_step,
+            "first_step_to_target": first_step_to_target,
+            "train_steps": train_steps,
+        })
         print0(
             f"trial:{trial_idx} best_val_loss:{best_val_loss:.5f} best_val_step:{best_val_step}"
             + f" first_step_to_target:{first_step_to_target}",
@@ -762,5 +883,41 @@ for trial_idx in range(args.num_trials):
         }, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
+    final_losses = [result["final_val_loss"] for result in trial_results]
+    trial_summary = summarize_trials(
+        trial_results, args.num_trials, TARGET_VAL_LOSS, STAT_SIG_DELTA
+    )
+    data_contract_satisfied = has_exact_fineweb_shards(train_shards, val_shards)
+    ranking_eligible = (
+        trial_summary["trial_ranking_eligible"]
+        and data_contract_satisfied
+        and val_tokens == 10_485_760
+    )
+    trial_table = wandb.Table(
+        columns=["trial", "train_steps", "final_val_loss", "best_val_loss", "best_val_step", "first_step_to_target"],
+        data=[[
+            result["trial"], result["train_steps"], result["final_val_loss"],
+            result["best_val_loss"], result["best_val_step"], result["first_step_to_target"],
+        ] for result in trial_results],
+    )
+    wandb.log({"eval/trial_results": trial_table})
+    wandb.summary.update({
+        "eval/completed": trial_summary["completed"],
+        "eval/data_contract_satisfied": data_contract_satisfied,
+        "eval/all_trials_reached_target": trial_summary["all_reached_target"],
+        "eval/ranking_eligible": ranking_eligible,
+        "eval/train_shard_count": len(train_shards),
+        "eval/val_shard_count": len(val_shards),
+        "eval/primary_metric_name": "speedrun/final_first_step_to_target",
+        "eval/primary_metric_direction": "minimize",
+        "speedrun/trial_mean_final_val_loss": trial_summary["mean_final_loss"],
+        "speedrun/trial_std_final_val_loss": trial_summary["std_final_loss"],
+        "speedrun/trial_min_final_val_loss": min(final_losses),
+        "speedrun/trial_max_final_val_loss": max(final_losses),
+        "speedrun/statistical_significance_margin": trial_summary["significance_margin"],
+        "speedrun/statistically_valid": trial_summary["statistically_valid"],
+        "runtime/timeout_minutes": timeout_minutes,
+    })
     wandb.finish()
 dist.destroy_process_group()
+hard_timeout.cancel()
